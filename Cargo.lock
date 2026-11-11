@@ -3960,6 +3960,7 @@ dependencies = [
  "ove-agent",
  "ove-control",
  "ove-core",
+ "ove-generate",
  "ove-gpu",
  "ove-graphics",
  "ove-interchange",

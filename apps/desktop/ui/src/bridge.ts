@@ -49,6 +49,8 @@ export function frameUrl(): string {
 // Browser mock
 
 export interface MockControl {
+  /** How long a simulated generation job takes (ms). */
+  generationMs?: number;
   rects: ViewerRect[];
   lastRect: ViewerRect | null;
   calls: string[];
@@ -523,6 +525,100 @@ function createMock(): {
     }
   };
 
+  // Generation mock state.
+  const genKeys = new Set<string>();
+  const genJobs: {
+    id: string;
+    kind: string;
+    model: string;
+    request: unknown;
+    status: string;
+    progress: number;
+    error: null;
+    estimateUsd: number;
+    createdAt: number;
+  }[] = [];
+  const genCatalog = () => ({
+    models: [
+      {
+        id: "fal:flux-dev",
+        provider: "fal",
+        kind: "image",
+        label: "FLUX.1 [dev]",
+        durations: [],
+        maxSeconds: 0,
+        aspects: ["16:9", "9:16", "1:1"],
+        default: true,
+        price: { per: "image", usd: 0.025 },
+      },
+      {
+        id: "fal:kling-2.1",
+        provider: "fal",
+        kind: "video",
+        label: "Kling 2.1",
+        durations: [5, 10],
+        maxSeconds: 10,
+        aspects: ["16:9", "9:16", "1:1"],
+        default: true,
+        price: { per: "second", usd: 0.056 },
+      },
+      {
+        id: "elevenlabs:multilingual-v2",
+        provider: "elevenlabs",
+        kind: "voice",
+        label: "Eleven Multilingual v2",
+        durations: [],
+        maxSeconds: 0,
+        aspects: [],
+        default: true,
+        price: { per: "kiloChar", usd: 0.3 },
+      },
+      {
+        id: "elevenlabs:music",
+        provider: "elevenlabs",
+        kind: "music",
+        label: "Eleven Music",
+        durations: [],
+        maxSeconds: 300,
+        aspects: [],
+        default: true,
+        price: { per: "second", usd: 0.01 },
+      },
+      {
+        id: "elevenlabs:sound-effects",
+        provider: "elevenlabs",
+        kind: "sfx",
+        label: "Sound effects",
+        durations: [],
+        maxSeconds: 30,
+        aspects: [],
+        default: true,
+        price: { per: "second", usd: 0.004 },
+      },
+    ],
+    keys: [
+      ["fal", "fal.ai", "https://fal.ai/dashboard/keys", "FAL_KEY"],
+      [
+        "openai",
+        "OpenAI",
+        "https://platform.openai.com/api-keys",
+        "OPENAI_API_KEY",
+      ],
+      [
+        "elevenlabs",
+        "ElevenLabs",
+        "https://elevenlabs.io/app/settings/api-keys",
+        "ELEVENLABS_API_KEY",
+      ],
+    ].map(([provider, label, keyUrl, envVar]) => ({
+      provider,
+      label,
+      keyUrl,
+      envVar,
+      hasKey: genKeys.has(provider),
+      source: genKeys.has(provider) ? "keychain" : null,
+    })),
+  });
   const control: MockControl = {
     rects: [],
     lastRect: null,
@@ -943,6 +1039,7 @@ function createMock(): {
         decodeCapabilities: "mock",
         viewerBackend: backend,
         logDir: null,
+        libraryDir: "/mock/library",
       }),
     takePendingOpenPaths: () => (
       track("takePendingOpenPaths"),
@@ -1298,6 +1395,128 @@ function createMock(): {
       ok<string | null>(`/mock/exports/${defaultName}.mp4`)
     ),
     revealPath: (path: string) => (track(`revealPath:${path}`), ok(null)),
+    // Generation (change 14): a catalog, keys in memory, jobs that finish after a moment.
+    generationCatalog: () => Promise.resolve(JSON.stringify(genCatalog())),
+    setProviderKey: (provider: string, key: string) => {
+      track(`setProviderKey:${provider}`);
+      if (key.trim().length < 16)
+        return fail("invalid_argument", "That doesn't look like an API key.");
+      genKeys.add(provider);
+      return ok(JSON.stringify(genCatalog()));
+    },
+    clearProviderKey: (provider: string) => {
+      genKeys.delete(provider);
+      return ok(JSON.stringify(genCatalog()));
+    },
+    planGeneration: (kind: string, request: string) => {
+      if (!project) return fail("invalid_argument", "Open a project first.");
+      const r = JSON.parse(request) as {
+        prompt: string;
+        duration?: number | null;
+        start?: number | null;
+      };
+      if (!r.prompt?.trim())
+        return fail("invalid_argument", "the prompt is empty");
+      const audio = kind === "voice" || kind === "music" || kind === "sfx";
+      const seconds =
+        kind === "voice"
+          ? Math.max(1, r.prompt.length / 15)
+          : (r.duration ?? (kind === "video" ? 5 : kind === "music" ? 30 : 5));
+      const est =
+        kind === "image"
+          ? 0.025
+          : kind === "video"
+            ? 0.056 * seconds
+            : kind === "voice"
+              ? (0.3 * r.prompt.length) / 1000
+              : kind === "music"
+                ? 0.01 * seconds
+                : 0.004 * seconds;
+      return ok(
+        JSON.stringify({
+          kind,
+          aspect: project.aspectRatio,
+          seconds,
+          estimateUsd: Math.round(est * 1000) / 1000,
+          trackId: audio ? "t_audio" : "t_overlay",
+          start: r.start ?? 0,
+          itemId: "preview",
+        }),
+      );
+    },
+    startGeneration: (kind: string, request: string) => {
+      track(`startGeneration:${kind}`);
+      if (!project) return fail("invalid_argument", "Open a project first.");
+      const r = JSON.parse(request) as {
+        prompt: string;
+        start?: number | null;
+        duration?: number | null;
+      };
+      const audio = kind === "voice" || kind === "music" || kind === "sfx";
+      const provider = audio ? "elevenlabs" : "fal";
+      if (!genKeys.has(provider))
+        return fail(
+          "unsupported",
+          `Add your ${provider === "fal" ? "fal.ai" : "ElevenLabs"} API key in Settings → Generation first.`,
+        );
+      const id = `g_${++seq}`;
+      const itemId = `i_gen_${seq}`;
+      const start = r.start ?? 0;
+      void editProject(`generate ${kind}: placeholder`, (p) => {
+        p.items.push(
+          fromDetail({
+            id: itemId,
+            trackId: audio ? "t_audio" : "t_overlay",
+            type: audio ? "audio" : kind === "video" ? "video" : "image",
+            startTime: start,
+            endTime: start + (r.duration ?? 5),
+            name: r.prompt.slice(0, 40),
+            pending: true,
+            pendingDescription: r.prompt,
+          }),
+        );
+      });
+      const job = {
+        id,
+        kind,
+        model: `${provider}:mock`,
+        request: r,
+        status: "running",
+        progress: 0.1,
+        error: null,
+        estimateUsd: 0.025,
+        createdAt: Date.now(),
+      };
+      genJobs.unshift(job);
+      setTimeout(() => {
+        job.status = "succeeded";
+        job.progress = 1;
+        void editProject(`generate ${kind}: ${r.prompt.slice(0, 40)}`, () => {
+          const it = findItem(itemId);
+          if (it) it.pending = false;
+        });
+        emit("generation-updated", JSON.stringify(job));
+      }, control.generationMs ?? 400);
+      return ok(JSON.stringify(job));
+    },
+    generationJobs: () => ok(JSON.stringify(genJobs)),
+    cancelGeneration: (id: string) => {
+      const j = genJobs.find((x) => x.id === id);
+      if (j && j.status === "running") j.status = "cancelled";
+      return ok(null);
+    },
+    listVoices: () =>
+      genKeys.has("elevenlabs")
+        ? ok(
+            JSON.stringify([
+              { id: "v_narrator", name: "Narrator" },
+              { id: "v_bright", name: "Bright" },
+            ]),
+          )
+        : fail(
+            "invalid_argument",
+            "Add your ElevenLabs API key in Settings → Generation.",
+          ),
     reportUiState: (ui: { selection: string[]; viewer: string }) => (
       track(`reportUiState:${ui.viewer}:${ui.selection.length}`),
       ok(null)
@@ -1378,10 +1597,18 @@ function createMock(): {
     },
     importLut: (path: string | null) => {
       track(`importLut:${path ?? "dialog"}`);
-      const name = (path ?? "/mock/Imported look.cube").split(/[\\/]/).pop()!.replace(/[^A-Za-z0-9_-]+/g, "-").replace(/-cube$/, "");
+      const name = (path ?? "/mock/Imported look.cube")
+        .split(/[\\/]/)
+        .pop()!
+        .replace(/[^A-Za-z0-9_-]+/g, "-")
+        .replace(/-cube$/, "");
       return ok<string | null>(`luts/${name}.cube`);
     },
-    matchColor: (itemId: string, referenceTime: number | null, strength: number | null) =>
+    matchColor: (
+      itemId: string,
+      referenceTime: number | null,
+      strength: number | null,
+    ) =>
       editProject("match colour", () => {
         track(`matchColor:${itemId}:${referenceTime ?? 0}:${strength ?? 1}`);
         const i = mock(itemId);
@@ -1390,11 +1617,22 @@ function createMock(): {
         const { match: _match, ...rest } = g;
         void _match;
         const w = (r: number, gg: number, b: number) => ({ r, g: gg, b, y: 0 });
-        i.fields.colorGrade = { ...rest, wheels: { lift: w(0, 0, 0), gamma: w(0, 0, 0), gain: w(0.08, 0.01, -0.06), offset: w(0.02, 0, -0.03) } };
+        i.fields.colorGrade = {
+          ...rest,
+          wheels: {
+            lift: w(0, 0, 0),
+            gamma: w(0, 0, 0),
+            gain: w(0.08, 0.01, -0.06),
+            offset: w(0.02, 0, -0.03),
+          },
+        };
       }),
     colorScopes: (time: number | null) => {
       track(`colorScopes:${time ?? 0}`);
-      const bins = (shift: number) => Array.from({ length: 64 }, (_, i) => Math.exp(-(((i - 32 - shift) / 14) ** 2)));
+      const bins = (shift: number) =>
+        Array.from({ length: 64 }, (_, i) =>
+          Math.exp(-(((i - 32 - shift) / 14) ** 2)),
+        );
       return ok([bins(6), bins(0), bins(-6), bins(1)]);
     },
     agentStatus: () => ok(agentStatus()),
@@ -1645,6 +1883,7 @@ function createMock(): {
     playbackChanged: makeEvent("playback-changed"),
     projectChanged: makeEvent("project-changed"),
     remoteOpened: makeEvent("remote-opened"),
+    generationUpdated: makeEvent("generation-updated"),
     viewerBackendChanged: makeEvent("viewer-backend-changed"),
     viewerFrameReady: makeEvent("viewer-frame-ready"),
   } as unknown as Events;

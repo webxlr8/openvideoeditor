@@ -34,6 +34,7 @@ import {
   TransitionsPanel,
 } from "./Panels";
 import { MotionPanel } from "./Motion";
+import { GeneratePanel } from "./Generate";
 import { Shortcuts } from "./Shortcuts";
 import { type SelectMode, Timeline } from "./Timeline";
 
@@ -46,6 +47,7 @@ export const RAIL: { id: string; label: string; icon: IconName }[] = [
   { id: "motion", label: "Motion", icon: "templates" },
   { id: "transitions", label: "Transitions", icon: "transitions" },
   { id: "effects", label: "Effects", icon: "effects" },
+  { id: "generate", label: "Generate", icon: "spark" },
 ];
 
 export interface Layout {
@@ -246,6 +248,7 @@ export function Editor({
         selection: selectedItems,
         onEdit,
         onSelect: (i) => onSelect(i),
+        onError,
       }
     : null;
   const projectBar = project && (
@@ -569,6 +572,7 @@ function SidePanel({
           {id === "effects" && <EffectsPanel {...panelProps} />}
           {id === "audio" && <AudioPanel {...panelProps} />}
           {id === "layout" && <LayoutPanel {...panelProps} />}
+          {id === "generate" && <GeneratePanel {...panelProps} />}
         </div>
       ) : (
         <p className="muted panel-placeholder">

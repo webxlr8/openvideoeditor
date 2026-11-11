@@ -10,6 +10,7 @@ pub mod engine;
 pub mod error;
 pub mod exporting;
 pub mod fx;
+pub mod generation;
 pub mod interchange;
 pub mod logging;
 pub mod media;
@@ -127,6 +128,15 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             projects::redo,
             // Timeline exchange (FCPXML, XML, EDL, OTIO).
             control::report_ui_state,
+            // AI generation with the user's provider keys (change 14).
+            generation::generation_catalog,
+            generation::set_provider_key,
+            generation::clear_provider_key,
+            generation::plan_generation,
+            generation::start_generation,
+            generation::generation_jobs,
+            generation::cancel_generation,
+            generation::list_voices,
             interchange::timeline_formats,
             interchange::export_timeline,
             interchange::import_timeline,
@@ -184,6 +194,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             AppErrorRaised,
             projects::ProjectChanged,
             control::RemoteOpened,
+            generation::GenerationUpdated,
             exporting::ExportProgress,
             assistant::AgentUiEvent,
             captions::CaptionJobProgress,
@@ -466,6 +477,7 @@ pub fn run() {
 
             // The command line / MCP server reach the app through the control link.
             control::start(&handle);
+            app.manage(generation::Generation::default());
 
             if let Some(window) = app.get_webview_window("main") {
                 restore_window(&handle, &window);

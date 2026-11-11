@@ -26,6 +26,7 @@ ove-gpu = { version = "0.1.0", path = "../../../crates/ove-gpu" }
 ove-agent = { path = "../../../crates/ove-agent" }
 ove-control = { path = "../../../crates/ove-control" }
 ove-core = { path = "../../../crates/ove-core" }
+ove-generate = { path = "../../../crates/ove-generate" }
 ove-interchange = { path = "../../../crates/ove-interchange" }
 ove-graphics = { path = "../../../crates/ove-graphics" }
 ove-media = { path = "../../../crates/ove-media" }

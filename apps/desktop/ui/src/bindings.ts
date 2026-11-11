@@ -47,6 +47,22 @@ export const commands = {
 	redo: () => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("redo")),
 	/**  The UI reports its selection and viewer mode (for `ove app context`). */
 	reportUiState: (ui: UiState) => typedError<null, AppError>(__TAURI_INVOKE("report_ui_state", { ui })),
+	/**  Models and key status, as JSON `{models, keys}`. */
+	generationCatalog: () => __TAURI_INVOKE<string>("generation_catalog"),
+	setProviderKey: (provider: string, key: string) => typedError<string, AppError>(__TAURI_INVOKE("set_provider_key", { provider, key })),
+	clearProviderKey: (provider: string) => typedError<string, AppError>(__TAURI_INVOKE("clear_provider_key", { provider })),
+	/**  The plan for a request on the open project: model, aspect, seconds, estimate, track, start (JSON). */
+	planGeneration: (kind: string, request: string) => typedError<string, AppError>(__TAURI_INVOKE("plan_generation", { kind, request })),
+	/**
+	 *  Starts a job on the open project after the person confirmed the estimate: places the placeholder (one revision)
+	 *  and runs the job in the background. Returns the job as JSON.
+	 */
+	startGeneration: (kind: string, request: string) => typedError<string, AppError>(__TAURI_INVOKE("start_generation", { kind, request })),
+	/**  Jobs of the open project, newest first (JSON array). */
+	generationJobs: () => typedError<string, AppError>(__TAURI_INVOKE("generation_jobs")),
+	cancelGeneration: (id: string) => typedError<null, AppError>(__TAURI_INVOKE("cancel_generation", { id })),
+	/**  Voices in the ElevenLabs account (JSON array). */
+	listVoices: () => typedError<string, AppError>(__TAURI_INVOKE("list_voices")),
 	timelineFormats: () => __TAURI_INVOKE<TimelineFormat[]>("timeline_formats"),
 	/**
 	 *  Writes the open project's timeline. `path: None` asks with a save dialog; returns the written path (`None` when
@@ -160,6 +176,7 @@ export const events = {
 	appErrorRaised: makeEvent<AppErrorRaised, AppErrorRaised>("app-error-raised"),
 	captionJobProgress: makeEvent<CaptionJobProgress_Serialize, CaptionJobProgress_Deserialize>("caption-job-progress"),
 	exportProgress: makeEvent<ExportProgress_Serialize, ExportProgress_Deserialize>("export-progress"),
+	generationUpdated: makeEvent<GenerationUpdated, GenerationUpdated>("generation-updated"),
 	openPathsRequested: makeEvent<OpenPathsRequested, OpenPathsRequested>("open-paths-requested"),
 	playbackChanged: makeEvent<PlaybackChanged, PlaybackChanged>("playback-changed"),
 	projectChanged: makeEvent<ProjectChanged_Serialize, ProjectChanged_Deserialize>("project-changed"),
@@ -224,6 +241,8 @@ export type AppInfo_Deserialize = {
 	/**  Presentation path the viewer is using now (may change once; see ViewerBackendChanged). */
 	viewerBackend: ViewerBackend,
 	logDir?: string | null,
+	/**  Where projects are kept. */
+	libraryDir?: string | null,
 };
 
 /**  Static facts about the running app. */
@@ -236,6 +255,8 @@ export type AppInfo_Serialize = {
 	/**  Presentation path the viewer is using now (may change once; see ViewerBackendChanged). */
 	viewerBackend: ViewerBackend,
 	logDir: string | null,
+	/**  Where projects are kept. */
+	libraryDir: string | null,
 };
 
 /**  What to caption. */
@@ -416,6 +437,9 @@ export type FontFamily = {
 	maxWeight: number,
 	italic: boolean,
 };
+
+/**  A job changed (started, finished, failed). Payload: the job as JSON. */
+export type GenerationUpdated = string;
 
 export type ItemView = ItemView_Serialize | ItemView_Deserialize;
 

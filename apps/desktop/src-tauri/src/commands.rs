@@ -29,6 +29,8 @@ pub struct AppInfo {
     /// Presentation path the viewer is using now (may change once; see ViewerBackendChanged).
     pub viewer_backend: ViewerBackend,
     pub log_dir: Option<String>,
+    /// Where projects are kept.
+    pub library_dir: Option<String>,
 }
 
 /// Everything the diagnostics overlay shows.
@@ -61,6 +63,7 @@ pub fn app_info(state: State<'_, AppState>) -> AppResult<AppInfo> {
         decode_capabilities: crate::DECODE_CAPABILITIES.into(),
         viewer_backend,
         log_dir: state.log_dir.as_ref().map(|d| d.display().to_string()),
+        library_dir: ove_store::library::resolve_library(None).ok().map(|d| d.display().to_string()),
     })
 }
 

@@ -349,6 +349,7 @@ export function App() {
       {route === "home" ? (
         <Home
           projects={projects}
+          onError={showError}
           onOpenFile={() => void importInto(null)}
           onBlank={() =>
             void commands.createProject("Untitled Project").then((r) => {
