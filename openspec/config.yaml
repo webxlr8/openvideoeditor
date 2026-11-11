@@ -1,0 +1,54 @@
+schema: spec-driven
+
+context: |
+  Language: English. All artifacts must be written in English.
+  Keep OpenSpec structural headings and SHALL/MUST keywords in English.
+
+  Product: OpenVideoEditor (working name). Agent-native desktop video editor; v1 is a feature-for-feature rebuild of the
+  reference editor described in docs/01-reference-teardown.md and docs/spec/*, then extended for production houses.
+  Architecture and roadmap: docs/03-architecture-plan.md (source of truth for change order and decisions).
+
+  Platforms v1: macOS 14+ on Apple silicon (arm64) and Windows 11 x64. No Intel Mac, no Windows on ARM, no Linux in v1.
+  Quality bar: fast, light, stable. Targets: installer <= 60 MB, idle RAM <= 250 MB with one project open,
+  cold start to Home <= 1.5 s on a 2021+ machine, zero data loss on crash.
+
+  Stack (pin exact versions in Cargo.lock / lockfiles; latest stable lines only, Node only as build tool, LTS line):
+  Rust stable (edition 2024), Tauri 2 shell with system web view (WKWebView / WebView2), React 19 + TypeScript + Vite
+  UI, wgpu (Metal / D3D12) for preview and export compositing, FFmpeg 9.x via ffmpeg-the-third built LGPL-only and
+  dynamically linked (no GPL components), hardware decode/encode via VideoToolbox (macOS) and D3D11VA / Media
+  Foundation / NVENC / QSV / AMF (Windows), cpal for audio output, rmcp for MCP, oxc for TSX parsing,
+  QuickJS-NG (rquickjs) + Takumi for motion-graphics code items.
+
+  Agents v1 are bring-your-own: user's Anthropic API key (stored in the OS keychain) or the user's installed Claude Code /
+  Codex CLI. No hosted proxy, accounts or credits in v1.
+
+  Hard rules:
+  - Never copy the reference app's code, shader source, templates, prompts, copy text, fonts, emoji, media or brand.
+    Behaviour and contracts in docs/spec are the reference; implementations are original.
+  - Never write the reference product's name, company, domains, CLI name or file extensions into this repository.
+  - Every dependency must be MIT, Apache-2.0, BSD, ISC, Zlib, MPL-2.0 (unmodified) or LGPL (dynamically linked only);
+    enforced by cargo-deny and a JS licence check in CI.
+  - The project document is only ever changed through the document pipeline (apply ops); no component writes
+    project.json directly.
+
+rules:
+  proposal:
+    - State what is out of scope.
+    - Reference the docs/spec sections the change rebuilds.
+  specs:
+    - Requirements describe observable behaviour only; no library or type names.
+    - Every requirement has at least one testable scenario, including the failure path where one exists.
+    - Where a behaviour mirrors the reference, keep its contract (names, fields, exit codes) unless the spec says why not.
+  design:
+    - Each decision lists the alternatives considered and why they lost.
+    - Each risk names a mitigation and how we detect it.
+  tasks:
+    - Each task states how it is verified (test, command, measured number or observable app behaviour).
+    - Tests and docs land in the same group as the work; the final group holds integration checks only.
+    - Anything user-visible is verified in the real built app on both macOS and Windows, not only by unit tests.
+
+operations:
+  apply:
+    guidance:
+      - Run cargo fmt, cargo clippy -D warnings, cargo test, cargo deny check and the UI tests before marking a group done.
+      - Record measured numbers (timings, sizes, frame drops) in the change's design.md under a Results section.
