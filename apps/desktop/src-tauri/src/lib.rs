@@ -6,9 +6,11 @@ pub mod commands;
 pub mod edits;
 pub mod engine;
 pub mod error;
+pub mod exporting;
 pub mod logging;
 pub mod media;
 pub mod projects;
+pub mod timeline;
 pub mod transport;
 pub mod viewer;
 pub mod window_state;
@@ -118,6 +120,12 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             projects::set_track_flag,
             projects::undo,
             projects::redo,
+            // Timeline preview and export (render engine).
+            exporting::open_timeline,
+            exporting::export_project,
+            exporting::cancel_export,
+            exporting::choose_export_path,
+            exporting::reveal_path,
             edits::item_detail,
             edits::update_item,
             edits::update_items,
@@ -146,6 +154,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             ViewerBackendChanged,
             AppErrorRaised,
             projects::ProjectChanged,
+            exporting::ExportProgress,
             assistant::AgentUiEvent,
         ])
         .error_handling(tauri_specta::ErrorHandlingMode::Result)

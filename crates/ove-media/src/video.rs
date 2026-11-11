@@ -320,10 +320,23 @@ impl FfmpegVideoDecoder {
                 } else {
                     copies += 1;
                     let target = ffi::AVPixelFormat::RGBA;
-                    let out = self.sws.convert(&frame, src_fmt, target)?;
+                    let out = self.sws.convert(&frame, src_fmt, target, w, h)?;
                     (PixelFormat::Rgba8, pack_planes(&out, target)?)
                 }
             }
+            OutputFormat::Rgba { max_width, max_height } => {
+                let fit = |limit: u32, v: u32| if limit == 0 { 1.0 } else { (limit as f64 / v as f64).min(1.0) };
+                let s = fit(max_width, w).min(fit(max_height, h));
+                let (ow, oh) = (((w as f64 * s).round() as u32).max(1), ((h as f64 * s).round() as u32).max(1));
+                copies += 1;
+                let target = ffi::AVPixelFormat::RGBA;
+                let out = self.sws.convert(&frame, src_fmt, target, ow, oh)?;
+                (PixelFormat::Rgba8, pack_planes(&out, target)?)
+            }
+        };
+        let (w, h) = match self.opts.output {
+            OutputFormat::Rgba { .. } => (planes[0].width, planes[0].height),
+            _ => (w, h),
         };
         // SAFETY: valid frame.
         let color = unsafe { crate::convert::color_info(frame.as_ptr()) };
@@ -513,7 +526,7 @@ const SWS_FLAGS: i32 = 0x2 | 0x40000;
 const SWS_CS_ITU709: i32 = 1;
 const SWS_CS_ITU601: i32 = 5;
 
-/// Cached swscale context for format conversion at the same size.
+/// Cached swscale context for format conversion (and scaling).
 #[derive(Default)]
 struct Sws {
     ctx: Option<*mut ffi::SwsContext>,
@@ -523,8 +536,16 @@ struct Sws {
 unsafe impl Send for Sws {}
 
 impl Sws {
-    fn convert(&mut self, src: &AvFrame, from: ffi::AVPixelFormat, to: ffi::AVPixelFormat) -> Result<AvFrame> {
+    fn convert(
+        &mut self,
+        src: &AvFrame,
+        from: ffi::AVPixelFormat,
+        to: ffi::AVPixelFormat,
+        out_w: u32,
+        out_h: u32,
+    ) -> Result<AvFrame> {
         let (w, h) = (src.width() as i32, src.height() as i32);
+        let (ow, oh) = (out_w as i32, out_h as i32);
         // SAFETY: getCachedContext reuses or frees the previous context; frames are valid.
         unsafe {
             let ctx = ffi::sws_getCachedContext(
@@ -532,8 +553,8 @@ impl Sws {
                 w,
                 h,
                 from,
-                w,
-                h,
+                ow,
+                oh,
                 to,
                 SWS_FLAGS,
                 ptr::null_mut(),
@@ -569,7 +590,7 @@ impl Sws {
                 1 << 16,
                 1 << 16,
             );
-            let mut out = AvFrame::new(to.into(), w as u32, h as u32);
+            let mut out = AvFrame::new(to.into(), ow as u32, oh as u32);
             ffi::sws_scale(
                 ctx,
                 (*sp).data.as_ptr() as *const *const u8,

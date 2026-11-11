@@ -176,9 +176,17 @@ function createMock(): { commands: Commands; events: Events; control: MockContro
     canRedo: redoStack.length > 0,
     durationSeconds: Math.max(0, ...p.items.map((i) => i.end ?? 0)),
   });
+  // The timeline viewer follows edits, as the engine's timeline session does.
+  let timelineOpen = false;
+  const timelineFrames = () => Math.max(1, Math.ceil((project?.durationSeconds ?? 0) * 30));
   const publish = () => {
     if (!project) return ok<ProjectView_Serialize>(null as unknown as ProjectView_Serialize);
     project = withFlags(project);
+    if (timelineOpen) {
+      state.totalFrames = timelineFrames();
+      state.frame = Math.min(state.frame, last());
+      changed();
+    }
     const i = library.findIndex((x) => x.bundle === project!.bundle);
     if (i >= 0) library[i] = project;
     emit("project-changed", clone(project));
@@ -213,7 +221,20 @@ function createMock(): { commands: Commands; events: Events; control: MockContro
     items: [],
     media: [],
   });
-  const importPaths = (paths: string[]) =>
+  // Like the real import: unreadable files are skipped and reported through `appErrorRaised`.
+  const importPaths = (all: string[]) => {
+    const playable = /\.(mp4|m4v|mov|mxf|mkv|webm|m4a|wav|caf|opus|ogg|aac|png|jpe?g|webp)$/i;
+    const paths = all.filter((p) => playable.test(p));
+    const skipped = all.filter((p) => !playable.test(p));
+    if (skipped.length > 0)
+      emit("app-error-raised", {
+        code: "unsupported",
+        message: skipped.map((p) => `“${p.split(/[\\/]/).pop()}” can't be opened: this file type is not supported.`).join(" "),
+      });
+    if (paths.length === 0) return publish();
+    return importValid(paths);
+  };
+  const importValid = (paths: string[]) =>
     editProject(`import ${paths.length} file${paths.length === 1 ? "" : "s"}`, (p) => {
       for (const path of paths) {
         const n = ++seq;
@@ -291,6 +312,12 @@ function createMock(): { commands: Commands; events: Events; control: MockContro
       else i.fields[k] = v;
     }
     refresh(i);
+  };
+
+  let exportTimer: ReturnType<typeof setInterval> | null = null;
+  const stopExport = () => {
+    if (exportTimer) clearInterval(exportTimer);
+    exportTimer = null;
   };
 
   // Simulated assistant: streams a reply, "calls" tools, and adds a title as one undo step.
@@ -380,6 +407,7 @@ function createMock(): { commands: Commands; events: Events; control: MockContro
       if (!/\.(mp4|m4v|mov|mxf|mkv|webm|m4a|wav|caf|opus|ogg|aac)$/i.test(path))
         return fail("unsupported", `“${path.split(/[\\/]/).pop()}” can't be opened: this file type is not supported.`);
       const info = media(path);
+      timelineOpen = false;
       setSpeed(0);
       Object.assign(state, { hasMedia: true, frame: 0, totalFrames: info.totalFrames, frameRate: 30 });
       changed();
@@ -387,6 +415,7 @@ function createMock(): { commands: Commands; events: Events; control: MockContro
     },
     openMediaDialog: () => commands.openMedia("/mock/Sample clip.mov") as ReturnType<Commands["openMediaDialog"]>,
     closeMedia: () => {
+      timelineOpen = false;
       setSpeed(0);
       Object.assign(state, { hasMedia: false, frame: 0, totalFrames: 0 });
       changed();
@@ -470,6 +499,7 @@ function createMock(): { commands: Commands; events: Events; control: MockContro
     },
     closeProject: () => {
       project = null;
+      timelineOpen = false;
       emit("project-changed", null);
       return ok(null);
     },
@@ -571,6 +601,61 @@ function createMock(): { commands: Commands; events: Events; control: MockContro
       editProject("reorder tracks", (p) => {
         p.tracks = order.map((id) => p.tracks.find((t) => t.id === id)!).filter(Boolean);
       }),
+    openTimeline: () => {
+      track("openTimeline");
+      if (!project) return fail("invalid_argument", "No project is open.");
+      const [width, height] = project.aspectRatio === "9:16" ? [1080, 1920] : project.aspectRatio === "1:1" ? [1080, 1080] : [1920, 1080];
+      timelineOpen = true;
+      setSpeed(0);
+      Object.assign(state, { hasMedia: true, frame: 0, totalFrames: timelineFrames(), frameRate: 30 });
+      changed();
+      return ok<MediaInfo_Serialize>({
+        path: project.bundle,
+        name: project.name,
+        durationSeconds: state.totalFrames / 30,
+        width,
+        height,
+        frameRate: 30,
+        totalFrames: state.totalFrames,
+        videoCodec: "timeline",
+        audioLayout: "stereo mix",
+        placeholder: true,
+      });
+    },
+    exportProject: (request: { path: string; height: number; fps: number }) => {
+      track(`exportProject:${request.height}p${request.fps}`);
+      if (!project) return fail("invalid_argument", "No project is open.");
+      if (exportTimer) return fail("invalid_argument", "An export is already running.");
+      const total = Math.max(1, Math.round((project.durationSeconds ?? 0) * request.fps));
+      let frame = 0;
+      const started = Date.now();
+      exportTimer = setInterval(() => {
+        frame = Math.min(total, frame + Math.ceil(total / 10));
+        const done = frame >= total;
+        emit("export-progress", {
+          fraction: frame / total,
+          frame,
+          totalFrames: total,
+          done,
+          error: null,
+          path: done ? request.path : null,
+          encoder: done ? "mock" : null,
+          secondsTaken: done ? (Date.now() - started) / 1000 : null,
+        });
+        if (done) stopExport();
+      }, 30);
+      return ok(null);
+    },
+    cancelExport: () => {
+      track("cancelExport");
+      if (exportTimer) {
+        stopExport();
+        emit("export-progress", { fraction: null, frame: 0, totalFrames: 0, done: true, error: "Export cancelled.", path: null, encoder: null, secondsTaken: null });
+      }
+      return ok(null);
+    },
+    chooseExportPath: (defaultName: string) => (track("chooseExportPath"), ok<string | null>(`/mock/exports/${defaultName}.mp4`)),
+    revealPath: (path: string) => (track(`revealPath:${path}`), ok(null)),
     removeTrack: (id: string) =>
       editProject("remove track", (p) => {
         p.tracks = p.tracks.filter((t) => t.id !== id);
@@ -633,6 +718,7 @@ function createMock(): { commands: Commands; events: Events; control: MockContro
   const events = {
     agentUiEvent: makeEvent("agent-ui-event"),
     appErrorRaised: makeEvent("app-error-raised"),
+    exportProgress: makeEvent("export-progress"),
     openPathsRequested: makeEvent("open-paths-requested"),
     playbackChanged: makeEvent("playback-changed"),
     projectChanged: makeEvent("project-changed"),

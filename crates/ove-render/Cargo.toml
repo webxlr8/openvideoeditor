@@ -1,0 +1,26 @@
+[package]
+name = "ove-render"
+description = "Timeline evaluation, CPU compositor, audio mixdown and export"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+ab_glyph = "0.2.32"
+ffmpeg-the-third = { version = "6", default-features = false, features = ["codec", "format", "software-resampling", "software-scaling"] }
+libc = "0.2"
+ove-core = { path = "../ove-core" }
+ove-media = { path = "../ove-media" }
+rayon = "1.10"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
+thiserror = "2"
+tracing = "0.1"
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

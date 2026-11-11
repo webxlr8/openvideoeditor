@@ -279,6 +279,10 @@ pub(crate) fn default_tracks() -> Vec<Op> {
 
 pub(crate) fn emit(app: &AppHandle, p: Option<&Project>) {
     let _ = ProjectChanged(p.map(view)).emit(app);
+    // The timeline preview follows every change.
+    if let Some(p) = p {
+        crate::exporting::notify_doc(&app.state::<AppState>(), p.doc(), p.bundle());
+    }
 }
 
 fn summaries(lib: &Library) -> AppResult<Vec<ProjectSummary>> {

@@ -197,6 +197,7 @@ impl DesktopHost {
         let out = f(p)?;
         if changed {
             let _ = ProjectChanged(Some(view(p))).emit(&self.app);
+            crate::exporting::notify_doc(&state, p.doc(), p.bundle());
         }
         Ok(out)
     }
