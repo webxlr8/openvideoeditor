@@ -23,11 +23,7 @@ pub fn yuv_matrix(matrix: YuvMatrix) -> [[f32; 3]; 3] {
     let kg = 1.0 - kr - kb;
     [
         [1.0, 0.0, 2.0 * (1.0 - kr)],
-        [
-            1.0,
-            -2.0 * kb * (1.0 - kb) / kg,
-            -2.0 * kr * (1.0 - kr) / kg,
-        ],
+        [1.0, -2.0 * kb * (1.0 - kb) / kg, -2.0 * kr * (1.0 - kr) / kg],
         [1.0, 2.0 * (1.0 - kb), 0.0],
     ]
 }
@@ -96,12 +92,7 @@ pub fn frame_to_rgba(frame: &VideoFrame) -> Vec<u8> {
 
 /// Composes `frame` letterboxed into a `target_w`×`target_h` RGBA8 image over `background`
 /// (nearest-neighbour scaling). This is the software fallback presenter.
-pub fn compose_letterboxed(
-    frame: &VideoFrame,
-    target_w: u32,
-    target_h: u32,
-    background: [u8; 4],
-) -> Vec<u8> {
+pub fn compose_letterboxed(frame: &VideoFrame, target_w: u32, target_h: u32, background: [u8; 4]) -> Vec<u8> {
     let mut out = Vec::with_capacity(target_w as usize * target_h as usize * 4);
     for _ in 0..(target_w as usize * target_h as usize) {
         out.extend_from_slice(&background);
@@ -116,9 +107,7 @@ pub fn compose_letterboxed(
         for tx in 0..fit.width {
             let sx = (u64::from(tx) * u64::from(frame.width) / u64::from(fit.width)) as usize;
             let s = (sy * frame.width as usize + sx) * 4;
-            let d =
-                ((fit.y as usize + ty as usize) * target_w as usize + fit.x as usize + tx as usize)
-                    * 4;
+            let d = ((fit.y as usize + ty as usize) * target_w as usize + fit.x as usize + tx as usize) * 4;
             out[d..d + 4].copy_from_slice(&src[s..s + 4]);
         }
     }
@@ -136,22 +125,13 @@ mod tests {
         assert_eq!(yuv_code_to_rgb(16.0, 128.0, 128.0, p, &m), [0.0, 0.0, 0.0]);
         assert_eq!(yuv_code_to_rgb(235.0, 128.0, 128.0, p, &m), [1.0, 1.0, 1.0]);
         let p10 = range_params(10, false);
-        assert_eq!(
-            yuv_code_to_rgb(940.0, 512.0, 512.0, p10, &m),
-            [1.0, 1.0, 1.0]
-        );
+        assert_eq!(yuv_code_to_rgb(940.0, 512.0, 512.0, p10, &m), [1.0, 1.0, 1.0]);
     }
 
     #[test]
     fn bt709_red() {
         // Limited-range BT.709 red: Y=63, Cb=102, Cr=240.
-        let rgb = yuv_code_to_rgb(
-            63.0,
-            102.0,
-            240.0,
-            range_params(8, false),
-            &yuv_matrix(YuvMatrix::Bt709),
-        );
+        let rgb = yuv_code_to_rgb(63.0, 102.0, 240.0, range_params(8, false), &yuv_matrix(YuvMatrix::Bt709));
         assert!(rgb[0] > 0.98 && rgb[1] < 0.02 && rgb[2] < 0.02, "{rgb:?}");
     }
 

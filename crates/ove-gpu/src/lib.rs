@@ -13,8 +13,6 @@ pub mod surface;
 
 pub use fit::{LogicalRect, PhysicalRect, fit_rect};
 pub use frame::{FrameError, PixelFormat, VideoFrame, YuvMatrix};
-pub use renderer::{
-    AdapterSummary, GpuContext, GpuError, GpuOptions, RenderInfo, UploadStats, ViewerRenderer,
-};
+pub use renderer::{AdapterSummary, GpuContext, GpuError, GpuOptions, RenderInfo, UploadStats, ViewerRenderer};
 pub use surface::{PresentOutcome, ViewerSurface};
 pub use wgpu;

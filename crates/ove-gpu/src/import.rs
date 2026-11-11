@@ -29,10 +29,7 @@ pub enum ImportError {
 }
 
 /// Attempts to show a hardware frame without a CPU copy.
-pub fn try_import(
-    _renderer: &mut ViewerRenderer,
-    _handle: NativeFrameHandle,
-) -> Result<(), ImportError> {
+pub fn try_import(_renderer: &mut ViewerRenderer, _handle: NativeFrameHandle) -> Result<(), ImportError> {
     // macOS plan: CVMetalTextureCacheCreateTextureFromImage per plane → wgpu-hal Metal texture →
     // `Device::create_texture_from_hal`, then the same conversion pass as the upload path.
     // Windows plan: ID3D12Device::OpenSharedHandle → wgpu-hal DX12 texture → create_texture_from_hal.

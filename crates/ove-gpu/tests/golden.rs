@@ -20,9 +20,7 @@ const BARS: [[u8; 3]; 8] = [
 ];
 
 fn renderer() -> Option<ViewerRenderer> {
-    match GpuContext::new(GpuOptions {
-        allow_software: true,
-    }) {
+    match GpuContext::new(GpuOptions { allow_software: true }) {
         Ok(ctx) => {
             eprintln!("adapter: {}", ctx.summary());
             Some(ViewerRenderer::new(ctx))
@@ -108,9 +106,7 @@ fn bars(format: PixelFormat) -> VideoFrame {
 }
 
 fn golden_path(name: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/golden")
-        .join(name)
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/golden").join(name)
 }
 
 fn compare_golden(name: &str, width: u32, height: u32, pixels: &[u8]) {
@@ -121,22 +117,13 @@ fn compare_golden(name: &str, width: u32, height: u32, pixels: &[u8]) {
         let mut enc = png::Encoder::new(std::io::BufWriter::new(file), width, height);
         enc.set_color(png::ColorType::Rgba);
         enc.set_depth(png::BitDepth::Eight);
-        enc.write_header()
-            .unwrap()
-            .write_image_data(pixels)
-            .unwrap();
+        enc.write_header().unwrap().write_image_data(pixels).unwrap();
         eprintln!("updated {}", path.display());
         return;
     }
-    let file = std::fs::File::open(&path).unwrap_or_else(|e| {
-        panic!(
-            "missing golden {} ({e}); run with OVE_UPDATE_GOLDEN=1",
-            path.display()
-        )
-    });
-    let mut reader = png::Decoder::new(std::io::BufReader::new(file))
-        .read_info()
-        .unwrap();
+    let file = std::fs::File::open(&path)
+        .unwrap_or_else(|e| panic!("missing golden {} ({e}); run with OVE_UPDATE_GOLDEN=1", path.display()));
+    let mut reader = png::Decoder::new(std::io::BufReader::new(file)).read_info().unwrap();
     let mut golden = vec![0; reader.output_buffer_size().unwrap()];
     let info = reader.next_frame(&mut golden).unwrap();
     assert_eq!((info.width, info.height), (width, height), "golden size");
@@ -150,10 +137,7 @@ fn compare_golden(name: &str, width: u32, height: u32, pixels: &[u8]) {
         }
     }
     // Tolerance absorbs rounding differences between GPU vendors/drivers.
-    assert!(
-        worst <= 6 && over * 1000 <= pixels.len(),
-        "{name}: max channel diff {worst}, {over} channels over 2"
-    );
+    assert!(worst <= 6 && over * 1000 <= pixels.len(), "{name}: max channel diff {worst}, {over} channels over 2");
 }
 
 fn px(img: &[u8], width: u32, x: u32, y: u32) -> [u8; 4] {
@@ -167,15 +151,7 @@ fn check_format(format: PixelFormat, golden: &str) {
     r.upload(&frame).unwrap();
     // 16:9 frame into a 4:3 target → letterboxed at 2× scale: image 320×180 at y = 30.
     let (img, info) = r.render_to_rgba(320, 240).unwrap();
-    assert_eq!(
-        (
-            info.image.x,
-            info.image.y,
-            info.image.width,
-            info.image.height
-        ),
-        (0, 30, 320, 180)
-    );
+    assert_eq!((info.image.x, info.image.y, info.image.width, info.image.height), (0, 30, 320, 180));
 
     // Bars must match the CPU reference conversion at bar centres, and bars stay black.
     let reference = frame_to_rgba(&frame);
@@ -184,22 +160,11 @@ fn check_format(format: PixelFormat, golden: &str) {
         let want = px(&reference, 160, fx, fy);
         let got = px(&img, 320, fx * 2 + 1, 30 + fy * 2 + 1);
         for c in 0..3 {
-            assert!(
-                got[c].abs_diff(want[c]) <= 3,
-                "{format:?} bar {bar}: got {got:?} want {want:?}"
-            );
+            assert!(got[c].abs_diff(want[c]) <= 3, "{format:?} bar {bar}: got {got:?} want {want:?}");
         }
     }
-    assert_eq!(
-        px(&img, 320, 160, 5),
-        [0, 0, 0, 255],
-        "letterbox bar is background"
-    );
-    assert_eq!(
-        px(&img, 320, 160, 235),
-        [0, 0, 0, 255],
-        "letterbox bar is background"
-    );
+    assert_eq!(px(&img, 320, 160, 5), [0, 0, 0, 255], "letterbox bar is background");
+    assert_eq!(px(&img, 320, 160, 235), [0, 0, 0, 255], "letterbox bar is background");
     compare_golden(golden, 320, 240, &img);
 }
 
@@ -238,14 +203,8 @@ fn recovers_from_device_loss() {
     let (after, _) = r.render_to_rgba(320, 180).unwrap();
     let elapsed = started.elapsed();
     assert_eq!(r.context().generation, generation + 1);
-    assert_eq!(
-        before, after,
-        "current frame re-uploaded and shown identically"
-    );
-    assert!(
-        elapsed.as_secs_f64() < 2.0,
-        "recovered in {elapsed:?} (spec: within 2 s)"
-    );
+    assert_eq!(before, after, "current frame re-uploaded and shown identically");
+    assert!(elapsed.as_secs_f64() < 2.0, "recovered in {elapsed:?} (spec: within 2 s)");
     eprintln!("device-loss recovery took {elapsed:?}");
     // No-op when healthy.
     assert!(!r.recover_if_lost(None).unwrap());
@@ -271,8 +230,5 @@ fn upload_stats_count_copies() {
     use std::sync::atomic::Ordering;
     assert_eq!(r.stats.frames.load(Ordering::Relaxed), 2);
     assert_eq!(r.stats.copies_last_frame.load(Ordering::Relaxed), 1);
-    assert_eq!(
-        r.stats.bytes.load(Ordering::Relaxed),
-        2 * (160 * 90 + 160 * 45)
-    );
+    assert_eq!(r.stats.bytes.load(Ordering::Relaxed), 2 * (160 * 90 + 160 * 45));
 }

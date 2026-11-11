@@ -22,29 +22,21 @@ pub struct ViewerSurface {
 
 impl std::fmt::Debug for ViewerSurface {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ViewerSurface")
-            .field("size", &self.size())
-            .finish()
+        f.debug_struct("ViewerSurface").field("size", &self.size()).finish()
     }
 }
 
 impl ViewerSurface {
     /// Wraps a surface created from the renderer's instance (see [`ViewerRenderer::context`]).
     pub fn new(surface: wgpu::Surface<'static>) -> Self {
-        ViewerSurface {
-            surface,
-            config: None,
-        }
+        ViewerSurface { surface, config: None }
     }
 
     /// Creates a surface from a raw platform target (CAMetalLayer, HWND, DComp visual, …).
     ///
     /// # Safety
     /// The target must stay valid until this surface is dropped.
-    pub unsafe fn from_raw(
-        renderer: &ViewerRenderer,
-        target: wgpu::SurfaceTargetUnsafe,
-    ) -> Result<Self, GpuError> {
+    pub unsafe fn from_raw(renderer: &ViewerRenderer, target: wgpu::SurfaceTargetUnsafe) -> Result<Self, GpuError> {
         // SAFETY: forwarded to the caller.
         let surface = unsafe { renderer.context().instance.create_surface_unsafe(target) }
             .map_err(|e| GpuError::Surface(e.to_string()))?;
@@ -56,10 +48,7 @@ impl ViewerSurface {
     }
 
     pub fn size(&self) -> (u32, u32) {
-        self.config
-            .as_ref()
-            .map(|c| (c.width, c.height))
-            .unwrap_or((0, 0))
+        self.config.as_ref().map(|c| (c.width, c.height)).unwrap_or((0, 0))
     }
 
     /// (Re)configures for a physical size; zero sizes leave the surface unconfigured (hidden).
@@ -81,10 +70,7 @@ impl ViewerSurface {
         let alpha_mode = if caps.alpha_modes.contains(&wgpu::CompositeAlphaMode::Opaque) {
             wgpu::CompositeAlphaMode::Opaque
         } else {
-            caps.alpha_modes
-                .first()
-                .copied()
-                .unwrap_or(wgpu::CompositeAlphaMode::Auto)
+            caps.alpha_modes.first().copied().unwrap_or(wgpu::CompositeAlphaMode::Auto)
         };
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -113,8 +99,7 @@ impl ViewerSurface {
             return Ok(PresentOutcome::Skipped);
         };
         let texture = match self.surface.get_current_texture() {
-            wgpu::CurrentSurfaceTexture::Success(t)
-            | wgpu::CurrentSurfaceTexture::Suboptimal(t) => t,
+            wgpu::CurrentSurfaceTexture::Success(t) | wgpu::CurrentSurfaceTexture::Suboptimal(t) => t,
             wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
                 return Ok(PresentOutcome::Skipped);
             }

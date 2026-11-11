@@ -41,12 +41,7 @@ pub fn fit_rect(frame_w: u32, frame_h: u32, target_w: u32, target_h: u32) -> Phy
     if frame_w == 0 || frame_h == 0 || target_w == 0 || target_h == 0 {
         return PhysicalRect::default();
     }
-    let (fw, fh, tw, th) = (
-        u64::from(frame_w),
-        u64::from(frame_h),
-        u64::from(target_w),
-        u64::from(target_h),
-    );
+    let (fw, fh, tw, th) = (u64::from(frame_w), u64::from(frame_h), u64::from(target_w), u64::from(target_h));
     let (w, h) = if fw * th >= tw * fh {
         // Frame is relatively wider: full width, bars top and bottom.
         let h = (tw * fh + fw / 2) / fw;
@@ -55,12 +50,7 @@ pub fn fit_rect(frame_w: u32, frame_h: u32, target_w: u32, target_h: u32) -> Phy
         let w = (th * fw + fh / 2) / fh;
         ((w as u32).clamp(1, target_w), target_h)
     };
-    PhysicalRect {
-        x: ((target_w - w) / 2) as i32,
-        y: ((target_h - h) / 2) as i32,
-        width: w,
-        height: h,
-    }
+    PhysicalRect { x: ((target_w - w) / 2) as i32, y: ((target_h - h) / 2) as i32, width: w, height: h }
 }
 
 #[cfg(test)]
@@ -69,15 +59,7 @@ mod tests {
 
     #[test]
     fn exact_fit() {
-        assert_eq!(
-            fit_rect(1920, 1080, 1280, 720),
-            PhysicalRect {
-                x: 0,
-                y: 0,
-                width: 1280,
-                height: 720
-            }
-        );
+        assert_eq!(fit_rect(1920, 1080, 1280, 720), PhysicalRect { x: 0, y: 0, width: 1280, height: 720 });
     }
 
     #[test]
@@ -101,37 +83,9 @@ mod tests {
 
     #[test]
     fn logical_to_physical_rounds_edges() {
-        let r = LogicalRect {
-            x: 10.3,
-            y: 20.6,
-            width: 100.5,
-            height: 50.2,
-        }
-        .to_physical(2.0);
-        assert_eq!(
-            r,
-            PhysicalRect {
-                x: 21,
-                y: 41,
-                width: 201,
-                height: 101
-            }
-        );
-        let r = LogicalRect {
-            x: 1.0,
-            y: 1.0,
-            width: 3.0,
-            height: 3.0,
-        }
-        .to_physical(1.5);
-        assert_eq!(
-            r,
-            PhysicalRect {
-                x: 2,
-                y: 2,
-                width: 4,
-                height: 4
-            }
-        );
+        let r = LogicalRect { x: 10.3, y: 20.6, width: 100.5, height: 50.2 }.to_physical(2.0);
+        assert_eq!(r, PhysicalRect { x: 21, y: 41, width: 201, height: 101 });
+        let r = LogicalRect { x: 1.0, y: 1.0, width: 3.0, height: 3.0 }.to_physical(1.5);
+        assert_eq!(r, PhysicalRect { x: 2, y: 2, width: 4, height: 4 });
     }
 }

@@ -80,19 +80,11 @@ pub enum FrameError {
     #[error("frame has zero width or height")]
     Empty,
     #[error("{format:?} needs {expected} planes and strides, frame has {actual}")]
-    PlaneCount {
-        format: PixelFormat,
-        expected: usize,
-        actual: usize,
-    },
+    PlaneCount { format: PixelFormat, expected: usize, actual: usize },
     #[error("plane {plane}: stride {stride} is smaller than one row ({row} bytes)")]
     Stride { plane: usize, stride: u32, row: u32 },
     #[error("plane {plane}: {actual} bytes, needs at least {expected}")]
-    PlaneSize {
-        plane: usize,
-        expected: usize,
-        actual: usize,
-    },
+    PlaneSize { plane: usize, expected: usize, actual: usize },
 }
 
 impl VideoFrame {
@@ -146,11 +138,7 @@ impl VideoFrame {
             }
             let needed = stride as usize * (h as usize - 1) + row as usize;
             if self.planes[plane].len() < needed {
-                return Err(FrameError::PlaneSize {
-                    plane,
-                    expected: needed,
-                    actual: self.planes[plane].len(),
-                });
+                return Err(FrameError::PlaneSize { plane, expected: needed, actual: self.planes[plane].len() });
             }
         }
         Ok(())
@@ -167,22 +155,13 @@ mod tests {
         assert_eq!(f.validate(), Ok(()));
         let mut short = f.clone();
         short.planes[1] = vec![0u8; 3].into();
-        assert!(matches!(
-            short.validate(),
-            Err(FrameError::PlaneSize { plane: 1, .. })
-        ));
+        assert!(matches!(short.validate(), Err(FrameError::PlaneSize { plane: 1, .. })));
         let mut bad = f.clone();
         bad.strides[0] = 3;
-        assert!(matches!(
-            bad.validate(),
-            Err(FrameError::Stride { plane: 0, .. })
-        ));
+        assert!(matches!(bad.validate(), Err(FrameError::Stride { plane: 0, .. })));
         let mut missing = f;
         missing.planes.pop();
-        assert!(matches!(
-            missing.validate(),
-            Err(FrameError::PlaneCount { .. })
-        ));
+        assert!(matches!(missing.validate(), Err(FrameError::PlaneCount { .. })));
     }
 
     #[test]

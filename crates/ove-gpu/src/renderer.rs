@@ -38,11 +38,7 @@ pub struct AdapterSummary {
 
 impl std::fmt::Display for AdapterSummary {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{} ({}, {}, driver {})",
-            self.name, self.backend, self.device_type, self.driver
-        )
+        write!(f, "{} ({}, {}, driver {})", self.name, self.backend, self.device_type, self.driver)
     }
 }
 
@@ -129,19 +125,8 @@ impl GpuContext {
                 lost.store(true, Ordering::SeqCst);
             });
         }
-        device.on_uncaptured_error(Arc::new(
-            |e| tracing::error!(error = %e, "uncaptured GPU error"),
-        ));
-        Ok(GpuContext {
-            instance,
-            adapter,
-            device,
-            queue,
-            lost,
-            lost_reason,
-            options,
-            generation,
-        })
+        device.on_uncaptured_error(Arc::new(|e| tracing::error!(error = %e, "uncaptured GPU error")));
+        Ok(GpuContext { instance, adapter, device, queue, lost, lost_reason, options, generation })
     }
 
     pub fn summary(&self) -> AdapterSummary {
@@ -150,11 +135,7 @@ impl GpuContext {
             name: info.name,
             backend: format!("{:?}", info.backend),
             device_type: format!("{:?}", info.device_type),
-            driver: if info.driver_info.is_empty() {
-                info.driver
-            } else {
-                info.driver_info
-            },
+            driver: if info.driver_info.is_empty() { info.driver } else { info.driver_info },
         }
     }
 
@@ -163,10 +144,7 @@ impl GpuContext {
     }
 
     pub fn lost_reason(&self) -> String {
-        self.lost_reason
-            .lock()
-            .map(|r| r.clone())
-            .unwrap_or_default()
+        self.lost_reason.lock().map(|r| r.clone()).unwrap_or_default()
     }
 
     /// Destroys the device as a driver reset would. Test and diagnostics hook.
@@ -179,12 +157,7 @@ impl GpuContext {
 
     /// Recreates adapter and device on the same instance (so existing surfaces stay valid).
     pub fn recreate(&self, surface: Option<&wgpu::Surface<'_>>) -> Result<GpuContext, GpuError> {
-        GpuContext::with_instance(
-            self.instance.clone(),
-            surface,
-            self.options.clone(),
-            self.generation + 1,
-        )
+        GpuContext::with_instance(self.instance.clone(), surface, self.options.clone(), self.generation + 1)
     }
 }
 
@@ -231,9 +204,7 @@ pub struct ViewerRenderer {
 
 impl std::fmt::Debug for ViewerRenderer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ViewerRenderer")
-            .field("generation", &self.ctx.generation)
-            .finish()
+        f.debug_struct("ViewerRenderer").field("generation", &self.ctx.generation).finish()
     }
 }
 
@@ -329,21 +300,10 @@ impl Pipelines {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        Pipelines {
-            convert_layouts,
-            convert,
-            present_layout,
-            present: HashMap::new(),
-            sampler,
-            params,
-        }
+        Pipelines { convert_layouts, convert, present_layout, present: HashMap::new(), sampler, params }
     }
 
-    fn present_pipeline(
-        &mut self,
-        device: &wgpu::Device,
-        format: wgpu::TextureFormat,
-    ) -> &wgpu::RenderPipeline {
+    fn present_pipeline(&mut self, device: &wgpu::Device, format: wgpu::TextureFormat) -> &wgpu::RenderPipeline {
         let layout = &self.present_layout;
         self.present.entry(format).or_insert_with(|| {
             let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -381,11 +341,7 @@ fn render_pipeline(
         fragment: Some(wgpu::FragmentState {
             module,
             entry_point: Some("fs"),
-            targets: &[Some(wgpu::ColorTargetState {
-                format,
-                blend: None,
-                write_mask: wgpu::ColorWrites::ALL,
-            })],
+            targets: &[Some(wgpu::ColorTargetState { format, blend: None, write_mask: wgpu::ColorWrites::ALL })],
             compilation_options: Default::default(),
         }),
         multiview_mask: None,
@@ -447,11 +403,7 @@ impl ViewerRenderer {
                     bytes_per_row: Some(frame.strides[plane]),
                     rows_per_image: Some(h),
                 },
-                wgpu::Extent3d {
-                    width: w,
-                    height: h,
-                    depth_or_array_layers: 1,
-                },
+                wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
             );
             bytes += u64::from(frame.strides[plane]) * u64::from(h);
         }
@@ -464,12 +416,10 @@ impl ViewerRenderer {
         let m = yuv_matrix(frame.matrix);
         let r = range_params(bits, full);
         let params: [f32; 16] = [
-            m[0][0], m[0][1], m[0][2], 0.0, m[1][0], m[1][1], m[1][2], 0.0, m[2][0], m[2][1],
-            m[2][2], 0.0, r[0], r[1], r[2], r[3],
+            m[0][0], m[0][1], m[0][2], 0.0, m[1][0], m[1][1], m[1][2], 0.0, m[2][0], m[2][1], m[2][2], 0.0, r[0], r[1],
+            r[2], r[3],
         ];
-        self.ctx
-            .queue
-            .write_buffer(&self.pipelines.params, 0, bytemuck::cast_slice(&params));
+        self.ctx.queue.write_buffer(&self.pipelines.params, 0, bytemuck::cast_slice(&params));
 
         let view = source.intermediate.create_view(&Default::default());
         let mut encoder = self.ctx.device.create_command_encoder(&Default::default());
@@ -514,11 +464,7 @@ impl ViewerRenderer {
                 let (w, h, _) = format.plane_layout(plane, width, height);
                 device.create_texture(&wgpu::TextureDescriptor {
                     label: Some("frame plane"),
-                    size: wgpu::Extent3d {
-                        width: w,
-                        height: h,
-                        depth_or_array_layers: 1,
-                    },
+                    size: wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
                     mip_level_count: 1,
                     sample_count: 1,
                     dimension: wgpu::TextureDimension::D2,
@@ -530,11 +476,7 @@ impl ViewerRenderer {
             .collect();
         let intermediate = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("frame rgba"),
-            size: wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
+            size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -542,14 +484,9 @@ impl ViewerRenderer {
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
             view_formats: &[],
         });
-        let plane_views: Vec<wgpu::TextureView> = planes
-            .iter()
-            .map(|t| t.create_view(&Default::default()))
-            .collect();
-        let mut entries = vec![wgpu::BindGroupEntry {
-            binding: 0,
-            resource: self.pipelines.params.as_entire_binding(),
-        }];
+        let plane_views: Vec<wgpu::TextureView> = planes.iter().map(|t| t.create_view(&Default::default())).collect();
+        let mut entries =
+            vec![wgpu::BindGroupEntry { binding: 0, resource: self.pipelines.params.as_entire_binding() }];
         for (i, view) in plane_views.iter().enumerate() {
             entries.push(wgpu::BindGroupEntry {
                 binding: i as u32 + 1,
@@ -566,25 +503,11 @@ impl ViewerRenderer {
             label: Some("present"),
             layout: &self.pipelines.present_layout,
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&intermediate_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&self.pipelines.sampler),
-                },
+                wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&intermediate_view) },
+                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&self.pipelines.sampler) },
             ],
         });
-        self.source = Some(SourceTextures {
-            format,
-            width,
-            height,
-            planes,
-            intermediate,
-            convert_bind,
-            present_bind,
-        });
+        self.source = Some(SourceTextures { format, width, height, planes, intermediate, convert_bind, present_bind });
     }
 
     /// Draws the current frame letterboxed into `target` (whole target = viewer rectangle).
@@ -598,11 +521,7 @@ impl ViewerRenderer {
         let device = self.ctx.device.clone();
         self.pipelines.present_pipeline(&device, format);
         let mut encoder = device.create_command_encoder(&Default::default());
-        let mut info = RenderInfo {
-            image: PhysicalRect::default(),
-            target_width: width,
-            target_height: height,
-        };
+        let mut info = RenderInfo { image: PhysicalRect::default(), target_width: width, target_height: height };
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("present"),
@@ -610,24 +529,14 @@ impl ViewerRenderer {
                     view: target,
                     depth_slice: None,
                     resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(self.background),
-                        store: wgpu::StoreOp::Store,
-                    },
+                    ops: wgpu::Operations { load: wgpu::LoadOp::Clear(self.background), store: wgpu::StoreOp::Store },
                 })],
                 ..Default::default()
             });
             if let Some(source) = &self.source {
                 let fit = fit_rect(source.width, source.height, width, height);
                 if fit.width > 0 && fit.height > 0 {
-                    pass.set_viewport(
-                        fit.x as f32,
-                        fit.y as f32,
-                        fit.width as f32,
-                        fit.height as f32,
-                        0.0,
-                        1.0,
-                    );
+                    pass.set_viewport(fit.x as f32, fit.y as f32, fit.width as f32, fit.height as f32, 0.0, 1.0);
                     pass.set_pipeline(&self.pipelines.present[&format]);
                     pass.set_bind_group(0, &source.present_bind, &[]);
                     pass.draw(0..3, 0..1);
@@ -641,19 +550,11 @@ impl ViewerRenderer {
 
     /// Renders into an offscreen RGBA8 texture and reads it back (tight rows). Used by tests and
     /// by the frame-streaming presenter.
-    pub fn render_to_rgba(
-        &mut self,
-        width: u32,
-        height: u32,
-    ) -> Result<(Vec<u8>, RenderInfo), GpuError> {
+    pub fn render_to_rgba(&mut self, width: u32, height: u32) -> Result<(Vec<u8>, RenderInfo), GpuError> {
         let format = wgpu::TextureFormat::Rgba8Unorm;
         let texture = self.ctx.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("offscreen"),
-            size: wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
+            size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -665,8 +566,7 @@ impl ViewerRenderer {
         let info = self.render(&view, format, width, height);
 
         let row = width * 4;
-        let padded =
-            row.div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT) * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+        let padded = row.div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT) * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
         let buffer = self.ctx.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("readback"),
             size: u64::from(padded) * u64::from(height),
@@ -689,11 +589,7 @@ impl ViewerRenderer {
                     rows_per_image: Some(height),
                 },
             },
-            wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
+            wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
         );
         self.ctx.queue.submit([encoder.finish()]);
         let slice = buffer.slice(..);
@@ -701,16 +597,9 @@ impl ViewerRenderer {
         slice.map_async(wgpu::MapMode::Read, move |r| {
             let _ = tx.send(r);
         });
-        self.ctx
-            .device
-            .poll(wgpu::PollType::wait_indefinitely())
-            .map_err(|e| GpuError::Readback(e.to_string()))?;
-        rx.recv()
-            .map_err(|e| GpuError::Readback(e.to_string()))?
-            .map_err(|e| GpuError::Readback(e.to_string()))?;
-        let mapped = slice
-            .get_mapped_range()
-            .map_err(|e| GpuError::Readback(e.to_string()))?;
+        self.ctx.device.poll(wgpu::PollType::wait_indefinitely()).map_err(|e| GpuError::Readback(e.to_string()))?;
+        rx.recv().map_err(|e| GpuError::Readback(e.to_string()))?.map_err(|e| GpuError::Readback(e.to_string()))?;
+        let mapped = slice.get_mapped_range().map_err(|e| GpuError::Readback(e.to_string()))?;
         let mut out = Vec::with_capacity((row * height) as usize);
         for r in 0..height as usize {
             let start = r * padded as usize;
@@ -723,10 +612,7 @@ impl ViewerRenderer {
 
     /// If the device was lost, recreates it (on the same instance), rebuilds all GPU resources
     /// and re-uploads the current frame. Returns true when a recovery happened.
-    pub fn recover_if_lost(
-        &mut self,
-        surface: Option<&wgpu::Surface<'_>>,
-    ) -> Result<bool, GpuError> {
+    pub fn recover_if_lost(&mut self, surface: Option<&wgpu::Surface<'_>>) -> Result<bool, GpuError> {
         if !self.ctx.is_lost() {
             return Ok(false);
         }
