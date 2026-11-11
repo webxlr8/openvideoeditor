@@ -10,6 +10,7 @@ members = [
     "crates/ove-playback",
     "crates/ove-gpu",
     "crates/ove-bench",
+    "crates/ove-transcribe",
     "crates/ove-render",
     "apps/desktop/src-tauri",
 ]

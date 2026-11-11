@@ -27,6 +27,8 @@ allow = [
     "CDLA-Permissive-2.0",
     # FFmpeg bindings: the wrapper crates are WTFPL; FFmpeg itself is built LGPL-only and linked dynamically.
     "WTFPL",
+    # whisper-rs / whisper-rs-sys (speech recognition bindings) are public domain; whisper.cpp itself is MIT.
+    "Unlicense",
 ]
 
 [bans]
