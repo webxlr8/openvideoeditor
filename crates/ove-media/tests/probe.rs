@@ -10,14 +10,7 @@ use serde_json::Value;
 
 fn ffprobe(path: &std::path::Path) -> Value {
     let out = Command::new("ffprobe")
-        .args([
-            "-v",
-            "error",
-            "-show_format",
-            "-show_streams",
-            "-of",
-            "json",
-        ])
+        .args(["-v", "error", "-show_format", "-show_streams", "-of", "json"])
         .arg(path)
         .output()
         .expect("ffprobe on PATH");
@@ -40,47 +33,20 @@ fn probe_matches_ffprobe_for_every_matrix_file() {
         let info = probe(&path).unwrap_or_else(|e| panic!("{name}: {e}"));
         let r = ffprobe(&path);
         let fmt = &r["format"];
-        assert_eq!(
-            info.container,
-            fmt["format_name"].as_str().unwrap(),
-            "{name}: container"
-        );
+        assert_eq!(info.container, fmt["format_name"].as_str().unwrap(), "{name}: container");
         let dur: f64 = fmt["duration"].as_str().unwrap().parse().unwrap();
         let ours = info.duration_us.unwrap() as f64 / 1e6;
-        assert!(
-            (ours - dur).abs() < 0.001,
-            "{name}: duration {ours} vs {dur}"
-        );
-        assert_eq!(
-            info.stream_count,
-            r["streams"].as_array().unwrap().len(),
-            "{name}: stream count"
-        );
+        assert!((ours - dur).abs() < 0.001, "{name}: duration {ours} vs {dur}");
+        assert_eq!(info.stream_count, r["streams"].as_array().unwrap().len(), "{name}: stream count");
 
         let streams = r["streams"].as_array().unwrap();
         let v = streams.iter().find(|s| s["codec_type"] == "video");
         match (&info.video, v) {
             (Some(ours), Some(v)) => {
-                assert_eq!(
-                    ours.codec,
-                    v["codec_name"].as_str().unwrap(),
-                    "{name}: codec"
-                );
-                assert_eq!(
-                    ours.profile.as_deref(),
-                    v["profile"].as_str(),
-                    "{name}: profile"
-                );
-                assert_eq!(
-                    ours.width as u64,
-                    v["width"].as_u64().unwrap(),
-                    "{name}: width"
-                );
-                assert_eq!(
-                    ours.height as u64,
-                    v["height"].as_u64().unwrap(),
-                    "{name}: height"
-                );
+                assert_eq!(ours.codec, v["codec_name"].as_str().unwrap(), "{name}: codec");
+                assert_eq!(ours.profile.as_deref(), v["profile"].as_str(), "{name}: profile");
+                assert_eq!(ours.width as u64, v["width"].as_u64().unwrap(), "{name}: width");
+                assert_eq!(ours.height as u64, v["height"].as_u64().unwrap(), "{name}: height");
                 assert_eq!(
                     ours.pixel_format.as_ref().map(|p| p.name.as_str()),
                     v["pix_fmt"].as_str(),
@@ -97,17 +63,9 @@ fn probe_matches_ffprobe_for_every_matrix_file() {
                     "{name}: r_frame_rate"
                 );
                 if let Some(n) = v["nb_frames"].as_str() {
-                    assert_eq!(
-                        ours.frame_count,
-                        Some(n.parse().unwrap()),
-                        "{name}: nb_frames"
-                    );
+                    assert_eq!(ours.frame_count, Some(n.parse().unwrap()), "{name}: nb_frames");
                 }
-                assert_eq!(
-                    ours.variable_frame_rate,
-                    name == "vfr_phone.mp4",
-                    "{name}: VFR detection"
-                );
+                assert_eq!(ours.variable_frame_rate, name == "vfr_phone.mp4", "{name}: VFR detection");
             }
             (None, None) => {}
             (a, b) => panic!("{name}: video stream mismatch ours={a:?} ffprobe={b:?}"),
@@ -116,34 +74,14 @@ fn probe_matches_ffprobe_for_every_matrix_file() {
         let a = streams.iter().find(|s| s["codec_type"] == "audio");
         match (&info.audio, a) {
             (Some(ours), Some(a)) => {
-                assert_eq!(
-                    ours.codec,
-                    a["codec_name"].as_str().unwrap(),
-                    "{name}: audio codec"
-                );
-                assert_eq!(
-                    ours.profile.as_deref(),
-                    a["profile"].as_str(),
-                    "{name}: audio profile"
-                );
-                assert_eq!(
-                    ours.sample_rate.to_string(),
-                    a["sample_rate"].as_str().unwrap(),
-                    "{name}: rate"
-                );
-                assert_eq!(
-                    ours.channels as u64,
-                    a["channels"].as_u64().unwrap(),
-                    "{name}: channels"
-                );
+                assert_eq!(ours.codec, a["codec_name"].as_str().unwrap(), "{name}: audio codec");
+                assert_eq!(ours.profile.as_deref(), a["profile"].as_str(), "{name}: audio profile");
+                assert_eq!(ours.sample_rate.to_string(), a["sample_rate"].as_str().unwrap(), "{name}: rate");
+                assert_eq!(ours.channels as u64, a["channels"].as_u64().unwrap(), "{name}: channels");
                 if let Some(l) = a["channel_layout"].as_str() {
                     assert_eq!(ours.layout, l, "{name}: layout");
                 }
-                assert_eq!(
-                    ours.sample_format,
-                    a["sample_fmt"].as_str().unwrap(),
-                    "{name}: sample_fmt"
-                );
+                assert_eq!(ours.sample_format, a["sample_fmt"].as_str().unwrap(), "{name}: sample_fmt");
             }
             (None, None) => {}
             (a, b) => panic!("{name}: audio stream mismatch ours={a:?} ffprobe={b:?}"),
@@ -160,22 +98,13 @@ fn probe_reports_plain_errors() {
 
     let e = probe(&media("truncated_nomoov.mp4")).unwrap_err();
     assert_eq!(e.code(), "media.corrupt", "{e}");
-    assert!(
-        e.to_string().contains("truncated_nomoov.mp4"),
-        "message names the file: {e}"
-    );
+    assert!(e.to_string().contains("truncated_nomoov.mp4"), "message names the file: {e}");
 
     let dir = tempfile::tempdir().unwrap();
     let txt = dir.path().join("notes.mov");
     std::fs::write(&txt, b"this is not a movie").unwrap();
     let e = probe(&txt).unwrap_err();
-    assert!(
-        matches!(
-            e,
-            MediaError::Corrupt { .. } | MediaError::Unsupported { .. }
-        ),
-        "{e:?}"
-    );
+    assert!(matches!(e, MediaError::Corrupt { .. } | MediaError::Unsupported { .. }), "{e:?}");
 }
 
 #[test]

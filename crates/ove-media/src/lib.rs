@@ -7,6 +7,7 @@
 //! - [`AudioDecoder`] → decoded, resampled audio in the output device's format
 
 mod audio;
+mod convert;
 mod error;
 mod fallback;
 mod frame;
@@ -16,6 +17,7 @@ mod video;
 mod worker;
 
 pub use audio::{AudioChunk, AudioDecoder, AudioOutputSpec, SampleFormat, Samples};
+pub use convert::{ColorInfo, ColorMatrix};
 pub use error::{MediaError, Result};
 pub use fallback::{FallbackDecoder, open_video};
 pub use frame::{DecodePath, OutputFormat, PixelFormat, Plane, VideoFrame};

@@ -39,10 +39,7 @@ impl Rational {
 
 impl From<ffmpeg_the_third::Rational> for Rational {
     fn from(r: ffmpeg_the_third::Rational) -> Self {
-        Rational {
-            num: r.numerator(),
-            den: r.denominator(),
-        }
+        Rational { num: r.numerator(), den: r.denominator() }
     }
 }
 
@@ -50,17 +47,7 @@ impl From<ffmpeg_the_third::Rational> for Rational {
 pub fn ts_to_us(ts: i64, tb: Rational) -> Micros {
     // SAFETY: pure arithmetic.
     unsafe {
-        ffi::av_rescale_q(
-            ts,
-            ffi::AVRational {
-                num: tb.num,
-                den: tb.den,
-            },
-            ffi::AVRational {
-                num: 1,
-                den: 1_000_000,
-            },
-        )
+        ffi::av_rescale_q(ts, ffi::AVRational { num: tb.num, den: tb.den }, ffi::AVRational { num: 1, den: 1_000_000 })
     }
 }
 
@@ -68,17 +55,7 @@ pub fn ts_to_us(ts: i64, tb: Rational) -> Micros {
 pub fn us_to_ts(us: Micros, tb: Rational) -> i64 {
     // SAFETY: pure arithmetic.
     unsafe {
-        ffi::av_rescale_q(
-            us,
-            ffi::AVRational {
-                num: 1,
-                den: 1_000_000,
-            },
-            ffi::AVRational {
-                num: tb.num,
-                den: tb.den,
-            },
-        )
+        ffi::av_rescale_q(us, ffi::AVRational { num: 1, den: 1_000_000 }, ffi::AVRational { num: tb.num, den: tb.den })
     }
 }
 
@@ -140,31 +117,21 @@ pub(crate) fn codec_profile_name(id: ffi::AVCodecID, profile: i32) -> Option<Str
 
 pub(crate) fn codec_name(id: ffi::AVCodecID) -> String {
     // SAFETY: avcodec_get_name never returns null.
-    unsafe {
-        CStr::from_ptr(ffi::avcodec_get_name(id))
-            .to_string_lossy()
-            .into_owned()
-    }
+    unsafe { CStr::from_ptr(ffi::avcodec_get_name(id)).to_string_lossy().into_owned() }
 }
 
 pub(crate) fn sample_fmt_name(fmt: ffi::AVSampleFormat) -> String {
     // SAFETY: returns static string or null.
     unsafe {
         let p = ffi::av_get_sample_fmt_name(fmt);
-        if p.is_null() {
-            "none".into()
-        } else {
-            CStr::from_ptr(p).to_string_lossy().into_owned()
-        }
+        if p.is_null() { "none".into() } else { CStr::from_ptr(p).to_string_lossy().into_owned() }
     }
 }
 
 pub(crate) fn open_input(path: &Path) -> Result<ffmpeg_the_third::format::context::Input> {
     init();
     if !path.exists() {
-        return Err(MediaError::NotFound {
-            path: path.to_owned(),
-        });
+        return Err(MediaError::NotFound { path: path.to_owned() });
     }
     ffmpeg_the_third::format::input(path).map_err(|e| MediaError::from_open(path, e))
 }
@@ -173,9 +140,6 @@ pub(crate) fn open_input(path: &Path) -> Result<ffmpeg_the_third::format::contex
 pub(crate) fn check_online(path: &Path) -> Result<()> {
     match std::fs::metadata(path) {
         Ok(_) => Ok(()),
-        Err(e) => Err(MediaError::Offline {
-            path: path.to_owned(),
-            reason: e.to_string(),
-        }),
+        Err(e) => Err(MediaError::Offline { path: path.to_owned(), reason: e.to_string() }),
     }
 }

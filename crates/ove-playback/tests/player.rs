@@ -1,8 +1,8 @@
 //! Task 3.1: scheduler, A/V sync and every transport transition on a simulated clock.
 
 use ove_playback::{
-    AudioRing, ClockSource, Command, FrameSource, Micros, PlayState, Player, PlayerConfig,
-    PresentableFrame, SimTime, SourcePoll, Speed, TimeSource,
+    AudioRing, ClockSource, Command, FrameSource, Micros, PlayState, Player, PlayerConfig, PresentableFrame, SimTime,
+    SourcePoll, Speed, TimeSource,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -34,12 +34,7 @@ struct FakeSource {
 
 impl FakeSource {
     fn cfr(n: usize, interval: Micros, time: &SimTime) -> Self {
-        let frames = (0..n)
-            .map(|i| Frame {
-                pts: i as Micros * interval,
-                dur: interval,
-            })
-            .collect();
+        let frames = (0..n).map(|i| Frame { pts: i as Micros * interval, dur: interval }).collect();
         Self::with(frames, time)
     }
     fn with(frames: Vec<Frame>, time: &SimTime) -> Self {
@@ -86,10 +81,7 @@ const FRAME: Micros = 33_333; // 30 fps
 const TICK: Micros = 1_000;
 
 fn config(src: &FakeSource) -> PlayerConfig {
-    PlayerConfig {
-        frame_interval_us: FRAME,
-        last_frame_us: src.frames.last().unwrap().pts,
-    }
+    PlayerConfig { frame_interval_us: FRAME, last_frame_us: src.frames.last().unwrap().pts }
 }
 
 /// Run ticks for `dur`, returning presented (wall, pts).
@@ -116,21 +108,12 @@ fn new_player(src: FakeSource, time: &SimTime) -> Player<FakeSource> {
 #[test]
 fn shows_first_frame_while_paused() {
     let time = SimTime::new();
-    let mut p = Player::new(
-        FakeSource::cfr(30, FRAME, &time),
-        config(&FakeSource::cfr(30, FRAME, &time)),
-        None,
-        0,
-    );
+    let mut p = Player::new(FakeSource::cfr(30, FRAME, &time), config(&FakeSource::cfr(30, FRAME, &time)), None, 0);
     let shown = run(&mut p, &time, 5_000);
     assert_eq!(shown.len(), 1);
     assert_eq!(shown[0].1, 0);
     assert_eq!(p.transport().state, PlayState::Paused);
-    assert_eq!(
-        p.diagnostics().seek_latency.count,
-        0,
-        "initial load is not a user seek"
-    );
+    assert_eq!(p.diagnostics().seek_latency.count, 0, "initial load is not a user seek");
 }
 
 #[test]
@@ -140,18 +123,10 @@ fn plays_every_frame_on_time_at_1x() {
     p.command(Command::Play, time.now_us());
     let shown = run(&mut p, &time, 4_000_000);
     let pts: Vec<Micros> = shown.iter().map(|s| s.1).collect();
-    assert_eq!(
-        pts,
-        (1..90).map(|i| i * FRAME).collect::<Vec<_>>(),
-        "every frame after the first, in order"
-    );
+    assert_eq!(pts, (1..90).map(|i| i * FRAME).collect::<Vec<_>>(), "every frame after the first, in order");
     let d = p.diagnostics();
     assert_eq!(d.dropped_frames, 0);
-    assert!(
-        d.av_offset.max_us <= TICK,
-        "presented within one tick of its pts: {:?}",
-        d.av_offset
-    );
+    assert!(d.av_offset.max_us <= TICK, "presented within one tick of its pts: {:?}", d.av_offset);
     // Without loop, playback stops on the last frame.
     assert_eq!(p.transport().state, PlayState::Paused);
     assert_eq!(p.transport().position, 89 * FRAME);
@@ -178,13 +153,7 @@ fn variable_frame_rate_presents_each_frame_at_its_own_time() {
     for i in 0..40 {
         pts.push(pts.last().unwrap() + if i % 2 == 0 { 20_000 } else { 47_000 });
     }
-    let frames: Vec<Frame> = pts
-        .windows(2)
-        .map(|w| Frame {
-            pts: w[0],
-            dur: w[1] - w[0],
-        })
-        .collect();
+    let frames: Vec<Frame> = pts.windows(2).map(|w| Frame { pts: w[0], dur: w[1] - w[0] }).collect();
     let mut p = new_player(FakeSource::with(frames.clone(), &time), &time);
     let t0 = time.now_us();
     p.command(Command::Play, t0);
@@ -192,10 +161,7 @@ fn variable_frame_rate_presents_each_frame_at_its_own_time() {
     assert_eq!(shown.len(), frames.len() - 1);
     for (wall, pts) in shown {
         let media = wall - t0;
-        assert!(
-            media >= pts && media - pts <= TICK,
-            "frame {pts} shown at media time {media}"
-        );
+        assert!(media >= pts && media - pts <= TICK, "frame {pts} shown at media time {media}");
     }
     assert_eq!(p.diagnostics().dropped_frames, 0);
 }
@@ -313,10 +279,7 @@ fn double_speed_skips_without_counting_drops_and_is_video_only() {
         }
     }
     let advanced = p.transport().position - t0;
-    assert!(
-        (1_900_000..=2_100_000).contains(&advanced),
-        "advanced {advanced} µs in 1 s at 2×"
-    );
+    assert!((1_900_000..=2_100_000).contains(&advanced), "advanced {advanced} µs in 1 s at 2×");
     let d = p.diagnostics();
     assert_eq!(d.dropped_frames, 0);
     assert!(d.skipped_frames >= 25, "{d:?}");
@@ -333,20 +296,14 @@ fn reverse_shuttle_plays_backwards_and_stops_at_start() {
     assert_eq!(p.transport().speed, Speed::Rev1);
     let shown = run(&mut p, &time, 500_000);
     assert!(shown.len() >= 10);
-    assert!(
-        shown.windows(2).all(|w| w[1].1 < w[0].1),
-        "positions decrease: {shown:?}"
-    );
+    assert!(shown.windows(2).all(|w| w[1].1 < w[0].1), "positions decrease: {shown:?}");
     p.command(Command::ShuttleReverse, time.now_us());
     assert_eq!(p.transport().speed, Speed::Rev2);
     run(&mut p, &time, 2_000_000);
     assert_eq!(p.transport().state, PlayState::Paused, "stops at the start");
     assert_eq!(p.transport().position, 0);
     p.command(Command::ShuttleForward, time.now_us());
-    assert_eq!(
-        (p.transport().state, p.transport().speed),
-        (PlayState::Playing, Speed::Fwd1)
-    );
+    assert_eq!((p.transport().state, p.transport().speed), (PlayState::Playing, Speed::Fwd1));
 }
 
 #[test]
@@ -496,14 +453,7 @@ fn diagnostics_snapshot_serializes() {
     let time = SimTime::new();
     let p = new_player(FakeSource::cfr(3, FRAME, &time), &time);
     let json = serde_json::to_value(p.diagnostics()).unwrap();
-    for key in [
-        "presentedFrames",
-        "droppedFrames",
-        "skippedFrames",
-        "avOffset",
-        "seekLatency",
-        "clock",
-    ] {
+    for key in ["presentedFrames", "droppedFrames", "skippedFrames", "avOffset", "seekLatency", "clock"] {
         assert!(json.get(key).is_some(), "{key} in {json}");
     }
     let _ = time.now_us();

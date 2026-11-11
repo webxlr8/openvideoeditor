@@ -26,11 +26,7 @@ pub struct AudioOutputSpec {
 
 impl Default for AudioOutputSpec {
     fn default() -> Self {
-        AudioOutputSpec {
-            sample_rate: 48_000,
-            channels: 2,
-            format: SampleFormat::F32,
-        }
+        AudioOutputSpec { sample_rate: 48_000, channels: 2, format: SampleFormat::F32 }
     }
 }
 
@@ -91,10 +87,7 @@ pub struct AudioDecoder {
 impl AudioDecoder {
     pub fn open(path: &Path, spec: AudioOutputSpec) -> Result<Self> {
         let input = open_input(path)?;
-        let st = input
-            .streams()
-            .best(MediaType::Audio)
-            .ok_or(MediaError::NoStream("audio"))?;
+        let st = input.streams().best(MediaType::Audio).ok_or(MediaError::NoStream("audio"))?;
         let stream_index = st.index();
         let tb: Rational = st.time_base().into();
         // Media time 0 is shared with the video decoder: the video stream's start when there is one. Audio-only
@@ -102,9 +95,7 @@ impl AudioDecoder {
         let start = match input.streams().best(MediaType::Video) {
             Some(v) if v.start_time() != NOPTS => {
                 // SAFETY: pure arithmetic.
-                unsafe {
-                    ffi::av_rescale_q(v.start_time(), v.time_base().into(), st.time_base().into())
-                }
+                unsafe { ffi::av_rescale_q(v.start_time(), v.time_base().into(), st.time_base().into()) }
             }
             _ if st.start_time() == NOPTS => 0,
             _ => st.start_time().max(0),
@@ -112,16 +103,8 @@ impl AudioDecoder {
         let mut ctx = ffmpeg_the_third::codec::context::Context::from_parameters(st.parameters())
             .map_err(|e| MediaError::from_open(path, e))?;
         // SAFETY: plain field write on an unopened context.
-        unsafe {
-            (*ctx.as_mut_ptr()).pkt_timebase = ffi::AVRational {
-                num: tb.num,
-                den: tb.den,
-            }
-        };
-        let dec = ctx
-            .decoder()
-            .audio()
-            .map_err(|e| MediaError::from_open(path, e))?;
+        unsafe { (*ctx.as_mut_ptr()).pkt_timebase = ffi::AVRational { num: tb.num, den: tb.den } };
+        let dec = ctx.decoder().audio().map_err(|e| MediaError::from_open(path, e))?;
         Ok(AudioDecoder {
             path: path.to_owned(),
             input,
@@ -157,12 +140,10 @@ impl AudioDecoder {
         let mut packet = Packet::empty();
         loop {
             match packet.read(&mut self.input) {
-                Ok(()) if packet.stream() == self.stream_index => {
-                    match self.dec.send_packet(&packet) {
-                        Ok(()) | Err(AvError::InvalidData) => return Ok(true),
-                        Err(e) => return Err(MediaError::Decode(e.to_string())),
-                    }
-                }
+                Ok(()) if packet.stream() == self.stream_index => match self.dec.send_packet(&packet) {
+                    Ok(()) | Err(AvError::InvalidData) => return Ok(true),
+                    Err(e) => return Err(MediaError::Decode(e.to_string())),
+                },
                 Ok(()) => continue,
                 Err(_) => {
                     check_online(&self.path)?;
@@ -182,18 +163,12 @@ impl AudioDecoder {
 
     fn to_samples(&self, bytes: Vec<u8>) -> Samples {
         match self.spec.format {
-            SampleFormat::F32 => Samples::F32(
-                bytes
-                    .chunks_exact(4)
-                    .map(|b| f32::from_ne_bytes([b[0], b[1], b[2], b[3]]))
-                    .collect(),
-            ),
-            SampleFormat::S16 => Samples::S16(
-                bytes
-                    .chunks_exact(2)
-                    .map(|b| i16::from_ne_bytes([b[0], b[1]]))
-                    .collect(),
-            ),
+            SampleFormat::F32 => {
+                Samples::F32(bytes.chunks_exact(4).map(|b| f32::from_ne_bytes([b[0], b[1], b[2], b[3]])).collect())
+            }
+            SampleFormat::S16 => {
+                Samples::S16(bytes.chunks_exact(2).map(|b| i16::from_ne_bytes([b[0], b[1]])).collect())
+            }
         }
     }
 
@@ -236,12 +211,7 @@ impl AudioDecoder {
                 }
                 let frame_bytes = self.bytes_per_sample() * self.spec.channels as usize;
                 // SAFETY: as above.
-                unsafe {
-                    self.swr
-                        .as_mut()
-                        .unwrap()
-                        .convert(f.as_ptr(), frame_bytes)?
-                }
+                unsafe { self.swr.as_mut().unwrap().convert(f.as_ptr(), frame_bytes)? }
             } else {
                 // End of stream: drain the resampler's delay once.
                 self.flushed = true;
@@ -268,8 +238,7 @@ impl AudioDecoder {
                     continue;
                 }
                 if t > pts {
-                    let drop_frames = (((t - anchor) * self.spec.sample_rate as i64 + 999_999)
-                        / 1_000_000
+                    let drop_frames = (((t - anchor) * self.spec.sample_rate as i64 + 999_999) / 1_000_000
                         - first_sample)
                         .clamp(0, frames as i64) as usize;
                     samples.drain_front(drop_frames * self.spec.channels as usize);
@@ -278,11 +247,7 @@ impl AudioDecoder {
                 }
                 self.trim_before = None;
             }
-            return Ok(Some(AudioChunk {
-                pts_us: pts,
-                frames,
-                samples,
-            }));
+            return Ok(Some(AudioChunk { pts_us: pts, frames, samples }));
         }
     }
 
@@ -290,22 +255,11 @@ impl AudioDecoder {
     pub fn seek(&mut self, t_us: Micros) -> Result<()> {
         let ts = self.start_ts + us_to_ts(t_us, self.tb);
         // SAFETY: valid format context.
-        let r = unsafe {
-            ffi::avformat_seek_file(
-                self.input.as_mut_ptr(),
-                self.stream_index as i32,
-                i64::MIN,
-                ts,
-                ts,
-                0,
-            )
-        };
+        let r =
+            unsafe { ffi::avformat_seek_file(self.input.as_mut_ptr(), self.stream_index as i32, i64::MIN, ts, ts, 0) };
         if r < 0 {
             check_online(&self.path)?;
-            return Err(MediaError::Decode(format!(
-                "audio seek failed: {}",
-                AvError::from(r)
-            )));
+            return Err(MediaError::Decode(format!("audio seek failed: {}", AvError::from(r))));
         }
         self.dec.flush();
         self.swr = None;
@@ -366,14 +320,9 @@ impl Swr {
             ffi::av_channel_layout_uninit(&mut in_layout);
             if r < 0 || ffi::swr_init(ctx) < 0 {
                 ffi::swr_free(&mut ctx);
-                return Err(MediaError::Decode(
-                    "audio resampler could not be created".into(),
-                ));
+                return Err(MediaError::Decode("audio resampler could not be created".into()));
             }
-            Ok(Swr {
-                ctx,
-                key: Swr::key(f),
-            })
+            Ok(Swr { ctx, key: Swr::key(f) })
         }
     }
 
@@ -388,17 +337,10 @@ impl Swr {
             }
             let mut buf = vec![0u8; cap as usize * frame_bytes];
             let mut out_ptr = buf.as_mut_ptr();
-            let in_ptr = if f.is_null() {
-                std::ptr::null_mut()
-            } else {
-                (*f).extended_data as *mut *const u8
-            };
+            let in_ptr = if f.is_null() { std::ptr::null_mut() } else { (*f).extended_data as *mut *const u8 };
             let n = ffi::swr_convert(self.ctx, &mut out_ptr, cap, in_ptr, in_count);
             if n < 0 {
-                return Err(MediaError::Decode(format!(
-                    "resample: {}",
-                    AvError::from(n)
-                )));
+                return Err(MediaError::Decode(format!("resample: {}", AvError::from(n))));
             }
             buf.truncate(n as usize * frame_bytes);
             Ok(buf)

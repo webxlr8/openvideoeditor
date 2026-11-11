@@ -16,9 +16,7 @@ mod player;
 mod transport;
 
 pub use audio::AudioRing;
-pub use clock::{
-    AudioPosition, ClockSource, Micros, PlaybackClock, SimTime, SystemTime, TimeSource,
-};
+pub use clock::{AudioPosition, ClockSource, Micros, PlaybackClock, SimTime, SystemTime, TimeSource};
 pub use diagnostics::{Diagnostics, DiagnosticsSnapshot, Samples, Stats};
 #[cfg(feature = "media")]
 pub use media::WorkerSource;

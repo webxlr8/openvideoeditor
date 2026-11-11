@@ -50,22 +50,13 @@ impl DecodeWorker {
             .name("ove-decode".into())
             .spawn(move || run(decoder, cmd_rx, ev_tx, path2))
             .expect("spawn decode thread");
-        DecodeWorker {
-            cmd: cmd_tx,
-            events: ev_rx,
-            generation: 0,
-            path,
-            handle: Some(handle),
-        }
+        DecodeWorker { cmd: cmd_tx, events: ev_rx, generation: 0, path, handle: Some(handle) }
     }
 
     /// Flush queued frames and reposition; the next frame is the one whose interval contains `t_us`.
     pub fn seek(&mut self, t_us: Micros) {
         self.generation += 1;
-        let _ = self.cmd.send(Cmd::Seek {
-            t_us,
-            generation: self.generation,
-        });
+        let _ = self.cmd.send(Cmd::Seek { t_us, generation: self.generation });
         // Drop whatever is queued now; later stale events are filtered by generation.
         while self.events.try_recv().is_ok() {}
     }
@@ -80,9 +71,7 @@ impl DecodeWorker {
                 Ok(_) => continue,
                 Err(RecvTimeoutError::Timeout) => return None,
                 Err(RecvTimeoutError::Disconnected) => {
-                    return Some(WorkerEvent::Error(MediaError::WorkerPanicked(
-                        "decode thread exited".into(),
-                    )));
+                    return Some(WorkerEvent::Error(MediaError::WorkerPanicked("decode thread exited".into())));
                 }
             }
         }
@@ -96,9 +85,7 @@ impl DecodeWorker {
                 Ok(_) => continue,
                 Err(TryRecvError::Empty) => return None,
                 Err(TryRecvError::Disconnected) => {
-                    return Some(WorkerEvent::Error(MediaError::WorkerPanicked(
-                        "decode thread exited".into(),
-                    )));
+                    return Some(WorkerEvent::Error(MediaError::WorkerPanicked("decode thread exited".into())));
                 }
             }
         }
@@ -106,10 +93,7 @@ impl DecodeWorker {
 
     /// The decode path currently in use (changes on fallback).
     pub fn decode_path(&self) -> DecodePath {
-        self.path
-            .lock()
-            .map(|p| p.clone())
-            .unwrap_or(DecodePath::Software)
+        self.path.lock().map(|p| p.clone()).unwrap_or(DecodePath::Software)
     }
 }
 
@@ -159,10 +143,7 @@ fn run(
         if let Some(c) = next {
             match c {
                 Cmd::Stop => return,
-                Cmd::Seek {
-                    t_us,
-                    generation: g,
-                } => {
+                Cmd::Seek { t_us, generation: g } => {
                     generation = g;
                     idle = false;
                     let r = catch_unwind(AssertUnwindSafe(|| decoder.seek(t_us)));
@@ -197,10 +178,7 @@ fn run(
                 idle = true;
                 (WorkerEvent::Error(e), false)
             }
-            Err(p) => (
-                WorkerEvent::Error(MediaError::WorkerPanicked(panic_message(p))),
-                true,
-            ),
+            Err(p) => (WorkerEvent::Error(MediaError::WorkerPanicked(panic_message(p))), true),
         };
         // Send without blocking command handling: while the queue is full, keep watching for seek/stop.
         let mut msg = (generation, ev);
@@ -212,10 +190,7 @@ fn run(
                     msg = m;
                     match cmd.recv_timeout(Duration::from_millis(2)) {
                         Ok(Cmd::Stop) | Err(RecvTimeoutError::Disconnected) => return,
-                        Ok(Cmd::Seek {
-                            t_us,
-                            generation: g,
-                        }) => {
+                        Ok(Cmd::Seek { t_us, generation: g }) => {
                             // Re-queue the seek for the top of the loop and drop the stale frame.
                             generation = g;
                             idle = false;
@@ -229,9 +204,7 @@ fn run(
                                 Err(p) => {
                                     let _ = tx.send((
                                         generation,
-                                        WorkerEvent::Error(MediaError::WorkerPanicked(
-                                            panic_message(p),
-                                        )),
+                                        WorkerEvent::Error(MediaError::WorkerPanicked(panic_message(p))),
                                     ));
                                     return;
                                 }

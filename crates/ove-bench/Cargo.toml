@@ -9,5 +9,19 @@ publish.workspace = true
 
 [dependencies]
 
+ove-media = { version = "0.1.0", path = "../ove-media" }
+ove-playback = { version = "0.1.0", path = "../ove-playback", default-features = false, features = ["media"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+
 [lints]
 workspace = true
+
+[dev-dependencies]
+jsonschema = { version = "0.61", default-features = false }
+
+[target."cfg(windows)".dependencies]
+windows-sys = { version = "0.61", features = ["Win32_System_ProcessStatus", "Win32_System_Threading", "Win32_Foundation"] }
+
+[target."cfg(unix)".dependencies]
+libc = "0.2"

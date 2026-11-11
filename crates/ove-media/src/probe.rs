@@ -8,8 +8,8 @@ use serde::Serialize;
 
 use crate::error::Result;
 use crate::util::{
-    Micros, NOPTS, PixelFormatInfo, Rational, codec_name, codec_profile_name, open_input,
-    pix_fmt_info, sample_fmt_name, ts_to_us,
+    Micros, NOPTS, PixelFormatInfo, Rational, codec_name, codec_profile_name, open_input, pix_fmt_info,
+    sample_fmt_name, ts_to_us,
 };
 
 /// Everything the viewer and properties panel need about a file, without decoding it.
@@ -85,13 +85,7 @@ pub fn probe(path: &Path) -> Result<MediaInfo> {
         // SAFETY: parameters pointer is valid for the stream's lifetime; fields are plain data.
         let (codec_id, profile, fmt, w, h) = unsafe {
             let p = &*par.as_ptr();
-            (
-                p.codec_id,
-                p.profile,
-                p.format,
-                p.width as u32,
-                p.height as u32,
-            )
+            (p.codec_id, p.profile, p.format, p.width as u32, p.height as u32)
         };
         let tb: Rational = st.time_base().into();
         let frames = st.frames();
@@ -111,11 +105,7 @@ pub fn probe(path: &Path) -> Result<MediaInfo> {
             time_base: tb,
             duration_us: (dur != NOPTS && dur > 0).then(|| ts_to_us(dur, tb)),
         });
-        let ts = if index_ts.len() >= 3 {
-            index_ts
-        } else {
-            scan_timestamps(&mut input, idx)
-        };
+        let ts = if index_ts.len() >= 3 { index_ts } else { scan_timestamps(&mut input, idx) };
         if let Some(v) = video.as_mut() {
             v.variable_frame_rate = is_variable(&ts);
             if v.frame_count.is_none() && ts.len() > 1 && ts.len() < VFR_SCAN_PACKETS {
@@ -135,20 +125,11 @@ pub fn probe(path: &Path) -> Result<MediaInfo> {
             let mut buf = [0 as std::ffi::c_char; 128];
             let n = ffi::av_channel_layout_describe(&p.ch_layout, buf.as_mut_ptr(), buf.len());
             let layout = if n > 0 {
-                std::ffi::CStr::from_ptr(buf.as_ptr())
-                    .to_string_lossy()
-                    .into_owned()
+                std::ffi::CStr::from_ptr(buf.as_ptr()).to_string_lossy().into_owned()
             } else {
                 format!("{} channels", p.ch_layout.nb_channels)
             };
-            (
-                p.codec_id,
-                p.profile,
-                p.format,
-                p.sample_rate as u32,
-                p.ch_layout.nb_channels as u32,
-                layout,
-            )
+            (p.codec_id, p.profile, p.format, p.sample_rate as u32, p.ch_layout.nb_channels as u32, layout)
         };
         audio = Some(AudioStreamInfo {
             stream_index: idx,
@@ -163,15 +144,7 @@ pub fn probe(path: &Path) -> Result<MediaInfo> {
         });
     }
 
-    Ok(MediaInfo {
-        path: path.to_owned(),
-        container,
-        duration_us,
-        bit_rate,
-        video,
-        audio,
-        stream_count,
-    })
+    Ok(MediaInfo { path: path.to_owned(), container, duration_us, bit_rate, video, audio, stream_count })
 }
 
 /// Timestamps from the demuxer's sample index (MOV/MP4 `stts`, MKV cues are sparse and give < 3 entries' use).
@@ -225,14 +198,8 @@ pub(crate) fn is_variable(ts: &[i64]) -> bool {
     sorted.dedup();
     // Ignore the last interval: containers often shorten the final frame.
     let deltas: Vec<i64> = sorted.windows(2).map(|w| w[1] - w[0]).collect();
-    let body = if deltas.len() > 2 {
-        &deltas[..deltas.len() - 1]
-    } else {
-        &deltas[..]
-    };
-    let (min, max) = body
-        .iter()
-        .fold((i64::MAX, i64::MIN), |(lo, hi), &d| (lo.min(d), hi.max(d)));
+    let body = if deltas.len() > 2 { &deltas[..deltas.len() - 1] } else { &deltas[..] };
+    let (min, max) = body.iter().fold((i64::MAX, i64::MIN), |(lo, hi), &d| (lo.min(d), hi.max(d)));
     max - min > 1 && (max - min) as f64 > 0.01 * min as f64
 }
 

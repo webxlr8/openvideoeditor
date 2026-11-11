@@ -117,10 +117,7 @@ pub struct FfmpegVideoDecoder {
 impl FfmpegVideoDecoder {
     pub fn open(path: &Path, opts: DecoderOptions) -> Result<Self> {
         let input = open_input(path)?;
-        let st = input
-            .streams()
-            .best(MediaType::Video)
-            .ok_or(MediaError::NoStream("video"))?;
+        let st = input.streams().best(MediaType::Video).ok_or(MediaError::NoStream("video"))?;
         let stream_index = st.index();
         let tb: Rational = st.time_base().into();
         let start = st.start_time();
@@ -133,10 +130,7 @@ impl FfmpegVideoDecoder {
             let c = ctx.as_mut_ptr();
             (*c).thread_count = 0;
             (*c).thread_type = ffi::FF_THREAD_FRAME | ffi::FF_THREAD_SLICE;
-            (*c).pkt_timebase = ffi::AVRational {
-                num: tb.num,
-                den: tb.den,
-            };
+            (*c).pkt_timebase = ffi::AVRational { num: tb.num, den: tb.den };
         }
         let codec_id = ctx.id();
         let mut hw_fallback_reason = None;
@@ -158,10 +152,7 @@ impl FfmpegVideoDecoder {
         let dec = ctx.decoder().video().map_err(|e| match e {
             AvError::DecoderNotFound => MediaError::Unsupported {
                 path: path.to_owned(),
-                reason: format!(
-                    "no decoder for {}",
-                    crate::util::codec_name(codec_id.into())
-                ),
+                reason: format!("no decoder for {}", crate::util::codec_name(codec_id.into())),
             },
             e => MediaError::from_open(path, e),
         })?;
@@ -193,11 +184,7 @@ impl FfmpegVideoDecoder {
     }
 
     fn hw_or_decode(&self, e: AvError) -> MediaError {
-        if self.hw_active {
-            MediaError::Hardware(e.to_string())
-        } else {
-            MediaError::Decode(e.to_string())
-        }
+        if self.hw_active { MediaError::Hardware(e.to_string()) } else { MediaError::Decode(e.to_string()) }
     }
 
     /// Feed one packet of our stream to the decoder (or EOF). Returns false when nothing more can be fed.
@@ -227,9 +214,7 @@ impl FfmpegVideoDecoder {
                         Err(AvError::InvalidData) if !self.hw_active => continue, // damaged packet: skip it
                         Err(AvError::Other { errno }) if errno == libc::EAGAIN => {
                             // Decoder full: caller drains frames first. Keep the packet by re-sending after drain.
-                            return Err(MediaError::Decode(
-                                "decoder refused input while full".into(),
-                            ));
+                            return Err(MediaError::Decode("decoder refused input while full".into()));
                         }
                         Err(e) => return Err(self.hw_or_decode(e)),
                     }
@@ -242,10 +227,7 @@ impl FfmpegVideoDecoder {
                     // Read errors: the file went away (offline) or it is truncated/damaged (treat as end).
                     check_online(&self.path)?;
                     if matches!(e, AvError::Other { .. }) && !self.path.exists() {
-                        return Err(MediaError::Offline {
-                            path: self.path.clone(),
-                            reason: e.to_string(),
-                        });
+                        return Err(MediaError::Offline { path: self.path.clone(), reason: e.to_string() });
                     }
                     self.demux_eof = true;
                     return self.feed();
@@ -275,15 +257,10 @@ impl FfmpegVideoDecoder {
                     {
                         // The platform decoder declined this stream (e.g. unsupported profile).
                         self.hw_active = false;
-                        self.hw_fallback_reason =
-                            Some("stream not supported by the hardware decoder".into());
+                        self.hw_fallback_reason = Some("stream not supported by the hardware decoder".into());
                     }
                     let dur_us = if dur > 0 { ts_to_us(dur, self.tb) } else { 0 };
-                    return Ok(Some(RawFrame {
-                        frame: f,
-                        pts_us,
-                        dur_us,
-                    }));
+                    return Ok(Some(RawFrame { frame: f, pts_us, dur_us }));
                 }
                 Err(AvError::Other { errno }) if errno == libc::EAGAIN => {
                     if !self.feed()? {
@@ -329,23 +306,29 @@ impl FfmpegVideoDecoder {
         let src_fmt = ffi::AVPixelFormat(unsafe { (*frame.as_ptr()).format });
         let (format, planes) = match self.opts.output {
             OutputFormat::Native => {
-                let name = crate::util::pix_fmt_info(src_fmt)
-                    .map(|i| i.name)
-                    .unwrap_or_default();
+                let name = crate::util::pix_fmt_info(src_fmt).map(|i| i.name).unwrap_or_default();
                 (PixelFormat::Native(name), pack_planes(&frame, src_fmt)?)
             }
             OutputFormat::Display => {
-                let (target, pf) = display_target(src_fmt);
-                if target == src_fmt {
-                    (pf, pack_planes(&frame, src_fmt)?)
+                if src_fmt == ffi::AVPixelFormat::NV12 {
+                    (PixelFormat::Nv12, pack_planes(&frame, src_fmt)?)
+                } else if src_fmt == ffi::AVPixelFormat::P010LE {
+                    (PixelFormat::P010, pack_planes(&frame, src_fmt)?)
+                } else if let Some(out) = unsafe { crate::convert::to_semiplanar(frame.as_ptr()) } {
+                    // SAFETY (above): the frame is a valid CPU frame.
+                    out
                 } else {
                     copies += 1;
+                    let target = ffi::AVPixelFormat::RGBA;
                     let out = self.sws.convert(&frame, src_fmt, target)?;
-                    (pf, pack_planes(&out, target)?)
+                    (PixelFormat::Rgba8, pack_planes(&out, target)?)
                 }
             }
         };
+        // SAFETY: valid frame.
+        let color = unsafe { crate::convert::color_info(frame.as_ptr()) };
         Ok(VideoFrame {
+            color,
             pts_us: raw.pts_us,
             duration_us: raw.dur_us,
             width: w,
@@ -373,33 +356,17 @@ impl FfmpegVideoDecoder {
 
     fn seek_container(&mut self, ts: i64) -> Result<()> {
         // SAFETY: valid format context; stream-index seek in stream time base, landing at or before `ts`.
-        let r = unsafe {
-            ffi::avformat_seek_file(
-                self.input.as_mut_ptr(),
-                self.stream_index as i32,
-                i64::MIN,
-                ts,
-                ts,
-                0,
-            )
-        };
+        let r =
+            unsafe { ffi::avformat_seek_file(self.input.as_mut_ptr(), self.stream_index as i32, i64::MIN, ts, ts, 0) };
         if r < 0 {
             // Some demuxers only support backward seeking by timestamp.
             // SAFETY: as above.
             let r2 = unsafe {
-                ffi::av_seek_frame(
-                    self.input.as_mut_ptr(),
-                    self.stream_index as i32,
-                    ts,
-                    ffi::AVSEEK_FLAG_BACKWARD,
-                )
+                ffi::av_seek_frame(self.input.as_mut_ptr(), self.stream_index as i32, ts, ffi::AVSEEK_FLAG_BACKWARD)
             };
             if r2 < 0 {
                 check_online(&self.path)?;
-                return Err(MediaError::Decode(format!(
-                    "seek failed: {}",
-                    AvError::from(r2)
-                )));
+                return Err(MediaError::Decode(format!("seek failed: {}", AvError::from(r2))));
             }
         }
         self.reset_decoder();
@@ -413,9 +380,7 @@ impl VideoDecoder for FfmpegVideoDecoder {
             && self.hw_active
             && self.frames_out >= k
         {
-            return Err(MediaError::Hardware(format!(
-                "injected failure after {k} frames"
-            )));
+            return Err(MediaError::Hardware(format!("injected failure after {k} frames")));
         }
         let Some(raw) = self.next_raw()? else {
             return Ok(None);
@@ -431,11 +396,7 @@ impl VideoDecoder for FfmpegVideoDecoder {
         for _ in 0..12 {
             let seek_ts = target - us_to_ts(back_us, self.tb);
             let at_start = seek_ts <= self.start_ts;
-            self.seek_container(if at_start {
-                self.start_ts.min(seek_ts)
-            } else {
-                seek_ts
-            })?;
+            self.seek_container(if at_start { self.start_ts.min(seek_ts) } else { seek_ts })?;
             let mut before: Option<RawFrame> = None;
             let mut after: Option<RawFrame> = None;
             while let Some(f) = self.decode_raw()? {
@@ -494,8 +455,7 @@ fn create_hw_device(name: &str, codec: ffi::AVCodecID) -> std::result::Result<Hw
             if cfg.is_null() {
                 break;
             }
-            if (*cfg).device_type == ty
-                && ((*cfg).methods & ffi::AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX.0 as i32) != 0
+            if (*cfg).device_type == ty && ((*cfg).methods & ffi::AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX.0 as i32) != 0
             {
                 pix_fmt = Some((*cfg).pix_fmt);
                 break;
@@ -510,25 +470,7 @@ fn create_hw_device(name: &str, codec: ffi::AVCodecID) -> std::result::Result<Hw
         if r < 0 {
             return Err(format!("{name} device unavailable: {}", AvError::from(r)));
         }
-        Ok(HwDevice {
-            device,
-            pix_fmt,
-            api: name.to_string(),
-        })
-    }
-}
-
-/// GPU-friendly target for a decoded format.
-fn display_target(src: ffi::AVPixelFormat) -> (ffi::AVPixelFormat, PixelFormat) {
-    let info = crate::util::pix_fmt_info(src);
-    match info {
-        Some(i) if i.chroma == "4:2:0" && !i.has_alpha && i.bit_depth <= 8 => {
-            (ffi::AVPixelFormat::NV12, PixelFormat::Nv12)
-        }
-        Some(i) if i.chroma == "4:2:0" && !i.has_alpha => {
-            (ffi::AVPixelFormat::P010LE, PixelFormat::P010)
-        }
-        _ => (ffi::AVPixelFormat::RGBA, PixelFormat::Rgba8),
+        Ok(HwDevice { device, pix_fmt, api: name.to_string() })
     }
 }
 
@@ -549,18 +491,9 @@ fn pack_planes(frame: &AvFrame, fmt: ffi::AVPixelFormat) -> Result<Vec<Plane>> {
             if row < 0 {
                 return Err(MediaError::Decode("bad plane layout".into()));
             }
-            let chroma =
-                (i == 1 || i == 2) && ((*desc).flags & ffi::AV_PIX_FMT_FLAG_RGB as u64) == 0;
-            let ph = if chroma {
-                (h + (1 << (*desc).log2_chroma_h) - 1) >> (*desc).log2_chroma_h
-            } else {
-                h
-            };
-            let pw = if chroma {
-                (w + (1 << (*desc).log2_chroma_w) - 1) >> (*desc).log2_chroma_w
-            } else {
-                w
-            };
+            let chroma = (i == 1 || i == 2) && ((*desc).flags & ffi::AV_PIX_FMT_FLAG_RGB as u64) == 0;
+            let ph = if chroma { (h + (1 << (*desc).log2_chroma_h) - 1) >> (*desc).log2_chroma_h } else { h };
+            let pw = if chroma { (w + (1 << (*desc).log2_chroma_w) - 1) >> (*desc).log2_chroma_w } else { w };
             let src = (*p).data[i as usize];
             let ls = (*p).linesize[i as usize] as isize;
             let mut data = Vec::with_capacity((row * ph) as usize);
@@ -568,20 +501,15 @@ fn pack_planes(frame: &AvFrame, fmt: ffi::AVPixelFormat) -> Result<Vec<Plane>> {
                 let line = std::slice::from_raw_parts(src.offset(y * ls), row as usize);
                 data.extend_from_slice(line);
             }
-            planes.push(Plane {
-                data,
-                stride: row as usize,
-                width: pw as u32,
-                height: ph as u32,
-            });
+            planes.push(Plane { data, stride: row as usize, width: pw as u32, height: ph as u32 });
         }
         Ok(planes)
     }
 }
 
 // swscale constants as plain values: their binding types differ between FFmpeg major versions.
-/// `SWS_BICUBIC | SWS_FULL_CHR_H_INT | SWS_ACCURATE_RND`.
-const SWS_FLAGS: i32 = 0x4 | 0x2000 | 0x40000;
+/// `SWS_BILINEAR | SWS_ACCURATE_RND`.
+const SWS_FLAGS: i32 = 0x2 | 0x40000;
 const SWS_CS_ITU709: i32 = 1;
 const SWS_CS_ITU601: i32 = 5;
 
@@ -595,12 +523,7 @@ struct Sws {
 unsafe impl Send for Sws {}
 
 impl Sws {
-    fn convert(
-        &mut self,
-        src: &AvFrame,
-        from: ffi::AVPixelFormat,
-        to: ffi::AVPixelFormat,
-    ) -> Result<AvFrame> {
+    fn convert(&mut self, src: &AvFrame, from: ffi::AVPixelFormat, to: ffi::AVPixelFormat) -> Result<AvFrame> {
         let (w, h) = (src.width() as i32, src.height() as i32);
         // SAFETY: getCachedContext reuses or frees the previous context; frames are valid.
         unsafe {

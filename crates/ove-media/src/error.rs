@@ -43,30 +43,18 @@ impl MediaError {
     pub(crate) fn from_open(path: &Path, err: ffmpeg_the_third::Error) -> MediaError {
         use ffmpeg_the_third::Error as E;
         if !path.exists() {
-            return MediaError::NotFound {
-                path: path.to_owned(),
-            };
+            return MediaError::NotFound { path: path.to_owned() };
         }
         let path = path.to_owned();
         match err {
-            E::InvalidData | E::Eof => MediaError::Corrupt {
-                path,
-                reason: err.to_string(),
-            },
+            E::InvalidData | E::Eof => MediaError::Corrupt { path, reason: err.to_string() },
             E::DecoderNotFound | E::DemuxerNotFound | E::PatchWelcome | E::Bug => {
-                MediaError::Unsupported {
-                    path,
-                    reason: err.to_string(),
-                }
+                MediaError::Unsupported { path, reason: err.to_string() }
             }
-            E::Other { errno } if errno == libc::EACCES => MediaError::Offline {
-                path,
-                reason: "permission denied".into(),
-            },
-            other => MediaError::Unsupported {
-                path,
-                reason: other.to_string(),
-            },
+            E::Other { errno } if errno == libc::EACCES => {
+                MediaError::Offline { path, reason: "permission denied".into() }
+            }
+            other => MediaError::Unsupported { path, reason: other.to_string() },
         }
     }
 }

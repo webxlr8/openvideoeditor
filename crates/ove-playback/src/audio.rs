@@ -88,10 +88,8 @@ impl AudioRing {
     /// Media time just after the last queued sample (where the producer continues).
     pub fn end_us(&self) -> Option<Micros> {
         let r = self.lock();
-        r.front_us.map(|f| {
-            f + (r.buf.len() / r.channels.max(1) as usize) as Micros * 1_000_000
-                / r.rate.max(1) as Micros
-        })
+        r.front_us
+            .map(|f| f + (r.buf.len() / r.channels.max(1) as usize) as Micros * 1_000_000 / r.rate.max(1) as Micros)
     }
 
     pub fn set_volume(&self, v: f32) {
@@ -131,11 +129,7 @@ impl AudioRing {
             out.fill(0.0);
             return;
         };
-        r.position = Some(AudioPosition {
-            media_us: front,
-            at_wall_us: wall_us,
-            latency_us,
-        });
+        r.position = Some(AudioPosition { media_us: front, at_wall_us: wall_us, latency_us });
         let gain = if r.muted { 0.0 } else { r.volume };
         let n = out.len().min(r.buf.len());
         for (o, s) in out.iter_mut().zip(r.buf.drain(..n)) {
@@ -167,10 +161,7 @@ mod tests {
         ring.fill(&mut out, 7_000, 20_000);
         assert_eq!(out, [0.5; 10]);
         let p = ring.position().unwrap();
-        assert_eq!(
-            (p.media_us, p.at_wall_us, p.latency_us),
-            (500_000, 7_000, 20_000)
-        );
+        assert_eq!((p.media_us, p.at_wall_us, p.latency_us), (500_000, 7_000, 20_000));
         assert_eq!(ring.end_us(), Some(600_000));
         assert_eq!(ring.queued_us(), 90_000);
         ring.fill(&mut out, 17_000, 20_000);

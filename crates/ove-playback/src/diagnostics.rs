@@ -106,10 +106,7 @@ mod tests {
             s.push(v);
         }
         let st = s.summary();
-        assert_eq!(
-            (st.count, st.mean_us, st.p50_us, st.p95_us, st.max_us),
-            (100, 50, 51, 95, 100)
-        );
+        assert_eq!((st.count, st.mean_us, st.p50_us, st.p95_us, st.max_us), (100, 50, 51, 95, 100));
     }
 
     #[test]

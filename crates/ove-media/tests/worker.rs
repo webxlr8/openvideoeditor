@@ -8,16 +8,12 @@ use std::time::Duration;
 
 use common::{frame_md5, media, reference_framemd5};
 use ove_media::{
-    DecodePath, DecodeWorker, DecoderOptions, FfmpegVideoDecoder, HwAccel, MediaError,
-    OutputFormat, VideoDecoder, VideoFrame, WorkerEvent,
+    DecodePath, DecodeWorker, DecoderOptions, FfmpegVideoDecoder, HwAccel, MediaError, OutputFormat, VideoDecoder,
+    VideoFrame, WorkerEvent,
 };
 
 fn native() -> DecoderOptions {
-    DecoderOptions {
-        hwaccel: HwAccel::Off,
-        output: OutputFormat::Native,
-        inject_hw_failure_after: None,
-    }
+    DecoderOptions { hwaccel: HwAccel::Off, output: OutputFormat::Native, inject_hw_failure_after: None }
 }
 
 struct Counting {
@@ -70,12 +66,7 @@ fn seek_flushes_queue_and_delivers_target_frame() {
     let dec = FfmpegVideoDecoder::open(&path, native()).unwrap();
     let mut w = DecodeWorker::spawn(Box::new(dec), 8);
     std::thread::sleep(Duration::from_millis(100)); // let the queue fill with frames from the start
-    for (t, k) in [
-        (3_000_000, 90usize),
-        (500_000, 15),
-        (1_016_667, 30),
-        (3_966_667, 119),
-    ] {
+    for (t, k) in [(3_000_000, 90usize), (500_000, 15), (1_016_667, 30), (3_966_667, 119)] {
         w.seek(t);
         match w.recv_timeout(Duration::from_secs(5)).unwrap() {
             WorkerEvent::Frame(f) => assert_eq!(frame_md5(&f), reference[k], "seek to {t}"),
@@ -83,10 +74,7 @@ fn seek_flushes_queue_and_delivers_target_frame() {
         }
     }
     // After the last frame comes Eof, then a seek restarts decoding (loop playback).
-    assert!(matches!(
-        w.recv_timeout(Duration::from_secs(5)),
-        Some(WorkerEvent::Eof)
-    ));
+    assert!(matches!(w.recv_timeout(Duration::from_secs(5)), Some(WorkerEvent::Eof)));
     w.seek(0);
     match w.recv_timeout(Duration::from_secs(5)).unwrap() {
         WorkerEvent::Frame(f) => assert_eq!(f.pts_us, 0),
@@ -116,10 +104,7 @@ fn worker_panic_becomes_an_error() {
     }
     // The handle stays usable: further calls report the stopped worker instead of hanging or panicking.
     w.seek(0);
-    assert!(matches!(
-        w.recv_timeout(Duration::from_millis(200)),
-        Some(WorkerEvent::Error(_)) | None
-    ));
+    assert!(matches!(w.recv_timeout(Duration::from_millis(200)), Some(WorkerEvent::Error(_)) | None));
 }
 
 #[test]
@@ -129,16 +114,10 @@ fn worker_reports_offline_media() {
     std::fs::copy(media("prores_hq.mov"), &copy).unwrap();
     let dec = FfmpegVideoDecoder::open(&copy, native()).unwrap();
     let mut w = DecodeWorker::spawn(Box::new(dec), 2);
-    assert!(matches!(
-        w.recv_timeout(Duration::from_secs(2)),
-        Some(WorkerEvent::Frame(_))
-    ));
+    assert!(matches!(w.recv_timeout(Duration::from_secs(2)), Some(WorkerEvent::Frame(_))));
     std::fs::remove_file(&copy).unwrap();
     let err = loop {
-        match w
-            .recv_timeout(Duration::from_secs(5))
-            .expect("worker went silent")
-        {
+        match w.recv_timeout(Duration::from_secs(5)).expect("worker went silent") {
             WorkerEvent::Frame(_) => continue,
             WorkerEvent::Eof => panic!("reached the end without noticing the file was removed"),
             WorkerEvent::Error(e) => break e,

@@ -46,11 +46,7 @@ pub struct AudioOutput {
 }
 
 /// Decide whether the stream must be rebuilt.
-pub(crate) fn needs_rebuild<I: PartialEq>(
-    current: Option<&I>,
-    default_now: Option<&I>,
-    stream_failed: bool,
-) -> bool {
+pub(crate) fn needs_rebuild<I: PartialEq>(current: Option<&I>, default_now: Option<&I>, stream_failed: bool) -> bool {
     stream_failed || current != default_now
 }
 
@@ -67,12 +63,7 @@ impl AudioOutput {
             .spawn(move || run(r2, s2, st2, time, ready_tx))
             .map_err(|e| AudioUnavailable::Failed(e.to_string()))?;
         match ready_rx.recv_timeout(Duration::from_secs(5)) {
-            Ok(Ok(())) => Ok(AudioOutput {
-                ring,
-                status,
-                stop,
-                thread: Some(thread),
-            }),
+            Ok(Ok(())) => Ok(AudioOutput { ring, status, stop, thread: Some(thread) }),
             Ok(Err(e)) => {
                 stop.store(true, Ordering::SeqCst);
                 let _ = thread.join();
@@ -80,9 +71,7 @@ impl AudioOutput {
             }
             Err(_) => {
                 stop.store(true, Ordering::SeqCst);
-                Err(AudioUnavailable::Failed(
-                    "audio device did not respond".into(),
-                ))
+                Err(AudioUnavailable::Failed("audio device did not respond".into()))
             }
         }
     }
@@ -117,12 +106,8 @@ fn build(
     time: &Arc<dyn TimeSource>,
     status: &Mutex<OutputStatus>,
 ) -> Result<Active, AudioUnavailable> {
-    let device = host
-        .default_output_device()
-        .ok_or(AudioUnavailable::NoDevice)?;
-    let supported = device
-        .default_output_config()
-        .map_err(|e| AudioUnavailable::Failed(e.to_string()))?;
+    let device = host.default_output_device().ok_or(AudioUnavailable::NoDevice)?;
+    let supported = device.default_output_config().map_err(|e| AudioUnavailable::Failed(e.to_string()))?;
     let config = supported.config();
     let channels = config.channels;
     let rate = config.sample_rate;
@@ -136,11 +121,7 @@ fn build(
     let (ring2, time2) = (ring.clone(), time.clone());
     let mut fill = move |n: usize, info: &cpal::OutputCallbackInfo| -> Vec<f32> {
         let ts = info.timestamp();
-        let latency = ts
-            .playback
-            .checked_duration_since(ts.callback)
-            .map(|d| d.as_micros() as i64)
-            .unwrap_or(0);
+        let latency = ts.playback.checked_duration_since(ts.callback).map(|d| d.as_micros() as i64).unwrap_or(0);
         scratch.resize(n, 0.0);
         ring2.fill(&mut scratch, time2.now_us(), latency);
         std::mem::take(&mut scratch)
@@ -178,26 +159,18 @@ fn build(
             None,
         ),
         other => {
-            return Err(AudioUnavailable::Failed(format!(
-                "unsupported device sample format {other:?}"
-            )));
+            return Err(AudioUnavailable::Failed(format!("unsupported device sample format {other:?}")));
         }
     }
     .map_err(|e| AudioUnavailable::Failed(e.to_string()))?;
-    stream
-        .play()
-        .map_err(|e| AudioUnavailable::Failed(e.to_string()))?;
+    stream.play().map_err(|e| AudioUnavailable::Failed(e.to_string()))?;
     let name = device.description().map(|d| d.name().to_string()).ok();
     if let Ok(mut s) = status.lock() {
         s.device = name;
         s.sample_rate = rate;
         s.channels = channels;
     }
-    Ok(Active {
-        _stream: stream,
-        id: device.id().ok(),
-        failed,
-    })
+    Ok(Active { _stream: stream, id: device.id().ok(), failed })
 }
 
 fn run(
@@ -253,10 +226,7 @@ mod tests {
     #[test]
     fn rebuild_decision() {
         assert!(!needs_rebuild(Some(&"a"), Some(&"a"), false));
-        assert!(
-            needs_rebuild(Some(&"a"), Some(&"b"), false),
-            "default device changed (headphones)"
-        );
+        assert!(needs_rebuild(Some(&"a"), Some(&"b"), false), "default device changed (headphones)");
         assert!(needs_rebuild(Some(&"a"), None, false), "device removed");
         assert!(needs_rebuild(None, Some(&"b"), false), "device appeared");
         assert!(needs_rebuild(Some(&"a"), Some(&"a"), true), "stream error");

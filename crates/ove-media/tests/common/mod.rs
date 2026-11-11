@@ -8,10 +8,7 @@ use md5::{Digest, Md5};
 use ove_media::VideoFrame;
 
 pub fn repo_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .canonicalize()
-        .unwrap()
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap()
 }
 
 /// Path of a matrix file, generating the synthetic matrix on first use (needs python3 + ffmpeg on PATH).
@@ -20,14 +17,12 @@ pub fn media(name: &str) -> PathBuf {
     let root = repo_root();
     GEN.call_once(|| {
         let manifest = root.join("tests/media/MANIFEST.json");
-        let m: serde_json::Value =
-            serde_json::from_str(&std::fs::read_to_string(&manifest).unwrap()).unwrap();
-        let missing = m["synthetic"].as_array().unwrap().iter().any(|e| {
-            !root
-                .join("tests/media/files")
-                .join(e["name"].as_str().unwrap())
-                .exists()
-        });
+        let m: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&manifest).unwrap()).unwrap();
+        let missing = m["synthetic"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| !root.join("tests/media/files").join(e["name"].as_str().unwrap()).exists());
         if missing {
             let st = Command::new("python3")
                 .arg(root.join("tests/media/media.py"))
@@ -43,14 +38,8 @@ pub fn media(name: &str) -> PathBuf {
 /// Every synthetic matrix entry name.
 pub fn matrix() -> Vec<String> {
     let manifest = repo_root().join("tests/media/MANIFEST.json");
-    let m: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(manifest).unwrap()).unwrap();
-    m["synthetic"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|e| e["name"].as_str().unwrap().to_string())
-        .collect()
+    let m: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(manifest).unwrap()).unwrap();
+    m["synthetic"].as_array().unwrap().iter().map(|e| e["name"].as_str().unwrap().to_string()).collect()
 }
 
 pub const VIDEO_FILES: &[&str] = &[
@@ -92,22 +81,10 @@ pub fn reference_framemd5(path: &Path) -> Vec<String> {
     let out = Command::new("ffmpeg")
         .args(["-hide_banner", "-loglevel", "error", "-threads", "1", "-i"])
         .arg(path)
-        .args([
-            "-map",
-            "0:v:0",
-            "-fps_mode",
-            "passthrough",
-            "-f",
-            "framemd5",
-            "-",
-        ])
+        .args(["-map", "0:v:0", "-fps_mode", "passthrough", "-f", "framemd5", "-"])
         .output()
         .expect("ffmpeg on PATH");
-    assert!(
-        out.status.success(),
-        "ffmpeg framemd5 failed: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
+    assert!(out.status.success(), "ffmpeg framemd5 failed: {}", String::from_utf8_lossy(&out.stderr));
     String::from_utf8(out.stdout)
         .unwrap()
         .lines()

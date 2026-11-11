@@ -174,10 +174,7 @@ impl PlaybackClock {
         }
         let t = match (self.source(), self.audio) {
             (ClockSource::Audio, Some(a)) => a.heard_at(wall).max(self.anchor_media),
-            _ => {
-                self.anchor_media
-                    + ((wall - self.anchor_wall) as f64 * self.speed).round() as Micros
-            }
+            _ => self.anchor_media + ((wall - self.anchor_wall) as f64 * self.speed).round() as Micros,
         };
         let t = match self.last {
             Some(l) if self.speed > 0.0 && t < l => l,
@@ -191,8 +188,7 @@ impl PlaybackClock {
     /// Offset between the audio clock and the system-time extrapolation (diagnostics), if audio is mastering.
     pub fn audio_drift(&self, wall: Micros) -> Option<Micros> {
         let a = self.audio?;
-        let sys =
-            self.anchor_media + ((wall - self.anchor_wall) as f64 * self.speed).round() as Micros;
+        let sys = self.anchor_media + ((wall - self.anchor_wall) as f64 * self.speed).round() as Micros;
         Some(a.heard_at(wall) - sys)
     }
 }
@@ -222,11 +218,7 @@ mod tests {
         c.set_audio_enabled(true);
         c.start(0, 0, 1.0);
         // Device wrote media 100 ms at wall 90 ms with 20 ms output latency: heard now = 80 ms.
-        c.on_audio_position(AudioPosition {
-            media_us: 100_000,
-            at_wall_us: 90_000,
-            latency_us: 20_000,
-        });
+        c.on_audio_position(AudioPosition { media_us: 100_000, at_wall_us: 90_000, latency_us: 20_000 });
         assert_eq!(c.source(), ClockSource::Audio);
         assert_eq!(c.media_time(90_000), 80_000);
         assert_eq!(c.media_time(100_000), 90_000);
@@ -238,18 +230,10 @@ mod tests {
         let mut c = PlaybackClock::default();
         c.set_audio_enabled(true);
         c.start(0, 0, 1.0);
-        c.on_audio_position(AudioPosition {
-            media_us: 50_000,
-            at_wall_us: 40_000,
-            latency_us: 0,
-        });
+        c.on_audio_position(AudioPosition { media_us: 50_000, at_wall_us: 40_000, latency_us: 0 });
         assert_eq!(c.media_time(45_000), 55_000);
         // A late callback reports a slightly earlier position.
-        c.on_audio_position(AudioPosition {
-            media_us: 52_000,
-            at_wall_us: 46_000,
-            latency_us: 0,
-        });
+        c.on_audio_position(AudioPosition { media_us: 52_000, at_wall_us: 46_000, latency_us: 0 });
         assert_eq!(c.media_time(46_000), 55_000);
         assert_eq!(c.media_time(50_000), 56_000);
     }
@@ -259,19 +243,11 @@ mod tests {
         let mut c = PlaybackClock::default();
         c.start(0, 0, 2.0);
         c.set_audio_enabled(true);
-        c.on_audio_position(AudioPosition {
-            media_us: 5,
-            at_wall_us: 0,
-            latency_us: 0,
-        });
+        c.on_audio_position(AudioPosition { media_us: 5, at_wall_us: 0, latency_us: 0 });
         assert_eq!(c.source(), ClockSource::System);
         c.set_audio_enabled(false);
         c.start(0, 0, 1.0);
-        c.on_audio_position(AudioPosition {
-            media_us: 5,
-            at_wall_us: 0,
-            latency_us: 0,
-        });
+        c.on_audio_position(AudioPosition { media_us: 5, at_wall_us: 0, latency_us: 0 });
         assert_eq!(c.source(), ClockSource::System);
     }
 

@@ -22,13 +22,7 @@ pub struct FallbackDecoder {
 
 impl FallbackDecoder {
     pub fn new(primary: Box<dyn VideoDecoder>, software: Factory) -> Self {
-        FallbackDecoder {
-            current: primary,
-            software: Some(software),
-            last_pts: None,
-            fallbacks: 0,
-            last_reason: None,
-        }
+        FallbackDecoder { current: primary, software: Some(software), last_pts: None, fallbacks: 0, last_reason: None }
     }
 
     /// How many times the decoder switched to software after a hardware failure.
@@ -53,10 +47,7 @@ impl FallbackDecoder {
                 match sw.next_frame()? {
                     Some(f) if f.pts_us <= p => continue,
                     Some(f) => {
-                        self.current = Box::new(Prepend {
-                            first: Some(f),
-                            inner: sw,
-                        });
+                        self.current = Box::new(Prepend { first: Some(f), inner: sw });
                         break;
                     }
                     None => {
@@ -132,29 +123,19 @@ impl VideoDecoder for Prepend {
 /// Open the best video stream of `path`: hardware decoder first (per `opts.hwaccel`), software if hardware is not
 /// available, does not support the stream, or fails later.
 pub fn open_video(path: &Path, opts: DecoderOptions) -> Result<FallbackDecoder> {
-    let sw_opts = DecoderOptions {
-        hwaccel: HwAccel::Off,
-        inject_hw_failure_after: None,
-        ..opts.clone()
-    };
+    let sw_opts = DecoderOptions { hwaccel: HwAccel::Off, inject_hw_failure_after: None, ..opts.clone() };
     let sw_path = path.to_owned();
-    let software: Factory = Box::new(move || {
-        Ok(Box::new(FfmpegVideoDecoder::open(&sw_path, sw_opts.clone())?) as Box<dyn VideoDecoder>)
-    });
-    let primary: Box<dyn VideoDecoder> =
-        match FfmpegVideoDecoder::open(path, opts.clone()) {
-            Ok(d) => Box::new(d),
-            // Opening with the hardware device failed for a reason other than the file itself: retry in software.
-            Err(
-                MediaError::Unsupported { .. } | MediaError::Decode(_) | MediaError::Hardware(_),
-            ) if opts.hwaccel != HwAccel::Off => Box::new(FfmpegVideoDecoder::open(
-                path,
-                DecoderOptions {
-                    hwaccel: HwAccel::Off,
-                    ..opts
-                },
-            )?),
-            Err(e) => return Err(e),
-        };
+    let software: Factory =
+        Box::new(move || Ok(Box::new(FfmpegVideoDecoder::open(&sw_path, sw_opts.clone())?) as Box<dyn VideoDecoder>));
+    let primary: Box<dyn VideoDecoder> = match FfmpegVideoDecoder::open(path, opts.clone()) {
+        Ok(d) => Box::new(d),
+        // Opening with the hardware device failed for a reason other than the file itself: retry in software.
+        Err(MediaError::Unsupported { .. } | MediaError::Decode(_) | MediaError::Hardware(_))
+            if opts.hwaccel != HwAccel::Off =>
+        {
+            Box::new(FfmpegVideoDecoder::open(path, DecoderOptions { hwaccel: HwAccel::Off, ..opts })?)
+        }
+        Err(e) => return Err(e),
+    };
     Ok(FallbackDecoder::new(primary, software))
 }

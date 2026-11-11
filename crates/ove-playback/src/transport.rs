@@ -87,13 +87,7 @@ pub struct Transport {
 
 impl Transport {
     pub fn new(last_frame: Micros) -> Self {
-        Transport {
-            state: PlayState::Paused,
-            speed: Speed::Fwd1,
-            looping: false,
-            position: 0,
-            last_frame,
-        }
+        Transport { state: PlayState::Paused, speed: Speed::Fwd1, looping: false, position: 0, last_frame }
     }
 
     pub fn is_playing(&self) -> bool {
@@ -128,11 +122,7 @@ impl Transport {
         let was_playing = self.is_playing();
         self.state = PlayState::Paused;
         self.speed = Speed::Fwd1;
-        if was_playing {
-            vec![Effect::Halt]
-        } else {
-            vec![]
-        }
+        if was_playing { vec![Effect::Halt] } else { vec![] }
     }
 
     pub fn handle(&mut self, cmd: Command) -> Vec<Effect> {
@@ -148,29 +138,21 @@ impl Transport {
             }
             Command::ShuttleForward => {
                 let next = match (self.state, self.speed) {
-                    (PlayState::Playing, Speed::Fwd1) | (PlayState::Playing, Speed::Fwd2) => {
-                        Speed::Fwd2
-                    }
+                    (PlayState::Playing, Speed::Fwd1) | (PlayState::Playing, Speed::Fwd2) => Speed::Fwd2,
                     _ => Speed::Fwd1,
                 };
                 self.play(next)
             }
             Command::ShuttleReverse => {
                 let next = match (self.state, self.speed) {
-                    (PlayState::Playing, Speed::Rev1) | (PlayState::Playing, Speed::Rev2) => {
-                        Speed::Rev2
-                    }
+                    (PlayState::Playing, Speed::Rev1) | (PlayState::Playing, Speed::Rev2) => Speed::Rev2,
                     _ => Speed::Rev1,
                 };
                 self.play(next)
             }
             Command::StepForward | Command::StepBackward => {
                 let mut fx = self.pause();
-                fx.push(if cmd == Command::StepForward {
-                    Effect::StepForward
-                } else {
-                    Effect::StepBackward
-                });
+                fx.push(if cmd == Command::StepForward { Effect::StepForward } else { Effect::StepBackward });
                 fx
             }
             Command::GoToStart => self.seek(0),
@@ -195,11 +177,7 @@ impl Transport {
             return vec![];
         }
         if self.looping {
-            let t = if self.speed.is_reverse() {
-                self.last_frame
-            } else {
-                0
-            };
+            let t = if self.speed.is_reverse() { self.last_frame } else { 0 };
             self.position = t;
             vec![Effect::Seek(t), Effect::Run]
         } else {
@@ -248,19 +226,11 @@ mod tests {
         x.handle(Command::ShuttleReverse);
         assert_eq!(x.speed, Speed::Rev2);
         x.handle(Command::ShuttleForward);
-        assert_eq!(
-            x.speed,
-            Speed::Fwd1,
-            "L while reversing plays forward at 1×"
-        );
+        assert_eq!(x.speed, Speed::Fwd1, "L while reversing plays forward at 1×");
         assert_eq!(x.handle(Command::ShuttleStop), vec![Effect::Halt]);
         assert_eq!((x.state, x.speed), (PlayState::Paused, Speed::Fwd1));
         x.handle(Command::ShuttleReverse);
-        assert_eq!(
-            (x.state, x.speed),
-            (PlayState::Playing, Speed::Rev1),
-            "J from pause"
-        );
+        assert_eq!((x.state, x.speed), (PlayState::Playing, Speed::Rev1), "J from pause");
     }
 
     #[test]
@@ -268,10 +238,7 @@ mod tests {
         let mut x = t();
         assert_eq!(x.handle(Command::StepForward), vec![Effect::StepForward]);
         x.handle(Command::Play);
-        assert_eq!(
-            x.handle(Command::StepBackward),
-            vec![Effect::Halt, Effect::StepBackward]
-        );
+        assert_eq!(x.handle(Command::StepBackward), vec![Effect::Halt, Effect::StepBackward]);
         assert_eq!(x.state, PlayState::Paused);
     }
 
@@ -281,15 +248,9 @@ mod tests {
         assert_eq!(x.handle(Command::GoToStart), vec![Effect::Seek(0)]);
         assert_eq!(x.handle(Command::GoToEnd), vec![Effect::Seek(10_000_000)]);
         assert_eq!(x.handle(Command::Seek(-5)), vec![Effect::Seek(0)]);
-        assert_eq!(
-            x.handle(Command::Seek(99_000_000)),
-            vec![Effect::Seek(10_000_000)]
-        );
+        assert_eq!(x.handle(Command::Seek(99_000_000)), vec![Effect::Seek(10_000_000)]);
         x.handle(Command::Play);
-        assert_eq!(
-            x.handle(Command::Seek(3_000_000)),
-            vec![Effect::Seek(3_000_000)]
-        );
+        assert_eq!(x.handle(Command::Seek(3_000_000)), vec![Effect::Seek(3_000_000)]);
         assert!(x.is_playing(), "seeking keeps playing");
     }
 
@@ -300,10 +261,7 @@ mod tests {
         assert_eq!(x.handle(Command::Play), vec![Effect::Seek(0), Effect::Run]);
         let mut y = t();
         y.position = 0;
-        assert_eq!(
-            y.handle(Command::ShuttleReverse),
-            vec![Effect::Seek(10_000_000), Effect::Run]
-        );
+        assert_eq!(y.handle(Command::ShuttleReverse), vec![Effect::Seek(10_000_000), Effect::Run]);
     }
 
     #[test]

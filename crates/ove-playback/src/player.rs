@@ -52,11 +52,7 @@ pub struct TickOutput<F> {
 
 impl<F> Default for TickOutput<F> {
     fn default() -> Self {
-        TickOutput {
-            present: None,
-            audio_restart: None,
-            error: None,
-        }
+        TickOutput { present: None, audio_restart: None, error: None }
     }
 }
 
@@ -152,11 +148,7 @@ impl<S: FrameSource> Player<S> {
         self.source.seek(t);
         self.next = None;
         self.eof = false;
-        self.waiting = Waiting::Seek {
-            target: t,
-            since: wall,
-            measure,
-        };
+        self.waiting = Waiting::Seek { target: t, since: wall, measure };
         self.clock.pause(wall);
         self.clock.set_position(t, wall);
         if let Some(a) = &self.audio {
@@ -219,8 +211,7 @@ impl<S: FrameSource> Player<S> {
 
     fn update_audio(&mut self, wall: Micros, restart: bool) {
         let audible = self.transport.audio_audible() && self.clock.is_running();
-        self.clock
-            .set_audio_enabled(audible && self.audio.is_some());
+        self.clock.set_audio_enabled(audible && self.audio.is_some());
         if let Some(a) = &self.audio {
             if audible {
                 if restart {
@@ -236,11 +227,7 @@ impl<S: FrameSource> Player<S> {
     }
 
     fn present(&mut self, f: &S::Frame) {
-        let interval = if f.duration_us() > 0 {
-            f.duration_us()
-        } else {
-            self.interval
-        };
+        let interval = if f.duration_us() > 0 { f.duration_us() } else { self.interval };
         self.current = Some((f.pts_us(), f.pts_us() + interval));
         self.transport.position = f.pts_us();
         self.diag.presented += 1;
@@ -271,11 +258,7 @@ impl<S: FrameSource> Player<S> {
         }
 
         match self.waiting {
-            Waiting::Seek {
-                target,
-                since,
-                measure,
-            } => match self.source.poll() {
+            Waiting::Seek { target, since, measure } => match self.source.poll() {
                 SourcePoll::Frame(f) => {
                     self.waiting = Waiting::None;
                     if measure {
@@ -369,11 +352,7 @@ impl<S: FrameSource> Player<S> {
             }
         }
         if let Some(f) = chosen {
-            let interval = if f.duration_us() > 0 {
-                f.duration_us()
-            } else {
-                self.interval
-            };
+            let interval = if f.duration_us() > 0 { f.duration_us() } else { self.interval };
             let late = t - f.pts_us();
             if late > interval {
                 self.superseded();
