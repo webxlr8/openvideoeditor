@@ -15,9 +15,11 @@ name = "ove_desktop_lib"
 name = "ove-desktop"
 path = "src/main.rs"
 
+# Developer tool, not shipped: `cargo run -p ove-desktop --features bindings --bin export-bindings`.
 [[bin]]
 name = "export-bindings"
 path = "src/bin/export-bindings.rs"
+required-features = ["bindings"]
 
 [dependencies]
 ureq = { version = "2.12", default-features = false, features = ["tls"] }
@@ -73,3 +75,7 @@ tauri-build = { version = "2", features = [] }
 
 [lints]
 workspace = true
+
+[features]
+# Builds the export-bindings developer tool.
+bindings = []

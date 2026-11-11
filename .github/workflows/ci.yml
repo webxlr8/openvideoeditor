@@ -102,7 +102,7 @@ jobs:
       - name: bindings drift
         run: |
           source tools/ffmpeg/env.sh
-          cargo run -q -p ove-desktop --bin export-bindings -- --check
+          cargo run -q -p ove-desktop --features bindings --bin export-bindings -- --check
       - name: benchmark on the matrix (JSON artefacts)
         run: |
           source tools/ffmpeg/env.sh

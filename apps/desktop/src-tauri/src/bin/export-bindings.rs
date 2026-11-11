@@ -18,7 +18,7 @@ fn main() {
         for (path, fresh) in &files {
             let committed = std::fs::read_to_string(path).unwrap_or_default();
             if committed != *fresh {
-                eprintln!("{} is stale: run `cargo run -p ove-desktop --bin export-bindings`", path.display());
+                eprintln!("{} is stale: run `cargo run -p ove-desktop --features bindings --bin export-bindings`", path.display());
                 std::process::exit(1);
             }
         }
