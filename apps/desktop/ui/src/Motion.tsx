@@ -400,7 +400,7 @@ function Diagnostics({ report, checking, onJump }: { report: CheckReport | null;
   const errors = report.diagnostics.filter((d) => d.severity === "error").length;
   const warnings = report.diagnostics.length - errors;
   return (
-    <div className="diagnostics" data-testid="code-diagnostics">
+    <div className="code-diags" data-testid="code-diagnostics">
       <p className={`diag-summary ${errors ? "bad" : warnings ? "warn" : "good"}`} data-testid="code-status">
         {errors ? `${errors} error${errors > 1 ? "s" : ""}` : warnings ? `${warnings} warning${warnings > 1 ? "s" : ""}` : "No problems"}
         {report.frameMs > 0 && (

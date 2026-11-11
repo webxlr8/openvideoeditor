@@ -275,7 +275,7 @@
 .field-text.bad {
   border-color: var(--danger);
 }
-.diagnostics {
+.code-diags {
   display: flex;
   flex-direction: column;
   gap: 4px;
