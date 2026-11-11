@@ -32,6 +32,9 @@
   flex-direction: column;
   gap: 6px;
 }
+.xp-field > .xp-seg {
+  align-self: flex-start;
+}
 .xp-field > span:first-child {
   font-size: 12px;
   color: var(--muted);
