@@ -13,6 +13,8 @@ cargo test -p ove-media
 
 - Shipped: `libavcodec`, `libavformat`, `libavutil`, `libswscale`, `libswresample` (+ `libdav1d`). `sizes.txt` lists
   their sizes for the installer budget.
+- Export encoders (all LGPL): `aac`, `prores_ks`, `mpeg4` everywhere; `h264/hevc/prores_videotoolbox` on macOS;
+  `h264_mf`/`hevc_mf` (Media Foundation, hardware MFT when present) on Windows; MP4/MOV muxers. No x264/x265.
 - Test-only: the `ffmpeg` CLI and `libavfilter`, built with a handful of muxers/encoders so decode tests can compare
   against reference output (`framemd5`, PCM) from the very same libraries. They are never packaged.
 - Without a build, `env.sh` falls back to the system FFmpeg for development; distribution builds are usually GPL and
