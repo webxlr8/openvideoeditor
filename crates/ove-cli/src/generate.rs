@@ -282,23 +282,6 @@ fn probe(_: &Path) -> ove_generate::Probed {
     Default::default()
 }
 
-/// The thumbnail the app's media panel shows (160×90, letterboxed).
-#[cfg(feature = "media")]
-fn thumbnail(bundle: &Path, media_id: &str, file: &Path) {
-    if let Ok(img) = ove_analyze::grab(file, 0.5, Some(160)) {
-        let mut canvas = ove_analyze::Image::filled(160, 90, [0, 0, 0, 255]);
-        let scale = (160.0 / img.width as f64).min(90.0 / img.height as f64);
-        let fit = img.resize(((img.width as f64 * scale) as u32).max(1), ((img.height as f64 * scale) as u32).max(1));
-        canvas.blit(&fit, (160 - fit.width) / 2, (90 - fit.height) / 2);
-        let dir = bundle.join("cache").join("thumbs");
-        let _ = std::fs::create_dir_all(&dir)
-            .and_then(|_| std::fs::write(dir.join(format!("{media_id}.png")), canvas.png()));
-    }
-}
-
-#[cfg(not(feature = "media"))]
-fn thumbnail(_: &Path, _: &str, _: &Path) {}
-
 /// Runs a saved job and applies its result (or marks the placeholder when it failed).
 pub fn run_job(ctx: &Ctx, bundle: &Path, id: &str) -> Result<Job, Fail> {
     let mut job =
@@ -311,7 +294,7 @@ pub fn run_job(ctx: &Ctx, bundle: &Path, id: &str) -> Result<Job, Fail> {
             let file = bundle.join(&rel);
             let probed = probe(&file);
             if job.kind != Kind::Image || probed.width.is_some() {
-                thumbnail(bundle, &format!("m_{}", job.id.trim_start_matches("g_")), &file);
+                crate::media::thumbnail(bundle, &format!("m_{}", job.id.trim_start_matches("g_")), &file);
             }
             edit(ctx, &project, |w| {
                 let ops = ove_generate::finish_ops(w.doc(), &job, &rel, &probed, now_ms());

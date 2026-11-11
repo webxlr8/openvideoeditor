@@ -294,7 +294,7 @@ pub fn run(ctx: &Ctx, cmd: &MediaCmd) -> Out {
                     describe(f, &format!("m_{now:x}_{n}"), now, image_us).map(|(m, e, d, k)| (f.clone(), m, e, d, k))
                 })
                 .collect::<Result<_, _>>()?;
-            let (rev, added, how, clip_ids) = edit(ctx, project, |w| {
+            let (rev, added, how, clip_ids, fresh) = edit(ctx, project, |w| {
                 let d = w.doc().clone();
                 let known: std::collections::BTreeMap<PathBuf, String> = d
                     .registry
@@ -305,10 +305,14 @@ pub fn run(ctx: &Ctx, cmd: &MediaCmd) -> Out {
                 let mut new_tracks: Vec<(String, &str)> = Vec::new();
                 let mut cursor: std::collections::BTreeMap<String, i64> = Default::default();
                 let mut clip_ids = Vec::new();
+                let mut fresh: Vec<(PathBuf, String)> = Vec::new();
                 for (n, (file, media, entry, dur, kind)) in described.iter().enumerate() {
                     let media_id = match known.get(file) {
                         Some(id) => id.clone(),
                         None => {
+                            if *kind != "audio" {
+                                fresh.push((file.clone(), media["id"].as_str().unwrap_or_default().to_string()));
+                            }
                             ops.push(Op::AddMedia { media: media.clone(), entry: Some(entry.clone()) });
                             media["id"].as_str().unwrap_or_default().to_string()
                         }
@@ -354,11 +358,17 @@ pub fn run(ctx: &Ctx, cmd: &MediaCmd) -> Out {
                 }
                 let added = ops.iter().filter(|o| matches!(o, Op::AddMedia { .. })).count();
                 if ops.is_empty() {
-                    return Ok((w.rev(), 0, via(w), clip_ids));
+                    return Ok((w.rev(), 0, via(w), clip_ids, fresh));
                 }
                 let rev = w.apply(ops, ctx.source, format!("add {}", plural(described.len(), "file")))?;
-                Ok((rev, added, via(w), clip_ids))
+                Ok((rev, added, via(w), clip_ids, fresh))
             })?;
+            // Thumbnails for the media panel (video and images).
+            if let Ok(b) = ctx.find(project) {
+                for (file, id) in &fresh {
+                    thumbnail(&b, id, file);
+                }
+            }
             let v = json!({"rev": rev, "mediaAdded": added, "clips": clip_ids, "files": files});
             Ok((
                 v,
@@ -510,6 +520,23 @@ pub fn run(ctx: &Ctx, cmd: &MediaCmd) -> Out {
         }
     }
 }
+
+/// The thumbnail the app's media panel shows (`cache/thumbs/<media id>.png`, 160×90, letterboxed).
+#[cfg(feature = "media")]
+pub fn thumbnail(bundle: &Path, media_id: &str, file: &Path) {
+    if let Ok(img) = ove_analyze::grab(file, 0.5, Some(160)) {
+        let mut canvas = ove_analyze::Image::filled(160, 90, [0, 0, 0, 255]);
+        let scale = (160.0 / img.width as f64).min(90.0 / img.height as f64);
+        let fit = img.resize(((img.width as f64 * scale) as u32).max(1), ((img.height as f64 * scale) as u32).max(1));
+        canvas.blit(&fit, (160 - fit.width) / 2, (90 - fit.height) / 2);
+        let dir = bundle.join("cache").join("thumbs");
+        let _ = std::fs::create_dir_all(&dir)
+            .and_then(|_| std::fs::write(dir.join(format!("{media_id}.png")), canvas.png()));
+    }
+}
+
+#[cfg(not(feature = "media"))]
+pub fn thumbnail(_: &Path, _: &str, _: &Path) {}
 
 /// File name (lower-case) → path for files under `dir`, `depth` levels deep; first match wins.
 fn index_folder(dir: &Path, depth: u32, out: &mut std::collections::BTreeMap<String, PathBuf>) {

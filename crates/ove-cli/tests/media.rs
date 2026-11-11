@@ -94,6 +94,8 @@ fn add_inspect_look_and_remove() {
     let again = ove(&lib, &["media", "add", "Promo", clip.to_str().unwrap(), "--at", "10"]);
     assert_eq!(again["mediaAdded"], 0);
 
+    let thumbs = std::fs::read_dir(lib.join("Promo.ove/cache/thumbs")).unwrap().count();
+    assert_eq!(thumbs, 1, "a thumbnail for the video (none for audio)");
     let listed = ove(&lib, &["media", "list", "Promo"]);
     let rows = listed["media"].as_array().unwrap();
     assert_eq!(rows.len(), 2);

@@ -164,23 +164,11 @@ pub fn finish_ops(doc: &Document, job: &Job, rel_path: &str, probed: &Probed, no
     ops
 }
 
-/// Marks a failed or cancelled job's placeholder.
+/// Removes a failed or cancelled job's placeholder (if it is still pending), so it neither blocks export nor sits
+/// under a retry. The job record keeps the error.
 pub fn failed_ops(doc: &Document, job: &Job) -> Vec<Op> {
     match job.item_id.as_deref().and_then(|id| doc.item(id)) {
-        Some(item) if item.is_pending() => {
-            let mut set = Map::new();
-            set.insert(
-                "pendingDescription".into(),
-                format!(
-                    "{} ({}): {}",
-                    if job.status == crate::job::Status::Cancelled { "Cancelled" } else { "Generation failed" },
-                    job.error.as_deref().unwrap_or(""),
-                    job.request.prompt
-                )
-                .into(),
-            );
-            vec![Op::UpdateItem { id: item.id.clone(), set }]
-        }
+        Some(item) if item.is_pending() => vec![Op::RemoveItems { ids: vec![item.id.clone()] }],
         _ => vec![],
     }
 }

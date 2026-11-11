@@ -276,3 +276,17 @@ fn catalog_and_plans() {
     assert_eq!(p.ops.len(), 2);
     assert!(apply_batch(&empty, &p.ops).is_ok());
 }
+
+#[test]
+fn failed_jobs_remove_their_placeholder() {
+    let d = doc();
+    let req = Request { prompt: "x".into(), ..Default::default() };
+    let p = plan(&d, Kind::Image, &req, "i_fail").unwrap();
+    let d1 = apply_batch(&d, &p.ops).unwrap().doc;
+    let mut job = new_job(&p, &req, "g_f", 1);
+    job.status = Status::Failed;
+    let after = apply_batch(&d1, &ove_generate::place::failed_ops(&d1, &job)).unwrap().doc;
+    assert!(after.item("i_fail").is_none());
+    // Already filled (not pending): left alone.
+    assert!(ove_generate::place::failed_ops(&d, &job).is_empty());
+}
