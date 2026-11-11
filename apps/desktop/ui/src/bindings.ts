@@ -88,12 +88,31 @@ export const commands = {
 	agentSend: (chatId: string | null, text: string) => typedError<SendResult, AppError>(__TAURI_INVOKE("agent_send", { chatId, text })),
 	agentStop: () => typedError<null, AppError>(__TAURI_INVOKE("agent_stop")),
 	agentAnswer: (questionId: string, answer: string) => typedError<null, AppError>(__TAURI_INVOKE("agent_answer", { questionId, answer })),
+	/**  The speech models (none ship with the app; each downloads on first use). */
+	captionModels: () => typedError<CaptionModel[], AppError>(__TAURI_INVOKE("caption_models")),
+	/**  The caption styles as JSON (`[{id, label, fontSize, textColor, highlightColor, animation, …}]`). */
+	captionPresets: () => __TAURI_INVOKE<string>("caption_presets"),
+	/**  Downloads a speech model in the background (progress as `captionJobProgress`). */
+	downloadCaptionModel: (model: string) => typedError<null, AppError>(__TAURI_INVOKE("download_caption_model", { model })),
+	/**
+	 *  Makes captions from the sound of clips, in the background: downloads the model if needed, transcribes (offline),
+	 *  and adds the caption items as one revision. Progress and the result arrive as `captionJobProgress` events.
+	 */
+	autoCaption: (request: AutoCaptionRequest_Deserialize) => typedError<null, AppError>(__TAURI_INVOKE("auto_caption", { request })),
+	/**  Stops the running captions job (download or transcription). */
+	cancelCaptions: () => typedError<null, AppError>(__TAURI_INVOKE("cancel_captions")),
+	/**
+	 *  Applies a caption style to caption items (all of them when `item_ids` is empty), clearing per-item overrides of
+	 *  size and colours so the style shows as designed. One revision.
+	 */
+	applyCaptionStyle: (presetId: string, itemIds: string[]) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("apply_caption_style", { presetId, itemIds })),
 };
 
 /** Events */
 export const events = {
 	agentUiEvent: makeEvent<AgentUiEvent_Serialize, AgentUiEvent_Deserialize>("agent-ui-event"),
 	appErrorRaised: makeEvent<AppErrorRaised, AppErrorRaised>("app-error-raised"),
+	captionJobProgress: makeEvent<CaptionJobProgress_Serialize, CaptionJobProgress_Deserialize>("caption-job-progress"),
 	exportProgress: makeEvent<ExportProgress_Serialize, ExportProgress_Deserialize>("export-progress"),
 	openPathsRequested: makeEvent<OpenPathsRequested, OpenPathsRequested>("open-paths-requested"),
 	playbackChanged: makeEvent<PlaybackChanged, PlaybackChanged>("playback-changed"),
@@ -170,6 +189,79 @@ export type AppInfo_Serialize = {
 	/**  Presentation path the viewer is using now (may change once; see ViewerBackendChanged). */
 	viewerBackend: ViewerBackend,
 	logDir: string | null,
+};
+
+/**  What to caption. */
+export type AutoCaptionRequest = AutoCaptionRequest_Serialize | AutoCaptionRequest_Deserialize;
+
+/**  What to caption. */
+export type AutoCaptionRequest_Deserialize = {
+	/**  Clips to transcribe; empty = every clip on the Main track (or every clip with sound). */
+	itemIds: string[],
+	/**  ISO 639-1 code, or None / "auto" to detect. */
+	language?: string | null,
+	/**  tiny | base | small */
+	model: string,
+	/**  Caption style for the new items. */
+	presetId?: string | null,
+	/**  Replace captions already on the Captions track in the captioned range. */
+	replace: boolean,
+};
+
+/**  What to caption. */
+export type AutoCaptionRequest_Serialize = {
+	/**  Clips to transcribe; empty = every clip on the Main track (or every clip with sound). */
+	itemIds: string[],
+	/**  ISO 639-1 code, or None / "auto" to detect. */
+	language: string | null,
+	/**  tiny | base | small */
+	model: string,
+	/**  Caption style for the new items. */
+	presetId: string | null,
+	/**  Replace captions already on the Captions track in the captioned range. */
+	replace: boolean,
+};
+
+/**  Progress of a captions job (model download, transcription, applying); `done` ends it. */
+export type CaptionJobProgress = CaptionJobProgress_Serialize | CaptionJobProgress_Deserialize;
+
+/**  Progress of a captions job (model download, transcription, applying); `done` ends it. */
+export type CaptionJobProgress_Deserialize = {
+	/**  download | audio | transcribe | apply | done */
+	stage: string,
+	fraction: number | null,
+	message: string,
+	done: boolean,
+	error?: string | null,
+	cancelled: boolean,
+	/**  Caption items created (when done). */
+	captions?: number | null,
+	language?: string | null,
+	secondsTaken?: number | null,
+};
+
+/**  Progress of a captions job (model download, transcription, applying); `done` ends it. */
+export type CaptionJobProgress_Serialize = {
+	/**  download | audio | transcribe | apply | done */
+	stage: string,
+	fraction: number | null,
+	message: string,
+	done: boolean,
+	error: string | null,
+	cancelled: boolean,
+	/**  Caption items created (when done). */
+	captions: number | null,
+	language: string | null,
+	secondsTaken: number | null,
+};
+
+/**  A speech model and whether it is on this computer. */
+export type CaptionModel = {
+	id: string,
+	label: string,
+	sizeMb: number,
+	installed: boolean,
+	default: boolean,
 };
 
 /**  One line of the chat as the UI shows it. */

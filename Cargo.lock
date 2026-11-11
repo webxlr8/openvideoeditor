@@ -3671,6 +3671,7 @@ dependencies = [
  "ove-playback",
  "ove-render",
  "ove-store",
+ "ove-transcribe",
  "png",
  "raw-window-handle",
  "serde",
