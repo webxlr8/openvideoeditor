@@ -43,7 +43,8 @@ OUT="${OUT:-$HERE/out/$TARGET}"
 WORK="$HERE/.work"
 mkdir -p "$WORK" "$OUT"
 
-if [ -f "$OUT/buildconf.txt" ] && grep -q "version ${FFMPEG_VERSION}" "$OUT/buildconf.txt"; then
+FLAGS_SHA="$(printf '%s\n' "$(sed -n '/^DEMUXERS=/,/^esac/p' "$0")" | (sha256sum 2>/dev/null || shasum -a 256) | cut -c1-16)"
+if [ -f "$OUT/buildconf.txt" ] && grep -q "version ${FFMPEG_VERSION}" "$OUT/buildconf.txt" && grep -q "flags ${FLAGS_SHA}" "$OUT/buildconf.txt"; then
   echo "FFmpeg ${FFMPEG_VERSION} already built in $OUT"
   "$HERE/check-license.sh" "$OUT/buildconf.txt"
   exit 0
@@ -72,6 +73,10 @@ DECODERS="h264,hevc,prores,dnxhd,libdav1d,vp9,vp8,mjpeg,png"
 DECODERS+=",aac,aac_fixed,alac,opus,mp3float,mp3,flac,vorbis"
 DECODERS+=",pcm_s16le,pcm_s16be,pcm_s24le,pcm_s24be,pcm_s32le,pcm_s32be,pcm_f32le,pcm_f32be,pcm_f64le,pcm_u8"
 PARSERS="h264,hevc,av1,vp9,vp8,aac,opus,flac,mpegaudio,dnxhd,prores,mjpeg,png,vorbis"
+# Export (change 6): MP4/MOV out; AAC audio; platform H.264/HEVC encoders (below); ProRes and MPEG-4 Part 2 as
+# software fallbacks that stay LGPL (no x264/x265).
+EXPORT_MUXERS="mp4,mov"
+EXPORT_ENCODERS="aac,prores_ks,mpeg4,png,mjpeg"
 
 FLAGS=(
   --prefix="$OUT"
@@ -92,18 +97,22 @@ FLAGS=(
   # only libavcodec, libavformat, libavutil, libswscale and libswresample; the CLI and libavfilter are test-only.
   --enable-ffmpeg --enable-avfilter
   --enable-filter=aresample,aformat,format,scale,null,anull,copy,acopy,setpts,asetpts,trim,atrim
-  --enable-muxer=framemd5,md5,pcm_s16le,pcm_f32le,null
-  --enable-encoder=rawvideo,pcm_s16le,pcm_f32le,wrapped_avframe
+  --enable-muxer=framemd5,md5,pcm_s16le,pcm_f32le,null,"$EXPORT_MUXERS"
+  --enable-encoder=rawvideo,pcm_s16le,pcm_f32le,wrapped_avframe,"$EXPORT_ENCODERS"
+  --enable-bsf=aac_adtstoasc,h264_mp4toannexb,hevc_mp4toannexb
   --enable-protocol=pipe
 )
 case "$TARGET" in
   macos-arm64)
     FLAGS+=(--enable-videotoolbox --enable-hwaccel=h264_videotoolbox,hevc_videotoolbox,prores_videotoolbox,vp9_videotoolbox,av1_videotoolbox)
+    FLAGS+=(--enable-encoder=h264_videotoolbox,hevc_videotoolbox,prores_videotoolbox)
     FLAGS+=(--arch=arm64 --extra-ldflags=-Wl,-headerpad_max_install_names)
     ;;
   windows-x64)
     FLAGS+=(--toolchain=msvc --arch=x86_64 --target-os=win64)
     FLAGS+=(--enable-d3d11va --enable-hwaccel=h264_d3d11va,h264_d3d11va2,hevc_d3d11va,hevc_d3d11va2,vp9_d3d11va,vp9_d3d11va2,av1_d3d11va,av1_d3d11va2)
+    # Media Foundation encoders use the GPU vendor's hardware encoder MFT when present, else Microsoft's software one.
+    FLAGS+=(--enable-mediafoundation --enable-encoder=h264_mf,hevc_mf)
     ;;
   linux-x64) ;;
 esac
@@ -122,6 +131,7 @@ make install > /dev/null
 {
   echo "ffmpeg version ${FFMPEG_VERSION} (sha256 ${FFMPEG_SHA256})"
   echo "target ${TARGET}"
+  echo "flags ${FLAGS_SHA}"
   echo "configuration: $(sed -n 's/^#define FFMPEG_CONFIGURATION "\(.*\)"$/\1/p' config.h)"
   sed -n 's/^#define FFMPEG_LICENSE "\(.*\)"$/license: \1/p' config.h
 } > "$OUT/buildconf.txt"
