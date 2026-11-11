@@ -15,6 +15,18 @@
       "sha256": "09583a871998f3e0e90f01c7741ecf49c9fe78b0e35febdeb0804d7fbbd9ae94"
     },
     {
+      "name": "h264_4k60.mp4",
+      "description": "H.264 High 3840x2160 60 fps (1 s, GOP 30) \u2014 4K60 decode and seek at full size",
+      "format": "MP4 / H.264 4K60",
+      "sha256": "477fcaf86954581f07517e07f6ffd7a46a5441a2a9f6fdc231edf4f970f02e74"
+    },
+    {
+      "name": "hevc_hdr_vfr.mov",
+      "description": "Phone-like HEVC Main10 HDR (BT.2020 PQ tags), variable frame rate, AAC",
+      "format": "MOV / HEVC HDR VFR",
+      "sha256": "edf05b1ff7e2a669ec2beb1aefaaccd92d9a46cbdfd5436f87540d4496bfce37"
+    },
+    {
       "name": "hevc_main10_420.mp4",
       "description": "HEVC Main10 4:2:0 10-bit, hvc1 tag",
       "format": "MP4 / HEVC 10-bit 4:2:0",

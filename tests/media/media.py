@@ -49,6 +49,23 @@ MATRIX = {
         "MOV / H.264 60p",
         video(rate=60, dur=2) + ["-c:v", "libx264", "-profile:v", "main", "-pix_fmt", "yuv420p", "-g", "120"],
     ),
+    "h264_4k60.mp4": (
+        "H.264 High 3840x2160 60 fps (1 s, GOP 30) — 4K60 decode and seek at full size",
+        "MP4 / H.264 4K60",
+        video(size="3840x2160", rate=60, dur=1)
+        + ["-c:v", "libx264", "-preset", "ultrafast", "-profile:v", "high", "-pix_fmt", "yuv420p", "-g", "30"],
+    ),
+    "hevc_hdr_vfr.mov": (
+        "Phone-like HEVC Main10 HDR (BT.2020 PQ tags), variable frame rate, AAC",
+        "MOV / HEVC HDR VFR",
+        video(size="1280x720", dur=2) + tone(sr=44100, dur=2)
+        + ["-vf", "settb=1/600,setpts=(N/30+0.012*mod(N\\,3))/TB", "-fps_mode", "passthrough",
+           "-enc_time_base", "1/600", "-video_track_timescale", "600",
+           "-c:v", "libx265", "-preset", "ultrafast", "-pix_fmt", "yuv420p10le", "-tag:v", "hvc1",
+           "-color_primaries", "bt2020", "-color_trc", "smpte2084", "-colorspace", "bt2020nc",
+           "-x265-params", "log-level=error:hdr10=1:colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc",
+           "-c:a", "aac", "-ac", "2", "-shortest"],
+    ),
     "hevc_main10_420.mp4": (
         "HEVC Main10 4:2:0 10-bit, hvc1 tag",
         "MP4 / HEVC 10-bit 4:2:0",

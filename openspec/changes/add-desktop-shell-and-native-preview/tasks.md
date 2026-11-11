@@ -2,7 +2,7 @@
 
 ## 1. Toolchain, workspace and CI
 
-- [ ] 1.1 Install Rust stable via rustup (record exact version in `rust-toolchain.toml`), Node LTS for the UI build, and
+- [x] 1.1 Install Rust stable via rustup (record exact version in `rust-toolchain.toml`), Node LTS for the UI build, and
       pnpm; verify `cargo --version` and `node --version` match the pinned versions.
 - [ ] 1.2 Create the Cargo workspace (`crates/ove-media`, `ove-playback`, `ove-gpu`, `ove-bench`, `ove-core` stub) with
       edition 2024, shared lints (`clippy -D warnings`), and `deny.toml` with the allowed licence list; verify
@@ -20,19 +20,19 @@
       HEVC 10-bit 4:2:0 and 4:2:2, iPhone HEVC HDR VFR, AV1, VP9, audio-only AAC/PCM, a truncated file) with sha256 in
       `tests/media/MANIFEST.json`; files stored outside git (download script); verify the script fetches and checksums
       all files.
-- [ ] 2.2 Implement probe (container, streams, duration, frame rate incl. VFR detection, codec/profile, audio layout) in
+- [x] 2.2 Implement probe (container, streams, duration, frame rate incl. VFR detection, codec/profile, audio layout) in
       `ove-media`; verify with snapshot tests against `ffprobe` output for every matrix file.
-- [ ] 2.3 Implement software decode with a bounded frame queue and exact seek (keyframe + decode-forward); verify frame
+- [x] 2.3 Implement software decode with a bounded frame queue and exact seek (keyframe + decode-forward); verify frame
       checksums for 200 random seek targets per matrix file match an `ffmpeg -vf framemd5` reference.
 - [ ] 2.4 Implement hardware decode (VideoToolbox, D3D11VA) with automatic fallback, including mid-stream fallback on
       decoder error (fault-injected in tests); verify the same checksum suite passes on the hardware path where
       supported, and the fallback test resumes at the same frame.
-- [ ] 2.5 Implement audio decode + resample to the device format; verify sample-accurate output against an ffmpeg
+- [x] 2.5 Implement audio decode + resample to the device format; verify sample-accurate output against an ffmpeg
       reference (PCM diff ≤ 1 LSB after resampling) for each audio codec in the matrix.
 
 ## 3. Playback engine and benchmark (headless)
 
-- [ ] 3.1 Implement the clock (audio-master / system fallback), scheduler, frame dropping and transport state machine
+- [x] 3.1 Implement the clock (audio-master / system fallback), scheduler, frame dropping and transport state machine
       (play, pause, step, shuttle −2×…2×, loop, seek) in `ove-playback`; verify with unit tests on a simulated clock
       covering every transport transition and late-frame dropping.
 - [ ] 3.2 Implement audio output with device-change handling (cpal); verify on both OSes by switching output devices

@@ -65,7 +65,11 @@ fn probe_matches_ffprobe_for_every_matrix_file() {
                 if let Some(n) = v["nb_frames"].as_str() {
                     assert_eq!(ours.frame_count, Some(n.parse().unwrap()), "{name}: nb_frames");
                 }
-                assert_eq!(ours.variable_frame_rate, name == "vfr_phone.mp4", "{name}: VFR detection");
+                assert_eq!(
+                    ours.variable_frame_rate,
+                    name == "vfr_phone.mp4" || name == "hevc_hdr_vfr.mov",
+                    "{name}: VFR detection"
+                );
             }
             (None, None) => {}
             (a, b) => panic!("{name}: video stream mismatch ours={a:?} ffprobe={b:?}"),
@@ -88,7 +92,7 @@ fn probe_matches_ffprobe_for_every_matrix_file() {
         }
         checked += 1;
     }
-    assert!(checked >= 17, "checked {checked} files");
+    assert!(checked >= 19, "checked {checked} files");
 }
 
 #[test]

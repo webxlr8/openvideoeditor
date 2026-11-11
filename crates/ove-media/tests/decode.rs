@@ -5,6 +5,20 @@ mod common;
 
 use std::collections::BTreeMap;
 
+#[test]
+fn hdr_colour_is_reported() {
+    let mut d = open_video(&media("hevc_hdr_vfr.mov"), DecoderOptions::default()).unwrap();
+    let f = d.next_frame().unwrap().unwrap();
+    assert_eq!(f.format, PixelFormat::P010);
+    assert!(f.color.hdr);
+    assert_eq!(f.color.matrix, ove_media::ColorMatrix::Bt2020);
+    let mut d = open_video(&media("h264_4k60.mp4"), DecoderOptions::default()).unwrap();
+    let f = d.next_frame().unwrap().unwrap();
+    assert!(!f.color.hdr);
+    assert_eq!(f.color.matrix, ove_media::ColorMatrix::Bt709, "unspecified HD -> BT.709");
+    assert_eq!((f.width, f.height), (3840, 2160));
+}
+
 use common::{Rng, VIDEO_FILES, frame_md5, media, reference_framemd5};
 use ove_media::{
     DecodePath, DecoderOptions, FallbackDecoder, FfmpegVideoDecoder, HwAccel, MediaError, OutputFormat, PixelFormat,

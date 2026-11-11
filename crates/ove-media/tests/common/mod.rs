@@ -45,6 +45,8 @@ pub fn matrix() -> Vec<String> {
 pub const VIDEO_FILES: &[&str] = &[
     "h264_longgop.mp4",
     "h264_60fps.mov",
+    "h264_4k60.mp4",
+    "hevc_hdr_vfr.mov",
     "hevc_main10_420.mp4",
     "hevc_main422_10.mov",
     "prores_proxy.mov",
