@@ -881,6 +881,10 @@ function createMock(): {
       ok<string | null>(`/mock/exports/${defaultName}.mp4`)
     ),
     revealPath: (path: string) => (track(`revealPath:${path}`), ok(null)),
+    reportUiState: (ui: { selection: string[]; viewer: string }) => (
+      track(`reportUiState:${ui.viewer}:${ui.selection.length}`),
+      ok(null)
+    ),
     timelineFormats: () =>
       Promise.resolve(
         [
@@ -1032,6 +1036,7 @@ function createMock(): {
     openPathsRequested: makeEvent("open-paths-requested"),
     playbackChanged: makeEvent("playback-changed"),
     projectChanged: makeEvent("project-changed"),
+    remoteOpened: makeEvent("remote-opened"),
     viewerBackendChanged: makeEvent("viewer-backend-changed"),
     viewerFrameReady: makeEvent("viewer-frame-ready"),
   } as unknown as Events;

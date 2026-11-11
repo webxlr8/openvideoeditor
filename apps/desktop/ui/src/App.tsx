@@ -271,6 +271,10 @@ export function App() {
       events.projectChanged.listen((e) => {
         if (e.payload) setProject(e.payload as ProjectView_Serialize);
       }),
+      // `ove app open` / `ove project open`: show that project in the editor.
+      events.remoteOpened.listen((e) =>
+        openProjectView(e.payload as ProjectView_Serialize),
+      ),
       events.openPathsRequested.listen((e) => {
         if (e.payload.paths.length > 0) void importInto(e.payload.paths);
       }),
@@ -292,7 +296,16 @@ export function App() {
       if (r.status === "ok" && r.data.length > 0) void importInto(r.data);
     });
     return () => unlisten.forEach((p) => void p.then((f) => f()));
-  }, [importInto, showError]);
+  }, [importInto, openProjectView, showError]);
+
+  // The command line asks what is selected and which viewer mode is on (`ove app context`).
+  useEffect(() => {
+    const t = setTimeout(
+      () => void commands.reportUiState({ selection, viewer: mode }),
+      150,
+    );
+    return () => clearTimeout(t);
+  }, [selection, mode]);
 
   // Native viewer under a transparent web view needs a transparent page behind the viewer box.
   useEffect(() => {

@@ -25,8 +25,13 @@ setup `.exe`, Linux `.deb`). For development: `cd apps/desktop && pnpm install &
   (Premiere Pro), CMX3600 EDL or OpenTimelineIO; the Media panel's timeline button imports them as new tracks.
   `ove timeline export|import` does the same (`docs/cli/interchange.md`).
 - Every edit is a durable revision; `ove source print|apply` and agents see the same timeline.
+- **Command line and MCP for agents**: `ove project|media|audio|look|app|source|export|timeline …` (`ove docs`,
+  `ove docs agents` for the guide). While the app has a project open, `ove` edits go through it and appear in the
+  editor at once (undoable). `ove mcp` serves the same commands as MCP tools; `ove skills install` sets up Claude
+  Code / Codex (`claude mcp add openvideoeditor -- ove mcp`). Frames, contact sheets, scene cuts, silence and EBU R128
+  loudness are built in.
 - Not yet: automatic transcription, motion-graphics code items, effects/LUT shaders beyond colour grading, templates,
-  AI generation, signed installers and auto-update.
+  AI generation, stock media search, signed installers and auto-update.
 
 ## Docs
 

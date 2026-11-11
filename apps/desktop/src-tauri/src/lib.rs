@@ -3,6 +3,7 @@
 
 pub mod assistant;
 pub mod commands;
+pub mod control;
 pub mod edits;
 pub mod engine;
 pub mod error;
@@ -122,6 +123,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             projects::undo,
             projects::redo,
             // Timeline exchange (FCPXML, XML, EDL, OTIO).
+            control::report_ui_state,
             interchange::timeline_formats,
             interchange::export_timeline,
             interchange::import_timeline,
@@ -159,6 +161,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             ViewerBackendChanged,
             AppErrorRaised,
             projects::ProjectChanged,
+            control::RemoteOpened,
             exporting::ExportProgress,
             assistant::AgentUiEvent,
         ])
@@ -438,6 +441,9 @@ pub fn run() {
                 log_dir,
             });
 
+            // The command line / MCP server reach the app through the control link.
+            control::start(&handle);
+
             if let Some(window) = app.get_webview_window("main") {
                 restore_window(&handle, &window);
                 attach_native_layer(&handle, &window, requested_backend());
@@ -466,6 +472,7 @@ pub fn run() {
             route_paths(handle, paths);
         }
         if let RunEvent::Exit = event {
+            control::stop(handle);
             let state = handle.state::<AppState>();
             // Final snapshot, full flush, prune and lock release for the open project.
             if let Ok(mut open) = state.projects.open.lock()

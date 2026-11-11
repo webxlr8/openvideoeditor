@@ -264,17 +264,7 @@ pub fn view(p: &Project) -> ProjectView {
 
 /// Default tracks of a new project, top layer first.
 pub(crate) fn default_tracks() -> Vec<Op> {
-    [
-        ("t_text", "Text", "video"),
-        ("t_captions", "Captions", "caption"),
-        ("t_overlay", "Overlay", "video"),
-        ("t_main", "Main", "video"),
-        ("t_audio", "Audio", "audio"),
-    ]
-    .iter()
-    .enumerate()
-    .map(|(i, (id, name, kind))| Op::AddTrack { track: json!({"id": id, "name": name, "order": i, "type": kind}) })
-    .collect()
+    ove_store::library::starter_tracks()
 }
 
 pub(crate) fn emit(app: &AppHandle, p: Option<&Project>) {

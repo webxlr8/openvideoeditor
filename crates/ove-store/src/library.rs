@@ -368,3 +368,19 @@ impl Library {
         })
     }
 }
+
+/// The tracks a new project starts with (top to bottom): Text, Captions, Overlay, Main, Audio. The app and the CLI
+/// both create projects with these.
+pub fn starter_tracks() -> Vec<Op> {
+    [
+        ("t_text", "Text", "video"),
+        ("t_captions", "Captions", "caption"),
+        ("t_overlay", "Overlay", "video"),
+        ("t_main", "Main", "video"),
+        ("t_audio", "Audio", "audio"),
+    ]
+    .iter()
+    .enumerate()
+    .map(|(i, (id, name, kind))| Op::AddTrack { track: json!({"id": id, "name": name, "order": i, "type": kind}) })
+    .collect()
+}

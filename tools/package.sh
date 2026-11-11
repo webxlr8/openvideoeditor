@@ -5,7 +5,8 @@
 #   tools/package.sh [--skip-ffmpeg] [--debug]
 #
 # Steps: LGPL FFmpeg build (tools/ffmpeg/build.sh) → generated bundle config that ships exactly the five LGPL
-# libraries (+ dav1d) → `tauri build` → artefact list with sizes against the 60 MB installer budget.
+# libraries (+ dav1d) → the `ove` CLI as a sidecar → `tauri build` → artefact list with sizes against the 60 MB
+# installer budget.
 # Signing and notarisation (Apple Developer ID, Windows code-signing certificate) come later; see docs/03 §6.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -76,6 +77,21 @@ json.dump({"bundle": {"targets": ["deb"], "linux": {"deb": {"depends": [
 PY
     ;;
 esac
+
+# The `ove` command line (with media support) ships inside the app as a sidecar: next to the app executable on
+# macOS / Windows, /usr/bin/ove in the .deb. Agents and `ove mcp` use it; the app's control link serves it.
+TRIPLE="$(rustc -vV | sed -n 's/^host: //p')"
+EXE=""; [ "$TARGET" = windows-x64 ] && EXE=".exe"
+CLI_PROFILE=release; [ "${PROFILE[0]}" = --debug ] && CLI_PROFILE=debug
+( cd "$ROOT" && cargo build -p ove-cli --features media $([ "$CLI_PROFILE" = release ] && echo --release) )
+mkdir -p "$ROOT/apps/desktop/src-tauri/binaries"
+cp "${CARGO_TARGET_DIR:-$ROOT/target}/$CLI_PROFILE/ove$EXE" "$ROOT/apps/desktop/src-tauri/binaries/ove-$TRIPLE$EXE"
+python3 - "$GEN" <<'PY'
+import json, sys
+c = json.load(open(sys.argv[1]))
+c["bundle"]["externalBin"] = ["binaries/ove"]
+json.dump(c, open(sys.argv[1], "w"), indent=2)
+PY
 
 cd "$ROOT/apps/desktop"
 pnpm install --frozen-lockfile

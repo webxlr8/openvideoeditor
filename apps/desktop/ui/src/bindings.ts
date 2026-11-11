@@ -45,6 +45,8 @@ export const commands = {
 	setTrackFlag: (id: string, flag: string, value: boolean) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("set_track_flag", { id, flag, value })),
 	undo: () => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("undo")),
 	redo: () => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("redo")),
+	/**  The UI reports its selection and viewer mode (for `ove app context`). */
+	reportUiState: (ui: UiState) => typedError<null, AppError>(__TAURI_INVOKE("report_ui_state", { ui })),
 	timelineFormats: () => __TAURI_INVOKE<TimelineFormat[]>("timeline_formats"),
 	/**
 	 *  Writes the open project's timeline. `path: None` asks with a save dialog; returns the written path (`None` when
@@ -109,6 +111,7 @@ export const events = {
 	openPathsRequested: makeEvent<OpenPathsRequested, OpenPathsRequested>("open-paths-requested"),
 	playbackChanged: makeEvent<PlaybackChanged, PlaybackChanged>("playback-changed"),
 	projectChanged: makeEvent<ProjectChanged_Serialize, ProjectChanged_Deserialize>("project-changed"),
+	remoteOpened: makeEvent<RemoteOpened_Serialize, RemoteOpened_Deserialize>("remote-opened"),
 	viewerBackendChanged: makeEvent<ViewerBackendChanged, ViewerBackendChanged>("viewer-backend-changed"),
 	viewerFrameReady: makeEvent<ViewerFrameReady, ViewerFrameReady>("viewer-frame-ready"),
 };
@@ -490,6 +493,15 @@ export type ProjectView_Serialize = {
 	media: MediaView_Serialize[],
 };
 
+/**  A project was opened from the command line: the UI switches to the editor. */
+export type RemoteOpened = RemoteOpened_Serialize | RemoteOpened_Deserialize;
+
+/**  A project was opened from the command line: the UI switches to the editor. */
+export type RemoteOpened_Deserialize = ProjectView_Deserialize;
+
+/**  A project was opened from the command line: the UI switches to the editor. */
+export type RemoteOpened_Serialize = ProjectView_Serialize;
+
 export type SendResult = {
 	chatId: string,
 };
@@ -543,6 +555,13 @@ export type TransportCommand = { kind: "play" } | { kind: "pause" } | { kind: "t
 { kind: "shuttleReverse" } | 
 /**  Seek to an exact frame (clamped to the media). */
 { kind: "seekFrame"; frame: number } | { kind: "setLoop"; enabled: boolean };
+
+/**  What the UI shows that only it knows: the selection and the viewer mode. */
+export type UiState = {
+	selection: string[],
+	/**  `timeline` or `source`. */
+	viewer: string,
+};
 
 /**  Which presentation path is active. */
 export type ViewerBackend = 

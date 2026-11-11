@@ -80,6 +80,21 @@ fn documented_examples_run_with_documented_exit_codes() {
 }
 
 #[test]
+fn project_examples() {
+    let (d, lib) = setup();
+    assert_eq!(run_examples("project.md", &lib, d.path()), 7);
+    let out = ove(&lib, d.path(), &["project", "show", "PromoV2", "--json"]);
+    let v: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["aspectRatio"], "9:16");
+    assert_eq!(v["tracks"].as_array().unwrap().len(), 5);
+    // Remove with --yes moves it away (to the Trash; on CI hosts without one the refusal is acceptable).
+    let out = ove(&lib, d.path(), &["project", "remove", "Draft", "--yes", "--json"]);
+    if out.status.success() {
+        assert_eq!(ove(&lib, d.path(), &["project", "show", "Draft"]).status.code(), Some(1));
+    }
+}
+
+#[test]
 fn interchange_examples_and_round_trip() {
     let (d, lib) = setup();
     assert_eq!(run_examples("interchange.md", &lib, d.path()), 7);
