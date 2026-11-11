@@ -45,6 +45,17 @@ export const commands = {
 	setTrackFlag: (id: string, flag: string, value: boolean) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("set_track_flag", { id, flag, value })),
 	undo: () => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("undo")),
 	redo: () => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("redo")),
+	timelineFormats: () => __TAURI_INVOKE<TimelineFormat[]>("timeline_formats"),
+	/**
+	 *  Writes the open project's timeline. `path: None` asks with a save dialog; returns the written path (`None` when
+	 *  the dialog was cancelled).
+	 */
+	exportTimeline: (format: string, fps: number | null, path: string | null) => typedError<string | null, AppError>(__TAURI_INVOKE("export_timeline", { format, fps, path })),
+	/**
+	 *  Adds a timeline file's tracks and clips to the open project as one revision. `path: None` asks with an open
+	 *  dialog (`None` when cancelled).
+	 */
+	importTimeline: (path: string | null, fps: number | null) => typedError<TimelineImport_Serialize | null, AppError>(__TAURI_INVOKE("import_timeline", { path, fps })),
 	/**  Plays the open project's composited timeline in the viewer. */
 	openTimeline: () => typedError<MediaInfo_Serialize, AppError>(__TAURI_INVOKE("open_timeline")),
 	/**  Starts exporting the open project in the background. Progress arrives as `exportProgress` events. */
@@ -481,6 +492,36 @@ export type ProjectView_Serialize = {
 
 export type SendResult = {
 	chatId: string,
+};
+
+/**  The formats, for the UI: `id` is what the commands take. */
+export type TimelineFormat = {
+	id: string,
+	label: string,
+	extension: string,
+};
+
+/**  What an import did. */
+export type TimelineImport = TimelineImport_Serialize | TimelineImport_Deserialize;
+
+/**  What an import did. */
+export type TimelineImport_Deserialize = {
+	project: ProjectView_Deserialize,
+	tracks: number,
+	clips: number,
+	mediaAdded: number,
+	/**  Clips whose media was not found (added as placeholders). */
+	missing: string[],
+};
+
+/**  What an import did. */
+export type TimelineImport_Serialize = {
+	project: ProjectView_Serialize,
+	tracks: number,
+	clips: number,
+	mediaAdded: number,
+	/**  Clips whose media was not found (added as placeholders). */
+	missing: string[],
 };
 
 export type TrackView = {

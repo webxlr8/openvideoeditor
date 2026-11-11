@@ -91,3 +91,8 @@
 .xp-open {
   height: 28px;
 }
+
+.xp-kind {
+  align-self: flex-start;
+  margin-bottom: 4px;
+}

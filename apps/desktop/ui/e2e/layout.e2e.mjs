@@ -165,6 +165,21 @@ try {
   check("diagnostics overlay opens", await page.getByTestId("diagnostics").isVisible());
   await page.screenshot({ path: path.join(outDir, "editor-diagnostics.png") });
 
+  // Timeline exchange: export tab and import button.
+  await page.keyboard.press("Control+Shift+D");
+  await page.getByTestId("open-export").click();
+  await page.getByTestId("export-kind-timeline").click();
+  await page.getByTestId("timeline-formats").getByText("XML", { exact: true }).click();
+  await page.screenshot({ path: path.join(outDir, "export-timeline.png") });
+  await page.getByTestId("timeline-export-start").click();
+  await page.getByTestId("timeline-export-done").waitFor();
+  check("timeline export saved", (await page.getByTestId("timeline-export-done").textContent()).includes(".xml"));
+  await page.getByText("Done", { exact: true }).click();
+  await page.getByTestId("import-timeline").click();
+  await page.getByTestId("toast").first().waitFor();
+  check("timeline import reported", (await page.getByTestId("toast").first().textContent()).includes("Imported 1 clip"));
+  await page.screenshot({ path: path.join(outDir, "import-timeline.png") });
+
   // Scale factor 1 display.
   const ctx1 = await browser.newContext({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1 });
   const p1 = await ctx1.newPage();

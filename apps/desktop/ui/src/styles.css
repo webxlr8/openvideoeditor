@@ -1096,6 +1096,10 @@ kbd {
   border: 1px solid #5a2e33;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
 }
+.toast.info {
+  background: #1d2430;
+  border-color: #33445e;
+}
 
 /* ---------------------------------------------------------------- Projects */
 .project-grid {

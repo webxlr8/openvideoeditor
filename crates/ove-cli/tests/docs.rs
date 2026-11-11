@@ -39,10 +39,9 @@ fn setup() -> (tempfile::TempDir, std::path::PathBuf) {
     (d, lib)
 }
 
-#[test]
-fn documented_examples_run_with_documented_exit_codes() {
-    let (d, lib) = setup();
-    let doc = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/cli/timeline.md")).unwrap();
+/// Runs every `ove …  # exit N` line of a ```sh block in a docs/cli page and returns how many ran.
+fn run_examples(page: &str, lib: &Path, cwd: &Path) -> usize {
+    let doc = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/cli").join(page)).unwrap();
     let mut in_sh = false;
     let mut ran = 0;
     for line in doc.lines() {
@@ -50,13 +49,13 @@ fn documented_examples_run_with_documented_exit_codes() {
             in_sh = line == "```sh";
             continue;
         }
-        if !in_sh || !line.starts_with("ove ") {
+        if !in_sh || !line.starts_with("ove ") || !line.contains("# exit") {
             continue;
         }
         let (cmd, comment) = line.split_once('#').expect("example has an `# exit N` comment");
         let want: i32 = comment.trim().strip_prefix("exit ").unwrap().parse().unwrap();
         let args: Vec<&str> = cmd.split_whitespace().skip(1).collect();
-        let out = ove(&lib, d.path(), &args);
+        let out = ove(lib, cwd, &args);
         assert_eq!(
             out.status.code(),
             Some(want),
@@ -70,7 +69,33 @@ fn documented_examples_run_with_documented_exit_codes() {
         }
         ran += 1;
     }
+    ran
+}
+
+#[test]
+fn documented_examples_run_with_documented_exit_codes() {
+    let (d, lib) = setup();
+    let ran = run_examples("timeline.md", &lib, d.path());
     assert!(ran >= 10, "only {ran} examples found");
+}
+
+#[test]
+fn interchange_examples_and_round_trip() {
+    let (d, lib) = setup();
+    assert_eq!(run_examples("interchange.md", &lib, d.path()), 7);
+    // The import above added the exported tracks again: the title now exists twice, the pending clip too.
+    let v: Value = serde_json::from_slice(&ove(&lib, d.path(), &["source", "print", "Demo", "--json"]).stdout).unwrap();
+    let text = v["text"].as_str().unwrap();
+    assert_eq!(text.matches("Imported").count(), 1, "{text}");
+    assert_eq!(text.matches("textContent=\"Hi\"").count(), 2, "{text}");
+    let fcpxml = std::fs::read_to_string(d.path().join("cut.fcpxml")).unwrap();
+    assert!(fcpxml.contains("1001/30000s"), "{fcpxml}");
+    // Garbage is refused without a revision.
+    std::fs::write(d.path().join("bad.xml"), "<nope/>").unwrap();
+    let out = ove(&lib, d.path(), &["timeline", "import", "Demo", "bad.xml", "--json"]);
+    assert_eq!(out.status.code(), Some(1));
+    let e: Value = serde_json::from_slice(&out.stderr).unwrap();
+    assert_eq!(e["error"]["code"], "import.invalid");
 }
 
 #[test]

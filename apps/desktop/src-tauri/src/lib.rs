@@ -7,6 +7,7 @@ pub mod edits;
 pub mod engine;
 pub mod error;
 pub mod exporting;
+pub mod interchange;
 pub mod logging;
 pub mod media;
 pub mod projects;
@@ -120,6 +121,10 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             projects::set_track_flag,
             projects::undo,
             projects::redo,
+            // Timeline exchange (FCPXML, XML, EDL, OTIO).
+            interchange::timeline_formats,
+            interchange::export_timeline,
+            interchange::import_timeline,
             // Timeline preview and export (render engine).
             exporting::open_timeline,
             exporting::export_project,

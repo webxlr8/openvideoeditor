@@ -56,10 +56,16 @@ declare global {
 
 type Listener = (event: { payload: unknown }) => void;
 
-function createMock(): { commands: Commands; events: Events; control: MockControl } {
+function createMock(): {
+  commands: Commands;
+  events: Events;
+  control: MockControl;
+} {
   const listeners = new Map<string, Set<Listener>>();
-  const emit = (name: string, payload: unknown) => listeners.get(name)?.forEach((cb) => cb({ payload }));
-  const ok = <T>(data: T): Promise<Ok<T>> => Promise.resolve({ status: "ok", data });
+  const emit = (name: string, payload: unknown) =>
+    listeners.get(name)?.forEach((cb) => cb({ payload }));
+  const ok = <T>(data: T): Promise<Ok<T>> =>
+    Promise.resolve({ status: "ok", data });
   const fail = (code: AppError["code"], message: string): Promise<Err> =>
     Promise.resolve({ status: "error", error: { code, message } });
 
@@ -84,15 +90,18 @@ function createMock(): { commands: Commands; events: Events; control: MockContro
     if (timer) clearInterval(timer);
     timer = null;
     if (state.playing) {
-      timer = setInterval(() => {
-        const dir = Math.sign(state.speed ?? 0);
-        const next = state.frame + dir;
-        if (next < 0 || next > last()) {
-          if (state.looping) state.frame = dir > 0 ? 0 : last();
-          else setSpeed(0);
-        } else state.frame = next;
-        changed();
-      }, 1000 / ((state.frameRate ?? 30) * Math.abs(state.speed ?? 1)));
+      timer = setInterval(
+        () => {
+          const dir = Math.sign(state.speed ?? 0);
+          const next = state.frame + dir;
+          if (next < 0 || next > last()) {
+            if (state.looping) state.frame = dir > 0 ? 0 : last();
+            else setSpeed(0);
+          } else state.frame = next;
+          changed();
+        },
+        1000 / ((state.frameRate ?? 30) * Math.abs(state.speed ?? 1)),
+      );
     }
   };
   const apply = (c: TransportCommand) => {
@@ -169,7 +178,8 @@ function createMock(): { commands: Commands; events: Events; control: MockContro
   let undoStack: ProjectView_Serialize[] = [];
   let redoStack: ProjectView_Serialize[] = [];
   let seq = 0;
-  const clone = (p: ProjectView_Serialize) => JSON.parse(JSON.stringify(p)) as ProjectView_Serialize;
+  const clone = (p: ProjectView_Serialize) =>
+    JSON.parse(JSON.stringify(p)) as ProjectView_Serialize;
   const withFlags = (p: ProjectView_Serialize): ProjectView_Serialize => ({
     ...p,
     canUndo: undoStack.length > 0,
@@ -178,9 +188,13 @@ function createMock(): { commands: Commands; events: Events; control: MockContro
   });
   // The timeline viewer follows edits, as the engine's timeline session does.
   let timelineOpen = false;
-  const timelineFrames = () => Math.max(1, Math.ceil((project?.durationSeconds ?? 0) * 30));
+  const timelineFrames = () =>
+    Math.max(1, Math.ceil((project?.durationSeconds ?? 0) * 30));
   const publish = () => {
-    if (!project) return ok<ProjectView_Serialize>(null as unknown as ProjectView_Serialize);
+    if (!project)
+      return ok<ProjectView_Serialize>(
+        null as unknown as ProjectView_Serialize,
+      );
     project = withFlags(project);
     if (timelineOpen) {
       state.totalFrames = timelineFrames();
@@ -192,7 +206,10 @@ function createMock(): { commands: Commands; events: Events; control: MockContro
     emit("project-changed", clone(project));
     return ok(clone(project));
   };
-  const editProject = (summary: string, f: (p: ProjectView_Serialize) => void) => {
+  const editProject = (
+    summary: string,
+    f: (p: ProjectView_Serialize) => void,
+  ) => {
     if (!project) return fail("invalid_argument", "No project is open.");
     undoStack.push(clone(project));
     redoStack = [];
@@ -217,48 +234,105 @@ function createMock(): { commands: Commands; events: Events; control: MockContro
       ["t_overlay", "Overlay", "video"],
       ["t_main", "Main", "video"],
       ["t_audio", "Audio", "audio"],
-    ].map(([id, name, kind]) => ({ id, name, kind, locked: false, visible: true, muted: false })),
+    ].map(([id, name, kind]) => ({
+      id,
+      name,
+      kind,
+      locked: false,
+      visible: true,
+      muted: false,
+    })),
     items: [],
     media: [],
   });
   // Like the real import: unreadable files are skipped and reported through `appErrorRaised`.
   const importPaths = (all: string[]) => {
-    const playable = /\.(mp4|m4v|mov|mxf|mkv|webm|m4a|wav|caf|opus|ogg|aac|png|jpe?g|webp)$/i;
+    const playable =
+      /\.(mp4|m4v|mov|mxf|mkv|webm|m4a|wav|caf|opus|ogg|aac|png|jpe?g|webp)$/i;
     const paths = all.filter((p) => playable.test(p));
     const skipped = all.filter((p) => !playable.test(p));
     if (skipped.length > 0)
       emit("app-error-raised", {
         code: "unsupported",
-        message: skipped.map((p) => `“${p.split(/[\\/]/).pop()}” can't be opened: this file type is not supported.`).join(" "),
+        message: skipped
+          .map(
+            (p) =>
+              `“${p.split(/[\\/]/).pop()}” can't be opened: this file type is not supported.`,
+          )
+          .join(" "),
       });
     if (paths.length === 0) return publish();
     return importValid(paths);
   };
   const importValid = (paths: string[]) =>
-    editProject(`import ${paths.length} file${paths.length === 1 ? "" : "s"}`, (p) => {
-      for (const path of paths) {
-        const n = ++seq;
-        const name = path.split(/[\\/]/).pop() ?? path;
-        const audio = /\.(m4a|wav|caf|opus|ogg|aac)$/i.test(path);
-        const track = audio ? "t_audio" : "t_main";
-        const end = Math.max(0, ...p.items.filter((i) => i.trackId === track).map((i) => i.end ?? 0));
-        p.media.push({ id: `m${n}`, name, path, kind: audio ? "audio" : "video", durationSeconds: 60, width: audio ? null : 1920, height: audio ? null : 1080, status: "online", thumbnail: null });
-        p.items.push(fromDetail({ id: `i${n}`, trackId: track, type: audio ? "audio" : "video", name, startTime: end, endTime: end + 60, mediaItemId: `m${n}` }));
-      }
-    });
-  const findItem = (id: string): ItemView_Serialize | undefined => project?.items.find((i) => i.id === id);
+    editProject(
+      `import ${paths.length} file${paths.length === 1 ? "" : "s"}`,
+      (p) => {
+        for (const path of paths) {
+          const n = ++seq;
+          const name = path.split(/[\\/]/).pop() ?? path;
+          const audio = /\.(m4a|wav|caf|opus|ogg|aac)$/i.test(path);
+          const track = audio ? "t_audio" : "t_main";
+          const end = Math.max(
+            0,
+            ...p.items
+              .filter((i) => i.trackId === track)
+              .map((i) => i.end ?? 0),
+          );
+          p.media.push({
+            id: `m${n}`,
+            name,
+            path,
+            kind: audio ? "audio" : "video",
+            durationSeconds: 60,
+            width: audio ? null : 1920,
+            height: audio ? null : 1080,
+            status: "online",
+            thumbnail: null,
+          });
+          p.items.push(
+            fromDetail({
+              id: `i${n}`,
+              trackId: track,
+              type: audio ? "audio" : "video",
+              name,
+              startTime: end,
+              endTime: end + 60,
+              mediaItemId: `m${n}`,
+            }),
+          );
+        }
+      },
+    );
+  const findItem = (id: string): ItemView_Serialize | undefined =>
+    project?.items.find((i) => i.id === id);
 
   // Full item fields (document names) ride along on each mock item, as the real core keeps them in the document.
   type Fields = Record<string, unknown>;
   type MockItem = ItemView_Serialize & { fields: Fields };
-  const HEAD = ["id", "trackId", "type", "startTime", "endTime", "name", "trimStart", "mediaItemId", "pending"];
+  const HEAD = [
+    "id",
+    "trackId",
+    "type",
+    "startTime",
+    "endTime",
+    "name",
+    "trimStart",
+    "mediaItemId",
+    "pending",
+  ];
   const n = (v: unknown, d = 0) => (typeof v === "number" ? v : d);
   const refresh = (i: MockItem) => {
     const f = i.fields;
     const tr = (k: string) => n((f[k] as Fields | undefined)?.duration);
     i.hidden = f.hidden === true;
     i.muted = f.muted === true;
-    i.text = typeof f.textContent === "string" ? f.textContent : typeof f.captionText === "string" ? f.captionText : null;
+    i.text =
+      typeof f.textContent === "string"
+        ? f.textContent
+        : typeof f.captionText === "string"
+          ? f.captionText
+          : null;
     i.transitionIn = tr("transitionIn");
     i.transitionOut = tr("transitionOut");
     i.speed = n(f.playbackSpeed, 1);
@@ -266,7 +340,8 @@ function createMock(): { commands: Commands; events: Events; control: MockContro
   };
   function fromDetail(d: Fields): MockItem {
     const fields: Fields = {};
-    for (const [k, v] of Object.entries(d)) if (!HEAD.includes(k)) fields[k] = v;
+    for (const [k, v] of Object.entries(d))
+      if (!HEAD.includes(k)) fields[k] = v;
     return refresh({
       id: String(d.id ?? `i${++seq}`),
       trackId: String(d.trackId),
@@ -327,7 +402,10 @@ function createMock(): { commands: Commands; events: Events; control: MockContro
     { id: "claude-haiku-5-5", label: "Claude Haiku 5.5" },
   ];
   let agentModel = MODELS[0].id;
-  const chats = new Map<string, { title: string; updatedAt: number; items: ChatItem_Serialize[] }>();
+  const chats = new Map<
+    string,
+    { title: string; updatedAt: number; items: ChatItem_Serialize[] }
+  >();
   let turn: { stop: boolean; answer?: (a: string) => void } | null = null;
   const agentStatus = (): AgentStatus_Serialize => ({
     hasKey: control.agent.hasKey,
@@ -336,9 +414,15 @@ function createMock(): { commands: Commands; events: Events; control: MockContro
     models: MODELS,
     running: turn !== null,
   });
-  const agentEvent = (payload: AgentUiEvent_Serialize) => emit("agent-ui-event", payload);
+  const agentEvent = (payload: AgentUiEvent_Serialize) =>
+    emit("agent-ui-event", payload);
   const wait = () => new Promise((r) => setTimeout(r, control.agent.stepMs));
-  const item = (role: string, text: string, id: string | null = null, ok: boolean | null = null): ChatItem_Serialize => ({ role, text, id, ok, options: [] });
+  const item = (
+    role: string,
+    text: string,
+    id: string | null = null,
+    ok: boolean | null = null,
+  ): ChatItem_Serialize => ({ role, text, id, ok, options: [] });
   const runTurn = async (chatId: string) => {
     const chat = chats.get(chatId)!;
     const t = turn!;
@@ -353,7 +437,12 @@ function createMock(): { commands: Commands; events: Events; control: MockContro
         agentEvent({ kind: "textDelta", text: word });
       }
     };
-    const tool = async (id: string, name: string, label: string, run: () => string) => {
+    const tool = async (
+      id: string,
+      name: string,
+      label: string,
+      run: () => string,
+    ) => {
       if (t.stop) return;
       const it = item("tool", label, id);
       chat.items.push(it);
@@ -367,27 +456,64 @@ function createMock(): { commands: Commands; events: Events; control: MockContro
     agentEvent({ kind: "thinkingDelta", text: "…" });
     await wait();
     await say("Let me look at the timeline first. ");
-    await tool("tu_print", "print_timeline", "Read the timeline", () => `${project?.items.length ?? 0} items`);
+    await tool(
+      "tu_print",
+      "print_timeline",
+      "Read the timeline",
+      () => `${project?.items.length ?? 0} items`,
+    );
     if (control.agent.ask && !t.stop) {
       const q = item("question", "Which style should the title use?", "tu_ask");
       q.options = ["Bold", "Minimal"];
       chat.items.push(q);
-      agentEvent({ kind: "question", id: "tu_ask", question: q.text, options: q.options });
+      agentEvent({
+        kind: "question",
+        id: "tu_ask",
+        question: q.text,
+        options: q.options,
+      });
       const a = await new Promise<string>((r) => (t.answer = r));
       q.text += `\n→ ${a}`;
       q.ok = true;
     }
     await tool("tu_apply", "apply_timeline", "Edit the timeline", () => {
       void editProject("assistant: add opening title", (p) => {
-        p.items.push(fromDetail({ id: `i${++seq}`, trackId: "t_text", type: "text", name: "Opening title", startTime: 0, endTime: 3, textContent: "Welcome" }));
+        p.items.push(
+          fromDetail({
+            id: `i${++seq}`,
+            trackId: "t_text",
+            type: "text",
+            name: "Opening title",
+            startTime: 0,
+            endTime: 3,
+            textContent: "Welcome",
+          }),
+        );
       });
       return "added 1";
     });
-    await tool("tu_verify", "verify_timeline", "Check the timeline", () => "no problems");
-    await say("Done: I added a 3-second **Welcome** title at the start. Undo removes it in one step.");
+    await tool(
+      "tu_verify",
+      "verify_timeline",
+      "Check the timeline",
+      () => "no problems",
+    );
+    await say(
+      "Done: I added a 3-second **Welcome** title at the start. Undo removes it in one step.",
+    );
     chat.updatedAt = Date.now();
     turn = null;
-    agentEvent({ kind: "turnDone", chatId, stopped: t.stop, durationMs: Date.now() - started, inputTokens: 5400, outputTokens: 320, cacheReadTokens: 4800, costUsd: 0.0148, note: null });
+    agentEvent({
+      kind: "turnDone",
+      chatId,
+      stopped: t.stop,
+      durationMs: Date.now() - started,
+      inputTokens: 5400,
+      outputTokens: 320,
+      cacheReadTokens: 4800,
+      costUsd: 0.0148,
+      note: null,
+    });
   };
 
   const commands: Commands = {
@@ -401,19 +527,33 @@ function createMock(): { commands: Commands; events: Events; control: MockContro
         viewerBackend: backend,
         logDir: null,
       }),
-    takePendingOpenPaths: () => (track("takePendingOpenPaths"), ok<string[]>([])),
+    takePendingOpenPaths: () => (
+      track("takePendingOpenPaths"),
+      ok<string[]>([])
+    ),
     openMedia: (path: string) => {
       track(`openMedia:${path}`);
       if (!/\.(mp4|m4v|mov|mxf|mkv|webm|m4a|wav|caf|opus|ogg|aac)$/i.test(path))
-        return fail("unsupported", `“${path.split(/[\\/]/).pop()}” can't be opened: this file type is not supported.`);
+        return fail(
+          "unsupported",
+          `“${path.split(/[\\/]/).pop()}” can't be opened: this file type is not supported.`,
+        );
       const info = media(path);
       timelineOpen = false;
       setSpeed(0);
-      Object.assign(state, { hasMedia: true, frame: 0, totalFrames: info.totalFrames, frameRate: 30 });
+      Object.assign(state, {
+        hasMedia: true,
+        frame: 0,
+        totalFrames: info.totalFrames,
+        frameRate: 30,
+      });
       changed();
       return ok(info);
     },
-    openMediaDialog: () => commands.openMedia("/mock/Sample clip.mov") as ReturnType<Commands["openMediaDialog"]>,
+    openMediaDialog: () =>
+      commands.openMedia("/mock/Sample clip.mov") as ReturnType<
+        Commands["openMediaDialog"]
+      >,
     closeMedia: () => {
       timelineOpen = false;
       setSpeed(0);
@@ -466,7 +606,11 @@ function createMock(): { commands: Commands; events: Events; control: MockContro
         audioAvailable: false,
       }),
     simulateDeviceLoss: () => ok(null),
-    debugPanicWorker: () => fail("worker_panic", "An internal error stopped a test worker. Details are in the log."),
+    debugPanicWorker: () =>
+      fail(
+        "worker_panic",
+        "An internal error stopped a test worker. Details are in the log.",
+      ),
     debugPanicViewer: () => ok(null),
     listProjects: () =>
       ok<ProjectSummary_Serialize[]>(
@@ -505,7 +649,10 @@ function createMock(): { commands: Commands; events: Events; control: MockContro
     },
     projectView: () => ok(project ? clone(project) : null),
     importMedia: (paths: string[]) => importPaths(paths),
-    importMediaDialog: () => importPaths(["/mock/Sample clip.mov"]) as ReturnType<Commands["importMediaDialog"]>,
+    importMediaDialog: () =>
+      importPaths(["/mock/Sample clip.mov"]) as ReturnType<
+        Commands["importMediaDialog"]
+      >,
     moveItem: (id: string, start: number | null, trackId: string | null) =>
       editProject("move clip", () => {
         const i = findItem(id);
@@ -516,48 +663,77 @@ function createMock(): { commands: Commands; events: Events; control: MockContro
         if (trackId) i.trackId = trackId;
       }),
     removeItems: (ids: string[]) =>
-      editProject(`delete ${ids.length} item${ids.length === 1 ? "" : "s"}`, (p) => {
-        p.items = p.items.filter((i) => !ids.includes(i.id));
-      }),
+      editProject(
+        `delete ${ids.length} item${ids.length === 1 ? "" : "s"}`,
+        (p) => {
+          p.items = p.items.filter((i) => !ids.includes(i.id));
+        },
+      ),
     splitItem: (id: string, at: number | null) =>
       editProject("split clip", (p) => {
         const i = findItem(id);
-        if (!i || at === null || at <= (i.start ?? 0) || at >= (i.end ?? 0)) return;
-        p.items.push({ ...i, id: `${i.id}_b`, start: at, trimStart: (i.trimStart ?? 0) + at - (i.start ?? 0) });
+        if (!i || at === null || at <= (i.start ?? 0) || at >= (i.end ?? 0))
+          return;
+        p.items.push({
+          ...i,
+          id: `${i.id}_b`,
+          start: at,
+          trimStart: (i.trimStart ?? 0) + at - (i.start ?? 0),
+        });
         i.end = at;
       }),
-    setAspectRatio: (aspect: string) => editProject("change aspect ratio", (p) => void (p.aspectRatio = aspect)),
-    renameProject: (name: string) => editProject("rename project", (p) => void (p.name = name)),
+    setAspectRatio: (aspect: string) =>
+      editProject("change aspect ratio", (p) => void (p.aspectRatio = aspect)),
+    renameProject: (name: string) =>
+      editProject("rename project", (p) => void (p.name = name)),
     setTrackFlag: (id: string, flag: string, value: boolean) =>
       editProject("track setting", (p) => {
         const t = p.tracks.find((x) => x.id === id);
-        if (t && (flag === "muted" || flag === "visible" || flag === "locked")) t[flag] = value;
+        if (t && (flag === "muted" || flag === "visible" || flag === "locked"))
+          t[flag] = value;
       }),
     undo: () => {
-      if (!project || undoStack.length === 0) return fail("invalid_argument", "Nothing to undo.");
+      if (!project || undoStack.length === 0)
+        return fail("invalid_argument", "Nothing to undo.");
       redoStack.push(clone(project));
       project = undoStack.pop()!;
       return publish();
     },
     redo: () => {
-      if (!project || redoStack.length === 0) return fail("invalid_argument", "Nothing to redo.");
+      if (!project || redoStack.length === 0)
+        return fail("invalid_argument", "Nothing to redo.");
       undoStack.push(clone(project));
       project = redoStack.pop()!;
       return publish();
     },
     itemDetail: (id: string) => {
       const i = mock(id);
-      return i ? ok(JSON.stringify(toDetail(i))) : fail("not_found", "That item no longer exists.");
+      return i
+        ? ok(JSON.stringify(toDetail(i)))
+        : fail("not_found", "That item no longer exists.");
     },
-    updateItem: (id: string, setJson: string, unset: string[], summary: string | null) =>
-      editProject(summary ?? "edit item", () => applyEdit(id, JSON.parse(setJson) as Fields, unset)),
+    updateItem: (
+      id: string,
+      setJson: string,
+      unset: string[],
+      summary: string | null,
+    ) =>
+      editProject(summary ?? "edit item", () =>
+        applyEdit(id, JSON.parse(setJson) as Fields, unset),
+      ),
     updateItems: (editsJson: string, summary: string | null) =>
       editProject(summary ?? "edit items", () => {
-        for (const e of JSON.parse(editsJson) as { id: string; set?: Fields; unset?: string[] }[]) applyEdit(e.id, e.set ?? {}, e.unset ?? []);
+        for (const e of JSON.parse(editsJson) as {
+          id: string;
+          set?: Fields;
+          unset?: string[];
+        }[])
+          applyEdit(e.id, e.set ?? {}, e.unset ?? []);
       }),
     addItems: (itemsJson: string, summary: string | null) =>
       editProject(summary ?? "add items", (p) => {
-        for (const d of JSON.parse(itemsJson) as Fields[]) p.items.push(fromDetail({ ...d, id: d.id ?? `i${++seq}` }));
+        for (const d of JSON.parse(itemsJson) as Fields[])
+          p.items.push(fromDetail({ ...d, id: d.id ?? `i${++seq}` }));
       }),
     duplicateItems: (ids: string[]) =>
       editProject("duplicate", (p) => {
@@ -565,7 +741,14 @@ function createMock(): { commands: Commands; events: Events; control: MockContro
           const i = mock(id);
           if (!i) continue;
           const len = (i.end ?? 0) - (i.start ?? 0);
-          p.items.push(fromDetail({ ...toDetail(i), id: `i${++seq}`, startTime: i.end, endTime: (i.end ?? 0) + len }));
+          p.items.push(
+            fromDetail({
+              ...toDetail(i),
+              id: `i${++seq}`,
+              startTime: i.end,
+              endTime: (i.end ?? 0) + len,
+            }),
+          );
         }
       }),
     pasteItems: (itemsJson: string, at: number | null) =>
@@ -573,7 +756,14 @@ function createMock(): { commands: Commands; events: Events; control: MockContro
         const list = JSON.parse(itemsJson) as Fields[];
         const min = Math.min(...list.map((d) => n(d.startTime)));
         for (const d of list)
-          p.items.push(fromDetail({ ...d, id: `i${++seq}`, startTime: (at ?? 0) + n(d.startTime) - min, endTime: (at ?? 0) + n(d.endTime) - min }));
+          p.items.push(
+            fromDetail({
+              ...d,
+              id: `i${++seq}`,
+              startTime: (at ?? 0) + n(d.startTime) - min,
+              endTime: (at ?? 0) + n(d.endTime) - min,
+            }),
+          );
       }),
     trimItem: (id: string, edge: string, time: number | null) =>
       editProject("trim", () => {
@@ -588,7 +778,14 @@ function createMock(): { commands: Commands; events: Events; control: MockContro
       }),
     addTrack: (kind: string, name: string) =>
       editProject("add track", (p) => {
-        const t = { id: `t${++seq}`, name, kind, locked: false, visible: true, muted: false };
+        const t = {
+          id: `t${++seq}`,
+          name,
+          kind,
+          locked: false,
+          visible: true,
+          muted: false,
+        };
         if (kind === "audio") p.tracks.push(t);
         else p.tracks.unshift(t);
       }),
@@ -599,15 +796,27 @@ function createMock(): { commands: Commands; events: Events; control: MockContro
       }),
     reorderTracks: (order: string[]) =>
       editProject("reorder tracks", (p) => {
-        p.tracks = order.map((id) => p.tracks.find((t) => t.id === id)!).filter(Boolean);
+        p.tracks = order
+          .map((id) => p.tracks.find((t) => t.id === id)!)
+          .filter(Boolean);
       }),
     openTimeline: () => {
       track("openTimeline");
       if (!project) return fail("invalid_argument", "No project is open.");
-      const [width, height] = project.aspectRatio === "9:16" ? [1080, 1920] : project.aspectRatio === "1:1" ? [1080, 1080] : [1920, 1080];
+      const [width, height] =
+        project.aspectRatio === "9:16"
+          ? [1080, 1920]
+          : project.aspectRatio === "1:1"
+            ? [1080, 1080]
+            : [1920, 1080];
       timelineOpen = true;
       setSpeed(0);
-      Object.assign(state, { hasMedia: true, frame: 0, totalFrames: timelineFrames(), frameRate: 30 });
+      Object.assign(state, {
+        hasMedia: true,
+        frame: 0,
+        totalFrames: timelineFrames(),
+        frameRate: 30,
+      });
       changed();
       return ok<MediaInfo_Serialize>({
         path: project.bundle,
@@ -625,8 +834,12 @@ function createMock(): { commands: Commands; events: Events; control: MockContro
     exportProject: (request: { path: string; height: number; fps: number }) => {
       track(`exportProject:${request.height}p${request.fps}`);
       if (!project) return fail("invalid_argument", "No project is open.");
-      if (exportTimer) return fail("invalid_argument", "An export is already running.");
-      const total = Math.max(1, Math.round((project.durationSeconds ?? 0) * request.fps));
+      if (exportTimer)
+        return fail("invalid_argument", "An export is already running.");
+      const total = Math.max(
+        1,
+        Math.round((project.durationSeconds ?? 0) * request.fps),
+      );
       let frame = 0;
       const started = Date.now();
       exportTimer = setInterval(() => {
@@ -650,12 +863,84 @@ function createMock(): { commands: Commands; events: Events; control: MockContro
       track("cancelExport");
       if (exportTimer) {
         stopExport();
-        emit("export-progress", { fraction: null, frame: 0, totalFrames: 0, done: true, error: "Export cancelled.", path: null, encoder: null, secondsTaken: null });
+        emit("export-progress", {
+          fraction: null,
+          frame: 0,
+          totalFrames: 0,
+          done: true,
+          error: "Export cancelled.",
+          path: null,
+          encoder: null,
+          secondsTaken: null,
+        });
       }
       return ok(null);
     },
-    chooseExportPath: (defaultName: string) => (track("chooseExportPath"), ok<string | null>(`/mock/exports/${defaultName}.mp4`)),
+    chooseExportPath: (defaultName: string) => (
+      track("chooseExportPath"),
+      ok<string | null>(`/mock/exports/${defaultName}.mp4`)
+    ),
     revealPath: (path: string) => (track(`revealPath:${path}`), ok(null)),
+    timelineFormats: () =>
+      Promise.resolve(
+        [
+          ["fcpxml", "FCPXML (Final Cut Pro, DaVinci Resolve)"],
+          ["xml", "XML (Premiere Pro, Final Cut Pro 7)"],
+          ["edl", "EDL (CMX3600)"],
+          ["otio", "OpenTimelineIO"],
+        ].map(([id, label]) => ({ id, label, extension: id })),
+      ),
+    exportTimeline: (
+      format: string,
+      fps: number | null,
+      path: string | null,
+    ) => {
+      track(`exportTimeline:${format}@${fps}`);
+      if (!project) return fail("invalid_argument", "Open a project first.");
+      return ok<string | null>(
+        path ?? `/mock/exports/${project.name}.${format}`,
+      );
+    },
+    // Like the real import: tracks named "Imported …" above the existing ones, one clip per imported track here.
+    importTimeline: (path: string | null, fps: number | null) => {
+      track(`importTimeline:${path ?? "dialog"}@${fps}`);
+      if (!project) return fail("invalid_argument", "Open a project first.");
+      void editProject("import timeline", (p) => {
+        const id = `t_imp_${++seq}`;
+        p.tracks.unshift({
+          id,
+          name: "Imported V1",
+          kind: "video",
+          locked: false,
+          visible: true,
+          muted: false,
+        });
+        p.items.push({
+          id: `i_imp_${seq}`,
+          trackId: id,
+          kind: "video",
+          name: "Imported clip",
+          start: 0,
+          end: 4,
+          trimStart: 0,
+          mediaId: null,
+          pending: true,
+          hidden: false,
+          muted: false,
+          text: null,
+          transitionIn: 0,
+          transitionOut: 0,
+          speed: 1,
+        });
+      });
+      return ok({
+        project: clone(project),
+        tracks: 1,
+        clips: 1,
+        mediaAdded: 0,
+        missing: ["Imported clip"],
+      });
+    },
     removeTrack: (id: string) =>
       editProject("remove track", (p) => {
         p.tracks = p.tracks.filter((t) => t.id !== id);
@@ -663,7 +948,11 @@ function createMock(): { commands: Commands; events: Events; control: MockContro
       }),
     agentStatus: () => ok(agentStatus()),
     agentSetKey: (key: string) => {
-      if (!/^sk-ant-[\w-]{8,}$/.test(key.trim())) return fail("invalid_argument", "That doesn't look like an Anthropic API key (they start with sk-ant-).");
+      if (!/^sk-ant-[\w-]{8,}$/.test(key.trim()))
+        return fail(
+          "invalid_argument",
+          "That doesn't look like an Anthropic API key (they start with sk-ant-).",
+        );
       control.agent.hasKey = true;
       return ok(agentStatus());
     },
@@ -672,22 +961,42 @@ function createMock(): { commands: Commands; events: Events; control: MockContro
       return ok(agentStatus());
     },
     agentSetModel: (model: string) => {
-      if (!MODELS.some((m) => m.id === model)) return fail("invalid_argument", "Unknown model.");
+      if (!MODELS.some((m) => m.id === model))
+        return fail("invalid_argument", "Unknown model.");
       agentModel = model;
       return ok(agentStatus());
     },
     agentChats: () =>
-      ok([...chats.entries()].sort((a, b) => b[1].updatedAt - a[1].updatedAt).map(([id, c]) => ({ id, title: c.title, updatedAt: c.updatedAt }))),
+      ok(
+        [...chats.entries()]
+          .sort((a, b) => b[1].updatedAt - a[1].updatedAt)
+          .map(([id, c]) => ({ id, title: c.title, updatedAt: c.updatedAt })),
+      ),
     agentChat: (id: string) => {
       const c = chats.get(id);
-      return c ? ok(JSON.parse(JSON.stringify(c.items)) as ChatItem_Serialize[]) : fail("not_found", "That conversation no longer exists.");
+      return c
+        ? ok(JSON.parse(JSON.stringify(c.items)) as ChatItem_Serialize[])
+        : fail("not_found", "That conversation no longer exists.");
     },
     agentSend: (chatId: string | null, text: string) => {
-      if (!control.agent.hasKey) return fail("invalid_argument", "Add an Anthropic API key to use the assistant.");
+      if (!control.agent.hasKey)
+        return fail(
+          "invalid_argument",
+          "Add an Anthropic API key to use the assistant.",
+        );
       if (!project) return fail("invalid_argument", "Open a project first.");
-      if (turn) return fail("invalid_argument", "The assistant is still working on the last message.");
+      if (turn)
+        return fail(
+          "invalid_argument",
+          "The assistant is still working on the last message.",
+        );
       const id = chatId ?? `c_${++seq}`;
-      if (!chats.has(id)) chats.set(id, { title: text.split("\n")[0].slice(0, 60), updatedAt: Date.now(), items: [] });
+      if (!chats.has(id))
+        chats.set(id, {
+          title: text.split("\n")[0].slice(0, 60),
+          updatedAt: Date.now(),
+          items: [],
+        });
       chats.get(id)!.items.push(item("user", text));
       turn = { stop: false };
       setTimeout(() => void runTurn(id), 0);
@@ -701,7 +1010,8 @@ function createMock(): { commands: Commands; events: Events; control: MockContro
       return ok(null);
     },
     agentAnswer: (_questionId: string, answer: string) => {
-      if (!turn?.answer) return fail("invalid_argument", "That question was already answered.");
+      if (!turn?.answer)
+        return fail("invalid_argument", "That question was already answered.");
       turn.answer(answer);
       turn.answer = undefined;
       return ok(null);

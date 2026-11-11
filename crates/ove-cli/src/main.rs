@@ -53,6 +53,43 @@ enum Cmd {
         #[arg(long, default_value_t = 30)]
         fps: u32,
     },
+    /// Exchange the timeline with other editors (FCPXML, Premiere/FCP7 XML, EDL, OpenTimelineIO).
+    Timeline {
+        #[command(subcommand)]
+        cmd: TimelineCmd,
+    },
+}
+
+#[derive(Subcommand)]
+enum TimelineCmd {
+    /// Write the timeline to FILE. The format comes from --format or the extension (.fcpxml .xml .edl .otio).
+    Export {
+        project: String,
+        file: PathBuf,
+        #[arg(long)]
+        format: Option<String>,
+        /// Frame rate of the exchange file (29.97 and 23.976 allowed).
+        #[arg(long, default_value_t = 30.0)]
+        fps: f64,
+    },
+    /// Add the tracks and clips of FILE to the project as one revision (new media awaits probing; clips whose media
+    /// cannot be found become pending placeholders).
+    Import {
+        project: String,
+        file: PathBuf,
+        #[arg(long)]
+        format: Option<String>,
+        #[arg(long, default_value_t = 30.0)]
+        fps: f64,
+    },
+}
+
+fn interchange_format(file: &std::path::Path, format: &Option<String>) -> Result<ove_interchange::Format, Fail> {
+    match format {
+        Some(f) => ove_interchange::Format::parse(f),
+        None => ove_interchange::Format::from_path(file),
+    }
+    .map_err(|e| Fail { code: "format.unknown".into(), message: e.to_string(), details: Value::Null })
 }
 
 #[derive(Subcommand)]
@@ -316,6 +353,67 @@ fn run(cli: &Cli) -> Out {
             Ok((v, text))
         }
         Cmd::Export { project, out, height, fps } => export(&lib, project, out, *height, *fps, cli.json),
+        Cmd::Timeline { cmd: TimelineCmd::Export { project, file, format, fps } } => {
+            let f = interchange_format(file, format)?;
+            let p = Project::open(&lib.find(project)?, Mode::ReadOnly, clock())?;
+            let text = ove_interchange::export(p.doc(), Some(p.bundle()), f, ove_interchange::Rate::from_fps(*fps));
+            std::fs::write(file, &text).map_err(|e| Fail {
+                code: "file.unwritable".into(),
+                message: format!("could not write {}: {e}", file.display()),
+                details: Value::Null,
+            })?;
+            Ok((
+                json!({"path": file, "format": f.extension(), "bytes": text.len()}),
+                format!("wrote {} ({})", file.display(), f.label()),
+            ))
+        }
+        Cmd::Timeline { cmd: TimelineCmd::Import { project, file, format, fps } } => {
+            let f = interchange_format(file, format)?;
+            let text = std::fs::read_to_string(file).map_err(|e| Fail {
+                code: "file.unreadable".into(),
+                message: format!("could not read {}: {e}", file.display()),
+                details: Value::Null,
+            })?;
+            let tl = ove_interchange::read(&text, f, ove_interchange::Rate::from_fps(*fps)).map_err(|e| Fail {
+                code: "import.invalid".into(),
+                message: format!("{}: {e}", file.display()),
+                details: Value::Null,
+            })?;
+            let mut p = Project::open(&lib.find(project)?, Mode::Write, clock())?;
+            let (ops, summary) = ove_interchange::to_ops(p.doc(), &tl, ove_core::Clock::now_ms(&ove_core::SystemClock));
+            if ops.is_empty() {
+                return Err(Fail {
+                    code: "import.empty".into(),
+                    message: format!("{} has no clips", file.display()),
+                    details: Value::Null,
+                });
+            }
+            p.apply(
+                ops,
+                Source::Cli,
+                Some(format!(
+                    "import {} ({} clips)",
+                    file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
+                    summary.clips
+                )),
+            )?;
+            p.flush_projection();
+            let v = json!({"rev": p.rev(), "tracks": summary.tracks, "clips": summary.clips, "mediaAdded": summary.media_added, "missing": summary.missing});
+            let text = format!(
+                "rev {}: imported {} clips on {} tracks ({} new media{})",
+                p.rev(),
+                summary.clips,
+                summary.tracks,
+                summary.media_added,
+                if summary.missing.is_empty() {
+                    String::new()
+                } else {
+                    format!("; missing: {}", summary.missing.join(", "))
+                }
+            );
+            p.close()?;
+            Ok((v, text))
+        }
     }
 }
 

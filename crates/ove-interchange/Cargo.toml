@@ -1,0 +1,20 @@
+[package]
+name = "ove-interchange"
+description = "Timeline interchange: FCPXML, FCP7 XML, CMX3600 EDL and OpenTimelineIO export/import"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+ove-core = { path = "../ove-core" }
+roxmltree = "0.21"
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
+thiserror = "2"
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

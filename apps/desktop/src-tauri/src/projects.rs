@@ -159,7 +159,7 @@ fn library<'a>(p: &'a Projects) -> AppResult<std::sync::MutexGuard<'a, Option<Li
     Ok(g)
 }
 
-fn thumbs_dir(bundle: &Path) -> PathBuf {
+pub(crate) fn thumbs_dir(bundle: &Path) -> PathBuf {
     bundle.join("cache").join("thumbs")
 }
 
@@ -391,7 +391,7 @@ pub(crate) fn edit(app: &AppHandle, state: &AppState, ops: Vec<Op>, summary: &st
 }
 
 /// Makes a 160×90 PNG thumbnail from the frame at 1 s (or the first frame).
-fn make_thumbnail(path: &Path, out: &Path, duration_us: i64) -> Option<()> {
+pub(crate) fn make_thumbnail(path: &Path, out: &Path, duration_us: i64) -> Option<()> {
     use ove_media::{DecoderOptions, PixelFormat, VideoDecoder};
     let mut dec =
         ove_media::open_video(path, DecoderOptions { hwaccel: ove_media::HwAccel::Off, ..Default::default() }).ok()?;
@@ -445,6 +445,33 @@ fn make_thumbnail(path: &Path, out: &Path, duration_us: i64) -> Option<()> {
     enc.write_header().ok()?.write_image_data(&rgb).ok()
 }
 
+/// The media record and registry entry of a probed file, and its duration in µs.
+pub(crate) fn media_records(canonical: &Path, info: &ove_media::MediaInfo, id: &str, now: i64) -> (Value, Value, i64) {
+    let name = canonical.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    let duration_us = info.duration_us.unwrap_or(5_000_000).max(40_000);
+    let mut data = Map::new();
+    data.insert("type".into(), (if info.video.is_some() { "video" } else { "audio" }).into());
+    data.insert("fileName".into(), name.into());
+    data.insert("format".into(), info.container.clone().into());
+    data.insert("duration".into(), ove_core::time::micros_to_json(duration_us));
+    data.insert("hasAudio".into(), info.audio.is_some().into());
+    if let Some(v) = &info.video {
+        data.insert("width".into(), v.width.into());
+        data.insert("height".into(), v.height.into());
+        if let Some(fps) = v.frame_rate.as_f64() {
+            data.insert("frameRate".into(), json!((fps * 1000.0).round() / 1000.0));
+        }
+    }
+    let mut entry = json!({"mediaId": id, "nativePath": canonical.display().to_string(), "ownedByBundle": false, "probeStatus": "probed"});
+    if let Ok(md) = std::fs::metadata(canonical) {
+        entry["size"] = json!(md.len());
+        if let Some(t) = md.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()) {
+            entry["modifiedAt"] = json!(t.as_millis() as i64);
+        }
+    }
+    (json!({"id": id, "createdAt": now, "addedAt": now, "data": Value::Object(data)}), entry, duration_us)
+}
+
 /// Probes files, registers them as media, makes thumbnails and appends each to the Main track (audio-only files to
 /// the Audio track) — one revision.
 fn import_paths(app: &AppHandle, state: &AppState, paths: Vec<String>) -> AppResult<ProjectView> {
@@ -477,35 +504,11 @@ fn import_paths(app: &AppHandle, state: &AppState, paths: Vec<String>) -> AppRes
             }
         };
         let id = format!("m_{:x}_{n}", now);
-        let duration_us = info.duration_us.unwrap_or(5_000_000).max(40_000);
-        let mut data = Map::new();
-        data.insert("type".into(), (if info.video.is_some() { "video" } else { "audio" }).into());
-        data.insert("fileName".into(), name.clone().into());
-        data.insert("format".into(), info.container.clone().into());
-        data.insert("duration".into(), ove_core::time::micros_to_json(duration_us));
-        data.insert("hasAudio".into(), info.audio.is_some().into());
-        if let Some(v) = &info.video {
-            data.insert("width".into(), v.width.into());
-            data.insert("height".into(), v.height.into());
-            if let Some(fps) = v.frame_rate.as_f64() {
-                data.insert("frameRate".into(), json!((fps * 1000.0).round() / 1000.0));
-            }
-        }
-        let md = std::fs::metadata(&canonical).ok();
-        let mut entry = json!({"mediaId": id, "nativePath": canonical.display().to_string(), "ownedByBundle": false, "probeStatus": "probed"});
-        if let Some(md) = &md {
-            entry["size"] = json!(md.len());
-            if let Some(t) = md.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()) {
-                entry["modifiedAt"] = json!(t.as_millis() as i64);
-            }
-        }
+        let (media, entry, duration_us) = media_records(&canonical, &info, &id, now);
         if known.contains(&canonical.display().to_string()) {
             tracing::info!(path, "media already in the project; adding another clip");
         }
-        ops.push(Op::AddMedia {
-            media: json!({"id": id, "createdAt": now, "addedAt": now, "data": Value::Object(data)}),
-            entry: Some(entry),
-        });
+        ops.push(Op::AddMedia { media, entry: Some(entry) });
         let (track, kind, at) = if info.video.is_some() {
             let at = main_end;
             main_end += duration_us;

@@ -21,9 +21,12 @@ setup `.exe`, Linux `.deb`). For development: `cd apps/desktop && pnpm install &
   timeline through `timeline.tsx`; each edit is one undo step; chats are saved in the project.
 - **Export**: MP4 (H.264 + AAC) at 720p / 1080p / 4K, 24–60 fps, with progress and cancel; `ove export` does the same
   from the command line.
+- **Timeline exchange**: Export → "Timeline for another editor" writes FCPXML (Final Cut Pro, Resolve), XML
+  (Premiere Pro), CMX3600 EDL or OpenTimelineIO; the Media panel's timeline button imports them as new tracks.
+  `ove timeline export|import` does the same (`docs/cli/interchange.md`).
 - Every edit is a durable revision; `ove source print|apply` and agents see the same timeline.
 - Not yet: automatic transcription, motion-graphics code items, effects/LUT shaders beyond colour grading, templates,
-  AI generation, interchange (FCPXML/EDL), signed installers and auto-update.
+  AI generation, signed installers and auto-update.
 
 ## Docs
 

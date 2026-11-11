@@ -1,4 +1,10 @@
-import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import type {
   AppError,
   ItemView_Serialize,
@@ -18,7 +24,15 @@ import { Viewer } from "./Viewer";
 import { type EditResult, itemDetail, snapToFrame } from "./edit";
 import { Inspector } from "./Inspector";
 import { EDIT_ACTIONS, keyToAction } from "./keys";
-import { AudioPanel, CaptionsPanel, EffectsPanel, LayoutPanel, type PanelProps, TextPanel, TransitionsPanel } from "./Panels";
+import {
+  AudioPanel,
+  CaptionsPanel,
+  EffectsPanel,
+  LayoutPanel,
+  type PanelProps,
+  TextPanel,
+  TransitionsPanel,
+} from "./Panels";
 import { Shortcuts } from "./Shortcuts";
 import { type SelectMode, Timeline } from "./Timeline";
 
@@ -40,7 +54,11 @@ export interface Layout {
 }
 
 /** Timeline time of the playhead: the previewed clip's start plus how far into its source the viewer is. */
-export function playheadSeconds(item: ItemView_Serialize | undefined, playback: PlaybackState, previewing: boolean) {
+export function playheadSeconds(
+  item: ItemView_Serialize | undefined,
+  playback: PlaybackState,
+  previewing: boolean,
+) {
   if (!item || !previewing) return 0;
   const fps = playback.frameRate ?? 30;
   const t = (item.start ?? 0) + playback.frame / fps - (item.trimStart ?? 0);
@@ -61,6 +79,7 @@ export function Editor({
   setLayout,
   onTransport,
   onImport,
+  onImportTimeline,
   onError,
   onHome,
   timelineMode = false,
@@ -74,12 +93,18 @@ export function Editor({
   setLayout: (l: Layout) => void;
   onTransport: (c: TransportCommand) => void;
   onImport: () => void;
+  /** Adds an FCPXML / XML / EDL / OTIO timeline to the project. */
+  onImportTimeline?: () => void;
   onError: (e: AppError) => void;
   onHome: () => void;
   project: ProjectView_Serialize | null;
   /** Selected item ids, primary last. */
   selection: string[];
-  onSelect: (item: ItemView_Serialize | null, offsetSeconds?: number, mode?: SelectMode) => void;
+  onSelect: (
+    item: ItemView_Serialize | null,
+    offsetSeconds?: number,
+    mode?: SelectMode,
+  ) => void;
   onSelectMany: (ids: string[]) => void;
   onEdit: (p: EditResult) => void;
   /** The viewer plays the composited timeline: the playhead is the engine position. */
@@ -95,12 +120,20 @@ export function Editor({
   const [closedFor, setClosedFor] = useState<string | null>(null);
   const [scrubTime, setScrubTime] = useState(0);
   const [clipboard, setClipboard] = useState<Record<string, unknown>[]>([]);
-  const toggle = (key: keyof Layout) => setLayout({ ...layout, [key]: !layout[key] });
+  const toggle = (key: keyof Layout) =>
+    setLayout({ ...layout, [key]: !layout[key] });
   const selected = selection[selection.length - 1] ?? null;
   const item = project?.items.find((i) => i.id === selected);
-  const selectedItems = (project?.items ?? []).filter((i) => selection.includes(i.id));
+  const selectedItems = (project?.items ?? []).filter((i) =>
+    selection.includes(i.id),
+  );
   const itemMedia = project?.media.find((m) => m.id === item?.mediaId);
-  const previewing = !!(item && itemMedia && media && media.path === itemMedia.path);
+  const previewing = !!(
+    item &&
+    itemMedia &&
+    media &&
+    media.path === itemMedia.path
+  );
   const playhead = timelineMode
     ? playback.frame / (playback.frameRate || 30)
     : previewing
@@ -108,7 +141,12 @@ export function Editor({
       : item && !item.mediaId
         ? (item.start ?? 0)
         : scrubTime;
-  const inspecting = !!(item && project && closedFor !== selected && layout.panelOpen);
+  const inspecting = !!(
+    item &&
+    project &&
+    closedFor !== selected &&
+    layout.panelOpen
+  );
 
   const copy = useCallback(async (ids: string[]) => {
     const all = await Promise.all(ids.map((id) => itemDetail(id)));
@@ -116,11 +154,16 @@ export function Editor({
   }, []);
   const paste = useCallback(
     (at: number) => {
-      if (clipboard.length) onEdit(commands.pasteItems(JSON.stringify(clipboard), snapToFrame(at)));
+      if (clipboard.length)
+        onEdit(commands.pasteItems(JSON.stringify(clipboard), snapToFrame(at)));
     },
     [clipboard, onEdit],
   );
-  const zoomBy = useCallback((f: number) => setZoom((z) => Math.min(400, Math.max(2, (z ?? fitPps) * f))), [fitPps]);
+  const zoomBy = useCallback(
+    (f: number) =>
+      setZoom((z) => Math.min(400, Math.max(2, (z ?? fitPps) * f))),
+    [fitPps],
+  );
 
   // Editing shortcuts (transport, undo/redo and diagnostics are handled by the app).
   useEffect(() => {
@@ -136,7 +179,12 @@ export function Editor({
           }
           break;
         case "split":
-          if (item && playhead > (item.start ?? 0) && playhead < (item.end ?? 0)) onEdit(commands.splitItem(item.id, playhead));
+          if (
+            item &&
+            playhead > (item.start ?? 0) &&
+            playhead < (item.end ?? 0)
+          )
+            onEdit(commands.splitItem(item.id, playhead));
           break;
         case "duplicate":
           if (selection.length) onEdit(commands.duplicateItems(selection));
@@ -149,7 +197,11 @@ export function Editor({
           break;
         case "selectAll": {
           const track = item?.trackId;
-          onSelectMany((project?.items ?? []).filter((i) => !track || i.trackId === track).map((i) => i.id));
+          onSelectMany(
+            (project?.items ?? [])
+              .filter((i) => !track || i.trackId === track)
+              .map((i) => i.id),
+          );
           break;
         }
         case "zoomIn":
@@ -172,14 +224,34 @@ export function Editor({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selection, item, playhead, project, onEdit, onSelectMany, copy, paste, zoomBy, help]);
+  }, [
+    selection,
+    item,
+    playhead,
+    project,
+    onEdit,
+    onSelectMany,
+    copy,
+    paste,
+    zoomBy,
+    help,
+  ]);
 
   const panelProps: PanelProps | null = project
-    ? { project, playhead, selection: selectedItems, onEdit, onSelect: (i) => onSelect(i) }
+    ? {
+        project,
+        playhead,
+        selection: selectedItems,
+        onEdit,
+        onSelect: (i) => onSelect(i),
+      }
     : null;
   const projectBar = project && (
     <div className="project-bar" data-testid="project-bar">
-      <ProjectName name={project.name} onRename={(n) => onEdit(commands.renameProject(n))} />
+      <ProjectName
+        name={project.name}
+        onRename={(n) => onEdit(commands.renameProject(n))}
+      />
       <Dropdown
         testId="aspect"
         label={project.aspectRatio}
@@ -189,7 +261,10 @@ export function Editor({
           onSelect: () => onEdit(commands.setAspectRatio(a)),
         }))}
       />
-      <span className="muted small" title="Saved continuously; every change is a revision">
+      <span
+        className="muted small"
+        title="Saved continuously; every change is a revision"
+      >
         Saved · rev {String(project.rev ?? 0).slice(-6)}
       </span>
       {barExtras}
@@ -197,11 +272,21 @@ export function Editor({
   );
 
   return (
-    <div className={`editor${layout.chatOpen ? "" : " no-chat"}`} data-testid="editor">
+    <div
+      className={`editor${layout.chatOpen ? "" : " no-chat"}`}
+      data-testid="editor"
+    >
       <div className="editor-main">
-        <div className={`editor-top${layout.viewerOpen ? "" : " viewer-collapsed"}`}>
+        <div
+          className={`editor-top${layout.viewerOpen ? "" : " viewer-collapsed"}`}
+        >
           <nav className="rail" aria-label="Editor panels">
-            <button className="rail-home" title="Home" onClick={onHome} data-testid="go-home">
+            <button
+              className="rail-home"
+              title="Home"
+              onClick={onHome}
+              data-testid="go-home"
+            >
               <Icon name="home" />
             </button>
             {RAIL.map((r) => (
@@ -215,7 +300,8 @@ export function Editor({
                   if (inspecting) {
                     setClosedFor(selected);
                     setPanel(r.id);
-                  } else if (panel === r.id) setLayout({ ...layout, panelOpen: !layout.panelOpen });
+                  } else if (panel === r.id)
+                    setLayout({ ...layout, panelOpen: !layout.panelOpen });
                   else {
                     setPanel(r.id);
                     setLayout({ ...layout, panelOpen: true });
@@ -242,6 +328,7 @@ export function Editor({
                 project={project}
                 panelProps={panelProps}
                 onImport={onImport}
+                onImportTimeline={onImportTimeline}
                 onCollapse={() => toggle("panelOpen")}
                 onPick={(m) => {
                   const it = project?.items.find((i) => i.mediaId === m.id);
@@ -266,7 +353,9 @@ export function Editor({
           layout={layout}
           toggle={toggle}
           project={project}
-          canSplit={!!item && playhead > (item.start ?? 0) && playhead < (item.end ?? 0)}
+          canSplit={
+            !!item && playhead > (item.start ?? 0) && playhead < (item.end ?? 0)
+          }
           onEdit={onEdit}
           onSplit={() => item && onEdit(commands.splitItem(item.id, playhead))}
           zoom={zoom}
@@ -287,7 +376,11 @@ export function Editor({
             onScrub={(t) => {
               setScrubTime(t);
               onSelectMany([]);
-              if (timelineMode) onTransport({ kind: "seekFrame", frame: Math.round(t * (playback.frameRate || 30)) });
+              if (timelineMode)
+                onTransport({
+                  kind: "seekFrame",
+                  frame: Math.round(t * (playback.frameRate || 30)),
+                });
             }}
             onEdit={onEdit}
             onCopy={(ids) => void copy(ids)}
@@ -299,13 +392,25 @@ export function Editor({
           <ScrubRow playback={playback} onTransport={onTransport} />
         )}
       </div>
-      {layout.chatOpen && <ChatPanel onClose={() => toggle("chatOpen")} projectId={project?.id} onError={onError} />}
+      {layout.chatOpen && (
+        <ChatPanel
+          onClose={() => toggle("chatOpen")}
+          projectId={project?.id}
+          onError={onError}
+        />
+      )}
       {help && <Shortcuts onClose={() => setHelp(false)} />}
     </div>
   );
 }
 
-function ProjectName({ name, onRename }: { name: string; onRename: (n: string) => void }) {
+function ProjectName({
+  name,
+  onRename,
+}: {
+  name: string;
+  onRename: (n: string) => void;
+}) {
   const [editing, setEditing] = useState<string | null>(null);
   if (editing !== null)
     return (
@@ -326,7 +431,12 @@ function ProjectName({ name, onRename }: { name: string; onRename: (n: string) =
       />
     );
   return (
-    <button className="project-name" title="Rename project" onClick={() => setEditing(name)} data-testid="project-name">
+    <button
+      className="project-name"
+      title="Rename project"
+      onClick={() => setEditing(name)}
+      data-testid="project-name"
+    >
       {name}
     </button>
   );
@@ -342,6 +452,7 @@ function SidePanel({
   project,
   panelProps,
   onImport,
+  onImportTimeline,
   onCollapse,
   onPick,
 }: {
@@ -349,18 +460,26 @@ function SidePanel({
   project: ProjectView_Serialize | null;
   panelProps: PanelProps | null;
   onImport: () => void;
+  onImportTimeline?: () => void;
   onCollapse: () => void;
   onPick: (m: MediaView_Serialize) => void;
 }) {
   const label = RAIL.find((r) => r.id === id)?.label ?? "";
   const [query, setQuery] = useState("");
-  const media = (project?.media ?? []).filter((m) => m.name.toLowerCase().includes(query.toLowerCase()));
+  const media = (project?.media ?? []).filter((m) =>
+    m.name.toLowerCase().includes(query.toLowerCase()),
+  );
   const used = new Set(project?.items.map((i) => i.mediaId));
   return (
     <aside className="side-panel" data-testid="side-panel">
       <header className="panel-header">
         <h2>{label}</h2>
-        <button className="icon-btn" title="Collapse panel" onClick={onCollapse} data-testid="collapse-panel">
+        <button
+          className="icon-btn"
+          title="Collapse panel"
+          onClick={onCollapse}
+          data-testid="collapse-panel"
+        >
           <Icon name="panel" />
         </button>
       </header>
@@ -369,28 +488,68 @@ function SidePanel({
           <div className="panel-search">
             <label className="search">
               <Icon name="search" size={15} />
-              <input placeholder="Search media…" value={query} onChange={(e) => setQuery(e.target.value)} />
+              <input
+                placeholder="Search media…"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
             </label>
             <button className="btn" onClick={onImport} data-testid="import">
               <Icon name="plus" size={15} /> Import
             </button>
+            {onImportTimeline && (
+              <button
+                className="icon-btn"
+                onClick={onImportTimeline}
+                title="Import a timeline (FCPXML, Premiere XML, EDL, OpenTimelineIO)"
+                aria-label="Import timeline"
+                data-testid="import-timeline"
+              >
+                <Icon name="timeline" size={15} />
+              </button>
+            )}
           </div>
           <div className="media-grid">
             {media.map((m) => (
-              <button key={m.id} className="media-card" title={m.path} onClick={() => onPick(m)} data-testid="media-card">
+              <button
+                key={m.id}
+                className="media-card"
+                title={m.path}
+                onClick={() => onPick(m)}
+                data-testid="media-card"
+              >
                 <div className="media-thumb">
-                  {m.thumbnail ? <img src={m.thumbnail} alt="" /> : <Icon name={m.kind === "audio" ? "audio" : "media"} size={22} />}
+                  {m.thumbnail ? (
+                    <img src={m.thumbnail} alt="" />
+                  ) : (
+                    <Icon
+                      name={m.kind === "audio" ? "audio" : "media"}
+                      size={22}
+                    />
+                  )}
                   <span className="badge">{fmtSeconds(m.durationSeconds)}</span>
-                  {m.status !== "online" && <span className="badge warn">{m.status}</span>}
-                  {used.has(m.id) && <span className="badge added">On timeline</span>}
+                  {m.status !== "online" && (
+                    <span className="badge warn">{m.status}</span>
+                  )}
+                  {used.has(m.id) && (
+                    <span className="badge added">On timeline</span>
+                  )}
                 </div>
                 <div className="media-name">
-                  <Icon name={m.kind === "audio" ? "audio" : "play"} size={12} /> {m.name}
+                  <Icon
+                    name={m.kind === "audio" ? "audio" : "play"}
+                    size={12}
+                  />{" "}
+                  {m.name}
                 </div>
               </button>
             ))}
             {media.length === 0 && (
-              <p className="muted">{query ? "No media matches." : "No media yet. Import files or drop them on the window."}</p>
+              <p className="muted">
+                {query
+                  ? "No media matches."
+                  : "No media yet. Import files or drop them on the window."}
+              </p>
             )}
           </div>
         </>
@@ -404,13 +563,21 @@ function SidePanel({
           {id === "layout" && <LayoutPanel {...panelProps} />}
         </div>
       ) : (
-        <p className="muted panel-placeholder">Open a project to use {label.toLowerCase()} tools.</p>
+        <p className="muted panel-placeholder">
+          Open a project to use {label.toLowerCase()} tools.
+        </p>
       )}
     </aside>
   );
 }
 
-function TimecodeField({ playback, onTransport }: { playback: PlaybackState; onTransport: (c: TransportCommand) => void }) {
+function TimecodeField({
+  playback,
+  onTransport,
+}: {
+  playback: PlaybackState;
+  onTransport: (c: TransportCommand) => void;
+}) {
   const [editing, setEditing] = useState<string | null>(null);
   const [invalid, setInvalid] = useState(false);
   if (editing !== null) {
@@ -429,7 +596,11 @@ function TimecodeField({ playback, onTransport }: { playback: PlaybackState; onT
         onKeyDown={(e) => {
           if (e.key === "Escape") setEditing(null);
           if (e.key === "Enter") {
-            const frame = parseTimecode(editing, playback.frameRate, playback.totalFrames);
+            const frame = parseTimecode(
+              editing,
+              playback.frameRate,
+              playback.totalFrames,
+            );
             if (frame === null) setInvalid(true);
             else {
               onTransport({ kind: "seekFrame", frame });
@@ -445,7 +616,9 @@ function TimecodeField({ playback, onTransport }: { playback: PlaybackState; onT
       className="timecode"
       data-testid="timecode"
       title="Click to enter a timecode"
-      onClick={() => setEditing(formatTimecode(playback.frame, playback.frameRate))}
+      onClick={() =>
+        setEditing(formatTimecode(playback.frame, playback.frameRate))
+      }
     >
       {formatTimecode(playback.frame, playback.frameRate)}
     </button>
@@ -485,39 +658,73 @@ function TransportBar({
 }) {
   const pps = zoom ?? fitPps;
   const volume = playback.volume ?? 1;
-  const setVolume = (v: number, muted: boolean) => void commands.setVolume(v, muted);
+  const setVolume = (v: number, muted: boolean) =>
+    void commands.setVolume(v, muted);
   return (
     <div className="transport" data-testid="transport">
       <div className="transport-left">
         <TimecodeField playback={playback} onTransport={onTransport} />
         <span className="muted small">
-          {formatShort(playback.frame, playback.frameRate)} / {formatShort(playback.totalFrames, playback.frameRate)}
+          {formatShort(playback.frame, playback.frameRate)} /{" "}
+          {formatShort(playback.totalFrames, playback.frameRate)}
         </span>
         <span className="sep" />
         <button
           className="icon-btn"
-          title={project?.undoSummary ? `Undo ${project.undoSummary} (⌘Z)` : "Undo (⌘Z)"}
+          title={
+            project?.undoSummary
+              ? `Undo ${project.undoSummary} (⌘Z)`
+              : "Undo (⌘Z)"
+          }
           disabled={!project?.canUndo}
           data-testid="undo"
           onClick={() => onEdit(commands.undo())}
         >
           <Icon name="undo" size={16} />
         </button>
-        <button className="icon-btn" title="Redo (⇧⌘Z)" disabled={!project?.canRedo} data-testid="redo" onClick={() => onEdit(commands.redo())}>
+        <button
+          className="icon-btn"
+          title="Redo (⇧⌘Z)"
+          disabled={!project?.canRedo}
+          data-testid="redo"
+          onClick={() => onEdit(commands.redo())}
+        >
           <Icon name="redo" size={16} />
         </button>
-        <button className="icon-btn" title="Split the selected clip at the playhead (S)" disabled={!canSplit} data-testid="split" onClick={onSplit}>
+        <button
+          className="icon-btn"
+          title="Split the selected clip at the playhead (S)"
+          disabled={!canSplit}
+          data-testid="split"
+          onClick={onSplit}
+        >
           <Icon name="scissors" size={16} />
         </button>
-        <button className={`icon-btn${snap ? " on" : ""}`} title={snap ? "Snapping on" : "Snapping off"} aria-pressed={snap} data-testid="snap-toggle" onClick={() => setSnap(!snap)}>
+        <button
+          className={`icon-btn${snap ? " on" : ""}`}
+          title={snap ? "Snapping on" : "Snapping off"}
+          aria-pressed={snap}
+          data-testid="snap-toggle"
+          onClick={() => setSnap(!snap)}
+        >
           <Icon name="magnet" size={16} />
         </button>
       </div>
       <div className="transport-center">
-        <button className="icon-btn" title="Go to start (Home)" aria-label="Go to start" onClick={() => onTransport({ kind: "goToStart" })}>
+        <button
+          className="icon-btn"
+          title="Go to start (Home)"
+          aria-label="Go to start"
+          onClick={() => onTransport({ kind: "goToStart" })}
+        >
           <Icon name="toStart" size={16} />
         </button>
-        <button className="icon-btn" title="Previous frame (←)" aria-label="Previous frame" onClick={() => onTransport({ kind: "step", frames: -1 })}>
+        <button
+          className="icon-btn"
+          title="Previous frame (←)"
+          aria-label="Previous frame"
+          onClick={() => onTransport({ kind: "step", frames: -1 })}
+        >
           <Icon name="stepBack" size={16} />
         </button>
         <button
@@ -529,10 +736,20 @@ function TransportBar({
         >
           <Icon name={playback.playing ? "pause" : "play"} size={18} />
         </button>
-        <button className="icon-btn" title="Next frame (→)" aria-label="Next frame" onClick={() => onTransport({ kind: "step", frames: 1 })}>
+        <button
+          className="icon-btn"
+          title="Next frame (→)"
+          aria-label="Next frame"
+          onClick={() => onTransport({ kind: "step", frames: 1 })}
+        >
           <Icon name="stepForward" size={16} />
         </button>
-        <button className="icon-btn" title="Go to end (End)" aria-label="Go to end" onClick={() => onTransport({ kind: "goToEnd" })}>
+        <button
+          className="icon-btn"
+          title="Go to end (End)"
+          aria-label="Go to end"
+          onClick={() => onTransport({ kind: "goToEnd" })}
+        >
           <Icon name="toEnd" size={16} />
         </button>
         <button
@@ -540,7 +757,9 @@ function TransportBar({
           title="Loop"
           aria-pressed={playback.looping}
           data-testid="loop"
-          onClick={() => onTransport({ kind: "setLoop", enabled: !playback.looping })}
+          onClick={() =>
+            onTransport({ kind: "setLoop", enabled: !playback.looping })
+          }
         >
           <Icon name="loop" size={16} />
         </button>
@@ -553,7 +772,11 @@ function TransportBar({
       </div>
       <div className="transport-right">
         <div className="zoom-group" data-testid="timeline-zoom">
-          <button className="icon-btn" title="Zoom out (−)" onClick={() => setZoom(Math.max(2, pps / 1.5))}>
+          <button
+            className="icon-btn"
+            title="Zoom out (−)"
+            onClick={() => setZoom(Math.max(2, pps / 1.5))}
+          >
             <Icon name="zoomOut" size={15} />
           </button>
           <input
@@ -566,10 +789,19 @@ function TransportBar({
             value={Math.log(pps / 2) / Math.log(200)}
             onChange={(e) => setZoom(2 * Math.pow(200, Number(e.target.value)))}
           />
-          <button className="icon-btn" title="Zoom in (+)" onClick={() => setZoom(Math.min(400, pps * 1.5))}>
+          <button
+            className="icon-btn"
+            title="Zoom in (+)"
+            onClick={() => setZoom(Math.min(400, pps * 1.5))}
+          >
             <Icon name="zoomIn" size={15} />
           </button>
-          <button className={`chip-sm${zoom === null ? " on" : ""}`} title="Fit the timeline (⌘0)" data-testid="zoom-fit" onClick={() => setZoom(null)}>
+          <button
+            className={`chip-sm${zoom === null ? " on" : ""}`}
+            title="Fit the timeline (⌘0)"
+            data-testid="zoom-fit"
+            onClick={() => setZoom(null)}
+          >
             Fit
           </button>
         </div>
@@ -593,16 +825,36 @@ function TransportBar({
           onChange={(e) => setVolume(Number(e.target.value), false)}
         />
         <span className="sep" />
-        <button className={`icon-btn${layout.viewerOpen ? "" : " on"}`} title="Expand timeline (hide viewer)" data-testid="toggle-viewer" onClick={() => toggle("viewerOpen")}>
+        <button
+          className={`icon-btn${layout.viewerOpen ? "" : " on"}`}
+          title="Expand timeline (hide viewer)"
+          data-testid="toggle-viewer"
+          onClick={() => toggle("viewerOpen")}
+        >
           <Icon name="expand" size={16} />
         </button>
-        <button className={`icon-btn${layout.timelineOpen ? " on" : ""}`} title="Show timeline" data-testid="toggle-timeline" onClick={() => toggle("timelineOpen")}>
+        <button
+          className={`icon-btn${layout.timelineOpen ? " on" : ""}`}
+          title="Show timeline"
+          data-testid="toggle-timeline"
+          onClick={() => toggle("timelineOpen")}
+        >
           <Icon name="timeline" size={16} />
         </button>
-        <button className={`icon-btn${layout.chatOpen ? " on" : ""}`} title="Show assistant" data-testid="toggle-chat" onClick={() => toggle("chatOpen")}>
+        <button
+          className={`icon-btn${layout.chatOpen ? " on" : ""}`}
+          title="Show assistant"
+          data-testid="toggle-chat"
+          onClick={() => toggle("chatOpen")}
+        >
           <Icon name="chat" size={16} />
         </button>
-        <button className="icon-btn" title="Keyboard shortcuts (?)" data-testid="shortcuts" onClick={onHelp}>
+        <button
+          className="icon-btn"
+          title="Keyboard shortcuts (?)"
+          data-testid="shortcuts"
+          onClick={onHelp}
+        >
           <Icon name="keyboard" size={16} />
         </button>
       </div>
@@ -610,13 +862,21 @@ function TransportBar({
   );
 }
 
-function useScrub(playback: PlaybackState, onTransport: (c: TransportCommand) => void) {
+function useScrub(
+  playback: PlaybackState,
+  onTransport: (c: TransportCommand) => void,
+) {
   const el = useRef<HTMLDivElement>(null);
   const seekAt = (clientX: number, offset = 0) => {
     const r = el.current?.getBoundingClientRect();
     if (!r || playback.totalFrames <= 0) return;
-    const x = Math.min(Math.max(0, clientX - r.left - offset), r.width - offset);
-    const frame = Math.round((x / Math.max(1, r.width - offset)) * (playback.totalFrames - 1));
+    const x = Math.min(
+      Math.max(0, clientX - r.left - offset),
+      r.width - offset,
+    );
+    const frame = Math.round(
+      (x / Math.max(1, r.width - offset)) * (playback.totalFrames - 1),
+    );
     onTransport({ kind: "seekFrame", frame });
   };
   const onPointerDown = (e: React.PointerEvent, offset = 0) => {
@@ -633,18 +893,38 @@ function useScrub(playback: PlaybackState, onTransport: (c: TransportCommand) =>
   return { el, onPointerDown };
 }
 
-function ScrubRow({ playback, onTransport }: { playback: PlaybackState; onTransport: (c: TransportCommand) => void }) {
+function ScrubRow({
+  playback,
+  onTransport,
+}: {
+  playback: PlaybackState;
+  onTransport: (c: TransportCommand) => void;
+}) {
   const { el, onPointerDown } = useScrub(playback, onTransport);
-  const pct = playback.totalFrames > 1 ? (playback.frame / (playback.totalFrames - 1)) * 100 : 0;
+  const pct =
+    playback.totalFrames > 1
+      ? (playback.frame / (playback.totalFrames - 1)) * 100
+      : 0;
   return (
     <div className="scrub-row" data-testid="scrub-row">
-      <span className="small">{formatTimecode(playback.frame, playback.frameRate)}</span>
-      <div className="scrub" ref={el} onPointerDown={(e) => onPointerDown(e)} data-testid="scrub">
+      <span className="small">
+        {formatTimecode(playback.frame, playback.frameRate)}
+      </span>
+      <div
+        className="scrub"
+        ref={el}
+        onPointerDown={(e) => onPointerDown(e)}
+        data-testid="scrub"
+      >
         <div className="scrub-fill" style={{ width: `${pct}%` }} />
         <div className="scrub-knob" style={{ left: `${pct}%` }} />
       </div>
-      <span className="small">{formatTimecode(Math.max(0, playback.totalFrames - 1), playback.frameRate)}</span>
+      <span className="small">
+        {formatTimecode(
+          Math.max(0, playback.totalFrames - 1),
+          playback.frameRate,
+        )}
+      </span>
     </div>
   );
 }
-
