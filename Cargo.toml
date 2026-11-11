@@ -5,6 +5,7 @@ members = [
     "crates/ove-store",
     "crates/ove-projection",
     "crates/ove-cli",
+    "crates/ove-agent",
     "crates/ove-media",
     "crates/ove-playback",
     "crates/ove-gpu",
@@ -16,6 +17,7 @@ default-members = [
     "crates/ove-store",
     "crates/ove-projection",
     "crates/ove-cli",
+    "crates/ove-agent",
     "crates/ove-playback",
 ]
 

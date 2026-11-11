@@ -1,0 +1,33 @@
+[package]
+name = "ove-agent"
+description = "Bring-your-own-key assistant: Anthropic Messages API client, tool loop over the timeline projection, chat logs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+ove-core = { path = "../ove-core" }
+ove-projection = { path = "../ove-projection" }
+ove-store = { path = "../ove-store" }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
+thiserror = "2"
+tracing = "0.1"
+ureq = { version = "2.12", default-features = false, features = ["tls"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3.6", features = ["apple-native"] }
+
+[target.'cfg(windows)'.dependencies]
+keyring = { version = "3.6", features = ["windows-native"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3.6", features = ["linux-native"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true
