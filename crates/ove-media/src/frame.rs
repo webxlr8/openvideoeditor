@@ -25,6 +25,9 @@ pub enum OutputFormat {
     Display,
     /// Keep the decoder's format; planes tightly packed exactly like FFmpeg's `rawvideo`/`framemd5` output.
     Native,
+    /// RGBA8 (straight alpha), scaled down to fit `max_width` x `max_height` (aspect kept, never upscaled; 0 = no
+    /// limit). For the compositor, which works in RGBA at canvas resolution.
+    Rgba { max_width: u32, max_height: u32 },
 }
 
 /// One tightly packed plane (`stride == bytes per row`, no padding).
