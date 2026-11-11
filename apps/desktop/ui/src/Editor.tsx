@@ -10,6 +10,7 @@ import type {
   ViewerBackend,
 } from "./bindings";
 import { commands } from "./bridge";
+import { ChatPanel } from "./ChatPanel";
 import { Icon, type IconName } from "./icons";
 import { Dropdown } from "./Menu";
 import { formatShort, formatTimecode, parseTimecode } from "./timecode";
@@ -298,7 +299,7 @@ export function Editor({
           <ScrubRow playback={playback} onTransport={onTransport} />
         )}
       </div>
-      {layout.chatOpen && <ChatPanel onClose={() => toggle("chatOpen")} />}
+      {layout.chatOpen && <ChatPanel onClose={() => toggle("chatOpen")} projectId={project?.id} onError={onError} />}
       {help && <Shortcuts onClose={() => setHelp(false)} />}
     </div>
   );
@@ -647,45 +648,3 @@ function ScrubRow({ playback, onTransport }: { playback: PlaybackState; onTransp
   );
 }
 
-function ChatPanel({ onClose }: { onClose: () => void }) {
-  return (
-    <aside className="chat" data-testid="chat">
-      <header className="chat-header">
-        <button className="pill">New conversation</button>
-        <span className="chat-header-tools">
-          <button className="icon-btn" title="History (later)" disabled>
-            <Icon name="history" size={16} />
-          </button>
-          <button className="icon-btn" title="Hide assistant" onClick={onClose} data-testid="close-chat">
-            <Icon name="close" size={16} />
-          </button>
-        </span>
-      </header>
-      <div className="chat-empty">
-        <Icon name="spark" size={34} />
-        <p>Ask for a cut, captions, or a fresh idea.</p>
-      </div>
-      <div className="composer">
-        <textarea placeholder="Describe an edit…" rows={3} />
-        <div className="composer-row">
-          <button className="icon-btn" title="Attach (later)" disabled>
-            <Icon name="attach" size={16} />
-          </button>
-          <span className="grow" />
-          <Dropdown
-            testId="agent-picker"
-            direction="up"
-            label="Your agent"
-            items={[
-              { id: "api", label: "Anthropic API key" },
-              { id: "cli", label: "Local coding agent" },
-            ]}
-          />
-          <button className="send" title="Agents arrive in a later version" disabled>
-            <Icon name="send" size={16} />
-          </button>
-        </div>
-      </div>
-    </aside>
-  );
-}

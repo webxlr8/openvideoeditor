@@ -46,7 +46,8 @@ fn cancel_flag() -> &'static Mutex<Option<Arc<AtomicBool>>> {
 }
 
 fn open_doc(state: &AppState) -> AppResult<(Arc<ove_core::Document>, PathBuf)> {
-    let g = state.projects.open.lock().map_err(|_| AppError::new(ErrorCode::Internal, "internal state is unavailable"))?;
+    let g =
+        state.projects.open.lock().map_err(|_| AppError::new(ErrorCode::Internal, "internal state is unavailable"))?;
     let p = g.as_ref().ok_or_else(|| AppError::new(ErrorCode::InvalidArgument, "Open a project first."))?;
     Ok((Arc::new(p.doc().clone()), p.bundle().to_path_buf()))
 }

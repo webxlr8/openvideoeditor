@@ -182,8 +182,10 @@ impl Session {
         let fps = video.frame_rate.as_f64().filter(|f| *f > 0.0).unwrap_or(30.0);
         let interval = (1_000_000.0 / fps).round() as i64;
         let decoder = ove_media::open_video(path, DecoderOptions::default()).map_err(|e| friendly(path, &e))?;
-        let source =
-            AnySource::Media(WorkerSource::new(DecodeWorker::spawn(Box::new(decoder), ove_media::DEFAULT_QUEUE_FRAMES)));
+        let source = AnySource::Media(WorkerSource::new(DecodeWorker::spawn(
+            Box::new(decoder),
+            ove_media::DEFAULT_QUEUE_FRAMES,
+        )));
         let last_frame = (duration_us - interval).max(0);
 
         let audio = match (&probe.audio, AudioOutput::open_default(time.clone())) {

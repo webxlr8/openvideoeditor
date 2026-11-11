@@ -20,12 +20,22 @@ export function Home({
   onOpenFile,
   onBlank,
   onOpenProject,
+  onPrompt,
 }: {
   projects: ProjectSummary_Serialize[];
   onOpenFile: () => void;
   onBlank: () => void;
   onOpenProject: (bundle: string) => void;
+  /** Starts a new project and hands the description to the assistant. */
+  onPrompt?: (text: string) => void;
 }) {
+  const [prompt, setPrompt] = useState("");
+  const submit = () => {
+    const t = prompt.trim();
+    if (!t || !onPrompt) return;
+    setPrompt("");
+    onPrompt(t);
+  };
   const [picked, setTab] = useState<"templates" | "projects" | null>(null);
   const tab = picked ?? (projects.length > 0 ? "projects" : "templates");
   const [page, setPage] = useState<"home" | "projects">("home");
@@ -92,7 +102,19 @@ export function Home({
             <button className="drop-target" title="Open a media file" onClick={onOpenFile} data-testid="home-open">
               <Icon name="upload" size={18} />
             </button>
-            <textarea placeholder="Describe your video, or drop footage…" rows={2} />
+            <textarea
+              placeholder="Describe your video, or drop footage…"
+              rows={2}
+              value={prompt}
+              data-testid="home-prompt"
+              onChange={(e) => setPrompt(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  submit();
+                }
+              }}
+            />
             <div className="prompt-row">
               <button className="icon-btn" title="Ideas (later)" disabled>
                 <Icon name="spark" size={16} />
@@ -101,7 +123,13 @@ export function Home({
               <button className="btn" onClick={onBlank} data-testid="home-blank">
                 Blank project
               </button>
-              <button className="send" title="Agents arrive in a later version" disabled>
+              <button
+                className="send"
+                title="Start a project with the assistant (Enter)"
+                data-testid="home-send"
+                disabled={!prompt.trim() || !onPrompt}
+                onClick={submit}
+              >
                 <Icon name="send" size={16} />
               </button>
             </div>

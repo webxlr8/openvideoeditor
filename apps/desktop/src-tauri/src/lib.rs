@@ -1,6 +1,7 @@
 //! Desktop shell: window, single instance and open-file routing, typed bridge, logs and crash
 //! containment, the native viewer, and playback through ove-media / ove-playback (change 1).
 
+pub mod assistant;
 pub mod commands;
 pub mod edits;
 pub mod engine;
@@ -60,6 +61,7 @@ pub struct AppErrorRaised(pub AppError);
 pub struct AppState {
     pub engine: engine::EngineHandle,
     pub projects: projects::Projects,
+    pub assistant: assistant::Assistant,
     pub viewer_tx: Mutex<Sender<ViewerMsg>>,
     pub viewer_stats: Arc<Mutex<ViewerStats>>,
     pub seek_started: Arc<Mutex<Option<Instant>>>,
@@ -135,6 +137,15 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             edits::rename_track,
             edits::reorder_tracks,
             edits::remove_track,
+            assistant::agent_status,
+            assistant::agent_set_key,
+            assistant::agent_clear_key,
+            assistant::agent_set_model,
+            assistant::agent_chats,
+            assistant::agent_chat,
+            assistant::agent_send,
+            assistant::agent_stop,
+            assistant::agent_answer,
         ])
         .events(collect_events![
             PlaybackChanged,
@@ -144,6 +155,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             AppErrorRaised,
             projects::ProjectChanged,
             exporting::ExportProgress,
+            assistant::AgentUiEvent,
         ])
         .error_handling(tauri_specta::ErrorHandlingMode::Result)
 }
@@ -410,6 +422,7 @@ pub fn run() {
             app.manage(AppState {
                 engine,
                 projects: projects::Projects::default(),
+                assistant: assistant::Assistant::new(app.path().app_config_dir().ok()),
                 viewer_tx: Mutex::new(viewer_tx),
                 viewer_stats: stats,
                 seek_started,
