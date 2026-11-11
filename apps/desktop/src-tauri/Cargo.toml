@@ -25,6 +25,7 @@ os_info = "3.15.0"
 ove-gpu = { version = "0.1.0", path = "../../../crates/ove-gpu" }
 ove-agent = { path = "../../../crates/ove-agent" }
 ove-core = { path = "../../../crates/ove-core" }
+ove-graphics = { path = "../../../crates/ove-graphics" }
 ove-media = { path = "../../../crates/ove-media" }
 ove-render = { path = "../../../crates/ove-render" }
 ove-store = { path = "../../../crates/ove-store" }

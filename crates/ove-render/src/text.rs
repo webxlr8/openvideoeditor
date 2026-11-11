@@ -236,7 +236,8 @@ pub fn render_words_partial(words: &[String], st: &TextStyle, reveal: usize) -> 
         let base = pad + p.line as f32 * lh + (lh - st.size) / 2.0 + sf.ascent();
         let full = &words[p.word];
         let n = full.chars().count();
-        let word: &str = if n <= budget { full } else { &full[..full.char_indices().nth(budget).map_or(full.len(), |c| c.0)] };
+        let word: &str =
+            if n <= budget { full } else { &full[..full.char_indices().nth(budget).map_or(full.len(), |c| c.0)] };
         budget = budget.saturating_sub(n + 1);
         let is_hi = st.highlight.is_some_and(|(i, _)| i == p.word);
         raster(if is_hi { &mut hi } else { &mut fill }, word, x, base);

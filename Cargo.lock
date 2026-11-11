@@ -3848,6 +3848,7 @@ version = "0.1.0"
 dependencies = [
  "keyring",
  "ove-core",
+ "ove-graphics",
  "ove-projection",
  "ove-store",
  "serde",
@@ -3911,6 +3912,7 @@ dependencies = [
  "ove-agent",
  "ove-core",
  "ove-gpu",
+ "ove-graphics",
  "ove-media",
  "ove-playback",
  "ove-render",

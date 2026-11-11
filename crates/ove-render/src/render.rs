@@ -142,11 +142,7 @@ impl Renderer {
         let bundle = self.bundle.clone();
         let load = |id: &str| media_path(doc, bundle.as_deref(), id).and_then(|p| std::fs::read(p).ok()).map(Arc::new);
         let fps = doc.project.extra.get("fps").and_then(Value::as_f64).unwrap_or(30.0);
-        let t = ove_graphics::FrameTime {
-            time: layer.rel_us as f64 / 1e6,
-            duration: layer.dur_us as f64 / 1e6,
-            fps,
-        };
+        let t = ove_graphics::FrameTime { time: layer.rel_us as f64 / 1e6, duration: layer.dur_us as f64 / 1e6, fps };
         match ove_graphics::render(&prepared, t, scale as f32, &load, ove_graphics::Limits::default()) {
             Ok(r) => {
                 let img = Rgba { w: r.frame.width, h: r.frame.height, data: r.frame.rgba };

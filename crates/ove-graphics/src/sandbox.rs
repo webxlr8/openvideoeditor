@@ -146,11 +146,11 @@ mod tests {
         let t = transpile(src);
         // Escape tests bypass the static checks to prove the runtime holds on its own.
         let js = if t.ok() { t.js } else { raw_js(src) };
-        run(&js, &serde_json::json!({"time": 1.0, "width": 1920, "height": 1080, "assets": {}, "props": {}}), Limits {
-            budget: Duration::from_millis(100),
-            memory: 16 << 20,
-            ..Limits::default()
-        })
+        run(
+            &js,
+            &serde_json::json!({"time": 1.0, "width": 1920, "height": 1080, "assets": {}, "props": {}}),
+            Limits { budget: Duration::from_millis(100), memory: 16 << 20, ..Limits::default() },
+        )
     }
 
     fn raw_js(src: &str) -> String {
@@ -159,8 +159,9 @@ mod tests {
 
     #[test]
     fn calls_the_default_export() {
-        let out = exec("export default function C({ time }) { return <div style={{ opacity: time / 2 }}>t={time}</div>; }")
-            .unwrap();
+        let out =
+            exec("export default function C({ time }) { return <div style={{ opacity: time / 2 }}>t={time}</div>; }")
+                .unwrap();
         assert_eq!(out.nodes[0]["tag"], "div");
         assert_eq!(out.nodes[0]["props"]["style"]["opacity"], 0.5);
         assert_eq!(out.nodes[0]["children"][0], "t=");

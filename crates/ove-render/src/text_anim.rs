@@ -114,7 +114,17 @@ pub struct AnimState {
 
 impl Default for AnimState {
     fn default() -> Self {
-        AnimState { opacity: 1.0, dx: 0.0, dy: 0.0, scale: 1.0, rotation: 0.0, blur: 0.0, reveal: 1.0, glitch: 0.0, seed: 0 }
+        AnimState {
+            opacity: 1.0,
+            dx: 0.0,
+            dy: 0.0,
+            scale: 1.0,
+            rotation: 0.0,
+            blur: 0.0,
+            reveal: 1.0,
+            glitch: 0.0,
+            seed: 0,
+        }
     }
 }
 
@@ -180,7 +190,13 @@ fn preset_state(preset: &str, p: f64, t: f64, rel: f64) -> AnimState {
             // Flickers on with jitter; the seed changes every 1/24 s so frames differ but repeat exactly.
             let seed = (rel * 24.0).floor().max(0.0) as u64;
             let on = t >= 1.0 || t > 0.6 || hash01(seed ^ 0x9e37) < t * 1.4;
-            AnimState { opacity: if on { 1.0 } else { 0.0 }, glitch: 1.0 - t, seed, dx: (hash01(seed) - 0.5) * 0.12 * (1.0 - t), ..d }
+            AnimState {
+                opacity: if on { 1.0 } else { 0.0 },
+                glitch: 1.0 - t,
+                seed,
+                dx: (hash01(seed) - 0.5) * 0.12 * (1.0 - t),
+                ..d
+            }
         }
         "rise" => AnimState { opacity: fade, dy: (1.0 - p) * 0.6, ..d },
         "drop" => AnimState { opacity: fade, dy: -(1.0 - p) * 0.6, ..d },
@@ -235,8 +251,8 @@ pub fn blur(src: &Rgba, radius: f32) -> Rgba {
         if a <= 0.0 {
             continue;
         }
-        for c in 0..3 {
-            out.data[i * 4 + c] = (p[c] / a).clamp(0.0, 255.0) as u8;
+        for (o, v) in out.data[i * 4..i * 4 + 3].iter_mut().zip(p) {
+            *o = (v / a).clamp(0.0, 255.0) as u8;
         }
         out.data[i * 4 + 3] = p[3].clamp(0.0, 255.0) as u8;
     }
@@ -340,8 +356,12 @@ mod tests {
         assert_eq!(a.enter.as_ref().unwrap().duration, 1.0);
         assert_eq!(a.exit.as_ref().unwrap().preset, "fade");
         assert_eq!(a.exit.as_ref().unwrap().easing, "ease-in");
-        assert!(TextAnimation::from_fields(json!({"textAnimation": {"preset": "none"}}).as_object().unwrap()).is_none());
-        assert!(TextAnimation::from_fields(json!({"textAnimation": {"preset": "bogus"}}).as_object().unwrap()).is_none());
+        assert!(
+            TextAnimation::from_fields(json!({"textAnimation": {"preset": "none"}}).as_object().unwrap()).is_none()
+        );
+        assert!(
+            TextAnimation::from_fields(json!({"textAnimation": {"preset": "bogus"}}).as_object().unwrap()).is_none()
+        );
         let fast = anim(json!({"preset": "fade", "duration": 1.0, "speed": 2}));
         assert_eq!(fast.enter.unwrap().duration, 0.5);
     }
@@ -353,7 +373,10 @@ mod tests {
             let start = a.state(0.0, 10.0);
             let end = a.state(1.0, 10.0);
             assert!(!start.is_identity(), "{p} changes the text at the start: {start:?}");
-            assert!(end.is_identity() || p == "glitch" && end.glitch == 0.0 && end.opacity == 1.0, "{p} settles: {end:?}");
+            assert!(
+                end.is_identity() || p == "glitch" && end.glitch == 0.0 && end.opacity == 1.0,
+                "{p} settles: {end:?}"
+            );
             // Determinism: same time → same state.
             assert_eq!(a.state(0.37, 10.0), a.state(0.37, 10.0));
         }
@@ -361,7 +384,9 @@ mod tests {
 
     #[test]
     fn delay_and_exit() {
-        let a = anim(json!({"preset": "fade", "duration": 1.0, "delay": 1.0, "out": {"preset": "rise", "duration": 1.0, "delay": 0.5}}));
+        let a = anim(
+            json!({"preset": "fade", "duration": 1.0, "delay": 1.0, "out": {"preset": "rise", "duration": 1.0, "delay": 0.5}}),
+        );
         assert_eq!(a.state(0.5, 10.0).opacity, 0.0, "waits for the delay");
         assert!(a.state(5.0, 10.0).is_identity());
         let leaving = a.state(9.0, 10.0);

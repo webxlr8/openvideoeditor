@@ -114,7 +114,9 @@ pub fn prepare(c: &CodeComposition, default_size: (u32, u32)) -> Result<Prepared
             (t.source.to_string(), props, images.into_iter().collect::<BTreeMap<_, _>>())
         }
         (None, Some(src)) => (src.clone(), Value::Object(c.props.clone()), BTreeMap::new()),
-        (None, None) => return Err(vec![Diagnostic::error("empty", "the composition has neither `source` nor `template`")]),
+        (None, None) => {
+            return Err(vec![Diagnostic::error("empty", "the composition has neither `source` nor `template`")]);
+        }
     };
     assets.extend(c.asset_ids());
     let t = transpile_cached(&source);
@@ -256,7 +258,9 @@ pub fn render(
             Some(img) => {
                 imgs.insert(Arc::from(format!("{}{name}", tree::ASSET_PREFIX)), img);
             }
-            None => diagnostics.push(Diagnostic::warning("asset", format!("image for asset `{name}` could not be loaded"))),
+            None => {
+                diagnostics.push(Diagnostic::warning("asset", format!("image for asset `{name}` could not be loaded")))
+            }
         }
     }
     let node: Node = serde_json::from_value(built.root).map_err(|e| vec![Diagnostic::error("tree", e.to_string())])?;

@@ -45,7 +45,7 @@ pub struct Template {
     /// Whether the template paints the whole frame (otherwise it overlays video).
     pub full_frame: bool,
     pub props: Vec<PropSpec>,
-    #[serde(skip)]
+    /// The template's TSX (for "edit as code").
     pub source: &'static str,
 }
 
@@ -138,7 +138,12 @@ pub fn all() -> Vec<Template> {
             duration: 6.0,
             full_frame: false,
             props: vec![
-                p("quote", "Quote", Multiline, json!("Simple things should be simple, complex things should be possible.")),
+                p(
+                    "quote",
+                    "Quote",
+                    Multiline,
+                    json!("Simple things should be simple, complex things should be possible."),
+                ),
                 p("author", "Attribution", Text, json!("— A wise engineer")),
                 p("card", "Card", Color, json!("#fdf7ee")),
                 p("color", "Text", Color, json!("#1d1b19")),

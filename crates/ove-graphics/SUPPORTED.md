@@ -109,3 +109,10 @@ Lottie, video assets inside compositions, audio, CSS keyframe animations driven 
 `check` (the Code tab and the assistant's `check_code` tool) transpiles the source, reports syntax errors, imports
 and unavailable globals with line/column, then renders frames at the start, middle and end, reporting runtime
 errors, unsupported elements/props/styles, console output and the slowest frame time.
+
+## Third-party code
+
+Layout and painting use Takumi (MIT OR Apache-2.0), the sandbox is QuickJS-NG through rquickjs (MIT), and TSX is
+transpiled with oxc (MIT). Takumi's raster backend includes the `jpeg-encoder` crate, whose forward DCT is based on
+the work of the Independent JPEG Group: **this software is based in part on the work of the Independent JPEG
+Group.**

@@ -14,11 +14,31 @@ pub const ASSET_PREFIX: &str = "asset:";
 
 /// Block-level elements rendered as containers.
 const BLOCK: &[&str] = &[
-    "div", "section", "article", "header", "footer", "main", "aside", "nav", "figure", "figcaption", "blockquote",
-    "ul", "ol", "li", "p", "h1", "h2", "h3", "h4", "h5", "h6",
+    "div",
+    "section",
+    "article",
+    "header",
+    "footer",
+    "main",
+    "aside",
+    "nav",
+    "figure",
+    "figcaption",
+    "blockquote",
+    "ul",
+    "ol",
+    "li",
+    "p",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
 ];
 /// Inline elements rendered as inline containers.
-const INLINE: &[&str] = &["span", "strong", "b", "em", "i", "u", "s", "small", "code", "mark", "sub", "sup", "label", "a"];
+const INLINE: &[&str] =
+    &["span", "strong", "b", "em", "i", "u", "s", "small", "code", "mark", "sub", "sup", "label", "a"];
 
 fn preset(tag: &str) -> Option<Value> {
     let heading = |em: f32| json!({"display": "block", "fontSize": format!("{em}em"), "fontWeight": 700});
@@ -74,7 +94,10 @@ impl Builder<'_> {
     }
 
     fn children(&mut self, o: &Map<String, Value>) -> Vec<Value> {
-        o.get("children").and_then(Value::as_array).map(|c| c.iter().filter_map(|c| self.node(c)).collect()).unwrap_or_default()
+        o.get("children")
+            .and_then(Value::as_array)
+            .map(|c| c.iter().filter_map(|c| self.node(c)).collect())
+            .unwrap_or_default()
     }
 
     fn element(&mut self, o: &Map<String, Value>) -> Option<Value> {
@@ -102,7 +125,10 @@ impl Builder<'_> {
                 let why = if src.is_empty() {
                     "<img> needs `src={assets.name}`".to_string()
                 } else {
-                    format!("<img src=\"{}\"> is not allowed: images come from `assets` (no network or files)", short(src))
+                    format!(
+                        "<img src=\"{}\"> is not allowed: images come from `assets` (no network or files)",
+                        short(src)
+                    )
                 };
                 self.diag(Diagnostic::error("asset", why));
                 return None;
@@ -126,8 +152,12 @@ impl Builder<'_> {
         }
         if !BLOCK.contains(&tag.as_str()) && !INLINE.contains(&tag.as_str()) {
             let hint = match tag.as_str() {
-                "svg" | "path" | "circle" | "rect" => "draw shapes with styled <div>s (borderRadius, gradients) or an image asset",
-                "video" | "audio" | "iframe" | "canvas" | "script" | "style" | "link" => "not available in compositions",
+                "svg" | "path" | "circle" | "rect" => {
+                    "draw shapes with styled <div>s (borderRadius, gradients) or an image asset"
+                }
+                "video" | "audio" | "iframe" | "canvas" | "script" | "style" | "link" => {
+                    "not available in compositions"
+                }
                 _ => "it renders as a <div>",
             };
             self.diag(Diagnostic::warning("tag", format!("<{tag}> is not supported: {hint}")));
@@ -169,7 +199,9 @@ impl Builder<'_> {
                 Property::Unknown => {
                     self.diag(Diagnostic::warning("style", format!("style property `{k}` is not supported")))
                 }
-                Property::Invalid(e) => self.diag(Diagnostic::warning("style", format!("`{k}: {}`: {e}", short(&v.to_string())))),
+                Property::Invalid(e) => {
+                    self.diag(Diagnostic::warning("style", format!("`{k}: {}`: {e}", short(&v.to_string()))))
+                }
             }
         }
         Some(Value::Object(out))
@@ -212,7 +244,8 @@ fn property(key: &str, value: &Value) -> Property {
 /// Builds the Takumi root for the composition's top-level nodes at `width`×`height` composition units.
 pub fn build(nodes: &Value, width: u32, height: u32, known_assets: &dyn Fn(&str) -> bool) -> Built {
     let mut b = Builder { known_assets, assets: BTreeSet::new(), families: BTreeSet::new(), diags: Vec::new() };
-    let children: Vec<Value> = nodes.as_array().map(|a| a.iter().filter_map(|n| b.node(n)).collect()).unwrap_or_default();
+    let children: Vec<Value> =
+        nodes.as_array().map(|a| a.iter().filter_map(|n| b.node(n)).collect()).unwrap_or_default();
     let root = json!({
         "type": "container",
         "tagName": "div",

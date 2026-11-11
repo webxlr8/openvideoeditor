@@ -6,8 +6,9 @@ import type { ItemView_Serialize, ProjectView_Serialize } from "./bindings";
 import { commands } from "./bridge";
 import { type EditResult, type Fields, TRANSITIONS, itemDetail, updateItem } from "./edit";
 import { Icon } from "./icons";
+import { CodeTab, FontPicker } from "./Motion";
 
-type Tab = "general" | "color" | "audio" | "text" | "caption";
+type Tab = "general" | "color" | "audio" | "text" | "caption" | "code";
 
 const TABS: Record<string, Tab[]> = {
   video: ["general", "color", "audio"],
@@ -16,10 +17,10 @@ const TABS: Record<string, Tab[]> = {
   text: ["text", "general"],
   caption: ["caption", "general"],
   adjustment: ["color", "general"],
-  code: ["general"],
+  code: ["code", "general"],
   shader: ["general"],
 };
-const TAB_LABEL: Record<Tab, string> = { general: "General", color: "Color", audio: "Audio", text: "Text", caption: "Caption" };
+const TAB_LABEL: Record<Tab, string> = { general: "General", color: "Color", audio: "Audio", text: "Text", caption: "Caption", code: "Code" };
 
 const num = (v: unknown, d: number) => (typeof v === "number" && Number.isFinite(v) ? v : d);
 const str = (v: unknown, d: string) => (typeof v === "string" ? v : d);
@@ -171,7 +172,6 @@ function ColorField({ label, value, onCommit }: { label: string; value: string; 
 
 const SPEEDS = [0.5, 1, 1.25, 1.5, 2, 4];
 const BLENDS = ["normal", "multiply", "screen", "overlay", "darken", "lighten", "soft-light", "hard-light", "difference"];
-const FONTS = ["Inter", "Georgia", "Arial", "Helvetica", "Times New Roman", "Courier New", "Impact"];
 
 export function Inspector({
   project,
@@ -389,20 +389,13 @@ export function Inspector({
               <TextArea value={str(d.textContent, "")} testId="insp-text" onCommit={(v) => set({ textContent: v, name: v.split("\n")[0].slice(0, 40) }, "edit text")} />
             </Section>
             <Section title="Font">
-              <label className="select-row">
-                <span>Family</span>
-                <select value={str(d.fontFamily, "Inter")} data-testid="insp-font" onChange={(e) => set({ fontFamily: e.target.value }, "font")}>
-                  {FONTS.map((f) => (
-                    <option key={f}>{f}</option>
-                  ))}
-                </select>
-              </label>
+              <FontPicker value={str(d.fontFamily, "Inter")} onChange={(f) => set({ fontFamily: f }, "font")} />
               <div className="grid2">
                 <NumberField label="Size" unit="px" value={num(d.fontSize, 64)} testId="insp-font-size" onCommit={(v) => set({ fontSize: Math.max(1, v) }, "font size")} />
                 <label className="select-row compact">
                   <span>Weight</span>
                   <select value={String(d.fontWeight ?? 400)} onChange={(e) => set({ fontWeight: Number(e.target.value) }, "font weight")}>
-                    {[300, 400, 500, 600, 700, 800, 900].map((w) => (
+                    {[100, 200, 300, 400, 500, 600, 700, 800, 900].map((w) => (
                       <option key={w} value={w}>
                         {w}
                       </option>
@@ -438,6 +431,7 @@ export function Inspector({
           </>
         )}
         {detail !== null && tab === "caption" && <CaptionEditor detail={d} set={set} />}
+        {detail !== null && tab === "code" && <CodeTab project={project} item={item} detail={d} set={set} />}
       </div>
     </aside>
   );

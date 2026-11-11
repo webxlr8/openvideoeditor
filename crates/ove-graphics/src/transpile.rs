@@ -113,7 +113,7 @@ pub fn transpile(src: &str) -> Transpiled {
     let mut diags: Vec<Diagnostic> = Vec::new();
     let pos = |off: u32| Some(line_col(src, off as usize));
     for e in ret.diagnostics.errors() {
-        let off = e.labels.first().map(|l| l.offset() as u32);
+        let off = e.labels.first().map(|l| l.offset());
         diags.push(Diagnostic::error("syntax", e.message.to_string()).at(off.and_then(pos)));
     }
     if !diags.is_empty() {
@@ -127,7 +127,10 @@ pub fn transpile(src: &str) -> Transpiled {
             Statement::ImportDeclaration(d) => diags.push(
                 Diagnostic::error(
                     "import",
-                    format!("imports are not supported (`{}`): write everything in this one file", d.source.value.as_str().unwrap_or_default()),
+                    format!(
+                        "imports are not supported (`{}`): write everything in this one file",
+                        d.source.value.as_str().unwrap_or_default()
+                    ),
                 )
                 .at(pos(d.span.start)),
             ),
@@ -160,7 +163,7 @@ pub fn transpile(src: &str) -> Transpiled {
 
     let sem = SemanticBuilder::new().with_build_nodes(true).with_check_syntax_error(true).build(&program);
     for e in sem.diagnostics.errors() {
-        let off = e.labels.first().map(|l| l.offset() as u32);
+        let off = e.labels.first().map(|l| l.offset());
         diags.push(Diagnostic::error("syntax", e.message.to_string()).at(off.and_then(pos)));
     }
     let semantic = sem.semantic;
@@ -212,9 +215,10 @@ pub fn transpile(src: &str) -> Transpiled {
         },
         ..TransformOptions::default()
     };
-    let out = Transformer::new(&allocator, Path::new("composition.tsx"), &options).build_with_scoping(scoping, &mut program);
+    let out =
+        Transformer::new(&allocator, Path::new("composition.tsx"), &options).build_with_scoping(scoping, &mut program);
     for e in out.diagnostics.errors() {
-        let off = e.labels.first().map(|l| l.offset() as u32);
+        let off = e.labels.first().map(|l| l.offset());
         diags.push(Diagnostic::error("syntax", e.message.to_string()).at(off.and_then(pos)));
     }
     let js = Codegen::new().build(&program).code;
@@ -248,9 +252,14 @@ mod tests {
         assert_eq!((g.line, g.column), (Some(2), Some(38)));
         assert!(transpile("function C() {}").diagnostics.iter().any(|d| d.code == "export"));
         assert!(
-            transpile("export default function C() { return import('x'); }").diagnostics.iter().any(|d| d.code == "import")
+            transpile("export default function C() { return import('x'); }")
+                .diagnostics
+                .iter()
+                .any(|d| d.code == "import")
         );
-        assert!(transpile("export default function C() { setTimeout(() => 1); }").diagnostics[0].message.contains("timers"));
+        assert!(
+            transpile("export default function C() { setTimeout(() => 1); }").diagnostics[0].message.contains("timers")
+        );
         let s = transpile("export default function C( { return 1 }");
         assert_eq!(s.diagnostics[0].code, "syntax");
     }

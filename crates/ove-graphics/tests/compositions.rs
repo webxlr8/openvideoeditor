@@ -99,8 +99,14 @@ fn every_template_checks_clean_and_matches_its_golden() {
         assert!(report.diagnostics.is_empty(), "{}: {:?}", t.id, report.diagnostics);
         let p = prepare(&c, HD).unwrap();
         // Golden at quarter size, two thirds of the way in (entrances done, exits not started).
-        let r = render(&p, FrameTime { time: t.duration * 0.6, duration: t.duration, fps: 30.0 }, 0.25, &images, Limits::default())
-            .unwrap();
+        let r = render(
+            &p,
+            FrameTime { time: t.duration * 0.6, duration: t.duration, fps: 30.0 },
+            0.25,
+            &images,
+            Limits::default(),
+        )
+        .unwrap();
         assert_eq!((r.frame.width, r.frame.height), (480, 270));
         let painted = r.frame.rgba.chunks(4).filter(|p| p[3] > 0).count();
         assert!(painted > 500, "{} paints something ({painted} px)", t.id);
@@ -113,7 +119,10 @@ fn frames_animate_and_are_deterministic() {
     let c = tpl("kinetic-text", json!({"text": "one two three four"}));
     let p = prepare(&c, HD).unwrap();
     let at = |time: f64| {
-        render(&p, FrameTime { time, duration: 4.0, fps: 30.0 }, 0.25, &no_images, Limits::default()).unwrap().frame.rgba
+        render(&p, FrameTime { time, duration: 4.0, fps: 30.0 }, 0.25, &no_images, Limits::default())
+            .unwrap()
+            .frame
+            .rgba
     };
     let (a, b) = (at(0.5), at(0.5));
     assert_eq!(a, b, "same time → identical pixels");
@@ -134,7 +143,10 @@ fn frames_animate_and_are_deterministic() {
     };
     let p = prepare(&src, HD).unwrap();
     let r = |_: ()| {
-        render(&p, FrameTime { time: 0.5, duration: 1.0, fps: 30.0 }, 0.25, &no_images, Limits::default()).unwrap().frame.rgba
+        render(&p, FrameTime { time: 0.5, duration: 1.0, fps: 30.0 }, 0.25, &no_images, Limits::default())
+            .unwrap()
+            .frame
+            .rgba
     };
     assert_eq!(r(()), r(()));
 }
@@ -150,7 +162,11 @@ fn source_compositions_report_problems() {
     let r = bad("export default function C() { return <div style={{ color: 'red', wobble: 3 }}>x</div>; }");
     assert!(r.diagnostics.iter().any(|d| d.code == "style" && d.message.contains("wobble")), "{:?}", r.diagnostics);
     let r = bad("export default function C({ time }) { if (time > 0.5) throw new Error('boom'); return null; }");
-    assert!(!r.ok && r.diagnostics.iter().any(|d| d.code == "runtime" && d.message.contains("boom")), "{:?}", r.diagnostics);
+    assert!(
+        !r.ok && r.diagnostics.iter().any(|d| d.code == "runtime" && d.message.contains("boom")),
+        "{:?}",
+        r.diagnostics
+    );
     let r = bad("export default function C() { for (;;) {} }");
     assert!(!r.ok && r.diagnostics[0].code == "budget", "{:?}", r.diagnostics);
     let r = bad("export default function C() { console.log('hello', { a: 1 }); return <div>x</div>; }");
@@ -179,7 +195,8 @@ fn fonts_resolve_by_family_and_weight() {
         c.props.insert("family".into(), json!(family));
         c.props.insert("weight".into(), json!(weight));
         let p = prepare(&c, HD).unwrap();
-        let r = render(&p, FrameTime { time: 0.0, duration: 1.0, fps: 30.0 }, 0.25, &no_images, Limits::default()).unwrap();
+        let r =
+            render(&p, FrameTime { time: 0.0, duration: 1.0, fps: 30.0 }, 0.25, &no_images, Limits::default()).unwrap();
         r.frame.rgba.chunks(4).filter(|p| p[0] > 128).count()
     };
     assert!(ink("Inter", 900) > ink("Inter", 200), "variable weight axis applies");
@@ -203,7 +220,8 @@ fn frame_budget_at_1080p() {
         for i in 0..15 {
             let time = t.duration * i as f64 / 15.0;
             let s = Instant::now();
-            let r = render(&p, FrameTime { time, duration: t.duration, fps: 30.0 }, 1.0, &images, Limits::default()).unwrap();
+            let r = render(&p, FrameTime { time, duration: t.duration, fps: 30.0 }, 1.0, &images, Limits::default())
+                .unwrap();
             total.push(s.elapsed().as_secs_f64() * 1e3);
             script.push(r.script_ms);
             paint.push(r.paint_ms);

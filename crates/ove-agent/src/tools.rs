@@ -28,6 +28,10 @@ pub trait ToolHost: Send {
     }
     /// Shows a question card and blocks until the user answers (or the turn is stopped).
     fn ask_user(&mut self, question_id: &str, question: &str, options: &[String]) -> Result<String, String>;
+    /// Checks a code item's composition (`codeComposition`). Hosts with a project resolve its aspect and assets.
+    fn check_code(&mut self, composition: &Value, duration: f64) -> Result<String, String> {
+        Ok(check_code(None, composition, duration))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -98,6 +102,14 @@ pub fn definitions() -> Vec<Value> {
             }, "required": ["time"], "additionalProperties": false}
         }),
         json!({
+            "name": "check_code",
+            "description": "Check a code item's composition before (or after) applying it: transpiles the TSX, reports syntax errors, imports and unavailable globals with line:column, then renders frames at the start, middle and end and reports runtime errors, endless loops, unsupported elements and styles, console output and the slowest frame time. Pass the codeComposition object ({source, props?, assets?} or {template, props}).",
+            "input_schema": {"type": "object", "properties": {
+                "composition": {"type": "object", "description": "The codeComposition value."},
+                "duration": {"type": "number", "exclusiveMinimum": 0, "description": "Item duration in seconds (default 4)."}
+            }, "required": ["composition"], "additionalProperties": false}
+        }),
+        json!({
             "name": "ask_user",
             "description": "Ask the user a question when a choice is genuinely theirs (style, which take, what to cut). Offer 2-4 short options when you can. Blocks until they answer.",
             "input_schema": {"type": "object", "properties": {
@@ -134,6 +146,7 @@ pub fn label(name: &str, input: &Value) -> String {
         "import_media" => "Importing media".into(),
         "seek_viewer" => format!("Jumping to {:.1}s", input["time"].as_f64().unwrap_or(0.0)),
         "ask_user" => "Asking you".into(),
+        "check_code" => "Checking motion graphics code".into(),
         other => other.to_string(),
     }
 }
@@ -223,6 +236,17 @@ pub fn dispatch(host: &mut dyn ToolHost, tool_use_id: &str, name: &str, input: &
                     .collect::<Result<_, _>>()?,
             };
             host.ask_user(tool_use_id, q, &options)
+        }
+        "check_code" => {
+            only_keys(input, &["composition", "duration"])?;
+            let c = input.get("composition").filter(|c| c.is_object()).ok_or("`composition` must be an object")?;
+            let d = match input.get("duration") {
+                None | Some(Value::Null) => 4.0,
+                Some(v) => {
+                    v.as_f64().filter(|d| *d > 0.0 && d.is_finite()).ok_or("`duration` must be a positive number")?
+                }
+            };
+            host.check_code(c, d)
         }
         other => Err(format!("unknown tool `{other}`")),
     }
@@ -346,6 +370,51 @@ pub fn list_media(p: &Project) -> String {
         })
         .collect();
     json!(rows).to_string()
+}
+
+/// `check_code`: the motion-graphics check as compact JSON. With a project, the frame size follows its aspect ratio
+/// and image assets (media ids or names) load from its media.
+pub fn check_code(p: Option<&Project>, composition: &Value, duration: f64) -> String {
+    let Some(c) = ove_graphics::CodeComposition::from_value(composition) else {
+        return json!({"ok": false, "diagnostics": ["error [shape] the composition must be an object"]}).to_string();
+    };
+    let size = match p.map(|p| p.doc().project.aspect_ratio.as_str()) {
+        Some("9:16") => (1080, 1920),
+        Some("1:1") => (1080, 1080),
+        Some("4:5") => (1080, 1350),
+        Some("4:3") => (1440, 1080),
+        Some("3:4") => (1080, 1440),
+        _ => (1920, 1080),
+    };
+    let load = |id: &str| {
+        let p = p?;
+        let doc = p.doc();
+        let id = if doc.registry.contains_key(id) {
+            id.to_string()
+        } else {
+            ove_projection::print::media_names(doc).into_iter().find(|(_, n)| n == id).map(|(k, _)| k)?
+        };
+        let native = std::path::PathBuf::from(&doc.registry.get(&id)?.native_path);
+        let path = if native.is_absolute() { native } else { p.bundle().join(native) };
+        std::fs::read(path).ok().map(std::sync::Arc::new)
+    };
+    let r = ove_graphics::check(&c, size, duration, &load);
+    let fmt = |d: &ove_graphics::Diagnostic| {
+        let at = match (d.line, d.column) {
+            (Some(l), Some(c)) => format!(" {l}:{c}"),
+            _ => String::new(),
+        };
+        let sev = if d.is_error() { "error" } else { "warning" };
+        format!("{sev} [{}]{at} {}", d.code, d.message)
+    };
+    json!({
+        "ok": r.ok,
+        "diagnostics": r.diagnostics.iter().map(fmt).collect::<Vec<_>>(),
+        "logs": r.logs,
+        "slowestFrameMs": (r.frame_ms * 10.0).round() / 10.0,
+        "size": format!("{}x{}", r.width, r.height),
+    })
+    .to_string()
 }
 
 /// `undo_last`: reverts the latest revision if it was the assistant's.

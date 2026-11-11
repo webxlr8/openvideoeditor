@@ -185,6 +185,22 @@ fn stale_rev_and_bad_edits_are_reported_to_the_model() {
 }
 
 #[test]
+fn check_code_reports_problems_with_positions() {
+    let d = tempfile::tempdir().unwrap();
+    let mut host = TestHost { project: project(d.path()), answers: vec![] };
+    let ok = tools::dispatch(&mut host, "x", "check_code", &json!({"composition": {"template": "counter"}})).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&ok).unwrap();
+    assert_eq!(v["ok"], true, "{ok}");
+    assert_eq!(v["diagnostics"], json!([]));
+    let src = "export default function C({ time }) {\n  return fetch('x');\n}";
+    let bad = tools::check_code(Some(&host.project), &json!({"source": src}), 2.0);
+    assert!(bad.contains("error [global] 2:10 `fetch` is not available"), "{bad}");
+    assert!(tools::dispatch(&mut host, "x", "check_code", &json!({"composition": "nope"})).is_err());
+    assert!(tools::dispatch(&mut host, "x", "check_code", &json!({"composition": {}, "duration": -1})).is_err());
+    assert!(tools::definitions().iter().any(|t| t["name"] == "check_code"));
+}
+
+#[test]
 fn errors_map_and_retries_recover() {
     let server = MockServer::start(|_, _| {
         Reply::Status(

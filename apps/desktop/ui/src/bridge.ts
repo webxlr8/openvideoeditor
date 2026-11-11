@@ -19,6 +19,7 @@ import type {
   ViewerBackend,
   ViewerRect,
 } from "./bindings";
+import { MOCK_FONTS, MOCK_TEMPLATES, mockCheck, mockFontPreview, mockThumbnail } from "./motionMock";
 
 export type Commands = typeof generated.commands;
 export type Events = typeof generated.events;
@@ -706,6 +707,15 @@ function createMock(): { commands: Commands; events: Events; control: MockContro
       turn.answer = undefined;
       return ok(null);
     },
+    // Motion graphics and fonts (see motionMock.ts).
+    listFonts: () => ok(MOCK_FONTS),
+    fontPreview: (family: string, text: string, size: number) => ok(mockFontPreview(family, text, size)),
+    listTemplates: () => ok(JSON.stringify(MOCK_TEMPLATES)),
+    templateThumbnail: (id: string) => {
+      const t = mockThumbnail(id);
+      return t ? ok(t) : fail("not_found", "Unknown template.");
+    },
+    checkCode: (compositionJson: string) => ok(mockCheck(compositionJson)),
   };
 
   const makeEvent = (name: string) => ({

@@ -1,6 +1,6 @@
 // Left-rail tool panels: Text, Captions, Transitions, Effects, Audio, Layout. Each action is one revision.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ItemView_Serialize, ProjectView_Serialize } from "./bindings";
 import { commands } from "./bridge";
 import {
@@ -11,12 +11,14 @@ import {
   TRANSITIONS,
   addItems,
   firstTrack,
+  itemDetail,
   nextAdjacent,
   updateItem,
   updateItems,
   snapToFrame,
 } from "./edit";
 import { Icon } from "./icons";
+import { TextAnimationPicker } from "./Motion";
 
 export interface PanelProps {
   project: ProjectView_Serialize;
@@ -35,12 +37,28 @@ function Empty({ children }: { children: React.ReactNode }) {
   return <p className="muted panel-note">{children}</p>;
 }
 
-export function TextPanel({ project, playhead, onEdit }: PanelProps) {
+export function TextPanel({ project, playhead, selection, onEdit }: PanelProps) {
   const [q, setQ] = useState("");
   const track = firstTrack(project, "video", "t_text");
   const presets = TEXT_PRESETS.filter((p) => p.label.toLowerCase().includes(q.toLowerCase()));
+  const texts = selection.filter((i) => i.kind === "text");
+  const primaryId = texts[texts.length - 1]?.id;
+  const [animation, setAnimation] = useState<unknown>(undefined);
+  useEffect(() => {
+    let live = true;
+    if (primaryId) void itemDetail(primaryId).then((d) => live && setAnimation(d?.textAnimation));
+    return () => {
+      live = false;
+    };
+  }, [primaryId, project.rev]);
   return (
     <>
+      <h5 className="panel-sub">Animation {texts.length ? `— ${texts.length} selected` : ""}</h5>
+      {texts.length === 0 ? (
+        <Empty>Select a title on the timeline to animate it in and out.</Empty>
+      ) : (
+        <TextAnimationPicker targets={texts.map((t) => ({ id: t.id, textAnimation: animation }))} onEdit={onEdit} />
+      )}
       <div className="panel-search">
         <label className="search">
           <Icon name="search" size={15} />

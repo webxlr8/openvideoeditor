@@ -9,6 +9,7 @@ pub mod error;
 pub mod exporting;
 pub mod logging;
 pub mod media;
+pub mod motion;
 pub mod projects;
 pub mod timeline;
 pub mod transport;
@@ -146,6 +147,12 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             assistant::agent_send,
             assistant::agent_stop,
             assistant::agent_answer,
+            // Motion graphics and fonts (change 4 / 11).
+            motion::list_fonts,
+            motion::font_preview,
+            motion::list_templates,
+            motion::template_thumbnail,
+            motion::check_code,
         ])
         .events(collect_events![
             PlaybackChanged,

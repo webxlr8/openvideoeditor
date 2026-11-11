@@ -175,13 +175,7 @@ pub fn resolve(family: &str, weight: u16, italic: bool) -> Resolved {
             return None;
         }
         let score = |f: &&Face| {
-            let wd = if weight < f.weight.min {
-                f.weight.min - weight
-            } else if weight > f.weight.max {
-                weight - f.weight.max
-            } else {
-                0
-            };
+            let wd = f.weight.min.saturating_sub(weight) + weight.saturating_sub(f.weight.max);
             (if f.italic == italic { 0 } else { 10_000 }) + wd as u32
         };
         faces.into_iter().min_by_key(score)
@@ -198,7 +192,8 @@ pub fn resolve(family: &str, weight: u16, italic: bool) -> Resolved {
 }
 
 fn from_face(f: &'static Face, weight: u16) -> Resolved {
-    static CACHE: OnceLock<std::sync::Mutex<BTreeMap<&'static str, Arc<Vec<u8>>>>> = OnceLock::new();
+    type Cache = std::sync::Mutex<BTreeMap<&'static str, Arc<Vec<u8>>>>;
+    static CACHE: OnceLock<Cache> = OnceLock::new();
     let data = CACHE
         .get_or_init(Default::default)
         .lock()

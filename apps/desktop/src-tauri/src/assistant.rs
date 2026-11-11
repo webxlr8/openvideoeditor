@@ -224,6 +224,9 @@ impl ToolHost for DesktopHost {
             .map_err(|e| e.message)?;
         Ok(format!("Imported. The project now has {} media files and {} items.", v.media.len(), v.items.len()))
     }
+    fn check_code(&mut self, composition: &serde_json::Value, duration: f64) -> Result<String, String> {
+        self.with_project(|p| Ok(tools::check_code(Some(p), composition, duration)), false)
+    }
     fn seek_viewer(&mut self, seconds: f64) -> Result<String, String> {
         let _ = AgentUiEvent::Seek { seconds }.emit(&self.app);
         Ok(format!("Showing {seconds:.2}s."))
