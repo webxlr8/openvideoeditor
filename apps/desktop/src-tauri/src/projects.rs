@@ -90,6 +90,14 @@ pub struct ItemView {
     pub trim_start: f64,
     pub media_id: Option<String>,
     pub pending: bool,
+    pub hidden: bool,
+    pub muted: bool,
+    /// Text shown on the clip (text content or caption text).
+    pub text: Option<String>,
+    /// Transition durations in seconds (0 when none).
+    pub transition_in: f64,
+    pub transition_out: f64,
+    pub speed: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -130,11 +138,11 @@ pub struct ProjectView {
 #[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
 pub struct ProjectChanged(pub Option<ProjectView>);
 
-fn lock<'a, T>(m: &'a Mutex<T>) -> AppResult<std::sync::MutexGuard<'a, T>> {
+pub(crate) fn lock<'a, T>(m: &'a Mutex<T>) -> AppResult<std::sync::MutexGuard<'a, T>> {
     m.lock().map_err(|_| AppError::new(ErrorCode::Internal, "internal state is unavailable"))
 }
 
-fn clock() -> Arc<dyn ove_core::Clock> {
+pub(crate) fn clock() -> Arc<dyn ove_core::Clock> {
     Arc::new(ove_core::SystemClock)
 }
 
@@ -158,6 +166,10 @@ fn thumbs_dir(bundle: &Path) -> PathBuf {
 fn thumbnail_data_url(bundle: &Path, media_id: &str) -> Option<String> {
     let bytes = std::fs::read(thumbs_dir(bundle).join(format!("{media_id}.png"))).ok()?;
     Some(format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes)))
+}
+
+fn transition_secs(i: &ove_core::Item, key: &str) -> f64 {
+    i.fields.get(key).and_then(|t| t.get("duration")).and_then(ove_core::time::json_to_micros).map(secs).unwrap_or(0.0)
 }
 
 /// Builds the editor's view of a project.
@@ -233,6 +245,17 @@ pub fn view(p: &Project) -> ProjectView {
                 trim_start: secs(i.time_field("trimStart")),
                 media_id: i.media_id().map(str::to_string),
                 pending: i.is_pending(),
+                hidden: i.fields.get("hidden").and_then(Value::as_bool).unwrap_or(false),
+                muted: i.fields.get("muted").and_then(Value::as_bool).unwrap_or(false),
+                text: i
+                    .fields
+                    .get("textContent")
+                    .or_else(|| i.fields.get("captionText"))
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+                transition_in: transition_secs(i, "transitionIn"),
+                transition_out: transition_secs(i, "transitionOut"),
+                speed: i.fields.get("playbackSpeed").and_then(Value::as_f64).unwrap_or(1.0),
             })
             .collect(),
         media,
@@ -240,7 +263,7 @@ pub fn view(p: &Project) -> ProjectView {
 }
 
 /// Default tracks of a new project, top layer first.
-fn default_tracks() -> Vec<Op> {
+pub(crate) fn default_tracks() -> Vec<Op> {
     [
         ("t_text", "Text", "video"),
         ("t_captions", "Captions", "caption"),
@@ -254,7 +277,7 @@ fn default_tracks() -> Vec<Op> {
     .collect()
 }
 
-fn emit(app: &AppHandle, p: Option<&Project>) {
+pub(crate) fn emit(app: &AppHandle, p: Option<&Project>) {
     let _ = ProjectChanged(p.map(view)).emit(app);
 }
 
@@ -352,7 +375,7 @@ pub fn project_view(state: State<'_, AppState>) -> AppResult<Option<ProjectView>
 }
 
 /// Applies ops to the open project as one revision and broadcasts the new view.
-fn edit(app: &AppHandle, state: &AppState, ops: Vec<Op>, summary: &str) -> AppResult<ProjectView> {
+pub(crate) fn edit(app: &AppHandle, state: &AppState, ops: Vec<Op>, summary: &str) -> AppResult<ProjectView> {
     let mut g = lock(&state.projects.open)?;
     let p = g.as_mut().ok_or_else(|| AppError::new(ErrorCode::InvalidArgument, "No project is open."))?;
     if !ops.is_empty() {

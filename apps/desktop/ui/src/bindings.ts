@@ -45,6 +45,30 @@ export const commands = {
 	setTrackFlag: (id: string, flag: string, value: boolean) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("set_track_flag", { id, flag, value })),
 	undo: () => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("undo")),
 	redo: () => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("redo")),
+	/**  Full JSON of an item (every field, document names) for the inspector. */
+	itemDetail: (id: string) => typedError<string, AppError>(__TAURI_INVOKE("item_detail", { id })),
+	/**  Sets and unsets fields of one item (`set_json`: an object of document field names → values). */
+	updateItem: (id: string, setJson: string, unset: string[], summary: string | null) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("update_item", { id, setJson, unset, summary })),
+	/**  Several item edits as one revision: `[{id, set: {...}, unset: [...]}, …]`. */
+	updateItems: (editsJson: string, summary: string | null) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("update_items", { editsJson, summary })),
+	/**  Adds items (titles, captions, adjustment layers, …). Missing ids are generated. */
+	addItems: (itemsJson: string, summary: string | null) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("add_items", { itemsJson, summary })),
+	/**  Duplicates items right after themselves on their track (or at the track's end when that is taken). */
+	duplicateItems: (ids: string[]) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("duplicate_items", { ids })),
+	/**
+	 *  Pastes copied items (full item JSON as from `item_detail`) so the earliest starts at `at` seconds, keeping
+	 *  relative timing and tracks. Items whose track no longer exists go to the first track of the same kind.
+	 */
+	pasteItems: (itemsJson: string, at: number | null) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("paste_items", { itemsJson, at })),
+	/**  Trims an item's start or end edge to `time` (seconds on the timeline). */
+	trimItem: (id: string, edge: string, time: number | null) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("trim_item", { id, edge, time })),
+	/**  Adds a track. Video/caption/adjustment/layout tracks go on top, audio tracks at the bottom. */
+	addTrack: (kind: string, name: string) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("add_track", { kind, name })),
+	renameTrack: (id: string, name: string) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("rename_track", { id, name })),
+	/**  New track order, top first: every track id once. */
+	reorderTracks: (order: string[]) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("reorder_tracks", { order })),
+	/**  Removes a track and everything on it. */
+	removeTrack: (id: string) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("remove_track", { id })),
 };
 
 /** Events */
@@ -134,6 +158,14 @@ export type ItemView_Deserialize = {
 	trimStart: number | null,
 	mediaId?: string | null,
 	pending: boolean,
+	hidden: boolean,
+	muted: boolean,
+	/**  Text shown on the clip (text content or caption text). */
+	text?: string | null,
+	/**  Transition durations in seconds (0 when none). */
+	transitionIn: number | null,
+	transitionOut: number | null,
+	speed: number | null,
 };
 
 export type ItemView_Serialize = {
@@ -146,6 +178,14 @@ export type ItemView_Serialize = {
 	trimStart: number | null,
 	mediaId: string | null,
 	pending: boolean,
+	hidden: boolean,
+	muted: boolean,
+	/**  Text shown on the clip (text content or caption text). */
+	text: string | null,
+	/**  Transition durations in seconds (0 when none). */
+	transitionIn: number | null,
+	transitionOut: number | null,
+	speed: number | null,
 };
 
 /**  Properties shown next to the viewer. */

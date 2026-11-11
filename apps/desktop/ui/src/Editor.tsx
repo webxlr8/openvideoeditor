@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   AppError,
   ItemView_Serialize,
@@ -14,6 +14,12 @@ import { Icon, type IconName } from "./icons";
 import { Dropdown } from "./Menu";
 import { formatShort, formatTimecode, parseTimecode } from "./timecode";
 import { Viewer } from "./Viewer";
+import { type EditResult, itemDetail } from "./edit";
+import { Inspector } from "./Inspector";
+import { EDIT_ACTIONS, keyToAction } from "./keys";
+import { AudioPanel, CaptionsPanel, EffectsPanel, LayoutPanel, type PanelProps, TextPanel, TransitionsPanel } from "./Panels";
+import { Shortcuts } from "./Shortcuts";
+import { type SelectMode, Timeline } from "./Timeline";
 
 export const RAIL: { id: string; label: string; icon: IconName }[] = [
   { id: "media", label: "Media", icon: "media" },
@@ -32,8 +38,6 @@ export interface Layout {
   viewerOpen: boolean;
 }
 
-type EditResult = Promise<{ status: "ok"; data: ProjectView_Serialize } | { status: "error"; error: AppError }>;
-
 /** Timeline time of the playhead: the previewed clip's start plus how far into its source the viewer is. */
 export function playheadSeconds(item: ItemView_Serialize | undefined, playback: PlaybackState, previewing: boolean) {
   if (!item || !previewing) return 0;
@@ -44,8 +48,9 @@ export function playheadSeconds(item: ItemView_Serialize | undefined, playback: 
 
 export function Editor({
   project,
-  selected,
+  selection,
   onSelect,
+  onSelectMany,
   onEdit,
   media,
   playback,
@@ -69,16 +74,96 @@ export function Editor({
   onError: (e: AppError) => void;
   onHome: () => void;
   project: ProjectView_Serialize | null;
-  selected: string | null;
-  onSelect: (item: ItemView_Serialize | null, offsetSeconds?: number) => void;
+  /** Selected item ids, primary last. */
+  selection: string[];
+  onSelect: (item: ItemView_Serialize | null, offsetSeconds?: number, mode?: SelectMode) => void;
+  onSelectMany: (ids: string[]) => void;
   onEdit: (p: EditResult) => void;
 }) {
   const [panel, setPanel] = useState("media");
+  const [zoom, setZoom] = useState<number | null>(null);
+  const [fitPps, setFitPps] = useState(50);
+  const [snap, setSnap] = useState(true);
+  const [help, setHelp] = useState(false);
+  const [closedFor, setClosedFor] = useState<string | null>(null);
+  const [scrubTime, setScrubTime] = useState(0);
+  const [clipboard, setClipboard] = useState<Record<string, unknown>[]>([]);
   const toggle = (key: keyof Layout) => setLayout({ ...layout, [key]: !layout[key] });
+  const selected = selection[selection.length - 1] ?? null;
   const item = project?.items.find((i) => i.id === selected);
+  const selectedItems = (project?.items ?? []).filter((i) => selection.includes(i.id));
   const itemMedia = project?.media.find((m) => m.id === item?.mediaId);
   const previewing = !!(item && itemMedia && media && media.path === itemMedia.path);
-  const playhead = playheadSeconds(item, playback, previewing);
+  const playhead = previewing ? playheadSeconds(item, playback, previewing) : item && !item.mediaId ? (item.start ?? 0) : scrubTime;
+  const inspecting = !!(item && project && closedFor !== selected && layout.panelOpen);
+
+  const copy = useCallback(async (ids: string[]) => {
+    const all = await Promise.all(ids.map((id) => itemDetail(id)));
+    setClipboard(all.filter((x): x is Record<string, unknown> => x !== null));
+  }, []);
+  const paste = useCallback(
+    (at: number) => {
+      if (clipboard.length) onEdit(commands.pasteItems(JSON.stringify(clipboard), Math.round(at * 1000) / 1000));
+    },
+    [clipboard, onEdit],
+  );
+  const zoomBy = useCallback((f: number) => setZoom((z) => Math.min(400, Math.max(2, (z ?? fitPps) * f))), [fitPps]);
+
+  // Editing shortcuts (transport, undo/redo and diagnostics are handled by the app).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const a = keyToAction(e);
+      if (!a || !EDIT_ACTIONS.has(a.type)) return;
+      e.preventDefault();
+      switch (a.type) {
+        case "delete":
+          if (selection.length) {
+            onEdit(commands.removeItems(selection));
+            onSelectMany([]);
+          }
+          break;
+        case "split":
+          if (item && playhead > (item.start ?? 0) && playhead < (item.end ?? 0)) onEdit(commands.splitItem(item.id, playhead));
+          break;
+        case "duplicate":
+          if (selection.length) onEdit(commands.duplicateItems(selection));
+          break;
+        case "copy":
+          if (selection.length) void copy(selection);
+          break;
+        case "paste":
+          paste(playhead);
+          break;
+        case "selectAll": {
+          const track = item?.trackId;
+          onSelectMany((project?.items ?? []).filter((i) => !track || i.trackId === track).map((i) => i.id));
+          break;
+        }
+        case "zoomIn":
+          zoomBy(1.5);
+          break;
+        case "zoomOut":
+          zoomBy(1 / 1.5);
+          break;
+        case "zoomFit":
+          setZoom(null);
+          break;
+        case "help":
+          setHelp((h) => !h);
+          break;
+        case "escape":
+          if (help) setHelp(false);
+          else onSelectMany([]);
+          break;
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selection, item, playhead, project, onEdit, onSelectMany, copy, paste, zoomBy, help]);
+
+  const panelProps: PanelProps | null = project
+    ? { project, playhead, selection: selectedItems, onEdit, onSelect: (i) => onSelect(i) }
+    : null;
   const projectBar = project && (
     <div className="project-bar" data-testid="project-bar">
       <ProjectName name={project.name} onRename={(n) => onEdit(commands.renameProject(n))} />
@@ -113,7 +198,10 @@ export function Editor({
                 aria-label={r.label}
                 data-testid={`rail-${r.id}`}
                 onClick={() => {
-                  if (panel === r.id) setLayout({ ...layout, panelOpen: !layout.panelOpen });
+                  if (inspecting) {
+                    setClosedFor(selected);
+                    setPanel(r.id);
+                  } else if (panel === r.id) setLayout({ ...layout, panelOpen: !layout.panelOpen });
                   else {
                     setPanel(r.id);
                     setLayout({ ...layout, panelOpen: true });
@@ -124,17 +212,29 @@ export function Editor({
               </button>
             ))}
           </nav>
-          {layout.panelOpen && (
-            <SidePanel
-              id={panel}
+          {inspecting && item && project ? (
+            <Inspector
+              key={item.id}
               project={project}
-              onImport={onImport}
+              item={item}
+              onEdit={onEdit}
+              onClose={() => setClosedFor(selected)}
               onCollapse={() => toggle("panelOpen")}
-              onPick={(m) => {
-                const it = project?.items.find((i) => i.mediaId === m.id);
-                if (it) onSelect(it);
-              }}
             />
+          ) : (
+            layout.panelOpen && (
+              <SidePanel
+                id={panel}
+                project={project}
+                panelProps={panelProps}
+                onImport={onImport}
+                onCollapse={() => toggle("panelOpen")}
+                onPick={(m) => {
+                  const it = project?.items.find((i) => i.mediaId === m.id);
+                  if (it) onSelect(it);
+                }}
+              />
+            )
           )}
           <Viewer
             media={media}
@@ -155,14 +255,37 @@ export function Editor({
           canSplit={!!item && playhead > (item.start ?? 0) && playhead < (item.end ?? 0)}
           onEdit={onEdit}
           onSplit={() => item && onEdit(commands.splitItem(item.id, playhead))}
+          zoom={zoom}
+          fitPps={fitPps}
+          setZoom={setZoom}
+          snap={snap}
+          setSnap={setSnap}
+          onHelp={() => setHelp(true)}
         />
         {layout.timelineOpen ? (
-          <Timeline project={project} selected={selected} playhead={playhead} onSelect={onSelect} onEdit={onEdit} />
+          <Timeline
+            project={project}
+            selection={selection}
+            playhead={playhead}
+            zoom={zoom}
+            snap={snap}
+            onSelect={onSelect}
+            onScrub={(t) => {
+              setScrubTime(t);
+              onSelectMany([]);
+            }}
+            onEdit={onEdit}
+            onCopy={(ids) => void copy(ids)}
+            onPaste={paste}
+            canPaste={clipboard.length > 0}
+            onFitWidth={setFitPps}
+          />
         ) : (
           <ScrubRow playback={playback} onTransport={onTransport} />
         )}
       </div>
       {layout.chatOpen && <ChatPanel onClose={() => toggle("chatOpen")} />}
+      {help && <Shortcuts onClose={() => setHelp(false)} />}
     </div>
   );
 }
@@ -202,12 +325,14 @@ function fmtSeconds(s: number | null | undefined) {
 function SidePanel({
   id,
   project,
+  panelProps,
   onImport,
   onCollapse,
   onPick,
 }: {
   id: string;
   project: ProjectView_Serialize | null;
+  panelProps: PanelProps | null;
   onImport: () => void;
   onCollapse: () => void;
   onPick: (m: MediaView_Serialize) => void;
@@ -254,8 +379,17 @@ function SidePanel({
             )}
           </div>
         </>
+      ) : panelProps ? (
+        <div className="panel-body" data-testid={`panel-${id}`}>
+          {id === "text" && <TextPanel {...panelProps} />}
+          {id === "captions" && <CaptionsPanel {...panelProps} />}
+          {id === "transitions" && <TransitionsPanel {...panelProps} />}
+          {id === "effects" && <EffectsPanel {...panelProps} />}
+          {id === "audio" && <AudioPanel {...panelProps} />}
+          {id === "layout" && <LayoutPanel {...panelProps} />}
+        </div>
       ) : (
-        <p className="muted panel-placeholder">{label} tools arrive in a later version.</p>
+        <p className="muted panel-placeholder">Open a project to use {label.toLowerCase()} tools.</p>
       )}
     </aside>
   );
@@ -312,6 +446,12 @@ function TransportBar({
   canSplit,
   onEdit,
   onSplit,
+  zoom,
+  fitPps,
+  setZoom,
+  snap,
+  setSnap,
+  onHelp,
 }: {
   playback: PlaybackState;
   onTransport: (c: TransportCommand) => void;
@@ -321,7 +461,14 @@ function TransportBar({
   canSplit: boolean;
   onEdit: (p: EditResult) => void;
   onSplit: () => void;
+  zoom: number | null;
+  fitPps: number;
+  setZoom: (z: number | null) => void;
+  snap: boolean;
+  setSnap: (v: boolean) => void;
+  onHelp: () => void;
 }) {
+  const pps = zoom ?? fitPps;
   const volume = playback.volume ?? 1;
   const setVolume = (v: number, muted: boolean) => void commands.setVolume(v, muted);
   return (
@@ -344,8 +491,11 @@ function TransportBar({
         <button className="icon-btn" title="Redo (⇧⌘Z)" disabled={!project?.canRedo} data-testid="redo" onClick={() => onEdit(commands.redo())}>
           <Icon name="redo" size={16} />
         </button>
-        <button className="icon-btn" title="Split the selected clip at the playhead" disabled={!canSplit} data-testid="split" onClick={onSplit}>
+        <button className="icon-btn" title="Split the selected clip at the playhead (S)" disabled={!canSplit} data-testid="split" onClick={onSplit}>
           <Icon name="scissors" size={16} />
+        </button>
+        <button className={`icon-btn${snap ? " on" : ""}`} title={snap ? "Snapping on" : "Snapping off"} aria-pressed={snap} data-testid="snap-toggle" onClick={() => setSnap(!snap)}>
+          <Icon name="magnet" size={16} />
         </button>
       </div>
       <div className="transport-center">
@@ -387,6 +537,28 @@ function TransportBar({
         )}
       </div>
       <div className="transport-right">
+        <div className="zoom-group" data-testid="timeline-zoom">
+          <button className="icon-btn" title="Zoom out (−)" onClick={() => setZoom(Math.max(2, pps / 1.5))}>
+            <Icon name="zoomOut" size={15} />
+          </button>
+          <input
+            className="zoom-slider"
+            type="range"
+            min={0}
+            max={1}
+            step={0.01}
+            aria-label="Timeline zoom"
+            value={Math.log(pps / 2) / Math.log(200)}
+            onChange={(e) => setZoom(2 * Math.pow(200, Number(e.target.value)))}
+          />
+          <button className="icon-btn" title="Zoom in (+)" onClick={() => setZoom(Math.min(400, pps * 1.5))}>
+            <Icon name="zoomIn" size={15} />
+          </button>
+          <button className={`chip-sm${zoom === null ? " on" : ""}`} title="Fit the timeline (⌘0)" data-testid="zoom-fit" onClick={() => setZoom(null)}>
+            Fit
+          </button>
+        </div>
+        <span className="sep" />
         <button
           className="icon-btn"
           title={playback.muted ? "Unmute" : "Mute"}
@@ -414,6 +586,9 @@ function TransportBar({
         </button>
         <button className={`icon-btn${layout.chatOpen ? " on" : ""}`} title="Show assistant" data-testid="toggle-chat" onClick={() => toggle("chatOpen")}>
           <Icon name="chat" size={16} />
+        </button>
+        <button className="icon-btn" title="Keyboard shortcuts (?)" data-testid="shortcuts" onClick={onHelp}>
+          <Icon name="keyboard" size={16} />
         </button>
       </div>
     </div>
@@ -456,147 +631,6 @@ function ScrubRow({ playback, onTransport }: { playback: PlaybackState; onTransp
       <span className="small">{formatTimecode(Math.max(0, playback.totalFrames - 1), playback.frameRate)}</span>
     </div>
   );
-}
-
-const HEADER_W = 188;
-const TRACK_ICON: Record<string, IconName> = { video: "media", caption: "captions", audio: "audio", adjustment: "effects", layout: "layout" };
-
-function Timeline({
-  project,
-  selected,
-  playhead,
-  onSelect,
-  onEdit,
-}: {
-  project: ProjectView_Serialize | null;
-  selected: string | null;
-  playhead: number;
-  onSelect: (item: ItemView_Serialize | null, offsetSeconds?: number) => void;
-  onEdit: (p: EditResult) => void;
-}) {
-  const lanes = useRef<HTMLDivElement>(null);
-  const [drag, setDrag] = useState<{ id: string; dx: number } | null>(null);
-  const items = project?.items ?? [];
-  const duration = Math.max(10, (project?.durationSeconds ?? 0) * 1.15, playhead + 1);
-  const step = duration > 600 ? 60 : duration > 240 ? 30 : duration > 80 ? 10 : duration > 30 ? 5 : duration > 12 ? 2 : 1;
-  const ticks: number[] = [];
-  for (let s = 0; s <= duration; s += step) ticks.push(s);
-  const laneWidth = () => Math.max(1, (lanes.current?.getBoundingClientRect().width ?? 1000) - HEADER_W);
-  const pct = (t: number) => `${(t / duration) * 100}%`;
-
-  const seekAt = (clientX: number) => {
-    const r = lanes.current?.getBoundingClientRect();
-    if (!r) return;
-    const t = Math.max(0, ((clientX - r.left - HEADER_W) / laneWidth()) * duration);
-    // The topmost visual clip under the playhead is previewed (sequence playback arrives with the compositor).
-    const order = new Map(project?.tracks.map((tr, i) => [tr.id, i]));
-    const hit = items
-      .filter((i) => i.mediaId && (i.start ?? 0) <= t && t < (i.end ?? 0))
-      .sort((a, b) => (order.get(a.trackId) ?? 0) - (order.get(b.trackId) ?? 0))[0];
-    if (hit) onSelect(hit, t - (hit.start ?? 0));
-  };
-
-  const startDrag = (e: React.PointerEvent, item: ItemView_Serialize) => {
-    e.stopPropagation();
-    onSelect(item);
-    const x0 = e.clientX;
-    let dx = 0;
-    const move = (ev: PointerEvent) => {
-      dx = ev.clientX - x0;
-      if (Math.abs(dx) > 3) setDrag({ id: item.id, dx });
-    };
-    const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-      setDrag(null);
-      if (Math.abs(dx) > 3) {
-        const start = Math.max(0, (item.start ?? 0) + (dx / laneWidth()) * duration);
-        onEdit(commands.moveItem(item.id, Math.round(start * 100) / 100, null));
-      }
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-  };
-
-  return (
-    <div className="timeline" data-testid="timeline" ref={lanes}>
-      <div className="ruler" onPointerDown={(e) => seekAt(e.clientX)} data-testid="ruler">
-        <div className="ruler-head small">{fmtTime(playhead)}</div>
-        <div className="ruler-ticks">
-          {ticks.map((s) => (
-            <span key={s} style={{ left: pct(s) }}>
-              {fmtTick(s)}
-            </span>
-          ))}
-        </div>
-      </div>
-      <div className="tracks">
-        {(project?.tracks ?? []).map((t) => (
-          <div className={`track${t.visible ? "" : " track-hidden"}`} key={t.id} data-testid={`track-${t.name}`}>
-            <div className="track-head">
-              <Icon name={TRACK_ICON[t.kind] ?? "media"} size={14} />
-              <span>{t.name}</span>
-              <span className="track-tools">
-                {t.kind !== "caption" && (
-                  <button
-                    className={`tiny${t.muted ? " on" : ""}`}
-                    title={t.muted ? "Unmute track" : "Mute track"}
-                    onClick={() => onEdit(commands.setTrackFlag(t.id, "muted", !t.muted))}
-                  >
-                    M
-                  </button>
-                )}
-                <button
-                  className={`tiny${t.visible ? "" : " on"}`}
-                  aria-label="Visibility"
-                  title={t.visible ? "Hide track" : "Show track"}
-                  onClick={() => onEdit(commands.setTrackFlag(t.id, "visible", !t.visible))}
-                >
-                  <Icon name="eye" size={14} />
-                </button>
-              </span>
-            </div>
-            <div className="track-lane" onPointerDown={(e) => (e.target === e.currentTarget ? seekAt(e.clientX) : undefined)}>
-              {items
-                .filter((i) => i.trackId === t.id)
-                .map((i) => {
-                  const thumb = project?.media.find((m) => m.id === i.mediaId)?.thumbnail;
-                  const offset = drag?.id === i.id ? drag.dx : 0;
-                  return (
-                    <div
-                      key={i.id}
-                      className={`clip kind-${i.kind}${i.id === selected ? " selected" : ""}${i.pending ? " pending" : ""}`}
-                      style={{
-                        left: `calc(${pct(i.start ?? 0)} + ${offset}px)`,
-                        width: pct((i.end ?? 0) - (i.start ?? 0)),
-                        backgroundImage: thumb ? `url(${thumb})` : undefined,
-                      }}
-                      title={`${i.name} · ${fmtTime(i.start ?? 0)}–${fmtTime(i.end ?? 0)}`}
-                      data-testid="clip"
-                      onPointerDown={(e) => startDrag(e, i)}
-                    >
-                      <span className="clip-label">{i.name}</span>
-                    </div>
-                  );
-                })}
-            </div>
-          </div>
-        ))}
-        {!project?.items.length && <div className="timeline-empty muted">Import media to start your timeline.</div>}
-      </div>
-      <div className="playhead" style={{ left: `calc(${HEADER_W}px + (100% - ${HEADER_W}px) * ${playhead / duration})` }} data-testid="playhead" />
-    </div>
-  );
-}
-
-function fmtTime(t: number) {
-  const ms = Math.round(t * 1000);
-  const s = Math.floor(ms / 1000);
-  return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}.${String(Math.floor((ms % 1000) / 10)).padStart(2, "0")}`;
-}
-
-function fmtTick(s: number) {
-  return s >= 60 ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}` : `${s}s`;
 }
 
 function ChatPanel({ onClose }: { onClose: () => void }) {
