@@ -7,6 +7,7 @@ extended for production workflows.
 
 - `docs/01-reference-teardown.md` — how the reference app is built: architecture, every screen, main flows, weak spots.
 - `docs/02-plan.md` — draft build plan (domain-neutral; production-house plan to follow).
+- `docs/03-architecture-plan.md` — chosen architecture (Rust, macOS + Windows), open-source foundation, phases and gates.
 - `docs/spec/` — rebuild contracts:
   - `document-model.md` — bundle layout, project document, items, projection rules, apply/merge ops, chat log
   - `ipc.md` — renderer↔main handlers and events, library worker, CLI↔app control socket
