@@ -1,5 +1,5 @@
 //! Compositor, audio and export on real (synthetic) media. Needs the ffmpeg CLI to make the media
-//! (`OVE_FFMPEG_CLI` or `ffmpeg` on PATH); skipped with a message otherwise.
+//! (`OVE_FIXTURE_FFMPEG` or `ffmpeg` on PATH); skipped with a message otherwise.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -10,8 +10,10 @@ use ove_core::ops::{Op, apply_batch};
 use ove_render::{ExportSettings, Renderer, audio::Mixer, export};
 use serde_json::{Value, json};
 
+/// The ffmpeg used to *generate* fixtures (needs lavfi sources and encoders): `OVE_FIXTURE_FFMPEG`, else the system
+/// `ffmpeg`. Not `OVE_FFMPEG_CLI`, which is the decode-reference CLI of the LGPL build and has no generators.
 fn ffmpeg() -> Option<String> {
-    let bin = std::env::var("OVE_FFMPEG_CLI").unwrap_or_else(|_| "ffmpeg".into());
+    let bin = std::env::var("OVE_FIXTURE_FFMPEG").unwrap_or_else(|_| "ffmpeg".into());
     Command::new(&bin).arg("-version").output().ok().filter(|o| o.status.success()).map(|_| bin)
 }
 

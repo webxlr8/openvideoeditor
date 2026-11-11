@@ -343,7 +343,8 @@ impl Swr {
             let mut buf = vec![0u8; cap as usize * frame_bytes];
             let mut out_ptr = buf.as_mut_ptr();
             let in_ptr = if f.is_null() { std::ptr::null_mut() } else { (*f).extended_data as *mut *const u8 };
-            let n = ffi::swr_convert(self.ctx, &mut out_ptr, cap, in_ptr, in_count);
+            // A raw pointer works with both the FFmpeg 6 (`*mut *mut u8`) and FFmpeg 9 (`*const *mut u8`) signatures.
+            let n = ffi::swr_convert(self.ctx, std::ptr::addr_of_mut!(out_ptr), cap, in_ptr, in_count);
             if n < 0 {
                 return Err(MediaError::Decode(format!("resample: {}", AvError::from(n))));
             }

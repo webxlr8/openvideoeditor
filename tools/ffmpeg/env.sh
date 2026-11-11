@@ -14,7 +14,7 @@ case "$(uname -s)-$(uname -m)" in
 esac
 _ove_ff_out="$_ove_ff_here/out/$_ove_ff_target"
 
-if [ -f "$_ove_ff_out/buildconf.txt" ]; then
+if [ -z "${OVE_USE_SYSTEM_FFMPEG:-}" ] && [ -f "$_ove_ff_out/buildconf.txt" ]; then
   export FFMPEG_DIR="$_ove_ff_out"
   export PKG_CONFIG_PATH="$_ove_ff_out/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
   case "$_ove_ff_target" in

@@ -26,6 +26,8 @@ case "$(uname -s)-$(uname -m)" in
   *) echo "unsupported host" >&2; exit 2 ;;
 esac
 
+# Linux packages are development builds that depend on the distribution's FFmpeg (see below), so they link it.
+[ "$TARGET" = linux-x64 ] && export OVE_USE_SYSTEM_FFMPEG=1 && SKIP_FFMPEG=1
 [ "$SKIP_FFMPEG" = 1 ] || "$ROOT/tools/ffmpeg/build.sh"
 # shellcheck disable=SC1091
 source "$ROOT/tools/ffmpeg/env.sh"
