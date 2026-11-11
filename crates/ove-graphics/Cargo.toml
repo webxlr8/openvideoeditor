@@ -1,0 +1,29 @@
+[package]
+name = "ove-graphics"
+description = "Motion-graphics code items: sandboxed JSX runtime and renderer"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+fontdb = "0.23"
+oxc_allocator = "=0.158.0"
+oxc_ast = "=0.158.0"
+oxc_codegen = "=0.158.0"
+oxc_parser = "=0.158.0"
+oxc_semantic = "=0.158.0"
+oxc_span = "=0.158.0"
+oxc_transformer = "=0.158.0"
+rquickjs = "0.14"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+takumi = { version = "2.20", default-features = false, features = ["raster-backend", "image-decoding"] }
+thiserror = "2"
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+png = "0.18.1"

@@ -134,6 +134,8 @@ pub enum LayerKind {
     },
     /// Applies its grade to everything below it.
     Adjustment,
+    /// A motion-graphics composition (`codeComposition`), rendered by `ove-graphics` at item-relative time.
+    Code,
 }
 
 /// One thing to draw, bottom-up.
@@ -152,6 +154,9 @@ pub struct Layer {
     pub grade: Option<Grade>,
     /// The item's fields (text style, caption style, …).
     pub fields: Map<String, Value>,
+    /// Item-relative time and item duration (text animations, code items).
+    pub rel_us: Micros,
+    pub dur_us: Micros,
 }
 
 fn num(v: Option<&Value>, def: f64) -> f64 {
@@ -285,7 +290,8 @@ fn layer_for(doc: &Document, item: &Item, t_us: Micros, opacity_mul: f32) -> Opt
             LayerKind::Caption { words, active_word }
         }
         "adjustment" => LayerKind::Adjustment,
-        // audio has no picture; code and shader items arrive with the motion-graphics runtime (change 4).
+        "code" if f.get("codeComposition").is_some_and(|c| !c.is_null()) => LayerKind::Code,
+        // audio has no picture; shader items arrive with the effects runtime.
         _ => return None,
     };
     let t = f.get("transform").and_then(Value::as_object);
@@ -310,7 +316,9 @@ fn layer_for(doc: &Document, item: &Item, t_us: Micros, opacity_mul: f32) -> Opt
         }
     }
     let animated = f.get("keyframeTracks").and_then(Value::as_array).is_some_and(|a| !a.is_empty());
-    let placement = if f.get("autoReframe").and_then(Value::as_bool) == Some(false) && t.is_none() && !animated {
+    let placement = if kind == LayerKind::Code
+        || f.get("autoReframe").and_then(Value::as_bool) == Some(false) && t.is_none() && !animated
+    {
         Placement::Fit
     } else {
         Placement::FillHeight
@@ -341,6 +349,8 @@ fn layer_for(doc: &Document, item: &Item, t_us: Micros, opacity_mul: f32) -> Opt
         border_radius: num(f.get("borderRadius"), 0.0).max(0.0) as f32,
         grade: Grade::from_fields(f),
         fields: f.clone(),
+        rel_us: rel,
+        dur_us: item.end - item.start,
     })
 }
 
