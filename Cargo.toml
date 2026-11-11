@@ -6,6 +6,7 @@ members = [
     "crates/ove-projection",
     "crates/ove-cli",
     "crates/ove-control",
+    "crates/ove-generate",
     "crates/ove-interchange",
     "crates/ove-agent",
     "crates/ove-media",
@@ -20,6 +21,7 @@ members = [
 default-members = [
     "crates/ove-core",
     "crates/ove-control",
+    "crates/ove-generate",
     "crates/ove-interchange",
     "crates/ove-store",
     "crates/ove-projection",
