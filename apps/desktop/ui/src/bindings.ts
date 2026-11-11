@@ -88,6 +88,25 @@ export const commands = {
 	agentSend: (chatId: string | null, text: string) => typedError<SendResult, AppError>(__TAURI_INVOKE("agent_send", { chatId, text })),
 	agentStop: () => typedError<null, AppError>(__TAURI_INVOKE("agent_stop")),
 	agentAnswer: (questionId: string, answer: string) => typedError<null, AppError>(__TAURI_INVOKE("agent_answer", { questionId, answer })),
+	/**
+	 *  Every catalogue the panels and inspector need, as JSON: effects (with parameter contracts), transitions,
+	 *  easings, directions, layouts (with slot rectangles) and LUT looks.
+	 */
+	fxCatalog: () => typedError<string, AppError>(__TAURI_INVOKE("fx_catalog")),
+	/**  A thumbnail (PNG data URL) of an effect at its defaults, or of a LUT look, over a built-in sample frame. */
+	fxPreview: (kind: string, id: string) => typedError<string, AppError>(__TAURI_INVOKE("fx_preview", { kind, id })),
+	/**
+	 *  Copies a `.cube` file into the project bundle (`luts/`), after checking it parses. Returns the bundle-relative
+	 *  path to store in `colorGrade.lut.file`. With no path, asks with a file dialog (None when cancelled).
+	 */
+	importLut: (path: string | null) => typedError<string | null, AppError>(__TAURI_INVOKE("import_lut", { path })),
+	/**
+	 *  Fits an item's colour to the frame at `reference_time` (seconds): Lab mean/std transfer, stored as concrete
+	 *  gain and offset wheels in the item's `colorGrade` (any pending `match` is replaced by those values).
+	 */
+	matchColor: (itemId: string, referenceTime: number | null, strength: number | null) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("match_color", { itemId, referenceTime, strength })),
+	/**  Histograms (red, green, blue, luma; 64 bins, 0..1) of the timeline frame at `time` seconds. */
+	colorScopes: (time: number | null) => typedError<((number | null)[])[], AppError>(__TAURI_INVOKE("color_scopes", { time })),
 };
 
 /** Events */

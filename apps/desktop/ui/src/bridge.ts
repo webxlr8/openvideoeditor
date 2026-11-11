@@ -3,6 +3,8 @@
 
 import { convertFileSrc } from "@tauri-apps/api/core";
 import * as generated from "./bindings";
+// The effects/transitions/layouts catalogue, written from the core by `export-bindings`.
+import fxCatalogJson from "./fx-catalog.json?raw";
 import type {
   AgentStatus_Serialize,
   AgentUiEvent_Serialize,
@@ -661,6 +663,36 @@ function createMock(): { commands: Commands; events: Events; control: MockContro
         p.tracks = p.tracks.filter((t) => t.id !== id);
         p.items = p.items.filter((i) => i.trackId !== id);
       }),
+    // Effects, transitions, layouts and colour (change 12). Previews are flat swatches here; the app renders them.
+    fxCatalog: () => (track("fxCatalog"), ok(fxCatalogJson)),
+    fxPreview: (kind: string, id: string) => {
+      track(`fxPreview:${kind}:${id}`);
+      let h = 0;
+      for (const c of `${kind}${id}`) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="160" height="90"><defs><linearGradient id="g"><stop offset="0" stop-color="hsl(${h % 360},70%,55%)"/><stop offset="1" stop-color="hsl(${(h >> 9) % 360},70%,35%)"/></linearGradient></defs><rect width="160" height="90" fill="url(#g)"/></svg>`;
+      return ok(`data:image/svg+xml;base64,${btoa(svg)}`);
+    },
+    importLut: (path: string | null) => {
+      track(`importLut:${path ?? "dialog"}`);
+      const name = (path ?? "/mock/Imported look.cube").split(/[\\/]/).pop()!.replace(/[^A-Za-z0-9_-]+/g, "-").replace(/-cube$/, "");
+      return ok<string | null>(`luts/${name}.cube`);
+    },
+    matchColor: (itemId: string, referenceTime: number | null, strength: number | null) =>
+      editProject("match colour", () => {
+        track(`matchColor:${itemId}:${referenceTime ?? 0}:${strength ?? 1}`);
+        const i = mock(itemId);
+        if (!i) return;
+        const g = (i.fields.colorGrade as Fields | undefined) ?? {};
+        const { match: _match, ...rest } = g;
+        void _match;
+        const w = (r: number, gg: number, b: number) => ({ r, g: gg, b, y: 0 });
+        i.fields.colorGrade = { ...rest, wheels: { lift: w(0, 0, 0), gamma: w(0, 0, 0), gain: w(0.08, 0.01, -0.06), offset: w(0.02, 0, -0.03) } };
+      }),
+    colorScopes: (time: number | null) => {
+      track(`colorScopes:${time ?? 0}`);
+      const bins = (shift: number) => Array.from({ length: 64 }, (_, i) => Math.exp(-(((i - 32 - shift) / 14) ** 2)));
+      return ok([bins(6), bins(0), bins(-6), bins(1)]);
+    },
     agentStatus: () => ok(agentStatus()),
     agentSetKey: (key: string) => {
       if (!/^sk-ant-[\w-]{8,}$/.test(key.trim())) return fail("invalid_argument", "That doesn't look like an Anthropic API key (they start with sk-ant-).");

@@ -7,6 +7,7 @@ pub mod edits;
 pub mod engine;
 pub mod error;
 pub mod exporting;
+pub mod fx;
 pub mod logging;
 pub mod media;
 pub mod projects;
@@ -146,6 +147,12 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             assistant::agent_send,
             assistant::agent_stop,
             assistant::agent_answer,
+            // Effects, transitions, layouts and colour (change 12).
+            fx::fx_catalog,
+            fx::fx_preview,
+            fx::import_lut,
+            fx::match_color,
+            fx::color_scopes,
         ])
         .events(collect_events![
             PlaybackChanged,
