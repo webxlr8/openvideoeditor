@@ -10,6 +10,7 @@ use ove_core::time::Micros;
 use serde_json::{Map, Value};
 
 use crate::canvas::{DrawParams, Place, Rgba, draw, grade};
+use crate::captions::{CaptionCache, CaptionPlacement, draw_caption};
 use crate::eval::{LayerKind, Placement, canvas_size, layers_at, reference_size};
 use crate::sources::{Sources, media_path};
 use crate::text::{Align, TextStyle, parse_color, render_words, words_of};
@@ -20,6 +21,7 @@ pub struct Renderer {
     height: u32,
     pub sources: Sources,
     text: HashMap<String, (u64, Arc<Rgba>)>,
+    captions: CaptionCache,
     frames: u64,
 }
 
@@ -72,7 +74,8 @@ pub fn text_style(f: &Map<String, Value>, k: f32, frame_w: f32) -> TextStyle {
     }
 }
 
-/// Caption style (readable default: bold white, dark outline, active word highlighted).
+/// A plain caption style (bold white, dark outline, active word highlighted). The renderer draws captions with the
+/// caption styles in `captions`; this remains for callers that want a single text image.
 pub fn caption_style(f: &Map<String, Value>, k: f32, frame_w: f32, active: Option<usize>) -> TextStyle {
     let size = num(f, "captionFontSize").unwrap_or(64.0) as f32 * k;
     TextStyle {
@@ -98,6 +101,7 @@ impl Renderer {
             height,
             sources: Sources::default(),
             text: HashMap::new(),
+            captions: CaptionCache::default(),
             frames: 0,
         }
     }
@@ -172,17 +176,17 @@ impl Renderer {
                     let params = DrawParams { opacity: layer.opacity, blend: layer.blend, ..Default::default() };
                     draw(&mut canvas, &img, place, &params);
                 }
-                LayerKind::Caption { words, active_word } => {
-                    let st = caption_style(&layer.fields, k as f32, w as f32, *active_word);
-                    let img = render_words(words, &st);
-                    let pos = layer.fields.get("captionPosition").and_then(Value::as_str).unwrap_or("bottom");
-                    let cy = match pos {
-                        "top" => h as f64 * 0.16,
-                        "center" | "middle" => h as f64 * 0.5,
-                        _ => h as f64 * 0.80,
-                    } + x.y * k;
-                    let place = Place { cx: centre.0, cy, sx: x.scale, sy: x.scale, rotation: 0.0 };
-                    draw(&mut canvas, &img, place, &DrawParams { opacity: layer.opacity, ..Default::default() });
+                LayerKind::Caption { words, .. } => {
+                    // Caption styles: see `captions` and `captions_presets`.
+                    let rel = doc.item(&layer.item_id).map(|i| t_us - i.start).unwrap_or(0);
+                    let at = CaptionPlacement {
+                        k: k as f32,
+                        dx: x.x * k,
+                        dy: x.y * k,
+                        scale: x.scale,
+                        opacity: layer.opacity,
+                    };
+                    draw_caption(&mut canvas, &mut self.captions, &layer.fields, words, rel, at);
                 }
                 LayerKind::Adjustment => {
                     if let Some(g) = &layer.grade {
