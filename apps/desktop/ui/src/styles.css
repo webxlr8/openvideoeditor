@@ -2102,3 +2102,234 @@ button.preset-card:disabled {
   border-radius: 6px;
   background: #0b0b0c;
 }
+
+/* ---------------------------------------------------------------- Templates */
+.template-cards {
+  flex-wrap: wrap;
+  overflow: visible;
+}
+.template-card {
+  text-align: left;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+.template-card:hover {
+  border-color: var(--bg-4);
+}
+.template-meta {
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* ---------------------------------------------------------------- Generate panel */
+.gen-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.gen-kinds {
+  align-self: flex-start;
+  flex-wrap: wrap;
+}
+.gen-prompt {
+  width: 100%;
+  resize: vertical;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg-2);
+  color: var(--text);
+  font: inherit;
+}
+.gen-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 8px;
+}
+.gen-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.gen-grid select,
+.gen-grid input,
+.gen-key-row input {
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg-2);
+  color: var(--text);
+}
+.gen-check {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  font-size: 12px;
+  color: var(--muted);
+}
+.gen-estimate {
+  margin: 0;
+  font-size: 12px;
+}
+.btn.primary.warn {
+  background: #c7772b;
+  border-color: #c7772b;
+}
+.gen-key {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg-1);
+}
+.gen-key-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.gen-key-head .badge {
+  position: static;
+  padding: 2px 6px;
+  border-radius: 5px;
+  font-size: 11px;
+  background: var(--bg-4);
+}
+.gen-key-head .badge.ok {
+  background: rgba(60, 140, 90, 0.5);
+}
+.gen-key-row {
+  display: flex;
+  gap: 6px;
+}
+.gen-key-row input {
+  flex: 1;
+}
+.gen-jobs-title {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 500;
+}
+.gen-jobs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.gen-job {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--bg-2);
+}
+.gen-job.failed {
+  border-left: 2px solid var(--danger);
+}
+.gen-job-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+.gen-job-prompt {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+}
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  word-break: break-all;
+}
+
+/* ---------------------------------------------------------------- Settings */
+.settings-page {
+  padding: 0;
+}
+.settings {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+}
+.set-nav {
+  flex: none;
+  width: 210px;
+  padding: 24px 12px;
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.set-body {
+  flex: 1;
+  overflow: auto;
+  padding: 28px 36px;
+  max-width: 760px;
+}
+.set-body section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.set-body h3 {
+  margin: 0 0 4px;
+  font-size: 20px;
+}
+.set-body h4 {
+  margin: 8px 0 0;
+  font-size: 13px;
+}
+.set-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.set-code {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 6px 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg-1);
+}
+.set-code code {
+  flex: 1;
+  font-size: 12.5px;
+}
+.set-table {
+  border-collapse: collapse;
+  width: 100%;
+}
+.set-table td {
+  padding: 5px 8px 5px 0;
+  border-bottom: 1px solid var(--line);
+}
+.kbd-btn {
+  min-width: 90px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.kbd-btn.on {
+  border-color: var(--accent);
+}
+.set-list {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}

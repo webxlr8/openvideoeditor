@@ -20,6 +20,7 @@ import {
 } from "./ExportDialog";
 import { Home } from "./Home";
 import { EDIT_ACTIONS, keyToAction } from "./keys";
+import { templateMessage, templateProjectName } from "./templates";
 
 const EMPTY: PlaybackState = {
   hasMedia: false,
@@ -41,6 +42,19 @@ interface Toast {
 }
 
 let toastId = 0;
+
+/** A project name from the first words of a prompt. */
+function projectNameFrom(text: string): string {
+  return (
+    text
+      .split(/\s+/)
+      .slice(0, 6)
+      .join(" ")
+      .replace(/[^\p{L}\p{N} '-]/gu, "")
+      .slice(0, 48)
+      .trim() || "Untitled Project"
+  );
+}
 
 export function App() {
   const [route, setRoute] = useState<"home" | "editor">("home");
@@ -262,6 +276,31 @@ export function App() {
     [showError],
   );
 
+  /** New project (optionally with an aspect ratio) whose first message goes to the assistant. */
+  const startWithAssistant = async (
+    text: string,
+    name: string,
+    aspect?: string,
+  ) => {
+    const created = await commands.createProject(name);
+    if (created.status === "error") return showError(created.error);
+    let view = created.data;
+    if (aspect && aspect !== view.aspectRatio) {
+      const r = await commands.setAspectRatio(aspect);
+      if (r.status === "ok") view = r.data;
+    }
+    const status = await commands.agentStatus();
+    const ready = status.status === "ok" && status.data.hasKey;
+    // Without a key the words wait in the assistant's composer next to the key card.
+    if (!ready) setPendingDraft(text);
+    setLayout((l) => ({ ...l, chatOpen: true }));
+    openProjectView(view);
+    if (ready) {
+      const sent = await commands.agentSend(null, text);
+      if (sent.status === "error") showError(sent.error);
+    }
+  };
+
   // Bridge wiring: app info, routed paths, playback, project and error events.
   useEffect(() => {
     const unlisten = [
@@ -358,28 +397,14 @@ export function App() {
             })
           }
           onPrompt={(text) =>
-            void (async () => {
-              const name =
-                text
-                  .split(/\s+/)
-                  .slice(0, 6)
-                  .join(" ")
-                  .replace(/[^\p{L}\p{N} '-]/gu, "")
-                  .slice(0, 48)
-                  .trim() || "Untitled Project";
-              const created = await commands.createProject(name);
-              if (created.status === "error") return showError(created.error);
-              const status = await commands.agentStatus();
-              const ready = status.status === "ok" && status.data.hasKey;
-              // Without a key the words wait in the assistant's composer next to the key card.
-              if (!ready) setPendingDraft(text);
-              setLayout((l) => ({ ...l, chatOpen: true }));
-              openProjectView(created.data);
-              if (ready) {
-                const sent = await commands.agentSend(null, text);
-                if (sent.status === "error") showError(sent.error);
-              }
-            })()
+            void startWithAssistant(text, projectNameFrom(text))
+          }
+          onTemplate={(t, details) =>
+            void startWithAssistant(
+              templateMessage(t, details),
+              templateProjectName(t, details),
+              t.aspect,
+            )
           }
           onOpenProject={(bundle) =>
             void commands.openProject(bundle).then((r) => {

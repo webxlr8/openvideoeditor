@@ -94,3 +94,23 @@ describe("settings", () => {
     resetBindings();
   });
 });
+
+describe("templates", () => {
+  it("starts a project from a template with the frame shape and a brief", async () => {
+    render(<App />);
+    fireEvent.click(screen.getByTestId("nav-templates"));
+    await screen.findByTestId("templates-page");
+    fireEvent.click(screen.getByTestId("template-podcast-clip"));
+    fireEvent.change(await screen.findByTestId("template-details"), {
+      target: { value: "Harbour Talks, episode 12" },
+    });
+    fireEvent.click(screen.getByTestId("template-start"));
+    await screen.findByTestId("editor");
+    await waitFor(() =>
+      expect(screen.getByTestId("project-bar").textContent).toContain("9:16"),
+    );
+    expect(screen.getByTestId("project-bar").textContent).toContain(
+      "Podcast clip – Harbour Talks",
+    );
+  });
+});

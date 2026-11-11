@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { AppError, ProjectSummary_Serialize } from "./bindings";
 import { Settings } from "./Settings";
+import { PROJECT_TEMPLATES, type ProjectTemplate } from "./templates";
 import { Icon, type IconName } from "./icons";
 import { formatDuration, formatWhen } from "./timecode";
 
@@ -32,6 +33,7 @@ export function Home({
   onBlank,
   onOpenProject,
   onPrompt,
+  onTemplate,
   onError,
 }: {
   projects: ProjectSummary_Serialize[];
@@ -41,7 +43,10 @@ export function Home({
   /** Starts a new project and hands the description to the assistant. */
   onPrompt?: (text: string) => void;
   onError?: (e: AppError) => void;
+  /** Starts a project from a template with the person's details. */
+  onTemplate?: (t: ProjectTemplate, details: string) => void;
 }) {
+  const [chosen, setChosen] = useState<ProjectTemplate | null>(null);
   const [prompt, setPrompt] = useState("");
   const submit = () => {
     const t = prompt.trim();
@@ -51,7 +56,9 @@ export function Home({
   };
   const [picked, setTab] = useState<"templates" | "projects" | null>(null);
   const tab = picked ?? (projects.length > 0 ? "projects" : "templates");
-  const [page, setPage] = useState<"home" | "projects" | "settings">("home");
+  const [page, setPage] = useState<
+    "home" | "projects" | "settings" | "templates"
+  >("home");
   return (
     <div className="home" data-testid="home">
       <aside className="sidebar">
@@ -77,7 +84,12 @@ export function Home({
           ))}
           <hr />
           {NAV_2.map((n) => (
-            <button key={n.id} className="nav-item">
+            <button
+              key={n.id}
+              className={`nav-item${n.id === page ? " active" : ""}`}
+              data-testid={`nav-${n.id}`}
+              onClick={() => setPage("templates")}
+            >
               <Icon name={n.icon} size={16} /> {n.label}
             </button>
           ))}
@@ -98,7 +110,30 @@ export function Home({
           </div>
         </div>
       </aside>
-      {page === "settings" ? (
+      {chosen && (
+        <TemplateDialog
+          template={chosen}
+          onClose={() => setChosen(null)}
+          onStart={(details) => {
+            setChosen(null);
+            onTemplate?.(chosen, details);
+          }}
+        />
+      )}
+      {page === "templates" ? (
+        <main className="home-main projects-page" data-testid="templates-page">
+          <header className="projects-head">
+            <div>
+              <h2>Templates</h2>
+              <p className="muted">
+                Pick a starting point, add your details, and the assistant
+                builds the first cut with your media.
+              </p>
+            </div>
+          </header>
+          <TemplateGrid templates={PROJECT_TEMPLATES} onPick={setChosen} />
+        </main>
+      ) : page === "settings" ? (
         <main className="home-main settings-page">
           <Settings onError={onError ?? (() => {})} />
         </main>
@@ -207,17 +242,10 @@ export function Home({
                 : "Recent projects"}
             </h3>
             {tab === "templates" ? (
-              <div className="cards">
-                {TEMPLATES.map((t, i) => (
-                  <div
-                    key={t}
-                    className={`card card-${i}`}
-                    title="Templates arrive in a later version"
-                  >
-                    <span className="card-label">{t}</span>
-                  </div>
-                ))}
-              </div>
+              <TemplateGrid
+                templates={PROJECT_TEMPLATES.slice(0, 4)}
+                onPick={setChosen}
+              />
             ) : (
               <ProjectGrid
                 projects={projects.slice(0, 8)}
@@ -232,12 +260,100 @@ export function Home({
   );
 }
 
-const TEMPLATES = [
-  "Event recap",
-  "Founder story",
-  "Product launch",
-  "Podcast clip",
-];
+function TemplateGrid({
+  templates,
+  onPick,
+}: {
+  templates: ProjectTemplate[];
+  onPick: (t: ProjectTemplate) => void;
+}) {
+  return (
+    <div className="cards template-cards" data-testid="template-grid">
+      {templates.map((t, i) => (
+        <button
+          key={t.id}
+          className={`card card-${i % 4} template-card`}
+          onClick={() => onPick(t)}
+          data-testid={`template-${t.id}`}
+        >
+          <span className="card-label">{t.name}</span>
+          <span className="template-meta">
+            {t.aspect} · {t.length}
+            {t.generation ? " · AI" : ""}
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function TemplateDialog({
+  template: t,
+  onClose,
+  onStart,
+}: {
+  template: ProjectTemplate;
+  onClose: () => void;
+  onStart: (details: string) => void;
+}) {
+  const [details, setDetails] = useState("");
+  return (
+    <div
+      className="modal-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-label={t.name}
+      data-testid="template-dialog"
+    >
+      <div className="modal xp-modal">
+        <header>
+          <h3>{t.name}</h3>
+          <button className="icon-btn" aria-label="Close" onClick={onClose}>
+            <Icon name="close" size={16} />
+          </button>
+        </header>
+        <p>{t.description}</p>
+        <p className="muted small">
+          {t.category} · {t.aspect} · {t.length}
+        </p>
+        <p className="small">
+          <strong>Bring:</strong> {t.bring}
+        </p>
+        {t.generation && (
+          <p className="small xp-error">
+            Uses AI generation with your provider keys; the assistant tells you
+            the cost before spending.
+          </p>
+        )}
+        <textarea
+          className="gen-prompt"
+          rows={4}
+          placeholder={t.ask}
+          value={details}
+          onChange={(e) => setDetails(e.target.value)}
+          data-testid="template-details"
+          autoFocus
+        />
+        <p className="muted small">
+          A new project opens and the assistant starts the first cut; add your
+          media to it any time.
+        </p>
+        <div className="xp-actions">
+          <button className="btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            className="btn primary"
+            onClick={() => onStart(details)}
+            data-testid="template-start"
+          >
+            Start project
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function ProjectGrid({
   projects,
