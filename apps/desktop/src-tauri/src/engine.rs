@@ -7,13 +7,18 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use ove_core::model::Document;
 use ove_media::{AudioDecoder, AudioOutputSpec, DecodeWorker, DecoderOptions, SampleFormat, Samples};
-use ove_playback::{AudioOutput, Command, Player, PlayerConfig, SystemTime, TimeSource, WorkerSource};
+use ove_playback::{
+    AudioOutput, Command, FrameSource, Player, PlayerConfig, PresentableFrame, SourcePoll, SystemTime, TimeSource,
+    WorkerSource,
+};
 use tauri::AppHandle;
 use tauri_specta::Event;
 
 use crate::error::{AppError, AppResult, ErrorCode};
 use crate::media::{self, MediaInfo};
+use crate::timeline::{TIMELINE_FPS, TimelineFrame, TimelineSource};
 use crate::transport::{PlaybackState, TransportCommand};
 use crate::viewer::ViewerMsg;
 use crate::{AppErrorRaised, PlaybackChanged};
@@ -23,6 +28,10 @@ const AUDIO_AHEAD_US: i64 = 600_000;
 
 pub enum EngineMsg {
     Open(PathBuf, Sender<AppResult<MediaInfo>>),
+    /// Play the composited timeline of a project (document, bundle path), replying with its info.
+    OpenTimeline(Arc<Document>, PathBuf, Sender<AppResult<MediaInfo>>),
+    /// The open project changed: re-render the timeline (keeps position and play state).
+    UpdateDoc(Arc<Document>, PathBuf),
     Close,
     Transport(TransportCommand),
     Volume(f64, bool),
@@ -54,17 +63,77 @@ pub struct EngineHandle {
 
 struct Audio {
     out: AudioOutput,
-    decoder: AudioDecoder,
-    /// Media time the decoder has filled the ring up to.
+    feed: Feed,
+    /// Media time the ring is filled up to.
     filled_to: i64,
     eof: bool,
 }
 
+enum Feed {
+    /// A file's own audio track.
+    Decoder(AudioDecoder),
+    /// The timeline's mixdown.
+    Mix(ove_render::audio::Mixer, Arc<Document>),
+}
+
+/// A file (decode worker) or the composited timeline.
+enum AnySource {
+    Media(WorkerSource),
+    Timeline(TimelineSource),
+}
+
+enum AnyFrame {
+    Media(ove_media::VideoFrame),
+    Timeline(TimelineFrame),
+}
+
+impl PresentableFrame for AnyFrame {
+    fn pts_us(&self) -> i64 {
+        match self {
+            AnyFrame::Media(f) => f.pts_us,
+            AnyFrame::Timeline(f) => f.pts_us,
+        }
+    }
+    fn duration_us(&self) -> i64 {
+        match self {
+            AnyFrame::Media(f) => f.duration_us,
+            AnyFrame::Timeline(f) => f.duration_us,
+        }
+    }
+}
+
+fn map_poll<F>(p: SourcePoll<F>, wrap: impl FnOnce(F) -> AnyFrame) -> SourcePoll<AnyFrame> {
+    match p {
+        SourcePoll::Frame(f) => SourcePoll::Frame(wrap(f)),
+        SourcePoll::Pending => SourcePoll::Pending,
+        SourcePoll::Eof => SourcePoll::Eof,
+        SourcePoll::Error(e) => SourcePoll::Error(e),
+    }
+}
+
+impl FrameSource for AnySource {
+    type Frame = AnyFrame;
+    fn seek(&mut self, t_us: i64) {
+        match self {
+            AnySource::Media(s) => s.seek(t_us),
+            AnySource::Timeline(s) => s.seek(t_us),
+        }
+    }
+    fn poll(&mut self) -> SourcePoll<AnyFrame> {
+        match self {
+            AnySource::Media(s) => map_poll(s.poll(), AnyFrame::Media),
+            AnySource::Timeline(s) => map_poll(s.poll(), AnyFrame::Timeline),
+        }
+    }
+}
+
 struct Session {
-    player: Player<WorkerSource>,
+    player: Player<AnySource>,
     info: MediaInfo,
     fps: f64,
     audio: Option<Audio>,
+    /// Set in timeline mode: the bundle being played.
+    timeline: Option<PathBuf>,
 }
 
 fn to_gpu_frame(f: ove_media::VideoFrame) -> Option<ove_gpu::VideoFrame> {
@@ -113,7 +182,8 @@ impl Session {
         let fps = video.frame_rate.as_f64().filter(|f| *f > 0.0).unwrap_or(30.0);
         let interval = (1_000_000.0 / fps).round() as i64;
         let decoder = ove_media::open_video(path, DecoderOptions::default()).map_err(|e| friendly(path, &e))?;
-        let source = WorkerSource::new(DecodeWorker::spawn(Box::new(decoder), ove_media::DEFAULT_QUEUE_FRAMES));
+        let source =
+            AnySource::Media(WorkerSource::new(DecodeWorker::spawn(Box::new(decoder), ove_media::DEFAULT_QUEUE_FRAMES)));
         let last_frame = (duration_us - interval).max(0);
 
         let audio = match (&probe.audio, AudioOutput::open_default(time.clone())) {
@@ -121,7 +191,7 @@ impl Session {
                 let (rate, channels) = out.ring().format();
                 let spec = AudioOutputSpec { sample_rate: rate, channels, format: SampleFormat::F32 };
                 match AudioDecoder::open(path, spec) {
-                    Ok(decoder) => Some(Audio { out, decoder, filled_to: 0, eof: false }),
+                    Ok(decoder) => Some(Audio { out, feed: Feed::Decoder(decoder), filled_to: 0, eof: false }),
                     Err(e) => {
                         tracing::warn!(error = %e, "audio decode unavailable; video plays on the system clock");
                         None
@@ -161,7 +231,63 @@ impl Session {
             audio_layout: probe.audio.as_ref().map(|a| format!("{} {} Hz {}", a.codec, a.sample_rate, a.layout)),
             placeholder: false,
         };
-        Ok(Session { player, info, fps, audio })
+        Ok(Session { player, info, fps, audio, timeline: None })
+    }
+
+    /// The composited timeline of a project, starting at `at_us`. Reuses an audio output when one is given.
+    fn open_timeline(
+        doc: Arc<Document>,
+        bundle: PathBuf,
+        at_us: i64,
+        time: &Arc<dyn TimeSource>,
+        reuse: Option<AudioOutput>,
+        audio_ok: &mut bool,
+    ) -> Session {
+        let fps = TIMELINE_FPS;
+        let interval = (1_000_000.0 / fps).round() as i64;
+        let duration_us = doc.duration().max(interval);
+        let out = match reuse {
+            Some(o) => Some(o),
+            None => match AudioOutput::open_default(time.clone()) {
+                Ok(o) => Some(o),
+                Err(e) => {
+                    tracing::warn!(error = %e, "no audio output device; the timeline plays on the system clock");
+                    None
+                }
+            },
+        };
+        *audio_ok = out.is_some();
+        let audio = out.map(|out| Audio {
+            out,
+            feed: Feed::Mix(ove_render::audio::Mixer::new(Some(&bundle)), doc.clone()),
+            filled_to: 0,
+            eof: false,
+        });
+        let ring = audio.as_ref().map(|a| a.out.ring().clone());
+        let (rw, rh) = ove_render::eval::reference_size(&doc.project.aspect_ratio);
+        let info = MediaInfo {
+            path: bundle.display().to_string(),
+            name: doc.project.name.clone(),
+            duration_seconds: duration_us as f64 / 1e6,
+            width: rw,
+            height: rh,
+            frame_rate: fps,
+            total_frames: ((duration_us as f64 / 1e6) * fps).ceil().max(1.0) as u32,
+            video_codec: "timeline".into(),
+            audio_layout: Some("stereo mix".into()),
+            placeholder: false,
+        };
+        let source = AnySource::Timeline(TimelineSource::new(doc, bundle.clone()));
+        let mut player = Player::new(
+            source,
+            PlayerConfig { frame_interval_us: interval, last_frame_us: (duration_us - interval).max(0) },
+            ring,
+            time.now_us(),
+        );
+        if at_us > 0 {
+            player.command(Command::Seek(at_us.min(duration_us - 1)), time.now_us());
+        }
+        Session { player, info, fps, audio, timeline: Some(bundle) }
     }
 
     /// Keeps the ring filled ahead of the play head.
@@ -174,23 +300,36 @@ impl Session {
         let mut budget = 16;
         while ring.queued_us() < AUDIO_AHEAD_US && budget > 0 {
             budget -= 1;
-            match a.decoder.next_chunk() {
-                Ok(Some(chunk)) => {
-                    let samples: Vec<f32> = match chunk.samples {
-                        Samples::F32(v) => v,
-                        Samples::S16(v) => v.into_iter().map(|s| s as f32 / 32768.0).collect(),
-                    };
-                    ring.push(chunk.pts_us, &samples);
-                    a.filled_to = chunk.pts_us;
-                }
-                Ok(None) => {
-                    a.eof = true;
-                    break;
-                }
-                Err(e) => {
-                    tracing::warn!(error = %e, "audio decode error; continuing without audio");
-                    a.eof = true;
-                    break;
+            match &mut a.feed {
+                Feed::Decoder(dec) => match dec.next_chunk() {
+                    Ok(Some(chunk)) => {
+                        let samples: Vec<f32> = match chunk.samples {
+                            Samples::F32(v) => v,
+                            Samples::S16(v) => v.into_iter().map(|s| s as f32 / 32768.0).collect(),
+                        };
+                        ring.push(chunk.pts_us, &samples);
+                        a.filled_to = chunk.pts_us;
+                    }
+                    Ok(None) => {
+                        a.eof = true;
+                        break;
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "audio decode error; continuing without audio");
+                        a.eof = true;
+                        break;
+                    }
+                },
+                Feed::Mix(mixer, doc) => {
+                    const BLOCK: usize = 1024;
+                    if a.filled_to >= doc.duration() {
+                        a.eof = true;
+                        break;
+                    }
+                    let mixed = mixer.mix(doc, a.filled_to, BLOCK);
+                    let (rate, channels) = ring.format();
+                    ring.push(a.filled_to, &to_device(&mixed, rate, channels));
+                    a.filled_to += (BLOCK as i64 * 1_000_000) / ove_render::audio::RATE as i64;
                 }
             }
         }
@@ -199,10 +338,38 @@ impl Session {
     fn restart_audio(&mut self, t_us: i64) {
         if let Some(a) = self.audio.as_mut() {
             a.out.ring().clear();
-            a.eof = a.decoder.seek(t_us).is_err();
+            a.eof = match &mut a.feed {
+                Feed::Decoder(d) => d.seek(t_us).is_err(),
+                Feed::Mix(..) => false,
+            };
             a.filled_to = t_us;
         }
     }
+}
+
+/// Converts 48 kHz stereo to the device format (nearest-sample rate change, channel up/down-mix).
+fn to_device(stereo: &[f32], rate: u32, channels: u16) -> Vec<f32> {
+    let src_rate = ove_render::audio::RATE;
+    if rate == src_rate && channels == 2 {
+        return stereo.to_vec();
+    }
+    let frames_in = stereo.len() / 2;
+    let frames_out = (frames_in as u64 * rate as u64 / src_rate as u64) as usize;
+    let ch = channels.max(1) as usize;
+    let mut out = Vec::with_capacity(frames_out * ch);
+    for i in 0..frames_out {
+        let j = ((i as u64 * src_rate as u64 / rate as u64) as usize).min(frames_in.saturating_sub(1));
+        let (l, r) = (stereo[j * 2], stereo[j * 2 + 1]);
+        for c in 0..ch {
+            out.push(match (ch, c) {
+                (1, _) => (l + r) * 0.5,
+                (_, 0) => l,
+                (_, 1) => r,
+                _ => 0.0,
+            });
+        }
+    }
+    out
 }
 
 fn map_command(cmd: TransportCommand, s: &Session) -> Vec<Command> {
@@ -304,6 +471,39 @@ fn run(app: AppHandle, viewer: Sender<ViewerMsg>, rx: Receiver<EngineMsg>, share
                 }
                 let _ = reply.send(result);
             }
+            Ok(EngineMsg::OpenTimeline(doc, bundle, reply)) => {
+                pending_steps = 0;
+                let reuse = session.take().and_then(|s| s.audio.map(|a| a.out));
+                let s = Session::open_timeline(doc, bundle, 0, &time, reuse, &mut audio_available);
+                if let Some(a) = &s.audio {
+                    a.out.ring().set_volume(volume as f32);
+                    a.out.ring().set_muted(muted);
+                }
+                let info = s.info.clone();
+                *shared.media.lock().unwrap() = Some(info.clone());
+                session = Some(s);
+                let _ = reply.send(Ok(info));
+            }
+            Ok(EngineMsg::UpdateDoc(doc, bundle)) => {
+                // Only a session playing this project's timeline follows edits.
+                if session.as_ref().and_then(|s| s.timeline.as_ref()) == Some(&bundle) {
+                    let old = session.take().unwrap();
+                    let at = old.player.transport().position;
+                    let playing = old.player.transport().is_playing();
+                    let looping = old.player.transport().looping;
+                    let reuse = old.audio.map(|a| a.out);
+                    let mut s = Session::open_timeline(doc, bundle, at, &time, reuse, &mut audio_available);
+                    let now = time.now_us();
+                    if looping {
+                        s.player.command(Command::SetLoop(true), now);
+                    }
+                    if playing {
+                        s.player.command(Command::Play, now);
+                    }
+                    *shared.media.lock().unwrap() = Some(s.info.clone());
+                    session = Some(s);
+                }
+            }
             Ok(EngineMsg::Close) => {
                 session = None;
                 pending_steps = 0;
@@ -349,7 +549,12 @@ fn run(app: AppHandle, viewer: Sender<ViewerMsg>, rx: Receiver<EngineMsg>, share
                 s.restart_audio(t);
             }
             s.feed_audio();
-            if let Some(f) = out.present.and_then(to_gpu_frame) {
+            let shown = match out.present {
+                Some(AnyFrame::Media(f)) => to_gpu_frame(f),
+                Some(AnyFrame::Timeline(f)) => Some(crate::timeline::to_viewer(&f)),
+                None => None,
+            };
+            if let Some(f) = shown {
                 let _ = viewer.send(ViewerMsg::Frame(f));
             }
             if let Some(err) = out.error {
@@ -370,7 +575,13 @@ fn run(app: AppHandle, viewer: Sender<ViewerMsg>, rx: Receiver<EngineMsg>, share
                 s.player.command(Command::Pause, time.now_us());
             }
             let d = s.player.diagnostics();
-            let path = s.player.source_mut().decode_path().to_string();
+            let path = match s.player.source_mut() {
+                AnySource::Media(w) => w.decode_path().to_string(),
+                AnySource::Timeline(t) => format!(
+                    "timeline compositor (CPU, {} ms/frame)",
+                    t.render_ms.load(std::sync::atomic::Ordering::Relaxed)
+                ),
+            };
             if let Ok(mut g) = shared.diag.lock() {
                 *g = EngineDiag {
                     decode_path: path,

@@ -45,11 +45,21 @@ export const commands = {
 	setTrackFlag: (id: string, flag: string, value: boolean) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("set_track_flag", { id, flag, value })),
 	undo: () => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("undo")),
 	redo: () => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("redo")),
+	/**  Plays the open project's composited timeline in the viewer. */
+	openTimeline: () => typedError<MediaInfo_Serialize, AppError>(__TAURI_INVOKE("open_timeline")),
+	/**  Starts exporting the open project in the background. Progress arrives as `exportProgress` events. */
+	exportProject: (request: ExportRequest) => typedError<null, AppError>(__TAURI_INVOKE("export_project", { request })),
+	cancelExport: () => typedError<null, AppError>(__TAURI_INVOKE("cancel_export")),
+	/**  Save dialog for the export destination. `None` when cancelled. */
+	chooseExportPath: (defaultName: string) => typedError<string | null, AppError>(__TAURI_INVOKE("choose_export_path", { defaultName })),
+	/**  Shows a file in the system file manager. */
+	revealPath: (path: string) => typedError<null, AppError>(__TAURI_INVOKE("reveal_path", { path })),
 };
 
 /** Events */
 export const events = {
 	appErrorRaised: makeEvent<AppErrorRaised, AppErrorRaised>("app-error-raised"),
+	exportProgress: makeEvent<ExportProgress_Serialize, ExportProgress_Deserialize>("export-progress"),
 	openPathsRequested: makeEvent<OpenPathsRequested, OpenPathsRequested>("open-paths-requested"),
 	playbackChanged: makeEvent<PlaybackChanged, PlaybackChanged>("playback-changed"),
 	projectChanged: makeEvent<ProjectChanged_Serialize, ProjectChanged_Deserialize>("project-changed"),
@@ -121,6 +131,41 @@ export type Diagnostics_Serialize = {
 
 /**  Machine-readable error category. The UI switches on this; `message` is shown to the user. */
 export type ErrorCode = "not_found" | "unsupported" | "corrupt" | "media_offline" | "no_media" | "invalid_argument" | "worker_panic" | "gpu" | "io" | "internal";
+
+/**  Export progress (and the end of an export: `done`, with `error` or `path`). */
+export type ExportProgress = ExportProgress_Serialize | ExportProgress_Deserialize;
+
+/**  Export progress (and the end of an export: `done`, with `error` or `path`). */
+export type ExportProgress_Deserialize = {
+	fraction: number | null,
+	frame: number,
+	totalFrames: number,
+	done: boolean,
+	error?: string | null,
+	path?: string | null,
+	encoder?: string | null,
+	secondsTaken?: number | null,
+};
+
+/**  Export progress (and the end of an export: `done`, with `error` or `path`). */
+export type ExportProgress_Serialize = {
+	fraction: number | null,
+	frame: number,
+	totalFrames: number,
+	done: boolean,
+	error: string | null,
+	path: string | null,
+	encoder: string | null,
+	secondsTaken: number | null,
+};
+
+/**  What to export. */
+export type ExportRequest = {
+	path: string,
+	/**  Output height in pixels (720, 1080, 2160, …). */
+	height: number,
+	fps: number,
+};
 
 export type ItemView = ItemView_Serialize | ItemView_Deserialize;
 

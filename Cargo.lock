@@ -3589,6 +3589,7 @@ dependencies = [
  "ove-gpu",
  "ove-media",
  "ove-playback",
+ "ove-render",
  "ove-store",
  "png",
  "raw-window-handle",
