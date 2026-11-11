@@ -3598,6 +3598,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "ove-analyze"
+version = "0.1.0"
+dependencies = [
+ "ove-core",
+ "ove-media",
+ "ove-render",
+ "png",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "ove-bench"
 version = "0.1.0"
 dependencies = [

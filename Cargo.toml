@@ -12,6 +12,7 @@ members = [
     "crates/ove-gpu",
     "crates/ove-bench",
     "crates/ove-render",
+    "crates/ove-analyze",
     "apps/desktop/src-tauri",
 ]
 default-members = [
