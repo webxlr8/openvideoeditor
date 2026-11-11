@@ -69,11 +69,13 @@ interface ClipProps extends ItemBase {
   /** Animated properties. */
   keyframeTracks?: { property?: "x" | "y" | "scale" | "rotation" | "opacity" | "gaussianBlur" | "borderRadius"; keyframes?: { time?: Seconds; value?: number; [key: string]: unknown }[]; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; [key: string]: unknown }[];
   /** Transition at the start. */
-  transitionIn?: { type?: string; presetId?: string; duration?: Seconds; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; [key: string]: unknown };
+  transitionIn?: { type?: string; presetId?: string; duration?: Seconds; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; direction?: "left" | "right" | "up" | "down"; [key: string]: unknown };
   /** Transition at the end. */
-  transitionOut?: { type?: string; presetId?: string; duration?: Seconds; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; [key: string]: unknown };
+  transitionOut?: { type?: string; presetId?: string; duration?: Seconds; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; direction?: "left" | "right" | "up" | "down"; [key: string]: unknown };
   /** Effect stack. */
   effects?: { id?: string; type?: string; [key: string]: unknown }[];
+  /** Layout slot the item fills (x, y, w, h from the preset). */
+  layout?: { preset?: "split-horizontal" | "split-vertical" | "3up-horizontal" | "3up-vertical" | "4up-horizontal" | "4up-vertical" | "grid-2x2" | "pip-bottom-right" | "pip-bottom-left" | "pip-top-right" | "pip-top-left" | "hero-top" | "hero-bottom" | "hero-left" | "hero-right"; slot?: number; [key: string]: unknown };
   /** Caption depth compositing. */
   captionComposition?: { mode?: "front" | "behind-subject"; fallback?: "front" | "hide"; [key: string]: unknown };
   /** Fill the frame height with a centred crop when not transformed. */
@@ -126,11 +128,13 @@ interface ImageProps extends ItemBase {
   /** Animated properties. */
   keyframeTracks?: { property?: "x" | "y" | "scale" | "rotation" | "opacity" | "gaussianBlur" | "borderRadius"; keyframes?: { time?: Seconds; value?: number; [key: string]: unknown }[]; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; [key: string]: unknown }[];
   /** Transition at the start. */
-  transitionIn?: { type?: string; presetId?: string; duration?: Seconds; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; [key: string]: unknown };
+  transitionIn?: { type?: string; presetId?: string; duration?: Seconds; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; direction?: "left" | "right" | "up" | "down"; [key: string]: unknown };
   /** Transition at the end. */
-  transitionOut?: { type?: string; presetId?: string; duration?: Seconds; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; [key: string]: unknown };
+  transitionOut?: { type?: string; presetId?: string; duration?: Seconds; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; direction?: "left" | "right" | "up" | "down"; [key: string]: unknown };
   /** Effect stack. */
   effects?: { id?: string; type?: string; [key: string]: unknown }[];
+  /** Layout slot the item fills (x, y, w, h from the preset). */
+  layout?: { preset?: "split-horizontal" | "split-vertical" | "3up-horizontal" | "3up-vertical" | "4up-horizontal" | "4up-vertical" | "grid-2x2" | "pip-bottom-right" | "pip-bottom-left" | "pip-top-right" | "pip-top-left" | "hero-top" | "hero-bottom" | "hero-left" | "hero-right"; slot?: number; [key: string]: unknown };
   /** Caption depth compositing. */
   captionComposition?: { mode?: "front" | "behind-subject"; fallback?: "front" | "hide"; [key: string]: unknown };
   /** Fill the frame height with a centred crop when not transformed. */
@@ -171,11 +175,13 @@ interface AudioProps extends ItemBase {
   /** Animated properties. */
   keyframeTracks?: { property?: "x" | "y" | "scale" | "rotation" | "opacity" | "gaussianBlur" | "borderRadius"; keyframes?: { time?: Seconds; value?: number; [key: string]: unknown }[]; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; [key: string]: unknown }[];
   /** Transition at the start. */
-  transitionIn?: { type?: string; presetId?: string; duration?: Seconds; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; [key: string]: unknown };
+  transitionIn?: { type?: string; presetId?: string; duration?: Seconds; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; direction?: "left" | "right" | "up" | "down"; [key: string]: unknown };
   /** Transition at the end. */
-  transitionOut?: { type?: string; presetId?: string; duration?: Seconds; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; [key: string]: unknown };
+  transitionOut?: { type?: string; presetId?: string; duration?: Seconds; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; direction?: "left" | "right" | "up" | "down"; [key: string]: unknown };
   /** Effect stack. */
   effects?: { id?: string; type?: string; [key: string]: unknown }[];
+  /** Layout slot the item fills (x, y, w, h from the preset). */
+  layout?: { preset?: "split-horizontal" | "split-vertical" | "3up-horizontal" | "3up-vertical" | "4up-horizontal" | "4up-vertical" | "grid-2x2" | "pip-bottom-right" | "pip-bottom-left" | "pip-top-right" | "pip-top-left" | "hero-top" | "hero-bottom" | "hero-left" | "hero-right"; slot?: number; [key: string]: unknown };
   /** Caption depth compositing. */
   captionComposition?: { mode?: "front" | "behind-subject"; fallback?: "front" | "hide"; [key: string]: unknown };
   /** Fill the frame height with a centred crop when not transformed. */
@@ -262,11 +268,13 @@ interface TextProps extends ItemBase {
   /** Animated properties. */
   keyframeTracks?: { property?: "x" | "y" | "scale" | "rotation" | "opacity" | "gaussianBlur" | "borderRadius"; keyframes?: { time?: Seconds; value?: number; [key: string]: unknown }[]; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; [key: string]: unknown }[];
   /** Transition at the start. */
-  transitionIn?: { type?: string; presetId?: string; duration?: Seconds; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; [key: string]: unknown };
+  transitionIn?: { type?: string; presetId?: string; duration?: Seconds; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; direction?: "left" | "right" | "up" | "down"; [key: string]: unknown };
   /** Transition at the end. */
-  transitionOut?: { type?: string; presetId?: string; duration?: Seconds; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; [key: string]: unknown };
+  transitionOut?: { type?: string; presetId?: string; duration?: Seconds; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; direction?: "left" | "right" | "up" | "down"; [key: string]: unknown };
   /** Effect stack. */
   effects?: { id?: string; type?: string; [key: string]: unknown }[];
+  /** Layout slot the item fills (x, y, w, h from the preset). */
+  layout?: { preset?: "split-horizontal" | "split-vertical" | "3up-horizontal" | "3up-vertical" | "4up-horizontal" | "4up-vertical" | "grid-2x2" | "pip-bottom-right" | "pip-bottom-left" | "pip-top-right" | "pip-top-left" | "hero-top" | "hero-bottom" | "hero-left" | "hero-right"; slot?: number; [key: string]: unknown };
   /** Caption depth compositing. */
   captionComposition?: { mode?: "front" | "behind-subject"; fallback?: "front" | "hide"; [key: string]: unknown };
   /** Fill the frame height with a centred crop when not transformed. */
@@ -319,11 +327,13 @@ interface CaptionProps extends ItemBase {
   /** Animated properties. */
   keyframeTracks?: { property?: "x" | "y" | "scale" | "rotation" | "opacity" | "gaussianBlur" | "borderRadius"; keyframes?: { time?: Seconds; value?: number; [key: string]: unknown }[]; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; [key: string]: unknown }[];
   /** Transition at the start. */
-  transitionIn?: { type?: string; presetId?: string; duration?: Seconds; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; [key: string]: unknown };
+  transitionIn?: { type?: string; presetId?: string; duration?: Seconds; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; direction?: "left" | "right" | "up" | "down"; [key: string]: unknown };
   /** Transition at the end. */
-  transitionOut?: { type?: string; presetId?: string; duration?: Seconds; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; [key: string]: unknown };
+  transitionOut?: { type?: string; presetId?: string; duration?: Seconds; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; direction?: "left" | "right" | "up" | "down"; [key: string]: unknown };
   /** Effect stack. */
   effects?: { id?: string; type?: string; [key: string]: unknown }[];
+  /** Layout slot the item fills (x, y, w, h from the preset). */
+  layout?: { preset?: "split-horizontal" | "split-vertical" | "3up-horizontal" | "3up-vertical" | "4up-horizontal" | "4up-vertical" | "grid-2x2" | "pip-bottom-right" | "pip-bottom-left" | "pip-top-right" | "pip-top-left" | "hero-top" | "hero-bottom" | "hero-left" | "hero-right"; slot?: number; [key: string]: unknown };
   /** Caption depth compositing. */
   captionComposition?: { mode?: "front" | "behind-subject"; fallback?: "front" | "hide"; [key: string]: unknown };
   /** Fill the frame height with a centred crop when not transformed. */
@@ -362,11 +372,13 @@ interface CodeProps extends ItemBase {
   /** Animated properties. */
   keyframeTracks?: { property?: "x" | "y" | "scale" | "rotation" | "opacity" | "gaussianBlur" | "borderRadius"; keyframes?: { time?: Seconds; value?: number; [key: string]: unknown }[]; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; [key: string]: unknown }[];
   /** Transition at the start. */
-  transitionIn?: { type?: string; presetId?: string; duration?: Seconds; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; [key: string]: unknown };
+  transitionIn?: { type?: string; presetId?: string; duration?: Seconds; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; direction?: "left" | "right" | "up" | "down"; [key: string]: unknown };
   /** Transition at the end. */
-  transitionOut?: { type?: string; presetId?: string; duration?: Seconds; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; [key: string]: unknown };
+  transitionOut?: { type?: string; presetId?: string; duration?: Seconds; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; direction?: "left" | "right" | "up" | "down"; [key: string]: unknown };
   /** Effect stack. */
   effects?: { id?: string; type?: string; [key: string]: unknown }[];
+  /** Layout slot the item fills (x, y, w, h from the preset). */
+  layout?: { preset?: "split-horizontal" | "split-vertical" | "3up-horizontal" | "3up-vertical" | "4up-horizontal" | "4up-vertical" | "grid-2x2" | "pip-bottom-right" | "pip-bottom-left" | "pip-top-right" | "pip-top-left" | "hero-top" | "hero-bottom" | "hero-left" | "hero-right"; slot?: number; [key: string]: unknown };
   /** Caption depth compositing. */
   captionComposition?: { mode?: "front" | "behind-subject"; fallback?: "front" | "hide"; [key: string]: unknown };
   /** Fill the frame height with a centred crop when not transformed. */
@@ -409,11 +421,13 @@ interface AdjustmentProps extends ItemBase {
   /** Animated properties. */
   keyframeTracks?: { property?: "x" | "y" | "scale" | "rotation" | "opacity" | "gaussianBlur" | "borderRadius"; keyframes?: { time?: Seconds; value?: number; [key: string]: unknown }[]; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; [key: string]: unknown }[];
   /** Transition at the start. */
-  transitionIn?: { type?: string; presetId?: string; duration?: Seconds; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; [key: string]: unknown };
+  transitionIn?: { type?: string; presetId?: string; duration?: Seconds; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; direction?: "left" | "right" | "up" | "down"; [key: string]: unknown };
   /** Transition at the end. */
-  transitionOut?: { type?: string; presetId?: string; duration?: Seconds; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; [key: string]: unknown };
+  transitionOut?: { type?: string; presetId?: string; duration?: Seconds; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; direction?: "left" | "right" | "up" | "down"; [key: string]: unknown };
   /** Effect stack. */
   effects?: { id?: string; type?: string; [key: string]: unknown }[];
+  /** Layout slot the item fills (x, y, w, h from the preset). */
+  layout?: { preset?: "split-horizontal" | "split-vertical" | "3up-horizontal" | "3up-vertical" | "4up-horizontal" | "4up-vertical" | "grid-2x2" | "pip-bottom-right" | "pip-bottom-left" | "pip-top-right" | "pip-top-left" | "hero-top" | "hero-bottom" | "hero-left" | "hero-right"; slot?: number; [key: string]: unknown };
   /** Caption depth compositing. */
   captionComposition?: { mode?: "front" | "behind-subject"; fallback?: "front" | "hide"; [key: string]: unknown };
   /** Fill the frame height with a centred crop when not transformed. */
@@ -456,11 +470,13 @@ interface ShaderProps extends ItemBase {
   /** Animated properties. */
   keyframeTracks?: { property?: "x" | "y" | "scale" | "rotation" | "opacity" | "gaussianBlur" | "borderRadius"; keyframes?: { time?: Seconds; value?: number; [key: string]: unknown }[]; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; [key: string]: unknown }[];
   /** Transition at the start. */
-  transitionIn?: { type?: string; presetId?: string; duration?: Seconds; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; [key: string]: unknown };
+  transitionIn?: { type?: string; presetId?: string; duration?: Seconds; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; direction?: "left" | "right" | "up" | "down"; [key: string]: unknown };
   /** Transition at the end. */
-  transitionOut?: { type?: string; presetId?: string; duration?: Seconds; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; [key: string]: unknown };
+  transitionOut?: { type?: string; presetId?: string; duration?: Seconds; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; direction?: "left" | "right" | "up" | "down"; [key: string]: unknown };
   /** Effect stack. */
   effects?: { id?: string; type?: string; [key: string]: unknown }[];
+  /** Layout slot the item fills (x, y, w, h from the preset). */
+  layout?: { preset?: "split-horizontal" | "split-vertical" | "3up-horizontal" | "3up-vertical" | "4up-horizontal" | "4up-vertical" | "grid-2x2" | "pip-bottom-right" | "pip-bottom-left" | "pip-top-right" | "pip-top-left" | "hero-top" | "hero-bottom" | "hero-left" | "hero-right"; slot?: number; [key: string]: unknown };
   /** Caption depth compositing. */
   captionComposition?: { mode?: "front" | "behind-subject"; fallback?: "front" | "hide"; [key: string]: unknown };
   /** Fill the frame height with a centred crop when not transformed. */

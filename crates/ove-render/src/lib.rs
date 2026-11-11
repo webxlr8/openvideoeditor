@@ -3,11 +3,15 @@
 
 pub mod audio;
 pub mod canvas;
+pub mod color;
+pub mod effects;
 pub mod eval;
 pub mod export;
+pub mod layouts;
 pub mod render;
 pub mod sources;
 pub mod text;
+pub mod transitions;
 
 pub use canvas::Rgba;
 pub use export::{ExportError, ExportResult, ExportSettings, Progress, export};

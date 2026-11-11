@@ -1,6 +1,6 @@
 //! Audio mixdown of the timeline: every video/audio item with sound, volume (0–200 %), item and track mute, audio
-//! fades, playback speed (nearest-sample resampling; pitch changes with speed), to interleaved stereo f32 at 48 kHz.
-//! Reverse playback is silent in v1.
+//! fades and `audio-fade` transitions, playback speed (nearest-sample resampling; pitch changes with speed), to
+//! interleaved stereo f32 at 48 kHz. Reverse playback is silent in v1.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -99,6 +99,15 @@ fn fade_gain(item: &Item, t: Micros) -> f32 {
         && item.end - t < d
     {
         g *= ((item.end - t) as f32 / d as f32).clamp(0.0, 1.0);
+    }
+    // An `audio-fade` transition ramps the sound (the picture is untouched).
+    for (key, entering) in [("transitionIn", true), ("transitionOut", false)] {
+        if let Some(tr) = crate::eval::transition(item, key).filter(|t| t.kind == "audio-fade") {
+            let into = if entering { t - item.start } else { item.end - t };
+            if into < tr.duration {
+                g *= crate::eval::ease(&tr.easing, into as f64 / tr.duration as f64).clamp(0.0, 1.0) as f32;
+            }
+        }
     }
     g
 }

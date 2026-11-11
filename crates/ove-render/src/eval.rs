@@ -7,13 +7,19 @@
 //!   centre in the project's reference resolution, scale, rotation in degrees, flipX) is applied on top. An item with
 //!   `autoReframe={false}` and no transform is fitted inside the frame instead.
 //! - Keyframes (item-relative seconds) override x, y, scale, rotation and opacity.
-//! - `transitionIn`/`transitionOut` of type `crossfade` (or `cross-dissolve`/`dissolve`) between two adjacent items on
-//!   one track blend them over the transition duration after the cut, with the outgoing item continuing; any other
-//!   transition type fades the item in/out over its duration.
+//! - `transitionIn`/`transitionOut` between two adjacent items on one track is a join: the outgoing item keeps
+//!   playing under the incoming one for the duration after the cut (except `fade`, which dips, and `audio-fade`).
+//!   Opacity-only kinds (fade, dissolve, crossfade) become layer opacity; every other kind is carried as a
+//!   [`TransState`] for the renderer (masks, motion, post effects; see [`crate::transitions`]).
+//! - Layouts: `layout {preset, slot}` (or automatic slots on `layout` tracks) give a layer a slot rectangle.
+//! - Shader items become [`LayerKind::Shader`] full-frame passes.
 
 use ove_core::model::{Document, Item};
 use ove_core::time::{Micros, json_to_micros};
 use serde_json::{Map, Value};
+
+use crate::layouts;
+use crate::transitions::{Role, TransState, is_opacity_only, joins, split};
 
 /// Reference frame size of an aspect ratio: the pixel space of transforms, font sizes and borders.
 pub fn reference_size(aspect: &str) -> (u32, u32) {
@@ -132,8 +138,10 @@ pub enum LayerKind {
         words: Vec<String>,
         active_word: Option<usize>,
     },
-    /// Applies its grade to everything below it.
+    /// Applies its grade (and effect stack) to everything below it.
     Adjustment,
+    /// A shader item: an effect pass over everything below it (`shaderComposition`).
+    Shader,
 }
 
 /// One thing to draw, bottom-up.
@@ -152,21 +160,61 @@ pub struct Layer {
     pub grade: Option<Grade>,
     /// The item's fields (text style, caption style, …).
     pub fields: Map<String, Value>,
+    /// The transition this layer is in, when it needs more than opacity.
+    pub trans: Option<TransState>,
+    /// Layout slot (x, y, w, h in 0..1 of the frame).
+    pub slot: Option<[f32; 4]>,
+    /// Seconds since the item started, and its length (for effects and shader fades).
+    pub rel_s: f32,
+    pub dur_s: f32,
 }
 
 fn num(v: Option<&Value>, def: f64) -> f64 {
     v.and_then(Value::as_f64).unwrap_or(def)
 }
 
-fn transition(item: &Item, key: &str) -> Option<(String, Micros)> {
+/// A transition as set on an item.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Transition {
+    pub kind: String,
+    pub duration: Micros,
+    pub easing: String,
+    pub direction: Option<String>,
+}
+
+pub fn transition(item: &Item, key: &str) -> Option<Transition> {
     let t = item.fields.get(key)?.as_object()?;
     let kind = t.get("type").or_else(|| t.get("presetId")).and_then(Value::as_str).unwrap_or("fade").to_string();
     let d = t.get("duration").and_then(json_to_micros).unwrap_or(500_000);
-    (d > 0).then_some((kind, d))
+    let s = |k: &str| t.get(k).and_then(Value::as_str).map(str::to_string);
+    (d > 0).then_some(Transition {
+        kind,
+        duration: d,
+        easing: s("easing").unwrap_or_else(|| "linear".into()),
+        direction: s("direction"),
+    })
 }
 
-fn is_cross(kind: &str) -> bool {
-    matches!(kind, "crossfade" | "cross-dissolve" | "dissolve" | "cross-fade")
+/// The join between adjacent items `a` → `b`, if either side asks for one.
+fn join(a: &Item, b: &Item) -> Option<Transition> {
+    transition(b, "transitionIn")
+        .filter(|t| joins(&t.kind))
+        .or_else(|| transition(a, "transitionOut").filter(|t| joins(&t.kind)))
+}
+
+/// Applies a transition at visibility `q` (0 hidden … 1 fully in) to a layer.
+fn apply_transition(l: &mut Layer, tr: &Transition, q: f32, role: Role) {
+    if is_opacity_only(&tr.kind) {
+        if role == Role::In {
+            l.opacity *= q.clamp(0.0, 1.0);
+        }
+        return;
+    }
+    if l.trans.as_ref().is_some_and(|t| t.q <= q) {
+        return;
+    }
+    let (_, dir) = split(&tr.kind, tr.direction.as_deref());
+    l.trans = Some(TransState { kind: tr.kind.clone(), dir, role, q });
 }
 
 /// Easing curve value for progress `p` in 0..1.
@@ -285,7 +333,11 @@ fn layer_for(doc: &Document, item: &Item, t_us: Micros, opacity_mul: f32) -> Opt
             LayerKind::Caption { words, active_word }
         }
         "adjustment" => LayerKind::Adjustment,
-        // audio has no picture; code and shader items arrive with the motion-graphics runtime (change 4).
+        "shader" => {
+            f.get("shaderComposition")?.get("template")?.as_str()?;
+            LayerKind::Shader
+        }
+        // audio has no picture; code items arrive with the motion-graphics runtime (change 4).
         _ => return None,
     };
     let t = f.get("transform").and_then(Value::as_object);
@@ -315,19 +367,6 @@ fn layer_for(doc: &Document, item: &Item, t_us: Micros, opacity_mul: f32) -> Opt
     } else {
         Placement::FillHeight
     };
-    // Fades (non-crossfade transitions).
-    if let Some((k, d)) = transition(item, "transitionIn")
-        && !is_cross(&k)
-        && rel < d
-    {
-        opacity *= rel as f64 / d as f64;
-    }
-    if let Some((k, d)) = transition(item, "transitionOut")
-        && !is_cross(&k)
-        && item.end - t_us < d
-    {
-        opacity *= (item.end - t_us) as f64 / d as f64;
-    }
     let c = f.get("crop").and_then(Value::as_object);
     let cv = |k: &str| num(c.and_then(|c| c.get(k)), 0.0).clamp(0.0, 100.0) as f32;
     Some(Layer {
@@ -341,7 +380,18 @@ fn layer_for(doc: &Document, item: &Item, t_us: Micros, opacity_mul: f32) -> Opt
         border_radius: num(f.get("borderRadius"), 0.0).max(0.0) as f32,
         grade: Grade::from_fields(f),
         fields: f.clone(),
+        trans: None,
+        slot: f.get("layout").and_then(Value::as_object).and_then(|l| {
+            let preset = l.get("preset")?.as_str()?;
+            layouts::slot_rect(preset, l.get("slot").and_then(Value::as_u64).unwrap_or(0) as usize)
+        }),
+        rel_s: rel as f32 / 1e6,
+        dur_s: (item.end - item.start) as f32 / 1e6,
     })
+}
+
+fn progress(tr: &Transition, elapsed: Micros) -> f32 {
+    ease(&tr.easing, elapsed as f64 / tr.duration as f64) as f32
 }
 
 /// Layers visible at `t_us`, bottom first.
@@ -353,23 +403,21 @@ pub fn layers_at(doc: &Document, t_us: Micros) -> Vec<Layer> {
         }
         let items = doc.items_on_track(&track.id);
         let visible = |i: &&Item| !i.is_pending() && i.fields.get("hidden").and_then(Value::as_bool) != Some(true);
+        let first = out.len();
         for (n, item) in items.iter().enumerate() {
             if !visible(item) {
                 continue;
             }
-            // Outgoing side of a crossfade: keep drawing past the cut, under the incoming item.
+            let next = items[n + 1..].iter().find(|b| (b.start - item.end).abs() <= 1_000 && visible(b));
+            let join_out = next.and_then(|b| join(item, b));
+            // Outgoing side of a join: keep drawing past the cut, under the incoming item.
             if t_us >= item.end {
-                let next = items[n + 1..].iter().find(|b| (b.start - item.end).abs() <= 1_000 && visible(b));
-                let cross = next.and_then(|b| {
-                    transition(b, "transitionIn")
-                        .filter(|(k, _)| is_cross(k))
-                        .or_else(|| transition(item, "transitionOut").filter(|(k, _)| is_cross(k)))
-                });
-                if let (Some(b), Some((_, d))) = (next, cross)
+                if let (Some(b), Some(tr)) = (next, &join_out)
                     && t_us >= b.start
-                    && t_us < b.start + d
-                    && let Some(l) = layer_for(doc, item, t_us, 1.0)
+                    && t_us < b.start + tr.duration
+                    && let Some(mut l) = layer_for(doc, item, t_us, 1.0)
                 {
+                    apply_transition(&mut l, tr, progress(tr, t_us - b.start), Role::OutJoin);
                     out.push(l);
                 }
                 continue;
@@ -377,19 +425,33 @@ pub fn layers_at(doc: &Document, t_us: Micros) -> Vec<Layer> {
             if t_us < item.start {
                 continue;
             }
-            // Incoming side of a crossfade: fade in over the outgoing item.
+            let Some(mut l) = layer_for(doc, item, t_us, 1.0) else { continue };
             let prev = items[..n].iter().rev().find(|a| (item.start - a.end).abs() <= 1_000 && visible(a));
-            let cross = prev.and_then(|a| {
-                transition(item, "transitionIn")
-                    .filter(|(k, _)| is_cross(k))
-                    .or_else(|| transition(a, "transitionOut").filter(|(k, _)| is_cross(k)))
-            });
-            let mul = match cross {
-                Some((_, d)) if t_us - item.start < d => ((t_us - item.start) as f64 / d as f64) as f32,
-                _ => 1.0,
-            };
-            if let Some(l) = layer_for(doc, item, t_us, mul) {
-                out.push(l);
+            let tin = prev
+                .and_then(|a| join(a, item))
+                .or_else(|| transition(item, "transitionIn").filter(|t| t.kind != "audio-fade"));
+            if let Some(tr) = tin
+                && t_us - item.start < tr.duration
+            {
+                apply_transition(&mut l, &tr, progress(&tr, t_us - item.start), Role::In);
+            }
+            if join_out.is_none()
+                && let Some(tr) = transition(item, "transitionOut").filter(|t| t.kind != "audio-fade")
+                && item.end - t_us < tr.duration
+            {
+                let p = progress(&tr, tr.duration - (item.end - t_us));
+                apply_transition(&mut l, &tr, 1.0 - p, Role::In);
+            }
+            out.push(l);
+        }
+        // Layout tracks: items without a layout field share the frame in start order.
+        if track.kind == "layout" {
+            let free: Vec<usize> = (first..out.len()).filter(|&i| out[i].slot.is_none()).collect();
+            let named =
+                out[first..].iter().find_map(|l| l.fields.get("layout")?.get("preset")?.as_str().map(str::to_string));
+            let preset = named.unwrap_or_else(|| layouts::auto_preset(free.len()).to_string());
+            for (slot, i) in free.into_iter().enumerate() {
+                out[i].slot = layouts::slot_rect(&preset, slot);
             }
         }
     }
@@ -470,6 +532,59 @@ mod tests {
         let l = layers_at(&d, 11_500_000);
         assert_eq!(l[0].kind, LayerKind::Caption { words: vec!["hello".into(), "there".into()], active_word: Some(1) });
         assert!(layers_at(&d, 13_000_000).is_empty(), "between segments nothing shows");
+    }
+
+    #[test]
+    fn joins_carry_transition_state_and_easing() {
+        let d = doc(vec![
+            json!({"id": "a", "trackId": "main", "type": "video", "startTime": 0, "endTime": 4, "mediaItemId": "m"}),
+            json!({"id": "b", "trackId": "main", "type": "video", "startTime": 4, "endTime": 8, "mediaItemId": "m",
+                "transitionIn": {"type": "push", "direction": "up", "duration": 1, "easing": "ease-in"}}),
+            json!({"id": "c", "trackId": "top", "type": "video", "startTime": 0, "endTime": 2, "mediaItemId": "m",
+                "transitionOut": {"type": "wipe-right", "duration": 1}}),
+        ]);
+        let l = layers_at(&d, 4_500_000);
+        assert_eq!(l.iter().map(|l| l.item_id.as_str()).collect::<Vec<_>>(), ["a", "b"]);
+        let (ta, tb) = (l[0].trans.as_ref().unwrap(), l[1].trans.as_ref().unwrap());
+        assert_eq!((ta.role, tb.role), (Role::OutJoin, Role::In));
+        assert!((tb.q - 0.25).abs() < 1e-6, "ease-in at half way");
+        assert_eq!(tb.dir, crate::transitions::Dir::Up);
+        assert_eq!(l[1].opacity, 1.0);
+        // Exit without a neighbour: the visibility falls towards the end.
+        let c = layers_at(&d, 1_750_000).into_iter().find(|l| l.item_id == "c").unwrap();
+        assert!((c.trans.unwrap().q - 0.25).abs() < 1e-6);
+        // audio-fade never touches the picture.
+        let d = doc(vec![json!({"id": "a", "trackId": "main", "type": "video", "startTime": 0, "endTime": 4,
+            "mediaItemId": "m", "transitionIn": {"type": "audio-fade", "duration": 2}})]);
+        let l = layers_at(&d, 500_000);
+        assert!(l[0].trans.is_none() && l[0].opacity == 1.0);
+    }
+
+    #[test]
+    fn layout_field_and_layout_tracks_assign_slots() {
+        let mut ops = vec![
+            Op::AddTrack { track: json!({"id": "lay", "name": "Layout", "order": 0, "type": "layout"}) },
+            Op::AddTrack { track: json!({"id": "main", "name": "Main", "order": 1, "type": "video"}) },
+            Op::AddMedia { media: json!({"id": "m", "data": {"type": "video", "duration": 100}}), entry: None },
+        ];
+        for (id, track, start, extra) in [
+            ("p", "lay", 0, json!({})),
+            ("q", "lay", 1, json!({})),
+            ("r", "main", 0, json!({"layout": {"preset": "pip-top-left", "slot": 1}})),
+        ] {
+            let mut item = json!({"id": id, "trackId": track, "type": "video", "startTime": start, "endTime": 5,
+                "mediaItemId": "m"});
+            item.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            ops.push(Op::AddItem { item });
+        }
+        let d = apply_batch(&Document::new("p", "p", 1), &ops).unwrap().doc;
+        let l = layers_at(&d, 2_000_000);
+        let slot = |id: &str| l.iter().find(|l| l.item_id == id).unwrap().slot;
+        assert_eq!(slot("r"), layouts::slot_rect("pip-top-left", 1));
+        assert_eq!(slot("p"), layouts::slot_rect("split-horizontal", 0));
+        assert_eq!(slot("q"), layouts::slot_rect("split-horizontal", 1));
+        // Alone on the layout track: full frame.
+        assert_eq!(layers_at(&d, 500_000).iter().find(|l| l.item_id == "p").unwrap().slot, None);
     }
 
     #[test]

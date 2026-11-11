@@ -448,6 +448,15 @@
                     "ease-in-out"
                   ],
                   "description": "Easing curve."
+                },
+                "direction": {
+                  "enum": [
+                    "left",
+                    "right",
+                    "up",
+                    "down"
+                  ],
+                  "description": "Direction of travel for wipe, push and fly."
                 }
               },
               "description": "Transition at the start."
@@ -476,6 +485,15 @@
                     "ease-in-out"
                   ],
                   "description": "Easing curve."
+                },
+                "direction": {
+                  "enum": [
+                    "left",
+                    "right",
+                    "up",
+                    "down"
+                  ],
+                  "description": "Direction of travel for wipe, push and fly."
                 }
               },
               "description": "Transition at the end."
@@ -496,6 +514,38 @@
                 }
               },
               "description": "Effect stack."
+            },
+            "layout": {
+              "type": "object",
+              "properties": {
+                "preset": {
+                  "enum": [
+                    "split-horizontal",
+                    "split-vertical",
+                    "3up-horizontal",
+                    "3up-vertical",
+                    "4up-horizontal",
+                    "4up-vertical",
+                    "grid-2x2",
+                    "pip-bottom-right",
+                    "pip-bottom-left",
+                    "pip-top-right",
+                    "pip-top-left",
+                    "hero-top",
+                    "hero-bottom",
+                    "hero-left",
+                    "hero-right"
+                  ],
+                  "description": "Layout preset."
+                },
+                "slot": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "description": "Slot index within the preset.",
+                  "default": 0
+                }
+              },
+              "description": "Layout slot the item fills (x, y, w, h from the preset)."
             },
             "captionComposition": {
               "type": "object",
@@ -951,6 +1001,15 @@
                     "ease-in-out"
                   ],
                   "description": "Easing curve."
+                },
+                "direction": {
+                  "enum": [
+                    "left",
+                    "right",
+                    "up",
+                    "down"
+                  ],
+                  "description": "Direction of travel for wipe, push and fly."
                 }
               },
               "description": "Transition at the start."
@@ -979,6 +1038,15 @@
                     "ease-in-out"
                   ],
                   "description": "Easing curve."
+                },
+                "direction": {
+                  "enum": [
+                    "left",
+                    "right",
+                    "up",
+                    "down"
+                  ],
+                  "description": "Direction of travel for wipe, push and fly."
                 }
               },
               "description": "Transition at the end."
@@ -999,6 +1067,38 @@
                 }
               },
               "description": "Effect stack."
+            },
+            "layout": {
+              "type": "object",
+              "properties": {
+                "preset": {
+                  "enum": [
+                    "split-horizontal",
+                    "split-vertical",
+                    "3up-horizontal",
+                    "3up-vertical",
+                    "4up-horizontal",
+                    "4up-vertical",
+                    "grid-2x2",
+                    "pip-bottom-right",
+                    "pip-bottom-left",
+                    "pip-top-right",
+                    "pip-top-left",
+                    "hero-top",
+                    "hero-bottom",
+                    "hero-left",
+                    "hero-right"
+                  ],
+                  "description": "Layout preset."
+                },
+                "slot": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "description": "Slot index within the preset.",
+                  "default": 0
+                }
+              },
+              "description": "Layout slot the item fills (x, y, w, h from the preset)."
             },
             "captionComposition": {
               "type": "object",
@@ -1385,6 +1485,15 @@
                     "ease-in-out"
                   ],
                   "description": "Easing curve."
+                },
+                "direction": {
+                  "enum": [
+                    "left",
+                    "right",
+                    "up",
+                    "down"
+                  ],
+                  "description": "Direction of travel for wipe, push and fly."
                 }
               },
               "description": "Transition at the start."
@@ -1413,6 +1522,15 @@
                     "ease-in-out"
                   ],
                   "description": "Easing curve."
+                },
+                "direction": {
+                  "enum": [
+                    "left",
+                    "right",
+                    "up",
+                    "down"
+                  ],
+                  "description": "Direction of travel for wipe, push and fly."
                 }
               },
               "description": "Transition at the end."
@@ -1433,6 +1551,38 @@
                 }
               },
               "description": "Effect stack."
+            },
+            "layout": {
+              "type": "object",
+              "properties": {
+                "preset": {
+                  "enum": [
+                    "split-horizontal",
+                    "split-vertical",
+                    "3up-horizontal",
+                    "3up-vertical",
+                    "4up-horizontal",
+                    "4up-vertical",
+                    "grid-2x2",
+                    "pip-bottom-right",
+                    "pip-bottom-left",
+                    "pip-top-right",
+                    "pip-top-left",
+                    "hero-top",
+                    "hero-bottom",
+                    "hero-left",
+                    "hero-right"
+                  ],
+                  "description": "Layout preset."
+                },
+                "slot": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "description": "Slot index within the preset.",
+                  "default": 0
+                }
+              },
+              "description": "Layout slot the item fills (x, y, w, h from the preset)."
             },
             "captionComposition": {
               "type": "object",
@@ -1882,6 +2032,15 @@
                     "ease-in-out"
                   ],
                   "description": "Easing curve."
+                },
+                "direction": {
+                  "enum": [
+                    "left",
+                    "right",
+                    "up",
+                    "down"
+                  ],
+                  "description": "Direction of travel for wipe, push and fly."
                 }
               },
               "description": "Transition at the start."
@@ -1910,6 +2069,15 @@
                     "ease-in-out"
                   ],
                   "description": "Easing curve."
+                },
+                "direction": {
+                  "enum": [
+                    "left",
+                    "right",
+                    "up",
+                    "down"
+                  ],
+                  "description": "Direction of travel for wipe, push and fly."
                 }
               },
               "description": "Transition at the end."
@@ -1930,6 +2098,38 @@
                 }
               },
               "description": "Effect stack."
+            },
+            "layout": {
+              "type": "object",
+              "properties": {
+                "preset": {
+                  "enum": [
+                    "split-horizontal",
+                    "split-vertical",
+                    "3up-horizontal",
+                    "3up-vertical",
+                    "4up-horizontal",
+                    "4up-vertical",
+                    "grid-2x2",
+                    "pip-bottom-right",
+                    "pip-bottom-left",
+                    "pip-top-right",
+                    "pip-top-left",
+                    "hero-top",
+                    "hero-bottom",
+                    "hero-left",
+                    "hero-right"
+                  ],
+                  "description": "Layout preset."
+                },
+                "slot": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "description": "Slot index within the preset.",
+                  "default": 0
+                }
+              },
+              "description": "Layout slot the item fills (x, y, w, h from the preset)."
             },
             "captionComposition": {
               "type": "object",
@@ -2290,6 +2490,15 @@
                     "ease-in-out"
                   ],
                   "description": "Easing curve."
+                },
+                "direction": {
+                  "enum": [
+                    "left",
+                    "right",
+                    "up",
+                    "down"
+                  ],
+                  "description": "Direction of travel for wipe, push and fly."
                 }
               },
               "description": "Transition at the start."
@@ -2318,6 +2527,15 @@
                     "ease-in-out"
                   ],
                   "description": "Easing curve."
+                },
+                "direction": {
+                  "enum": [
+                    "left",
+                    "right",
+                    "up",
+                    "down"
+                  ],
+                  "description": "Direction of travel for wipe, push and fly."
                 }
               },
               "description": "Transition at the end."
@@ -2338,6 +2556,38 @@
                 }
               },
               "description": "Effect stack."
+            },
+            "layout": {
+              "type": "object",
+              "properties": {
+                "preset": {
+                  "enum": [
+                    "split-horizontal",
+                    "split-vertical",
+                    "3up-horizontal",
+                    "3up-vertical",
+                    "4up-horizontal",
+                    "4up-vertical",
+                    "grid-2x2",
+                    "pip-bottom-right",
+                    "pip-bottom-left",
+                    "pip-top-right",
+                    "pip-top-left",
+                    "hero-top",
+                    "hero-bottom",
+                    "hero-left",
+                    "hero-right"
+                  ],
+                  "description": "Layout preset."
+                },
+                "slot": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "description": "Slot index within the preset.",
+                  "default": 0
+                }
+              },
+              "description": "Layout slot the item fills (x, y, w, h from the preset)."
             },
             "captionComposition": {
               "type": "object",
@@ -2650,6 +2900,15 @@
                     "ease-in-out"
                   ],
                   "description": "Easing curve."
+                },
+                "direction": {
+                  "enum": [
+                    "left",
+                    "right",
+                    "up",
+                    "down"
+                  ],
+                  "description": "Direction of travel for wipe, push and fly."
                 }
               },
               "description": "Transition at the start."
@@ -2678,6 +2937,15 @@
                     "ease-in-out"
                   ],
                   "description": "Easing curve."
+                },
+                "direction": {
+                  "enum": [
+                    "left",
+                    "right",
+                    "up",
+                    "down"
+                  ],
+                  "description": "Direction of travel for wipe, push and fly."
                 }
               },
               "description": "Transition at the end."
@@ -2698,6 +2966,38 @@
                 }
               },
               "description": "Effect stack."
+            },
+            "layout": {
+              "type": "object",
+              "properties": {
+                "preset": {
+                  "enum": [
+                    "split-horizontal",
+                    "split-vertical",
+                    "3up-horizontal",
+                    "3up-vertical",
+                    "4up-horizontal",
+                    "4up-vertical",
+                    "grid-2x2",
+                    "pip-bottom-right",
+                    "pip-bottom-left",
+                    "pip-top-right",
+                    "pip-top-left",
+                    "hero-top",
+                    "hero-bottom",
+                    "hero-left",
+                    "hero-right"
+                  ],
+                  "description": "Layout preset."
+                },
+                "slot": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "description": "Slot index within the preset.",
+                  "default": 0
+                }
+              },
+              "description": "Layout slot the item fills (x, y, w, h from the preset)."
             },
             "captionComposition": {
               "type": "object",
@@ -2995,6 +3295,15 @@
                     "ease-in-out"
                   ],
                   "description": "Easing curve."
+                },
+                "direction": {
+                  "enum": [
+                    "left",
+                    "right",
+                    "up",
+                    "down"
+                  ],
+                  "description": "Direction of travel for wipe, push and fly."
                 }
               },
               "description": "Transition at the start."
@@ -3023,6 +3332,15 @@
                     "ease-in-out"
                   ],
                   "description": "Easing curve."
+                },
+                "direction": {
+                  "enum": [
+                    "left",
+                    "right",
+                    "up",
+                    "down"
+                  ],
+                  "description": "Direction of travel for wipe, push and fly."
                 }
               },
               "description": "Transition at the end."
@@ -3043,6 +3361,38 @@
                 }
               },
               "description": "Effect stack."
+            },
+            "layout": {
+              "type": "object",
+              "properties": {
+                "preset": {
+                  "enum": [
+                    "split-horizontal",
+                    "split-vertical",
+                    "3up-horizontal",
+                    "3up-vertical",
+                    "4up-horizontal",
+                    "4up-vertical",
+                    "grid-2x2",
+                    "pip-bottom-right",
+                    "pip-bottom-left",
+                    "pip-top-right",
+                    "pip-top-left",
+                    "hero-top",
+                    "hero-bottom",
+                    "hero-left",
+                    "hero-right"
+                  ],
+                  "description": "Layout preset."
+                },
+                "slot": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "description": "Slot index within the preset.",
+                  "default": 0
+                }
+              },
+              "description": "Layout slot the item fills (x, y, w, h from the preset)."
             },
             "captionComposition": {
               "type": "object",
@@ -3474,6 +3824,15 @@
                     "ease-in-out"
                   ],
                   "description": "Easing curve."
+                },
+                "direction": {
+                  "enum": [
+                    "left",
+                    "right",
+                    "up",
+                    "down"
+                  ],
+                  "description": "Direction of travel for wipe, push and fly."
                 }
               },
               "description": "Transition at the start."
@@ -3502,6 +3861,15 @@
                     "ease-in-out"
                   ],
                   "description": "Easing curve."
+                },
+                "direction": {
+                  "enum": [
+                    "left",
+                    "right",
+                    "up",
+                    "down"
+                  ],
+                  "description": "Direction of travel for wipe, push and fly."
                 }
               },
               "description": "Transition at the end."
@@ -3522,6 +3890,38 @@
                 }
               },
               "description": "Effect stack."
+            },
+            "layout": {
+              "type": "object",
+              "properties": {
+                "preset": {
+                  "enum": [
+                    "split-horizontal",
+                    "split-vertical",
+                    "3up-horizontal",
+                    "3up-vertical",
+                    "4up-horizontal",
+                    "4up-vertical",
+                    "grid-2x2",
+                    "pip-bottom-right",
+                    "pip-bottom-left",
+                    "pip-top-right",
+                    "pip-top-left",
+                    "hero-top",
+                    "hero-bottom",
+                    "hero-left",
+                    "hero-right"
+                  ],
+                  "description": "Layout preset."
+                },
+                "slot": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "description": "Slot index within the preset.",
+                  "default": 0
+                }
+              },
+              "description": "Layout slot the item fills (x, y, w, h from the preset)."
             },
             "captionComposition": {
               "type": "object",
