@@ -229,10 +229,11 @@ Conventions:\n\
     for t in schema::ITEM_TYPES {
         s.push_str(&format!("### `{t}`\n\nFields in projection attribute order:\n\n"));
         let fields = schema::item_fields(t);
-        table(&mut s, &fields, &[]);
+        table(&mut s, fields, &[]);
     }
     s.push_str("### Nested objects\n\n");
-    let all: Vec<&'static Field> = schema::ITEM_TYPES.iter().flat_map(|t| schema::item_fields(t)).collect();
+    let all: Vec<&'static Field> =
+        schema::ITEM_TYPES.iter().flat_map(|t| schema::item_fields(t).iter().copied()).collect();
     nested(&mut s, &mut seen, &all);
     s
 }

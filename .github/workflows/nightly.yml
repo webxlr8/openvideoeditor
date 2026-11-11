@@ -11,7 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [read_json, apply_batch]
+        target: [read_json, apply_batch, parse_projection]
     steps:
       - uses: actions/checkout@v4
       - run: rustup toolchain install nightly --profile minimal
@@ -40,3 +40,5 @@ jobs:
           cargo test --release -p ove-store --test crash
           cargo test --release -p ove-store --test store -- --include-ignored
           OVE_PERF_ENFORCE=1 cargo test --release -p ove-store --test perf -- --ignored --nocapture
+          cargo test --release -p ove-projection --test perf -- --ignored --nocapture
+          OVE_SOAK_SECS=1800 cargo test --release -p ove-store --test projection concurrency_soak -- --nocapture

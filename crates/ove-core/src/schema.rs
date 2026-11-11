@@ -310,9 +310,7 @@ const ADJUSTMENT: &[Field] = &[
 const SHADER: &[Field] =
     &[f("shaderComposition", Kind::Obj { fields: SHADER_COMPOSITION, open: false }, "Shader layer definition.")];
 
-/// Known non-head fields of an item type, in projection attribute order: identity, timing, media, content, look,
-/// sound. Unknown fields follow, sorted by key.
-pub fn item_fields(item_type: &str) -> Vec<&'static Field> {
+fn build_item_fields(item_type: &str) -> Vec<&'static Field> {
     let mut groups: Vec<&'static [Field]> = vec![IDENTITY, TIMING, MEDIA];
     match item_type {
         "video" => groups.extend([LOOK, GRADE, SOUND]),
@@ -328,9 +326,42 @@ pub fn item_fields(item_type: &str) -> Vec<&'static Field> {
     groups.into_iter().flat_map(|g| g.iter()).collect()
 }
 
+struct FieldTables {
+    lists: std::collections::HashMap<&'static str, Vec<&'static Field>>,
+    fallback: Vec<&'static Field>,
+    index: std::collections::HashMap<(&'static str, &'static str), &'static Field>,
+}
+
+fn tables() -> &'static FieldTables {
+    static T: std::sync::OnceLock<FieldTables> = std::sync::OnceLock::new();
+    T.get_or_init(|| {
+        let mut lists = std::collections::HashMap::new();
+        let mut index = std::collections::HashMap::new();
+        for t in ITEM_TYPES {
+            let l = build_item_fields(t);
+            for f in &l {
+                index.insert((*t, f.name), *f);
+            }
+            lists.insert(*t, l);
+        }
+        FieldTables { lists, fallback: build_item_fields(""), index }
+    })
+}
+
+/// Known non-head fields of an item type, in projection attribute order: identity, timing, media, content, look,
+/// sound. Unknown fields follow, sorted by key.
+pub fn item_fields(item_type: &str) -> &'static [&'static Field] {
+    let t = tables();
+    t.lists.get(item_type).unwrap_or(&t.fallback)
+}
+
 /// Looks up a known field of an item type.
 pub fn item_field(item_type: &str, name: &str) -> Option<&'static Field> {
-    item_fields(item_type).into_iter().find(|f| f.name == name)
+    let t = tables();
+    match t.lists.get_key_value(item_type) {
+        Some((k, _)) => t.index.get(&(*k, name)).copied(),
+        None => t.fallback.iter().find(|f| f.name == name).copied(),
+    }
 }
 
 // ---------------------------------------------------------------------------------------------------------------

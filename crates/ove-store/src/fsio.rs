@@ -241,3 +241,13 @@ pub fn clean_temp_files(dir: &Path) {
         }
     }
 }
+
+/// Writes a derived (regenerable) file atomically without flushing: temp file + rename.
+pub fn write_derived(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    let tmp = temp_name(path);
+    let r = fs::write(&tmp, bytes).and_then(|()| rename_with_retry(&tmp, path));
+    if r.is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+    r
+}

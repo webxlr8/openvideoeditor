@@ -98,3 +98,51 @@ change 8.
 ## Migration Plan
 
 None (new capability). The projection carries a format marker in its header so future layout changes stay readable.
+
+## Implementation notes (decisions made during apply)
+
+- **File shape.** `export default ( <timeline aspect="…"> <track …> items </track> </timeline> );` — the aspect ratio
+  lives on the root element (the header is informational), tracks carry `kind` (the reference's `kind`↔`type`), and
+  the file is complete TSX so editors type-check it against `timeline.d.ts`. Full rules:
+  `docs/spec/projection-format.md`.
+- **Merge implementation.** The merge builds the target document from the current one and turns it into ops with
+  the document diff, so the result always goes through `apply_batch` (invariants, atomicity, one revision).
+- **Already-applied detection.** A new item (or track) in the file that is identical to one the editor gained since
+  the base counts as already applied. Without it, re-applying an agent's own file that contains new items would
+  duplicate them, breaking D5 property 6.
+- **Syntax-error recovery.** oxc stops at a fatal syntax error; to report later problems too ("multiple errors"
+  scenario), the item element containing the error is blanked (offsets preserved) and the file re-parsed, up to 50
+  times. The recovered tree is used for diagnostics only.
+- **`extraFields`.** Unknown fields whose names are not valid JSX attribute names, or collide with projection
+  attribute names (`start`, `src`, …), print inside one `extraFields={{…}}` attribute. Found by the golden corpus.
+- **Typings accept unknown keys** in known objects (`[key: string]: unknown`) because `check` accepts them with a
+  warning; otherwise a file `check` accepts would fail `tsc`.
+- **"Gaps on the first video track"** is implemented as the main track: the bottom-most video track (the base layer),
+  since the first track in order is the top layer (titles). To be confirmed by the owner.
+- **Projection rewrite cadence.** Printing a 5,000-item document takes ~28 ms, so the store rewrites `timeline.tsx` on
+  a background writer that coalesces bursts; `flush_projection()` waits for it and `close()` joins it. Commits stay
+  within the 10 ms budget (p95 2 ms measured) and the file reflects each revision within one print.
+- **Store fix found by the soak:** reconstructing a revision that is exactly a periodic snapshot panicked (empty
+  replay range). Fixed and covered by a test.
+
+## Results
+
+Environment: Linux x86_64 dev container (4 vCPU), Rust 1.97.0, release build for timings.
+
+| Check | Result |
+|---|---|
+| Golden corpus: 4 valid documents print byte-for-byte; 23 invalid projections report the expected code at the expected line:column; every diagnostic code covered | pass |
+| `tsc --strict` on the corpus projections against the generated `timeline.d.ts` (TypeScript 5.9.3) | pass (4/4) |
+| Round trip `parse(print(D)) == normalise(D)` and print idempotence (10,000 generated documents) | pass |
+| Merge properties 2–7 (10,000 cases each); disjoint-edit property exercised with both sides non-empty in ~53% of cases; overlapping-edit generator checks ~2,000 field conflicts per run | pass |
+| 23 named spec-scenario tests (stable output, header edits, literal-only, backslash, multiple errors, unknown keys, identity, merge, granularity, conflicts, removal conflicts, base availability, text edits, media refs, placeholders, verify) | pass |
+| CLI: every documented example in `docs/cli/timeline.md` runs with its documented exit code; success and refusal paths of every command incl. lock held by another writer | pass |
+| Concurrency soak, 60 s: 27,510 GUI batches racing 11,792 print → edit → apply round trips | 0 lost edits, 0 invariant failures, 0 conflicts on disjoint fields |
+| Print a 5,000-item project (790 KB projection) | **28 ms** p50 (budget 100 ms) |
+| Check + apply a one-item edit on 5,000 items | **61 ms** p50, 92 ms max (budget 150 ms) |
+| 1-op GUI commit with projection following | p50 0.96 ms, p95 2.0 ms |
+
+Not yet verified (tasks left open): owner review of the format document (1.1); byte-identical output and the
+property suites on macOS and Windows (2.1, 3.3 — CI jobs added); the nightly 30-minute parser fuzz (3.4, target
+added, short local runs below); `~/` paths and Windows drive paths with real files (5.1); the CLI suite on both OSes
+(6.1); the 30-minute soak (7.1, nightly job added; 60 s run here); reference-machine performance (7.2).

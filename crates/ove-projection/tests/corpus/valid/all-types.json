@@ -1,0 +1,298 @@
+{
+  "format": "ove-project",
+  "version": 1,
+  "project": {
+    "id": "p_all",
+    "name": "Every item type",
+    "createdAt": 1762000000000,
+    "updatedAt": 1762000005000,
+    "stateUpdatedAt": 1762000005000,
+    "aspectRatio": "16:9",
+    "media": [
+      {
+        "id": "m_audio",
+        "createdAt": 1762000000000,
+        "addedAt": 1762000000000,
+        "data": {
+          "type": "audio",
+          "fileName": "music.m4a",
+          "duration": 30,
+          "hasAudio": true
+        }
+      },
+      {
+        "id": "m_img",
+        "createdAt": 1762000000000,
+        "addedAt": 1762000000000,
+        "data": {
+          "type": "image",
+          "fileName": "still.png",
+          "width": 1920,
+          "height": 1080
+        }
+      },
+      {
+        "id": "m_vid",
+        "createdAt": 1762000000000,
+        "addedAt": 1762000000000,
+        "data": {
+          "type": "video",
+          "fileName": "interview.mov",
+          "duration": 12.5,
+          "width": 3840,
+          "height": 2160,
+          "frameRate": 25,
+          "hasAudio": true
+        }
+      }
+    ],
+    "tracks": [
+      {
+        "id": "t_titles",
+        "name": "Titles",
+        "order": 0,
+        "type": "video",
+        "locked": false,
+        "visible": true,
+        "muted": false
+      },
+      {
+        "id": "t_captions",
+        "name": "Captions",
+        "order": 1,
+        "type": "caption"
+      },
+      {
+        "id": "t_fx",
+        "name": "Adjustments",
+        "order": 2,
+        "type": "adjustment"
+      },
+      {
+        "id": "t_main",
+        "name": "Main",
+        "order": 3,
+        "type": "video"
+      },
+      {
+        "id": "t_music",
+        "name": "Music",
+        "order": 4,
+        "type": "audio",
+        "muted": true
+      }
+    ],
+    "timelineItems": [
+      {
+        "id": "i_text",
+        "trackId": "t_titles",
+        "type": "text",
+        "startTime": 0,
+        "endTime": 3,
+        "name": "Title",
+        "textContent": "Hello\nworld",
+        "fontFamily": "Inter",
+        "fontSize": 96,
+        "fontWeight": 700,
+        "color": "#ffffff",
+        "textAlign": "center",
+        "textAnimation": {
+          "preset": "fade-up",
+          "speed": 1.2
+        },
+        "transform": {
+          "x": 0,
+          "y": -200,
+          "scale": 1
+        }
+      },
+      {
+        "id": "i_code",
+        "trackId": "t_titles",
+        "type": "code",
+        "startTime": 3,
+        "endTime": 6,
+        "codeComposition": {
+          "source": "export default ({time}) => <div style={{opacity: time}}>Hi</div>",
+          "width": 1920,
+          "height": 1080,
+          "assets": {
+            "logo": "m_img"
+          }
+        }
+      },
+      {
+        "id": "i_shader",
+        "trackId": "t_titles",
+        "type": "shader",
+        "startTime": 6,
+        "endTime": 8.25,
+        "shaderComposition": {
+          "template": "light-leak",
+          "params": {
+            "intensity": 0.15
+          },
+          "amount": 1,
+          "region": "all"
+        }
+      },
+      {
+        "id": "i_cap",
+        "trackId": "t_captions",
+        "type": "caption",
+        "startTime": 0.5,
+        "endTime": 4,
+        "captionText": "Hello there",
+        "captionSegments": [
+          {
+            "id": "s1",
+            "text": "Hello there",
+            "startTime": 0,
+            "endTime": 1.2,
+            "wordTimings": [
+              {
+                "word": "Hello",
+                "start": 0,
+                "end": 0.6
+              },
+              {
+                "word": "there",
+                "start": 0.6,
+                "end": 1.2
+              }
+            ]
+          }
+        ],
+        "captionPresetId": "bold-pop",
+        "captionHighlightColor": "#ffdd00",
+        "captionComposition": {
+          "mode": "behind-subject",
+          "fallback": "hide"
+        }
+      },
+      {
+        "id": "i_adj",
+        "trackId": "t_fx",
+        "type": "adjustment",
+        "startTime": 0,
+        "endTime": 12.5,
+        "adjustmentKind": "lut",
+        "lutPresetId": "teal-orange",
+        "lutIntensity": 0.6,
+        "colorGrading": {
+          "contrast": 0.1,
+          "saturation": -0.05
+        }
+      },
+      {
+        "id": "i_vid",
+        "trackId": "t_main",
+        "type": "video",
+        "startTime": 0,
+        "endTime": 8,
+        "name": "Interview",
+        "trimStart": 1.5,
+        "trimEnd": 3,
+        "mediaItemId": "m_vid",
+        "volume": 80,
+        "audioFadeOut": {
+          "duration": 0.5,
+          "easing": "ease-out"
+        },
+        "transitionOut": {
+          "type": "crossfade",
+          "duration": 0.75
+        },
+        "keyframeTracks": [
+          {
+            "property": "scale",
+            "keyframes": [
+              {
+                "time": 0,
+                "value": 1
+              },
+              {
+                "time": 8,
+                "value": 1.1
+              }
+            ],
+            "easing": "ease-in-out"
+          }
+        ],
+        "effects": [
+          {
+            "id": "fx1",
+            "type": "vhs",
+            "wobble": 1
+          }
+        ],
+        "colorGrade": {
+          "lut": {
+            "preset": "film",
+            "intensity": 0.5,
+            "stage": "look"
+          }
+        }
+      },
+      {
+        "id": "i_img",
+        "trackId": "t_main",
+        "type": "image",
+        "startTime": 8,
+        "endTime": 10,
+        "mediaItemId": "m_img",
+        "crop": {
+          "top": 10,
+          "bottom": 10
+        },
+        "opacity": 0.9,
+        "blendMode": "screen",
+        "borderRadius": 24
+      },
+      {
+        "id": "i_pending",
+        "trackId": "t_main",
+        "type": "video",
+        "startTime": 10,
+        "endTime": 14,
+        "pending": true,
+        "pendingDescription": "Drone shot over the harbour at dawn"
+      },
+      {
+        "id": "i_music",
+        "trackId": "t_music",
+        "type": "audio",
+        "startTime": 0,
+        "endTime": 14,
+        "mediaItemId": "m_audio",
+        "volume": 35,
+        "audioFadeIn": {
+          "duration": 1
+        },
+        "playbackSpeed": 1.25
+      }
+    ]
+  },
+  "media": [
+    {
+      "mediaId": "m_audio",
+      "nativePath": "/Users/me/Music/music.m4a",
+      "ownedByBundle": false,
+      "probeStatus": "probed",
+      "size": 482113,
+      "modifiedAt": 1761000000000
+    },
+    {
+      "mediaId": "m_img",
+      "nativePath": "media/still.png",
+      "ownedByBundle": true,
+      "probeStatus": "probed"
+    },
+    {
+      "mediaId": "m_vid",
+      "nativePath": "/Volumes/Footage/interview.mov",
+      "ownedByBundle": false,
+      "probeStatus": "awaiting-probe"
+    }
+  ]
+}

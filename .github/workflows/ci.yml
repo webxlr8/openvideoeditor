@@ -36,6 +36,9 @@ jobs:
         run: |
           cargo run -q -p ove-core --bin ove-schema -- --check
           cargo run -q -p ove-projection --bin ove-typings -- --check
+      - name: projection corpus type-checks against timeline.d.ts
+        shell: bash
+        run: tools/check-projection-types.sh
 
   media:
     name: media + desktop (${{ matrix.os }})

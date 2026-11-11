@@ -67,6 +67,8 @@ pub struct Project {
     bundle: PathBuf,
     session: Session,
     mode: Mode,
+    /// Declared before the lock so it is dropped (and joined) while the lock is still held.
+    projection: Option<ProjectionWriter>,
     _lock: Option<WriteLock>,
     clock: Arc<dyn Clock>,
     /// Revision of the document in `project.json` on disk.
@@ -234,6 +236,7 @@ impl Project {
             bundle: bundle.to_path_buf(),
             session: Session::new(doc),
             mode,
+            projection: (mode == Mode::Write).then(|| ProjectionWriter::spawn(bundle.to_path_buf())),
             _lock: if mode == Mode::Write { lock } else { None },
             clock,
             snapshot_rev,
@@ -252,6 +255,9 @@ impl Project {
         // Replayed records are folded into the snapshot right away so project.json is current.
         if p.mode == Mode::Write && p.rev() != snapshot_on_disk(bundle) {
             p.snapshot_now()?;
+        }
+        if p.mode == Mode::Write && projection_rev_on_disk(bundle) != Some(p.rev()) {
+            p.write_projection();
         }
         Ok(p)
     }
@@ -327,6 +333,8 @@ impl Project {
     }
 
     fn after_commit(&mut self) {
+        // The projection follows every revision (derived data: atomic rename, no flush).
+        self.write_projection();
         // Periodic full snapshot for bounded reconstruction.
         let last_snap = self.snaps.last().copied().unwrap_or(i64::MIN);
         if self.records.range(last_snap + 1..).count() >= SNAPSHOT_EVERY {
@@ -471,7 +479,9 @@ impl Project {
                 return Err(StoreError::refused("revision.invalid", "snapshot is from a newer version"));
             }
         };
-        for r in self.records.range(base + 1..=rev).map(|(r, _)| *r) {
+        let replay: Vec<i64> =
+            if base < rev { self.records.range(base + 1..=rev).map(|(r, _)| *r).collect() } else { Vec::new() };
+        for r in replay {
             let rec = read_record(&self.bundle, r)?;
             doc = ove_core::apply_batch(&doc, &rec.ops)?.doc;
             doc.project.rev = rec.rev;
@@ -528,6 +538,158 @@ impl Project {
             self.prune()?;
         }
         Ok(())
+    }
+}
+
+/// File names of the projection and its typings inside the bundle.
+pub const PROJECTION_FILE: &str = "timeline.tsx";
+pub const TYPINGS_FILE: &str = "timeline.d.ts";
+const DIAGNOSTICS_FILE: &str = "cache/diagnostics.json";
+
+fn projection_rev_on_disk(bundle: &Path) -> Option<i64> {
+    let text = std::fs::read_to_string(bundle.join(PROJECTION_FILE)).ok()?;
+    ove_projection::parse::header_rev(&text)?.ok()
+}
+
+impl Project {
+    /// Header context for printing: diagnostics from the last projection apply and offline media.
+    pub fn print_context(&self) -> ove_projection::PrintContext {
+        let diagnostics = std::fs::read(self.bundle.join(DIAGNOSTICS_FILE))
+            .ok()
+            .and_then(|b| serde_json::from_slice::<Vec<String>>(&b).ok())
+            .unwrap_or_default();
+        let offline = crate::media::media_status(&self.bundle, self.doc())
+            .into_iter()
+            .filter(|m| m.state == crate::media::MediaState::Offline)
+            .map(|m| m.media_id)
+            .collect();
+        ove_projection::PrintContext { diagnostics, offline }
+    }
+
+    /// The projection text of the current revision (printed now, in the calling thread).
+    pub fn projection(&self) -> String {
+        ove_projection::print(self.doc(), &self.print_context())
+    }
+
+    /// Records the warnings listed in the next printed header (empty clears them).
+    pub fn set_diagnostics(&mut self, lines: Vec<String>) -> Result<()> {
+        let path = self.bundle.join(DIAGNOSTICS_FILE);
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        fsio::write_atomic(&path, &serde_json::to_vec(&lines).unwrap(), INDEX, false)
+            .map_err(|e| StoreError::io("write", &path, e))?;
+        self.write_projection();
+        Ok(())
+    }
+
+    /// Queues a rewrite of `timeline.tsx` and `timeline.d.ts` for the current revision. A background writer
+    /// coalesces bursts so a commit never waits for printing; failures are logged, never fatal (derived files).
+    pub fn write_projection(&self) {
+        if let Some(w) = &self.projection {
+            w.submit(self.session.doc().clone());
+        }
+    }
+
+    /// Waits until the projection on disk reflects the current revision.
+    pub fn flush_projection(&self) {
+        if let Some(w) = &self.projection {
+            w.flush();
+        }
+    }
+}
+
+enum Job {
+    Write(Box<Document>),
+    Flush(std::sync::mpsc::SyncSender<()>),
+}
+
+/// Background projection writer: prints the latest submitted document, skipping superseded ones.
+struct ProjectionWriter {
+    tx: Option<std::sync::mpsc::Sender<Job>>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+fn write_projection_files(bundle: &Path, doc: &Document) {
+    let diagnostics = std::fs::read(bundle.join(DIAGNOSTICS_FILE))
+        .ok()
+        .and_then(|b| serde_json::from_slice::<Vec<String>>(&b).ok())
+        .unwrap_or_default();
+    let offline = crate::media::media_status(bundle, doc)
+        .into_iter()
+        .filter(|m| m.state == crate::media::MediaState::Offline)
+        .map(|m| m.media_id)
+        .collect();
+    let text = ove_projection::print(doc, &ove_projection::PrintContext { diagnostics, offline });
+    let tsx = bundle.join(PROJECTION_FILE);
+    if let Err(e) = fsio::write_derived(&tsx, text.as_bytes()) {
+        tracing::error!(error = %e, "could not write the timeline projection");
+    }
+    let dts = bundle.join(TYPINGS_FILE);
+    let want = ove_projection::typings::typings();
+    if std::fs::read_to_string(&dts).ok().as_deref() != Some(want.as_str())
+        && let Err(e) = fsio::write_derived(&dts, want.as_bytes())
+    {
+        tracing::error!(error = %e, "could not write the timeline typings");
+    }
+}
+
+impl ProjectionWriter {
+    fn spawn(bundle: PathBuf) -> Self {
+        let (tx, rx) = std::sync::mpsc::channel::<Job>();
+        let thread = std::thread::Builder::new()
+            .name("projection-writer".into())
+            .spawn(move || {
+                while let Ok(job) = rx.recv() {
+                    let mut latest = None;
+                    let mut acks = Vec::new();
+                    let mut take = |j: Job| match j {
+                        Job::Write(d) => latest = Some(d),
+                        Job::Flush(ack) => acks.push(ack),
+                    };
+                    take(job);
+                    while let Ok(j) = rx.try_recv() {
+                        take(j);
+                    }
+                    if let Some(doc) = latest {
+                        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            write_projection_files(&bundle, &doc)
+                        }));
+                        if r.is_err() {
+                            tracing::error!("projection writer panicked; the projection may be stale");
+                        }
+                    }
+                    for a in acks {
+                        let _ = a.send(());
+                    }
+                }
+            })
+            .expect("spawn projection writer");
+        ProjectionWriter { tx: Some(tx), thread: Some(thread) }
+    }
+
+    fn submit(&self, doc: Document) {
+        if let Some(tx) = &self.tx {
+            let _ = tx.send(Job::Write(Box::new(doc)));
+        }
+    }
+
+    fn flush(&self) {
+        if let Some(tx) = &self.tx {
+            let (ack, done) = std::sync::mpsc::sync_channel(1);
+            if tx.send(Job::Flush(ack)).is_ok() {
+                let _ = done.recv();
+            }
+        }
+    }
+}
+
+impl Drop for ProjectionWriter {
+    fn drop(&mut self) {
+        self.tx.take();
+        if let Some(t) = self.thread.take() {
+            let _ = t.join();
+        }
     }
 }
 

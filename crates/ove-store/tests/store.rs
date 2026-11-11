@@ -159,6 +159,9 @@ fn history_restore_and_retention() {
     assert_eq!(rec.record.source, Source::Restore);
     assert!(p.doc().content_eq(&at_mid));
     assert_eq!(p.restore(mid).unwrap().map(|c| c.record.rev), None, "already equal");
+    // A revision that is exactly a periodic snapshot rebuilds from the snapshot alone.
+    let snap_rev = hist[199].rev;
+    assert_eq!(p.doc_at(snap_rev).unwrap().project.rev, snap_rev);
     assert_eq!(p.doc_at(p.rev() + 10).unwrap_err().code(), "revision.newer");
     assert_eq!(p.doc_at(5).unwrap_err().code(), "revision.missing");
 }

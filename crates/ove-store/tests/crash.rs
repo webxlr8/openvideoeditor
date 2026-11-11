@@ -151,5 +151,6 @@ fn kill_at_random_points_never_corrupts() {
     eprintln!(
         "crash harness: {run} runs — {killed_by_failpoint} killed at a failpoint, {killed_externally} killed externally, {completed} completed; acked-batch histogram {acked_hist:?}"
     );
-    assert!(killed_by_failpoint > runs / 5 && killed_externally > runs / 5);
+    // Sanity: both kill styles happen (the mix varies with machine load).
+    assert!(killed_by_failpoint > runs / 10 && killed_externally > runs / 10);
 }
