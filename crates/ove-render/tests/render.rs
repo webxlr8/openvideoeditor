@@ -265,3 +265,72 @@ fn export_round_trip() {
     assert!(matches!(c, Err(ove_render::ExportError::Cancelled)));
     assert!(!d.path().join("c.mp4").exists());
 }
+
+fn with(doc: &Document, ops: Vec<Op>) -> Document {
+    apply_batch(doc, &ops).unwrap().doc
+}
+
+fn set(id: &str, v: Value) -> Op {
+    Op::UpdateItem { id: id.into(), set: v.as_object().unwrap().clone() }
+}
+
+#[test]
+fn transitions_effects_layouts_shaders_and_grades() {
+    let Some(f) = fixture() else { return eprintln!("skipped: no ffmpeg CLI") };
+    let mut r = Renderer::new(None, 180);
+    // Wipe left half way: the right side already shows the incoming blue, the left still the outgoing red.
+    let wipe = with(&f.doc, vec![set("b", json!({"transitionIn": {"type": "wipe-left", "duration": 0.5}}))]);
+    let fr = r.render(&wipe, 1_250_000);
+    assert!(
+        near(fr.px(310, 90), [0, 0, 255], 40) && near(fr.px(10, 90), [255, 0, 0], 40),
+        "wipe {:?} {:?}",
+        fr.px(310, 90),
+        fr.px(10, 90)
+    );
+    // Push left half way: incoming on the right half, outgoing pushed to the left half.
+    let push =
+        with(&f.doc, vec![set("b", json!({"transitionIn": {"type": "push", "direction": "left", "duration": 0.5}}))]);
+    let fr = r.render(&push, 1_250_000);
+    assert!(near(fr.px(250, 90), [0, 0, 255], 40) && near(fr.px(60, 90), [255, 0, 0], 40), "push");
+    // Film burn adds light at the middle of the transition.
+    let burn = with(&f.doc, vec![set("b", json!({"transitionIn": {"type": "film-burn", "duration": 0.5}}))]);
+    let lit: u32 = r.render(&burn, 1_250_000).data.chunks(4).map(|p| p[1] as u32).sum();
+    assert!(lit > 320 * 180 * 10, "film burn brightens: {lit}");
+    // Layout: the red clip in the right slot of a side-by-side split leaves the left half black.
+    let lay = with(&f.doc, vec![set("r", json!({"layout": {"preset": "split-horizontal", "slot": 1}}))]);
+    let fr = r.render(&lay, 900_000);
+    assert!(near(fr.px(10, 90), [0, 0, 0], 5) && near(fr.px(240, 90), [255, 0, 0], 40), "layout");
+    // Per-item effect: duotone maps the red's dark luma to the bluish shadow colour.
+    let fx = with(&f.doc, vec![set("r", json!({"effects": [{"id": "e", "type": "duotone"}]}))]);
+    let p = r.render(&fx, 900_000).px(160, 90);
+    assert!(p[2] > p[0], "duotone {p:?}");
+    // Shader item over everything: a background generator replaces the picture.
+    let sh = with(
+        &f.doc,
+        vec![
+            Op::AddTrack { track: json!({"id": "sh", "name": "Shader", "order": 0, "type": "video"}) },
+            Op::AddItem {
+                item: json!({"id": "s", "trackId": "sh", "type": "shader", "startTime": 0, "endTime": 1,
+                    "shaderComposition": {"template": "stripes", "amount": 100,
+                        "params": {"colorA": [0, 1, 0], "colorB": [0, 1, 0]}}}),
+            },
+        ],
+    );
+    assert!(near(r.render(&sh, 900_000).px(160, 90), [0, 255, 0], 5), "shader item");
+    // Grade: a black-and-white look LUT on the green still (with the adjustment layer's own grade removed).
+    let g = with(
+        &f.doc,
+        vec![
+            set("a", json!({"colorGrading": {"saturation": 0}})),
+            set("g", json!({"colorGrade": {"lut": {"preset": "black-and-white", "intensity": 1}}})),
+        ],
+    );
+    let p = r.render(&g, 2_500_000).px(160, 90);
+    assert!((p[0] as i32 - p[2] as i32).abs() <= 4 && p[1] < 200, "black and white {p:?}");
+    // audio-fade ramps the sound in, and leaves the picture alone.
+    let af = with(&f.doc, vec![set("r", json!({"transitionIn": {"type": "audio-fade", "duration": 1}}))]);
+    let quiet = rms(&Mixer::new(None).mix(&af, 50_000, 2400));
+    let full = rms(&Mixer::new(None).mix(&f.doc, 50_000, 2400));
+    assert!(quiet < full * 0.2, "audio fade {quiet} vs {full}");
+    assert!(near(r.render(&af, 100_000).px(10, 170), [255, 0, 0], 30));
+}

@@ -1,0 +1,3029 @@
+{
+  "effects": [
+    {
+      "id": "duotone",
+      "label": "Duotone",
+      "group": "stylize",
+      "params": [
+        {
+          "name": "shadows",
+          "kind": {
+            "kind": "color"
+          },
+          "default": [
+            0.09,
+            0.11,
+            0.36
+          ]
+        },
+        {
+          "name": "highlights",
+          "kind": {
+            "kind": "color"
+          },
+          "default": [
+            1.0,
+            0.55,
+            0.42
+          ]
+        },
+        {
+          "name": "balance",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 0.5
+        }
+      ],
+      "animated": false
+    },
+    {
+      "id": "tritone",
+      "label": "Tritone",
+      "group": "stylize",
+      "params": [
+        {
+          "name": "shadows",
+          "kind": {
+            "kind": "color"
+          },
+          "default": [
+            0.11,
+            0.122,
+            0.302
+          ]
+        },
+        {
+          "name": "midtones",
+          "kind": {
+            "kind": "color"
+          },
+          "default": [
+            0.831,
+            0.337,
+            0.416
+          ]
+        },
+        {
+          "name": "highlights",
+          "kind": {
+            "kind": "color"
+          },
+          "default": [
+            1.0,
+            0.914,
+            0.722
+          ]
+        },
+        {
+          "name": "midpoint",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 0.5
+        }
+      ],
+      "animated": false
+    },
+    {
+      "id": "gradient-map",
+      "label": "Gradient map",
+      "group": "stylize",
+      "params": [
+        {
+          "name": "shadows",
+          "kind": {
+            "kind": "color"
+          },
+          "default": [
+            0.102,
+            0.043,
+            0.18
+          ]
+        },
+        {
+          "name": "midtones",
+          "kind": {
+            "kind": "color"
+          },
+          "default": [
+            0.914,
+            0.271,
+            0.376
+          ]
+        },
+        {
+          "name": "highlights",
+          "kind": {
+            "kind": "color"
+          },
+          "default": [
+            0.976,
+            0.929,
+            0.412
+          ]
+        },
+        {
+          "name": "speed",
+          "kind": {
+            "kind": "number",
+            "min": -2.0,
+            "max": 2.0
+          },
+          "default": 0.15
+        },
+        {
+          "name": "contrast",
+          "kind": {
+            "kind": "number",
+            "min": 0.0,
+            "max": 3.0
+          },
+          "default": 1.0
+        },
+        {
+          "name": "blackPoint",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 0.0
+        },
+        {
+          "name": "whitePoint",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 1.0
+        },
+        {
+          "name": "strength",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 1.0
+        }
+      ],
+      "animated": true
+    },
+    {
+      "id": "posterize",
+      "label": "Posterize",
+      "group": "stylize",
+      "params": [
+        {
+          "name": "levels",
+          "kind": {
+            "kind": "number",
+            "min": 2.0,
+            "max": 20.0
+          },
+          "default": 5.0
+        }
+      ],
+      "animated": false
+    },
+    {
+      "id": "solarize",
+      "label": "Solarize",
+      "group": "stylize",
+      "params": [
+        {
+          "name": "threshold",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 0.5
+        },
+        {
+          "name": "strength",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 1.0
+        }
+      ],
+      "animated": false
+    },
+    {
+      "id": "halftone",
+      "label": "Halftone",
+      "group": "stylize",
+      "params": [
+        {
+          "name": "frequency",
+          "kind": {
+            "kind": "number",
+            "min": 10.0,
+            "max": 300.0
+          },
+          "default": 60.0
+        },
+        {
+          "name": "angle",
+          "kind": {
+            "kind": "number",
+            "min": 0.0,
+            "max": 360.0
+          },
+          "default": 45.0
+        },
+        {
+          "name": "cmyk",
+          "kind": {
+            "kind": "number",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 0.0
+        },
+        {
+          "name": "misprint",
+          "kind": {
+            "kind": "number",
+            "min": 0.0,
+            "max": 0.01
+          },
+          "default": 0.0
+        }
+      ],
+      "animated": false
+    },
+    {
+      "id": "dither",
+      "label": "Dither",
+      "group": "stylize",
+      "params": [
+        {
+          "name": "pixelSize",
+          "kind": {
+            "kind": "number",
+            "min": 1.0,
+            "max": 20.0
+          },
+          "default": 4.0
+        },
+        {
+          "name": "threshold",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 0.5
+        },
+        {
+          "name": "spread",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 1.0
+        },
+        {
+          "name": "dark",
+          "kind": {
+            "kind": "color"
+          },
+          "default": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "name": "light",
+          "kind": {
+            "kind": "color"
+          },
+          "default": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        {
+          "name": "sourceColors",
+          "kind": {
+            "kind": "toggle"
+          },
+          "default": 0.0
+        }
+      ],
+      "animated": false
+    },
+    {
+      "id": "engraving",
+      "label": "Engraving",
+      "group": "stylize",
+      "params": [
+        {
+          "name": "frequency",
+          "kind": {
+            "kind": "number",
+            "min": 20.0,
+            "max": 300.0
+          },
+          "default": 90.0
+        },
+        {
+          "name": "angle",
+          "kind": {
+            "kind": "number",
+            "min": 0.0,
+            "max": 360.0
+          },
+          "default": 8.0
+        },
+        {
+          "name": "crossHatch",
+          "kind": {
+            "kind": "toggle"
+          },
+          "default": 1.0
+        },
+        {
+          "name": "relief",
+          "kind": {
+            "kind": "number",
+            "min": 0.0,
+            "max": 2.0
+          },
+          "default": 0.6
+        },
+        {
+          "name": "waviness",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 0.35
+        },
+        {
+          "name": "contrast",
+          "kind": {
+            "kind": "number",
+            "min": 0.25,
+            "max": 3.0
+          },
+          "default": 1.15
+        },
+        {
+          "name": "inkColor",
+          "kind": {
+            "kind": "color"
+          },
+          "default": [
+            0.102,
+            0.078,
+            0.063
+          ]
+        },
+        {
+          "name": "paperColor",
+          "kind": {
+            "kind": "color"
+          },
+          "default": [
+            0.957,
+            0.933,
+            0.886
+          ]
+        }
+      ],
+      "animated": false
+    },
+    {
+      "id": "watercolor",
+      "label": "Watercolor",
+      "group": "stylize",
+      "params": [
+        {
+          "name": "brushSize",
+          "kind": {
+            "kind": "number",
+            "min": 1.0,
+            "max": 12.0
+          },
+          "default": 4.0
+        },
+        {
+          "name": "bleed",
+          "kind": {
+            "kind": "number",
+            "min": 0.0,
+            "max": 3.0
+          },
+          "default": 1.0
+        },
+        {
+          "name": "paper",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 0.35
+        },
+        {
+          "name": "paperColor",
+          "kind": {
+            "kind": "color"
+          },
+          "default": [
+            0.984,
+            0.969,
+            0.925
+          ]
+        },
+        {
+          "name": "strength",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 1.0
+        }
+      ],
+      "animated": false
+    },
+    {
+      "id": "pixelate",
+      "label": "Pixelate",
+      "group": "stylize",
+      "params": [
+        {
+          "name": "cells",
+          "kind": {
+            "kind": "number",
+            "min": 1.0,
+            "max": 200.0
+          },
+          "default": 50.0
+        },
+        {
+          "name": "gap",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 0.95
+          },
+          "default": 0.0
+        },
+        {
+          "name": "roundness",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 0.0
+        }
+      ],
+      "animated": false
+    },
+    {
+      "id": "chromatic-aberration",
+      "label": "Chromatic aberration",
+      "group": "stylize",
+      "params": [
+        {
+          "name": "strength",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 0.2
+        },
+        {
+          "name": "angle",
+          "kind": {
+            "kind": "number",
+            "min": 0.0,
+            "max": 360.0
+          },
+          "default": 0.0
+        },
+        {
+          "name": "redOffset",
+          "kind": {
+            "kind": "number",
+            "min": -2.0,
+            "max": 2.0
+          },
+          "default": -1.0
+        },
+        {
+          "name": "greenOffset",
+          "kind": {
+            "kind": "number",
+            "min": -2.0,
+            "max": 2.0
+          },
+          "default": 0.0
+        },
+        {
+          "name": "blueOffset",
+          "kind": {
+            "kind": "number",
+            "min": -2.0,
+            "max": 2.0
+          },
+          "default": 1.0
+        }
+      ],
+      "animated": false
+    },
+    {
+      "id": "glitch",
+      "label": "Glitch",
+      "group": "stylize",
+      "params": [
+        {
+          "name": "intensity",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 0.5
+        },
+        {
+          "name": "speed",
+          "kind": {
+            "kind": "number",
+            "min": 0.0,
+            "max": 5.0
+          },
+          "default": 1.0
+        },
+        {
+          "name": "rgbShift",
+          "kind": {
+            "kind": "number",
+            "min": 0.0,
+            "max": 20.0
+          },
+          "default": 5.0
+        },
+        {
+          "name": "blockDensity",
+          "kind": {
+            "kind": "number",
+            "min": 2.0,
+            "max": 50.0
+          },
+          "default": 10.0
+        },
+        {
+          "name": "colorBarIntensity",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 0.2
+        },
+        {
+          "name": "mirrorAmount",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 0.3
+        },
+        {
+          "name": "scanlineIntensity",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 0.2
+        },
+        {
+          "name": "seed",
+          "kind": {
+            "kind": "number",
+            "min": 0.0,
+            "max": 100.0
+          },
+          "default": 3.8
+        }
+      ],
+      "animated": true
+    },
+    {
+      "id": "vhs",
+      "label": "VHS",
+      "group": "stylize",
+      "params": [
+        {
+          "name": "wobble",
+          "kind": {
+            "kind": "number",
+            "min": 0.0,
+            "max": 5.0
+          },
+          "default": 1.0
+        },
+        {
+          "name": "scanlineNoise",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 0.6
+        },
+        {
+          "name": "smear",
+          "kind": {
+            "kind": "number",
+            "min": -2.0,
+            "max": 2.0
+          },
+          "default": 0.2
+        },
+        {
+          "name": "speed",
+          "kind": {
+            "kind": "number",
+            "min": 0.0,
+            "max": 3.0
+          },
+          "default": 1.0
+        }
+      ],
+      "animated": true
+    },
+    {
+      "id": "crt-screen",
+      "label": "CRT screen",
+      "group": "stylize",
+      "params": [
+        {
+          "name": "pixelSize",
+          "kind": {
+            "kind": "number",
+            "min": 8.0,
+            "max": 128.0
+          },
+          "default": 128.0
+        },
+        {
+          "name": "colorShift",
+          "kind": {
+            "kind": "number",
+            "min": 0.0,
+            "max": 10.0
+          },
+          "default": 1.0
+        },
+        {
+          "name": "scanlineIntensity",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 0.3
+        },
+        {
+          "name": "scanlineFrequency",
+          "kind": {
+            "kind": "number",
+            "min": 100.0,
+            "max": 800.0
+          },
+          "default": 200.0
+        },
+        {
+          "name": "brightness",
+          "kind": {
+            "kind": "number",
+            "min": 0.5,
+            "max": 2.0
+          },
+          "default": 1.0
+        },
+        {
+          "name": "vignetteIntensity",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 1.0
+        },
+        {
+          "name": "vignetteRadius",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 0.5
+        }
+      ],
+      "animated": false
+    },
+    {
+      "id": "light-leak",
+      "label": "Light leak",
+      "group": "stylize",
+      "params": [
+        {
+          "name": "position",
+          "kind": {
+            "kind": "point"
+          },
+          "default": [
+            0.95,
+            0.6
+          ]
+        },
+        {
+          "name": "spread",
+          "kind": {
+            "kind": "number",
+            "min": 0.1,
+            "max": 1.5
+          },
+          "default": 0.55
+        },
+        {
+          "name": "intensity",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 0.15
+        },
+        {
+          "name": "streaks",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 0.6
+        },
+        {
+          "name": "hotColor",
+          "kind": {
+            "kind": "color"
+          },
+          "default": [
+            1.0,
+            0.953,
+            0.769
+          ]
+        },
+        {
+          "name": "midColor",
+          "kind": {
+            "kind": "color"
+          },
+          "default": [
+            1.0,
+            0.478,
+            0.184
+          ]
+        },
+        {
+          "name": "fringeColor",
+          "kind": {
+            "kind": "color"
+          },
+          "default": [
+            0.651,
+            0.239,
+            0.561
+          ]
+        },
+        {
+          "name": "speed",
+          "kind": {
+            "kind": "number",
+            "min": 0.0,
+            "max": 4.0
+          },
+          "default": 1.0
+        }
+      ],
+      "animated": true
+    },
+    {
+      "id": "lens-flare",
+      "label": "Lens flare",
+      "group": "stylize",
+      "params": [
+        {
+          "name": "position",
+          "kind": {
+            "kind": "point"
+          },
+          "default": [
+            0.3,
+            0.7
+          ]
+        },
+        {
+          "name": "intensity",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 2.0
+          },
+          "default": 0.5
+        },
+        {
+          "name": "ghosts",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 0.4
+        },
+        {
+          "name": "halo",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 0.4
+        },
+        {
+          "name": "starburst",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 0.3
+        },
+        {
+          "name": "streak",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 0.15
+        },
+        {
+          "name": "speed",
+          "kind": {
+            "kind": "number",
+            "min": 0.0,
+            "max": 3.0
+          },
+          "default": 0.5
+        }
+      ],
+      "animated": true
+    },
+    {
+      "id": "zoom-blur",
+      "label": "Zoom blur",
+      "group": "stylize",
+      "params": [
+        {
+          "name": "intensity",
+          "kind": {
+            "kind": "number",
+            "min": 0.0,
+            "max": 100.0
+          },
+          "default": 30.0
+        },
+        {
+          "name": "center",
+          "kind": {
+            "kind": "point"
+          },
+          "default": [
+            0.5,
+            0.5
+          ]
+        }
+      ],
+      "animated": false
+    },
+    {
+      "id": "tilt-shift",
+      "label": "Tilt-shift",
+      "group": "stylize",
+      "params": [
+        {
+          "name": "intensity",
+          "kind": {
+            "kind": "number",
+            "min": 0.0,
+            "max": 100.0
+          },
+          "default": 50.0
+        },
+        {
+          "name": "width",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 0.3
+        },
+        {
+          "name": "falloff",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 0.3
+        },
+        {
+          "name": "angle",
+          "kind": {
+            "kind": "number",
+            "min": 0.0,
+            "max": 360.0
+          },
+          "default": 0.0
+        },
+        {
+          "name": "center",
+          "kind": {
+            "kind": "point"
+          },
+          "default": [
+            0.5,
+            0.5
+          ]
+        }
+      ],
+      "animated": false
+    },
+    {
+      "id": "bulge",
+      "label": "Bulge",
+      "group": "distort",
+      "params": [
+        {
+          "name": "center",
+          "kind": {
+            "kind": "point"
+          },
+          "default": [
+            0.5,
+            0.5
+          ]
+        },
+        {
+          "name": "strength",
+          "kind": {
+            "kind": "number",
+            "min": -1.0,
+            "max": 1.0
+          },
+          "default": 0.6
+        },
+        {
+          "name": "radius",
+          "kind": {
+            "kind": "number",
+            "min": 0.1,
+            "max": 3.0
+          },
+          "default": 1.0
+        },
+        {
+          "name": "falloff",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 0.5
+        }
+      ],
+      "animated": false
+    },
+    {
+      "id": "spherize",
+      "label": "Spherize",
+      "group": "distort",
+      "params": [
+        {
+          "name": "radius",
+          "kind": {
+            "kind": "number",
+            "min": 0.1,
+            "max": 3.0
+          },
+          "default": 1.0
+        },
+        {
+          "name": "depth",
+          "kind": {
+            "kind": "number",
+            "min": 0.0,
+            "max": 3.0
+          },
+          "default": 1.0
+        },
+        {
+          "name": "center",
+          "kind": {
+            "kind": "point"
+          },
+          "default": [
+            0.5,
+            0.5
+          ]
+        },
+        {
+          "name": "lightPosition",
+          "kind": {
+            "kind": "point"
+          },
+          "default": [
+            0.3,
+            0.7
+          ]
+        },
+        {
+          "name": "lightIntensity",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 0.5
+        },
+        {
+          "name": "lightSoftness",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 0.5
+        },
+        {
+          "name": "lightColor",
+          "kind": {
+            "kind": "color"
+          },
+          "default": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        }
+      ],
+      "animated": false
+    },
+    {
+      "id": "lens-distortion",
+      "label": "Lens distortion",
+      "group": "distort",
+      "params": [
+        {
+          "name": "bulge",
+          "kind": {
+            "kind": "number",
+            "min": -1.0,
+            "max": 1.0
+          },
+          "default": 0.0
+        },
+        {
+          "name": "roundness",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 0.0
+        },
+        {
+          "name": "spread",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 0.6
+        },
+        {
+          "name": "angle",
+          "kind": {
+            "kind": "number",
+            "min": 0.0,
+            "max": 360.0
+          },
+          "default": 0.0
+        },
+        {
+          "name": "swirl",
+          "kind": {
+            "kind": "number",
+            "min": -1.0,
+            "max": 1.0
+          },
+          "default": 0.35
+        },
+        {
+          "name": "clearCenter",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 0.8
+        },
+        {
+          "name": "center",
+          "kind": {
+            "kind": "point"
+          },
+          "default": [
+            0.5,
+            0.5
+          ]
+        }
+      ],
+      "animated": false
+    },
+    {
+      "id": "twirl",
+      "label": "Twirl",
+      "group": "distort",
+      "params": [
+        {
+          "name": "center",
+          "kind": {
+            "kind": "point"
+          },
+          "default": [
+            0.5,
+            0.5
+          ]
+        },
+        {
+          "name": "intensity",
+          "kind": {
+            "kind": "number",
+            "min": -5.0,
+            "max": 5.0
+          },
+          "default": 0.5
+        }
+      ],
+      "animated": false
+    },
+    {
+      "id": "wave-distortion",
+      "label": "Wave",
+      "group": "distort",
+      "params": [
+        {
+          "name": "strength",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 0.3
+        },
+        {
+          "name": "frequency",
+          "kind": {
+            "kind": "number",
+            "min": 0.1,
+            "max": 10.0
+          },
+          "default": 1.0
+        },
+        {
+          "name": "speed",
+          "kind": {
+            "kind": "number",
+            "min": 0.0,
+            "max": 5.0
+          },
+          "default": 1.0
+        },
+        {
+          "name": "angle",
+          "kind": {
+            "kind": "number",
+            "min": 0.0,
+            "max": 360.0
+          },
+          "default": 0.0
+        }
+      ],
+      "animated": true
+    },
+    {
+      "id": "kaleidoscope",
+      "label": "Kaleidoscope",
+      "group": "distort",
+      "params": [
+        {
+          "name": "center",
+          "kind": {
+            "kind": "point"
+          },
+          "default": [
+            0.5,
+            0.5
+          ]
+        },
+        {
+          "name": "segments",
+          "kind": {
+            "kind": "number",
+            "min": 2.0,
+            "max": 24.0
+          },
+          "default": 6.0
+        },
+        {
+          "name": "angle",
+          "kind": {
+            "kind": "number",
+            "min": 0.0,
+            "max": 360.0
+          },
+          "default": 0.0
+        }
+      ],
+      "animated": false
+    },
+    {
+      "id": "mirror",
+      "label": "Mirror",
+      "group": "distort",
+      "params": [
+        {
+          "name": "center",
+          "kind": {
+            "kind": "point"
+          },
+          "default": [
+            0.5,
+            0.5
+          ]
+        },
+        {
+          "name": "angle",
+          "kind": {
+            "kind": "number",
+            "min": 0.0,
+            "max": 360.0
+          },
+          "default": 0.0
+        }
+      ],
+      "animated": false
+    },
+    {
+      "id": "polar-coordinates",
+      "label": "Polar coordinates",
+      "group": "distort",
+      "params": [
+        {
+          "name": "center",
+          "kind": {
+            "kind": "point"
+          },
+          "default": [
+            0.5,
+            0.5
+          ]
+        },
+        {
+          "name": "wrap",
+          "kind": {
+            "kind": "number",
+            "min": 0.0,
+            "max": 2.0
+          },
+          "default": 1.0
+        },
+        {
+          "name": "radius",
+          "kind": {
+            "kind": "number",
+            "min": 0.0,
+            "max": 2.0
+          },
+          "default": 1.0
+        },
+        {
+          "name": "intensity",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 1.0
+        }
+      ],
+      "animated": false
+    },
+    {
+      "id": "fluted-glass",
+      "label": "Fluted glass",
+      "group": "distort",
+      "params": [
+        {
+          "name": "frequency",
+          "kind": {
+            "kind": "number",
+            "min": 1.0,
+            "max": 20.0
+          },
+          "default": 10.0
+        },
+        {
+          "name": "angle",
+          "kind": {
+            "kind": "number",
+            "min": 0.0,
+            "max": 360.0
+          },
+          "default": 0.0
+        },
+        {
+          "name": "refraction",
+          "kind": {
+            "kind": "number",
+            "min": 0.0,
+            "max": 4.0
+          },
+          "default": 1.5
+        },
+        {
+          "name": "softness",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 0.5
+        },
+        {
+          "name": "aberration",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 0.2
+        },
+        {
+          "name": "highlight",
+          "kind": {
+            "kind": "number",
+            "min": 0.0,
+            "max": 2.0
+          },
+          "default": 0.2
+        },
+        {
+          "name": "speed",
+          "kind": {
+            "kind": "number",
+            "min": -1.0,
+            "max": 1.0
+          },
+          "default": 0.0
+        }
+      ],
+      "animated": true
+    },
+    {
+      "id": "glass-tiles",
+      "label": "Glass tiles",
+      "group": "distort",
+      "params": [
+        {
+          "name": "intensity",
+          "kind": {
+            "kind": "number",
+            "min": 0.0,
+            "max": 10.0
+          },
+          "default": 2.0
+        },
+        {
+          "name": "tileCount",
+          "kind": {
+            "kind": "number",
+            "min": 5.0,
+            "max": 50.0
+          },
+          "default": 20.0
+        },
+        {
+          "name": "rotation",
+          "kind": {
+            "kind": "number",
+            "min": 0.0,
+            "max": 360.0
+          },
+          "default": 0.0
+        },
+        {
+          "name": "roundness",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 0.0
+        }
+      ],
+      "animated": false
+    },
+    {
+      "id": "aurora",
+      "label": "Aurora",
+      "group": "background",
+      "params": [
+        {
+          "name": "sky",
+          "kind": {
+            "kind": "color"
+          },
+          "default": [
+            0.02,
+            0.039,
+            0.102
+          ]
+        },
+        {
+          "name": "colorA",
+          "kind": {
+            "kind": "color"
+          },
+          "default": [
+            0.647,
+            0.2,
+            0.973
+          ]
+        },
+        {
+          "name": "colorB",
+          "kind": {
+            "kind": "color"
+          },
+          "default": [
+            0.133,
+            0.933,
+            0.533
+          ]
+        },
+        {
+          "name": "colorC",
+          "kind": {
+            "kind": "color"
+          },
+          "default": [
+            0.086,
+            0.58,
+            0.91
+          ]
+        },
+        {
+          "name": "intensity",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 0.8
+        },
+        {
+          "name": "height",
+          "kind": {
+            "kind": "percent",
+            "min": 0.1,
+            "max": 2.0
+          },
+          "default": 1.2
+        },
+        {
+          "name": "waviness",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 2.0
+          },
+          "default": 0.5
+        },
+        {
+          "name": "speed",
+          "kind": {
+            "kind": "number",
+            "min": -10.0,
+            "max": 10.0
+          },
+          "default": 5.0
+        }
+      ],
+      "animated": true
+    },
+    {
+      "id": "mesh-gradient",
+      "label": "Mesh gradient",
+      "group": "background",
+      "params": [
+        {
+          "name": "color1",
+          "kind": {
+            "kind": "color"
+          },
+          "default": [
+            0.102,
+            0.02,
+            0.2
+          ]
+        },
+        {
+          "name": "color2",
+          "kind": {
+            "kind": "color"
+          },
+          "default": [
+            0.427,
+            0.184,
+            0.82
+          ]
+        },
+        {
+          "name": "color3",
+          "kind": {
+            "kind": "color"
+          },
+          "default": [
+            0.878,
+            0.294,
+            0.62
+          ]
+        },
+        {
+          "name": "color4",
+          "kind": {
+            "kind": "color"
+          },
+          "default": [
+            1.0,
+            0.549,
+            0.259
+          ]
+        },
+        {
+          "name": "color5",
+          "kind": {
+            "kind": "color"
+          },
+          "default": [
+            1.0,
+            0.875,
+            0.557
+          ]
+        },
+        {
+          "name": "smoothness",
+          "kind": {
+            "kind": "number",
+            "min": 0.0,
+            "max": 5.0
+          },
+          "default": 2.0
+        },
+        {
+          "name": "swirl",
+          "kind": {
+            "kind": "number",
+            "min": -1.0,
+            "max": 1.0
+          },
+          "default": 0.3
+        },
+        {
+          "name": "speed",
+          "kind": {
+            "kind": "number",
+            "min": 0.0,
+            "max": 10.0
+          },
+          "default": 1.0
+        }
+      ],
+      "animated": true
+    },
+    {
+      "id": "flowing-gradient",
+      "label": "Flowing gradient",
+      "group": "background",
+      "params": [
+        {
+          "name": "colorA",
+          "kind": {
+            "kind": "color"
+          },
+          "default": [
+            0.039,
+            0.0,
+            0.082
+          ]
+        },
+        {
+          "name": "colorB",
+          "kind": {
+            "kind": "color"
+          },
+          "default": [
+            0.42,
+            0.09,
+            0.902
+          ]
+        },
+        {
+          "name": "colorC",
+          "kind": {
+            "kind": "color"
+          },
+          "default": [
+            1.0,
+            0.302,
+            0.416
+          ]
+        },
+        {
+          "name": "colorD",
+          "kind": {
+            "kind": "color"
+          },
+          "default": [
+            1.0,
+            0.42,
+            0.208
+          ]
+        },
+        {
+          "name": "distortion",
+          "kind": {
+            "kind": "number",
+            "min": 0.0,
+            "max": 2.0
+          },
+          "default": 0.5
+        },
+        {
+          "name": "seed",
+          "kind": {
+            "kind": "number",
+            "min": 0.0,
+            "max": 100.0
+          },
+          "default": 0.0
+        },
+        {
+          "name": "speed",
+          "kind": {
+            "kind": "number",
+            "min": 0.0,
+            "max": 10.0
+          },
+          "default": 1.0
+        }
+      ],
+      "animated": true
+    },
+    {
+      "id": "plasma",
+      "label": "Plasma",
+      "group": "background",
+      "params": [
+        {
+          "name": "colorA",
+          "kind": {
+            "kind": "color"
+          },
+          "default": [
+            0.439,
+            0.094,
+            0.745
+          ]
+        },
+        {
+          "name": "colorB",
+          "kind": {
+            "kind": "color"
+          },
+          "default": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "name": "density",
+          "kind": {
+            "kind": "number",
+            "min": 0.0,
+            "max": 4.0
+          },
+          "default": 2.0
+        },
+        {
+          "name": "warp",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 0.4
+        },
+        {
+          "name": "intensity",
+          "kind": {
+            "kind": "number",
+            "min": 0.1,
+            "max": 3.0
+          },
+          "default": 1.5
+        },
+        {
+          "name": "balance",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 0.5
+        },
+        {
+          "name": "speed",
+          "kind": {
+            "kind": "number",
+            "min": 0.0,
+            "max": 5.0
+          },
+          "default": 2.0
+        }
+      ],
+      "animated": true
+    },
+    {
+      "id": "swirl",
+      "label": "Swirl",
+      "group": "background",
+      "params": [
+        {
+          "name": "colorA",
+          "kind": {
+            "kind": "color"
+          },
+          "default": [
+            0.071,
+            0.459,
+            0.847
+          ]
+        },
+        {
+          "name": "colorB",
+          "kind": {
+            "kind": "color"
+          },
+          "default": [
+            0.882,
+            0.569,
+            0.212
+          ]
+        },
+        {
+          "name": "detail",
+          "kind": {
+            "kind": "number",
+            "min": 0.0,
+            "max": 5.0
+          },
+          "default": 4.0
+        },
+        {
+          "name": "blend",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 0.45
+        },
+        {
+          "name": "speed",
+          "kind": {
+            "kind": "number",
+            "min": 0.0,
+            "max": 5.0
+          },
+          "default": 1.0
+        }
+      ],
+      "animated": true
+    },
+    {
+      "id": "marble",
+      "label": "Marble",
+      "group": "background",
+      "params": [
+        {
+          "name": "colorA",
+          "kind": {
+            "kind": "color"
+          },
+          "default": [
+            0.95,
+            0.93,
+            0.89
+          ]
+        },
+        {
+          "name": "colorB",
+          "kind": {
+            "kind": "color"
+          },
+          "default": [
+            0.7,
+            0.62,
+            0.5
+          ]
+        },
+        {
+          "name": "colorC",
+          "kind": {
+            "kind": "color"
+          },
+          "default": [
+            0.25,
+            0.22,
+            0.2
+          ]
+        },
+        {
+          "name": "scale",
+          "kind": {
+            "kind": "number",
+            "min": 0.1,
+            "max": 10.0
+          },
+          "default": 0.8
+        },
+        {
+          "name": "turbulence",
+          "kind": {
+            "kind": "number",
+            "min": 0.0,
+            "max": 50.0
+          },
+          "default": 20.0
+        },
+        {
+          "name": "seed",
+          "kind": {
+            "kind": "number",
+            "min": 0.0,
+            "max": 100.0
+          },
+          "default": 0.0
+        },
+        {
+          "name": "speed",
+          "kind": {
+            "kind": "number",
+            "min": 0.0,
+            "max": 0.25
+          },
+          "default": 0.05
+        }
+      ],
+      "animated": true
+    },
+    {
+      "id": "godrays",
+      "label": "God rays",
+      "group": "background",
+      "params": [
+        {
+          "name": "center",
+          "kind": {
+            "kind": "point"
+          },
+          "default": [
+            0.0,
+            1.0
+          ]
+        },
+        {
+          "name": "rayColor",
+          "kind": {
+            "kind": "color"
+          },
+          "default": [
+            0.259,
+            0.514,
+            0.984
+          ]
+        },
+        {
+          "name": "background",
+          "kind": {
+            "kind": "color"
+          },
+          "default": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "name": "density",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 0.3
+        },
+        {
+          "name": "intensity",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 0.8
+        },
+        {
+          "name": "spotty",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 1.0
+        },
+        {
+          "name": "speed",
+          "kind": {
+            "kind": "number",
+            "min": 0.0,
+            "max": 2.0
+          },
+          "default": 0.5
+        }
+      ],
+      "animated": true
+    },
+    {
+      "id": "sunburst",
+      "label": "Sunburst",
+      "group": "background",
+      "params": [
+        {
+          "name": "color",
+          "kind": {
+            "kind": "color"
+          },
+          "default": [
+            1.0,
+            0.867,
+            0.533
+          ]
+        },
+        {
+          "name": "background",
+          "kind": {
+            "kind": "color"
+          },
+          "default": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "name": "center",
+          "kind": {
+            "kind": "point"
+          },
+          "default": [
+            0.5,
+            0.5
+          ]
+        },
+        {
+          "name": "rayCount",
+          "kind": {
+            "kind": "number",
+            "min": 3.0,
+            "max": 64.0
+          },
+          "default": 12.0
+        },
+        {
+          "name": "softness",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 0.3
+        },
+        {
+          "name": "radius",
+          "kind": {
+            "kind": "number",
+            "min": 0.0,
+            "max": 1.2
+          },
+          "default": 0.8
+        },
+        {
+          "name": "feather",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 0.5
+        },
+        {
+          "name": "speed",
+          "kind": {
+            "kind": "number",
+            "min": -2.0,
+            "max": 2.0
+          },
+          "default": 0.2
+        }
+      ],
+      "animated": true
+    },
+    {
+      "id": "spiral",
+      "label": "Spiral",
+      "group": "background",
+      "params": [
+        {
+          "name": "colorA",
+          "kind": {
+            "kind": "color"
+          },
+          "default": [
+            0.06,
+            0.07,
+            0.16
+          ]
+        },
+        {
+          "name": "colorB",
+          "kind": {
+            "kind": "color"
+          },
+          "default": [
+            0.98,
+            0.84,
+            0.58
+          ]
+        },
+        {
+          "name": "strokeWidth",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 0.5
+        },
+        {
+          "name": "strokeFalloff",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 0.4
+        },
+        {
+          "name": "softness",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 0.15
+        },
+        {
+          "name": "scale",
+          "kind": {
+            "kind": "number",
+            "min": 0.1,
+            "max": 5.0
+          },
+          "default": 3.0
+        },
+        {
+          "name": "center",
+          "kind": {
+            "kind": "point"
+          },
+          "default": [
+            0.5,
+            0.5
+          ]
+        },
+        {
+          "name": "speed",
+          "kind": {
+            "kind": "number",
+            "min": -3.0,
+            "max": 3.0
+          },
+          "default": 1.0
+        }
+      ],
+      "animated": true
+    },
+    {
+      "id": "conic-gradient",
+      "label": "Conic gradient",
+      "group": "background",
+      "params": [
+        {
+          "name": "colorA",
+          "kind": {
+            "kind": "color"
+          },
+          "default": [
+            1.0,
+            0.0,
+            0.502
+          ]
+        },
+        {
+          "name": "colorB",
+          "kind": {
+            "kind": "color"
+          },
+          "default": [
+            0.0,
+            0.749,
+            1.0
+          ]
+        },
+        {
+          "name": "center",
+          "kind": {
+            "kind": "point"
+          },
+          "default": [
+            0.5,
+            0.5
+          ]
+        },
+        {
+          "name": "rotation",
+          "kind": {
+            "kind": "number",
+            "min": 0.0,
+            "max": 360.0
+          },
+          "default": 0.0
+        },
+        {
+          "name": "repeat",
+          "kind": {
+            "kind": "number",
+            "min": 1.0,
+            "max": 24.0
+          },
+          "default": 1.0
+        }
+      ],
+      "animated": false
+    },
+    {
+      "id": "voronoi",
+      "label": "Voronoi",
+      "group": "background",
+      "params": [
+        {
+          "name": "colorA",
+          "kind": {
+            "kind": "color"
+          },
+          "default": [
+            0.192,
+            0.525,
+            0.812
+          ]
+        },
+        {
+          "name": "colorB",
+          "kind": {
+            "kind": "color"
+          },
+          "default": [
+            0.988,
+            0.008,
+            0.867
+          ]
+        },
+        {
+          "name": "borderColor",
+          "kind": {
+            "kind": "color"
+          },
+          "default": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "name": "scale",
+          "kind": {
+            "kind": "number",
+            "min": 1.0,
+            "max": 20.0
+          },
+          "default": 6.0
+        },
+        {
+          "name": "edgeIntensity",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 0.5
+        },
+        {
+          "name": "edgeSoftness",
+          "kind": {
+            "kind": "number",
+            "min": 0.0,
+            "max": 0.4
+          },
+          "default": 0.05
+        },
+        {
+          "name": "speed",
+          "kind": {
+            "kind": "number",
+            "min": 0.0,
+            "max": 5.0
+          },
+          "default": 0.5
+        }
+      ],
+      "animated": true
+    },
+    {
+      "id": "stripes",
+      "label": "Stripes",
+      "group": "background",
+      "params": [
+        {
+          "name": "colorA",
+          "kind": {
+            "kind": "color"
+          },
+          "default": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "name": "colorB",
+          "kind": {
+            "kind": "color"
+          },
+          "default": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        {
+          "name": "angle",
+          "kind": {
+            "kind": "number",
+            "min": 0.0,
+            "max": 360.0
+          },
+          "default": 45.0
+        },
+        {
+          "name": "density",
+          "kind": {
+            "kind": "number",
+            "min": 1.0,
+            "max": 30.0
+          },
+          "default": 5.0
+        },
+        {
+          "name": "balance",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 0.5
+        },
+        {
+          "name": "softness",
+          "kind": {
+            "kind": "number",
+            "min": 0.0,
+            "max": 0.5
+          },
+          "default": 0.0
+        },
+        {
+          "name": "speed",
+          "kind": {
+            "kind": "number",
+            "min": -2.0,
+            "max": 2.0
+          },
+          "default": 0.2
+        }
+      ],
+      "animated": true
+    },
+    {
+      "id": "studio-background",
+      "label": "Studio background",
+      "group": "background",
+      "params": [
+        {
+          "name": "color",
+          "kind": {
+            "kind": "color"
+          },
+          "default": [
+            0.847,
+            0.859,
+            0.925
+          ]
+        },
+        {
+          "name": "lightColor",
+          "kind": {
+            "kind": "color"
+          },
+          "default": [
+            0.835,
+            0.894,
+            0.918
+          ]
+        },
+        {
+          "name": "intensity",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 0.4
+        },
+        {
+          "name": "softness",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 0.5
+        },
+        {
+          "name": "center",
+          "kind": {
+            "kind": "point"
+          },
+          "default": [
+            0.5,
+            0.2
+          ]
+        },
+        {
+          "name": "vignette",
+          "kind": {
+            "kind": "percent",
+            "min": 0.0,
+            "max": 1.0
+          },
+          "default": 0.0
+        },
+        {
+          "name": "speed",
+          "kind": {
+            "kind": "number",
+            "min": -5.0,
+            "max": 5.0
+          },
+          "default": 2.0
+        }
+      ],
+      "animated": true
+    }
+  ],
+  "transitions": [
+    {
+      "id": "fade",
+      "label": "Fade",
+      "directional": false,
+      "audioOnly": false
+    },
+    {
+      "id": "dissolve",
+      "label": "Dissolve",
+      "directional": false,
+      "audioOnly": false
+    },
+    {
+      "id": "wipe",
+      "label": "Wipe",
+      "directional": true,
+      "audioOnly": false
+    },
+    {
+      "id": "wipe-left",
+      "label": "Wipe left",
+      "directional": false,
+      "audioOnly": false
+    },
+    {
+      "id": "wipe-right",
+      "label": "Wipe right",
+      "directional": false,
+      "audioOnly": false
+    },
+    {
+      "id": "wipe-up",
+      "label": "Wipe up",
+      "directional": false,
+      "audioOnly": false
+    },
+    {
+      "id": "wipe-down",
+      "label": "Wipe down",
+      "directional": false,
+      "audioOnly": false
+    },
+    {
+      "id": "push",
+      "label": "Push",
+      "directional": true,
+      "audioOnly": false
+    },
+    {
+      "id": "push-left",
+      "label": "Push left",
+      "directional": false,
+      "audioOnly": false
+    },
+    {
+      "id": "push-right",
+      "label": "Push right",
+      "directional": false,
+      "audioOnly": false
+    },
+    {
+      "id": "push-up",
+      "label": "Push up",
+      "directional": false,
+      "audioOnly": false
+    },
+    {
+      "id": "push-down",
+      "label": "Push down",
+      "directional": false,
+      "audioOnly": false
+    },
+    {
+      "id": "fly",
+      "label": "Fly",
+      "directional": true,
+      "audioOnly": false
+    },
+    {
+      "id": "zoom",
+      "label": "Zoom",
+      "directional": false,
+      "audioOnly": false
+    },
+    {
+      "id": "scale",
+      "label": "Scale",
+      "directional": false,
+      "audioOnly": false
+    },
+    {
+      "id": "cross-zoom",
+      "label": "Cross zoom",
+      "directional": false,
+      "audioOnly": false
+    },
+    {
+      "id": "radial-wipe",
+      "label": "Radial wipe",
+      "directional": false,
+      "audioOnly": false
+    },
+    {
+      "id": "ink-bleed",
+      "label": "Ink bleed",
+      "directional": false,
+      "audioOnly": false
+    },
+    {
+      "id": "mask-glitch",
+      "label": "Mask glitch",
+      "directional": false,
+      "audioOnly": false
+    },
+    {
+      "id": "glitch",
+      "label": "Glitch",
+      "directional": false,
+      "audioOnly": false
+    },
+    {
+      "id": "chromatic-aberration",
+      "label": "Chromatic aberration",
+      "directional": false,
+      "audioOnly": false
+    },
+    {
+      "id": "film-burn",
+      "label": "Film burn",
+      "directional": false,
+      "audioOnly": false
+    },
+    {
+      "id": "light-leak",
+      "label": "Light leak",
+      "directional": false,
+      "audioOnly": false
+    },
+    {
+      "id": "audio-fade",
+      "label": "Audio fade",
+      "directional": false,
+      "audioOnly": true
+    }
+  ],
+  "easings": [
+    "linear",
+    "ease-in",
+    "ease-out",
+    "ease-in-out"
+  ],
+  "directions": [
+    "left",
+    "right",
+    "up",
+    "down"
+  ],
+  "layouts": [
+    {
+      "id": "split-horizontal",
+      "label": "Split side by side",
+      "group": "split",
+      "slots": [
+        [
+          0.0,
+          0.0,
+          0.5,
+          1.0
+        ],
+        [
+          0.5,
+          0.0,
+          0.5,
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "split-vertical",
+      "label": "Split top and bottom",
+      "group": "split",
+      "slots": [
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.5
+        ],
+        [
+          0.0,
+          0.5,
+          1.0,
+          0.5
+        ]
+      ]
+    },
+    {
+      "id": "3up-horizontal",
+      "label": "Three across",
+      "group": "split",
+      "slots": [
+        [
+          0.0,
+          0.0,
+          0.33333,
+          1.0
+        ],
+        [
+          0.33333,
+          0.0,
+          0.33333,
+          1.0
+        ],
+        [
+          0.66667,
+          0.0,
+          0.33333,
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "3up-vertical",
+      "label": "Three stacked",
+      "group": "split",
+      "slots": [
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.33333
+        ],
+        [
+          0.0,
+          0.33333,
+          1.0,
+          0.33333
+        ],
+        [
+          0.0,
+          0.66667,
+          1.0,
+          0.33333
+        ]
+      ]
+    },
+    {
+      "id": "4up-horizontal",
+      "label": "Four across",
+      "group": "split",
+      "slots": [
+        [
+          0.0,
+          0.0,
+          0.25,
+          1.0
+        ],
+        [
+          0.25,
+          0.0,
+          0.25,
+          1.0
+        ],
+        [
+          0.5,
+          0.0,
+          0.25,
+          1.0
+        ],
+        [
+          0.75,
+          0.0,
+          0.25,
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "4up-vertical",
+      "label": "Four stacked",
+      "group": "split",
+      "slots": [
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.25
+        ],
+        [
+          0.0,
+          0.25,
+          1.0,
+          0.25
+        ],
+        [
+          0.0,
+          0.5,
+          1.0,
+          0.25
+        ],
+        [
+          0.0,
+          0.75,
+          1.0,
+          0.25
+        ]
+      ]
+    },
+    {
+      "id": "grid-2x2",
+      "label": "Grid 2×2",
+      "group": "grid",
+      "slots": [
+        [
+          0.0,
+          0.0,
+          0.5,
+          0.5
+        ],
+        [
+          0.5,
+          0.0,
+          0.5,
+          0.5
+        ],
+        [
+          0.0,
+          0.5,
+          0.5,
+          0.5
+        ],
+        [
+          0.5,
+          0.5,
+          0.5,
+          0.5
+        ]
+      ]
+    },
+    {
+      "id": "pip-bottom-right",
+      "label": "Picture in picture, bottom right",
+      "group": "pip",
+      "slots": [
+        [
+          0.0,
+          0.0,
+          1.0,
+          1.0
+        ],
+        [
+          0.66,
+          0.66,
+          0.3,
+          0.3
+        ]
+      ]
+    },
+    {
+      "id": "pip-bottom-left",
+      "label": "Picture in picture, bottom left",
+      "group": "pip",
+      "slots": [
+        [
+          0.0,
+          0.0,
+          1.0,
+          1.0
+        ],
+        [
+          0.04,
+          0.66,
+          0.3,
+          0.3
+        ]
+      ]
+    },
+    {
+      "id": "pip-top-right",
+      "label": "Picture in picture, top right",
+      "group": "pip",
+      "slots": [
+        [
+          0.0,
+          0.0,
+          1.0,
+          1.0
+        ],
+        [
+          0.66,
+          0.04,
+          0.3,
+          0.3
+        ]
+      ]
+    },
+    {
+      "id": "pip-top-left",
+      "label": "Picture in picture, top left",
+      "group": "pip",
+      "slots": [
+        [
+          0.0,
+          0.0,
+          1.0,
+          1.0
+        ],
+        [
+          0.04,
+          0.04,
+          0.3,
+          0.3
+        ]
+      ]
+    },
+    {
+      "id": "hero-top",
+      "label": "Hero on top",
+      "group": "hero",
+      "slots": [
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.66667
+        ],
+        [
+          0.0,
+          0.66667,
+          0.5,
+          0.33333
+        ],
+        [
+          0.5,
+          0.66667,
+          0.5,
+          0.33333
+        ]
+      ]
+    },
+    {
+      "id": "hero-bottom",
+      "label": "Hero at the bottom",
+      "group": "hero",
+      "slots": [
+        [
+          0.0,
+          0.33333,
+          1.0,
+          0.66667
+        ],
+        [
+          0.0,
+          0.0,
+          0.5,
+          0.33333
+        ],
+        [
+          0.5,
+          0.0,
+          0.5,
+          0.33333
+        ]
+      ]
+    },
+    {
+      "id": "hero-left",
+      "label": "Hero on the left",
+      "group": "hero",
+      "slots": [
+        [
+          0.0,
+          0.0,
+          0.66667,
+          1.0
+        ],
+        [
+          0.66667,
+          0.0,
+          0.33333,
+          0.5
+        ],
+        [
+          0.66667,
+          0.5,
+          0.33333,
+          0.5
+        ]
+      ]
+    },
+    {
+      "id": "hero-right",
+      "label": "Hero on the right",
+      "group": "hero",
+      "slots": [
+        [
+          0.33333,
+          0.0,
+          0.66667,
+          1.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.33333,
+          0.5
+        ],
+        [
+          0.0,
+          0.5,
+          0.33333,
+          0.5
+        ]
+      ]
+    }
+  ],
+  "luts": [
+    {
+      "id": "cinematic",
+      "label": "Cinematic"
+    },
+    {
+      "id": "black-and-white",
+      "label": "Black & white"
+    },
+    {
+      "id": "vintage",
+      "label": "Vintage"
+    },
+    {
+      "id": "cool",
+      "label": "Cool"
+    },
+    {
+      "id": "warm",
+      "label": "Warm"
+    },
+    {
+      "id": "high-contrast",
+      "label": "High contrast"
+    },
+    {
+      "id": "faded-film",
+      "label": "Faded film"
+    },
+    {
+      "id": "technicolor",
+      "label": "Technicolor"
+    },
+    {
+      "id": "newsreel",
+      "label": "Newsreel"
+    }
+  ]
+}

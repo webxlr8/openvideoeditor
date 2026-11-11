@@ -40,12 +40,19 @@ fn fal_stand_in() -> String {
                 } else if target == "/q/r/status" {
                     ("application/json", br#"{"status":"COMPLETED"}"#.to_vec())
                 } else if target == "/q/r" {
-                    ("application/json", serde_json::to_vec(&json!({"images": [{"url": format!("{base}/out.png")}]})).unwrap())
+                    (
+                        "application/json",
+                        serde_json::to_vec(&json!({"images": [{"url": format!("{base}/out.png")}]})).unwrap(),
+                    )
                 } else {
                     ("image/png", PNG.to_vec())
                 };
                 let mut w = c;
-                let _ = write!(w, "HTTP/1.1 200 OK\r\nContent-Type: {ctype}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", out.len());
+                let _ = write!(
+                    w,
+                    "HTTP/1.1 200 OK\r\nContent-Type: {ctype}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    out.len()
+                );
                 let _ = w.write_all(&out);
             });
         }
@@ -91,7 +98,8 @@ fn plan_confirm_run_and_background() {
     }
 
     // With a key: placeholder, run, output in the bundle, placeholder filled.
-    let env = [("OVE_FAL_QUEUE_URL", base.as_str()), ("OVE_GENERATE_POLL_MS", "10"), ("FAL_KEY", "fal-test-key-0123456789")];
+    let env =
+        [("OVE_FAL_QUEUE_URL", base.as_str()), ("OVE_GENERATE_POLL_MS", "10"), ("FAL_KEY", "fal-test-key-0123456789")];
     let (code, v, e) = ove(&lib, &env, &["generate", "image", "Promo", "a lighthouse", "--yes", "--start", "1"]);
     assert_eq!(code, Some(0), "{e}");
     assert_eq!(v["status"], "succeeded");
@@ -102,7 +110,8 @@ fn plan_confirm_run_and_background() {
     assert!(text.contains("<image") && text.contains("start={1}"), "{text}");
     assert!(!text.contains("pending={true}"), "{text}");
     let (_, hist, _) = ove(&lib, &[], &["history", "Promo"]);
-    let summaries: Vec<&str> = hist["revisions"].as_array().unwrap().iter().map(|r| r["summary"].as_str().unwrap()).collect();
+    let summaries: Vec<&str> =
+        hist["revisions"].as_array().unwrap().iter().map(|r| r["summary"].as_str().unwrap()).collect();
     assert!(summaries.iter().any(|s| s.starts_with("generate image: placeholder")));
     assert!(summaries.iter().any(|s| s.starts_with("generate image: a lighthouse")));
 

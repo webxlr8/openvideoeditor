@@ -7,9 +7,9 @@ import { commands } from "./bridge";
 import {
   ASPECTS,
   type EditResult,
+  type Fields,
   LOOK_PRESETS,
   TEXT_PRESETS,
-  TRANSITIONS,
   addItems,
   firstTrack,
   itemDetail,
@@ -18,6 +18,7 @@ import {
   updateItems,
   snapToFrame,
 } from "./edit";
+import { type EffectSpec, GROUP_LABEL, type TransitionSpec, effectStack, newEffect, splitTransition, useCatalog, usePreview } from "./fx";
 import { Icon } from "./icons";
 import { TextAnimationPicker } from "./Motion";
 
@@ -96,45 +97,76 @@ export function TextPanel({ project, playhead, selection, onEdit }: PanelProps) 
 }
 
 export function TransitionsPanel({ project, selection, onEdit }: PanelProps) {
+  const catalog = useCatalog();
   const [duration, setDuration] = useState(0.5);
+  const [easing, setEasing] = useState("ease-in-out");
+  const [direction, setDirection] = useState("left");
   const item = selection[selection.length - 1];
   const next = item ? nextAdjacent(project, item) : undefined;
-  const apply = (type: string | null, where: "in" | "out" | "between") => {
+  const apply = (t: TransitionSpec | null, where: "in" | "out" | "between") => {
     if (!item) return;
-    const value = type ? { type, duration } : null;
+    const value = t ? { type: t.id, duration, easing, ...(t.directional ? { direction } : {}) } : null;
     const set = (id: string, key: string) => (value ? updateItem(id, { [key]: value }, [], "transition") : updateItem(id, {}, [key], "remove transition"));
     if (where === "between" && next) {
       const edits = [
-        value ? { id: item.id, set: { transitionOut: value } } : { id: item.id, unset: ["transitionOut"] },
+        { id: item.id, unset: ["transitionOut"] },
         value ? { id: next.id, set: { transitionIn: value } } : { id: next.id, unset: ["transitionIn"] },
       ];
       onEdit(updateItems(edits, value ? "transition between clips" : "remove transition"));
     } else onEdit(set(item.id, where === "in" ? "transitionIn" : "transitionOut"));
   };
+  const actions = (t: TransitionSpec | null) => (
+    <div className="card-actions">
+      <button className="chip-sm" disabled={!item} title="At the start of the selected clip" onClick={() => apply(t, "in")}>
+        In
+      </button>
+      <button className="chip-sm" disabled={!item} title="At the end of the selected clip" onClick={() => apply(t, "out")}>
+        Out
+      </button>
+      <button className="chip-sm" disabled={!next} title="Between the selected clip and the next one" data-testid={`transition-${t?.id ?? "none"}-between`} onClick={() => apply(t, "between")}>
+        Join
+      </button>
+    </div>
+  );
   return (
     <>
       {!item && <Empty>Select a clip on the timeline, then pick a transition.</Empty>}
       <label className="slider panel-slider">
         <span className="slider-label">Duration</span>
-        <input type="range" min={0.1} max={3} step={0.1} value={duration} onChange={(e) => setDuration(Number(e.target.value))} />
+        <input type="range" min={0.1} max={3} step={0.1} value={duration} data-testid="transition-duration" onChange={(e) => setDuration(Number(e.target.value))} />
         <span className="slider-value">{duration.toFixed(1)}s</span>
       </label>
+      <label className="select-row">
+        <span>Easing</span>
+        <select value={easing} data-testid="transition-easing" onChange={(e) => setEasing(e.target.value)}>
+          {(catalog?.easings ?? ["linear", "ease-in", "ease-out", "ease-in-out"]).map((x) => (
+            <option key={x}>{x}</option>
+          ))}
+        </select>
+      </label>
+      <div className="chips-row" role="group" aria-label="Direction (wipe, push, fly)">
+        <span className="muted small">Direction</span>
+        {(catalog?.directions ?? []).map((d) => (
+          <button key={d} className={`chip-sm${direction === d ? " on" : ""}`} data-testid={`transition-dir-${d}`} onClick={() => setDirection(d)}>
+            {DIR_ARROW[d] ?? ""} {d}
+          </button>
+        ))}
+      </div>
+      {!catalog && <Empty>Loading transitions…</Empty>}
       <div className="preset-grid">
-        {TRANSITIONS.map((t) => (
+        <div className="preset-card transition-card" data-testid="transition-none">
+          <span className="preset-preview transition-swatch tr-none" />
+          <span className="preset-label">None</span>
+          {actions(null)}
+        </div>
+        {catalog?.transitions.map((t) => (
           <div key={t.id} className="preset-card transition-card" data-testid={`transition-${t.id}`}>
-            <span className={`preset-preview transition-swatch tr-${t.id}`} />
-            <span className="preset-label">{t.label}</span>
-            <div className="card-actions">
-              <button className="chip-sm" disabled={!item} title="At the start of the selected clip" onClick={() => apply(t.type, "in")}>
-                In
-              </button>
-              <button className="chip-sm" disabled={!item} title="At the end of the selected clip" onClick={() => apply(t.type, "out")}>
-                Out
-              </button>
-              <button className="chip-sm" disabled={!next} title="Between the selected clip and the next one" data-testid={`transition-${t.id}-between`} onClick={() => apply(t.type, "between")}>
-                Join
-              </button>
-            </div>
+            <span className={`preset-preview transition-swatch tr-${splitTransition(t.id).base}${t.directional || /-(left|right|up|down)$/.test(t.id) ? ` dir-${splitTransition(t.id, direction).direction}` : ""}`} />
+            <span className="preset-label">
+              {t.label}
+              {t.audioOnly && <em className="muted small"> (sound)</em>}
+            </span>
+            {actions(t)}
           </div>
         ))}
       </div>
@@ -142,52 +174,151 @@ export function TransitionsPanel({ project, selection, onEdit }: PanelProps) {
   );
 }
 
+const DIR_ARROW: Record<string, string> = { left: "←", right: "→", up: "↑", down: "↓" };
+
+function FxCard({ spec, onClip, onLayer, canClip, canLayer }: { spec: EffectSpec; onClip: () => void; onLayer: () => void; canClip: boolean; canLayer: boolean }) {
+  const url = usePreview("effect", spec.id);
+  return (
+    <div className="preset-card fx-card" data-testid={`effect-${spec.id}`}>
+      <button className="preset-preview fx-preview" title={spec.group === "background" ? "Add as a background layer" : "Add as an effect layer"} disabled={!canLayer} data-testid={`effect-${spec.id}-layer`} onClick={onLayer}>
+        {url ? <img src={url} alt="" /> : null}
+      </button>
+      <span className="preset-label">{spec.label}</span>
+      <div className="card-actions">
+        <button className="chip-sm" disabled={!canClip} data-testid={`effect-${spec.id}-clip`} onClick={onClip}>
+          On clip
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function LutCard({ id, label, onClip, onLayer, canClip, canLayer }: { id: string; label: string; onClip: () => void; onLayer: () => void; canClip: boolean; canLayer: boolean }) {
+  const url = usePreview("lut", id);
+  return (
+    <div className="preset-card" data-testid={`lut-look-${id}`}>
+      <button className="preset-preview fx-preview" title="Add as adjustment layer" disabled={!canLayer} data-testid={`lut-look-${id}-layer`} onClick={onLayer}>
+        {url ? <img src={url} alt="" /> : null}
+      </button>
+      <span className="preset-label">{label}</span>
+      <div className="card-actions">
+        <button className="chip-sm" disabled={!canClip} data-testid={`lut-look-${id}-clip`} onClick={onClip}>
+          On clip
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Edits each target's current fields (fetched fresh, so stacks and grades are extended, not replaced). */
+async function mergeEach(ids: string[], f: (d: Fields) => Fields, summary: string) {
+  const details = await Promise.all(ids.map((id) => itemDetail(id)));
+  return updateItems(
+    ids.map((id, i) => ({ id, set: f(details[i] ?? {}) })),
+    summary,
+  );
+}
+
 export function EffectsPanel({ project, playhead, selection, onEdit }: PanelProps) {
+  const catalog = useCatalog();
+  const [query, setQuery] = useState("");
   const targets = selection.filter(visual);
   const track =
     project.tracks.find((t) => t.kind === "adjustment")?.id ?? firstTrack(project, "video", "t_overlay");
   const span = selection.length
     ? { start: Math.min(...selection.map((s) => s.start ?? 0)), end: Math.max(...selection.map((s) => s.end ?? 0)) }
     : { start: playhead, end: playhead + 5 };
+  const ids = targets.map((t) => t.id);
+  const layer = (fields: Fields, summary: string) =>
+    track && onEdit(addItems([{ trackId: track, startTime: round(span.start), endTime: round(span.end), ...fields }], summary));
+  const q = query.trim().toLowerCase();
+  const effects = (catalog?.effects ?? []).filter((e) => !q || e.label.toLowerCase().includes(q) || e.id.includes(q));
   return (
     <>
       <p className="muted panel-note">
-        Click a look to add it as an adjustment layer {selection.length ? "over the selected clips" : "at the playhead"}; use “On clip” to grade
-        the selected clips directly.
+        Click a preview to add it as a layer {selection.length ? "over the selected clips" : "at the playhead"}; “On clip” applies it to the selected clips
+        directly.
       </p>
-      <div className="preset-grid">
-        {LOOK_PRESETS.map((l) => (
-          <div key={l.id} className="preset-card" data-testid={`look-${l.id}`}>
-            <button
-              className="preset-preview look-swatch"
-              style={{ background: l.swatch }}
-              title="Add as adjustment layer"
-              disabled={!track}
-              data-testid={`look-${l.id}-layer`}
-              onClick={() =>
-                track &&
-                onEdit(
-                  addItems(
-                    [{ trackId: track, type: "adjustment", startTime: round(span.start), endTime: round(span.end), name: l.label, adjustmentKind: "grade", colorGrading: l.grading }],
-                    `add ${l.label.toLowerCase()} look`,
-                  ),
-                )
-              }
-            />
-            <span className="preset-label">{l.label}</span>
-            <div className="card-actions">
-              <button
-                className="chip-sm"
-                disabled={targets.length === 0}
-                data-testid={`look-${l.id}-clip`}
-                onClick={() => onEdit(updateItems(targets.map((t) => ({ id: t.id, set: { colorGrading: l.grading } })), `${l.label.toLowerCase()} look`))}
-              >
-                On clip
-              </button>
+      <input className="search-field" placeholder="Search effects" value={query} data-testid="effects-search" onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => e.stopPropagation()} />
+      {!q && (
+        <>
+          <h5 className="panel-sub">Looks</h5>
+          <div className="preset-grid">
+            {LOOK_PRESETS.map((l) => (
+              <div key={l.id} className="preset-card" data-testid={`look-${l.id}`}>
+                <button
+                  className="preset-preview look-swatch"
+                  style={{ background: l.swatch }}
+                  title="Add as adjustment layer"
+                  disabled={!track}
+                  data-testid={`look-${l.id}-layer`}
+                  onClick={() => layer({ type: "adjustment", name: l.label, adjustmentKind: "grade", colorGrading: l.grading }, `add ${l.label.toLowerCase()} look`)}
+                />
+                <span className="preset-label">{l.label}</span>
+                <div className="card-actions">
+                  <button
+                    className="chip-sm"
+                    disabled={targets.length === 0}
+                    data-testid={`look-${l.id}-clip`}
+                    onClick={() => onEdit(updateItems(targets.map((t) => ({ id: t.id, set: { colorGrading: l.grading } })), `${l.label.toLowerCase()} look`))}
+                  >
+                    On clip
+                  </button>
+                </div>
+              </div>
+            ))}
+            {catalog?.luts.map((l) => (
+              <LutCard
+                key={l.id}
+                id={l.id}
+                label={`${l.label} LUT`}
+                canClip={targets.length > 0}
+                canLayer={!!track}
+                onLayer={() => layer({ type: "adjustment", name: `${l.label} look`, adjustmentKind: "lut", lutPresetId: l.id, lutIntensity: 1 }, `add ${l.label.toLowerCase()} LUT`)}
+                onClip={() =>
+                  onEdit(
+                    mergeEach(
+                      ids,
+                      (d) => {
+                        const g = (d.colorGrade && typeof d.colorGrade === "object" ? d.colorGrade : {}) as Fields;
+                        return { colorGrade: { ...g, lut: { intensity: 1, stage: "look", preset: l.id } } };
+                      },
+                      `${l.label.toLowerCase()} LUT`,
+                    ),
+                  )
+                }
+              />
+            ))}
+          </div>
+        </>
+      )}
+      {!catalog && <Empty>Loading effects…</Empty>}
+      {(["stylize", "distort", "background"] as const).map((g) => {
+        const list = effects.filter((e) => e.group === g);
+        if (!list.length) return null;
+        return (
+          <div key={g}>
+            <h5 className="panel-sub">{GROUP_LABEL[g]}</h5>
+            <div className="preset-grid">
+              {list.map((e) => (
+                <FxCard
+                  key={e.id}
+                  spec={e}
+                  canClip={targets.length > 0}
+                  canLayer={!!track}
+                  onLayer={() =>
+                    layer(
+                      { type: "shader", name: e.label, shaderComposition: { template: e.id, params: {}, amount: 100, region: "all" } },
+                      `add ${e.label.toLowerCase()} layer`,
+                    )
+                  }
+                  onClip={() => onEdit(mergeEach(ids, (d) => ({ effects: [...effectStack(d), newEffect(e)] }), `add ${e.label.toLowerCase()}`))}
+                />
+              ))}
             </div>
           </div>
-        ))}
-      </div>
+        );
+      })}
     </>
   );
 }
@@ -265,7 +396,8 @@ const PLACEMENTS = [
 ];
 
 export function LayoutPanel({ project, selection, onEdit }: PanelProps) {
-  const targets = selection.filter(visual);
+  const catalog = useCatalog();
+  const targets = selection.filter((i) => visual(i) || i.kind === "text");
   return (
     <>
       <h5 className="panel-sub">Frame</h5>
@@ -286,6 +418,37 @@ export function LayoutPanel({ project, selection, onEdit }: PanelProps) {
           );
         })}
       </div>
+      <h5 className="panel-sub">Layouts {targets.length ? `— ${targets.length} selected` : ""}</h5>
+      <p className="muted panel-note">
+        Select clips (shift-click for several), then pick a layout: they fill its slots in timeline order. Clips on a Layout track arrange themselves.
+      </p>
+      <div className="layout-grid">
+        {(catalog?.layouts ?? []).map((l) => (
+          <button
+            key={l.id}
+            className="layout-card"
+            title={l.label}
+            disabled={!targets.length}
+            data-testid={`layout-${l.id}`}
+            onClick={() => {
+              const ordered = [...targets].sort((a, b) => (a.start ?? 0) - (b.start ?? 0) || a.trackId.localeCompare(b.trackId));
+              onEdit(updateItems(ordered.map((t, i) => ({ id: t.id, set: { layout: { preset: l.id, slot: i % l.slots.length } }, unset: ["transform"] })), `${l.label.toLowerCase()} layout`));
+            }}
+          >
+            <svg viewBox="0 0 160 90" className="layout-shape">
+              {l.slots.map((s, i) => (
+                <rect key={i} x={s[0] * 160 + 2} y={s[1] * 90 + 2} width={Math.max(1, s[2] * 160 - 4)} height={Math.max(1, s[3] * 90 - 4)} rx={3} />
+              ))}
+            </svg>
+            <span className="small">{l.label}</span>
+          </button>
+        ))}
+      </div>
+      <div className="chips-row">
+        <button className="chip-sm" disabled={!targets.length} data-testid="layout-none" onClick={() => onEdit(updateItems(targets.map((t) => ({ id: t.id, unset: ["layout"] })), "leave layout"))}>
+          Remove from layout
+        </button>
+      </div>
       <h5 className="panel-sub">Placement {targets.length ? `— ${targets.length} selected` : ""}</h5>
       {targets.length === 0 && <Empty>Select a video or image clip to place it in the frame.</Empty>}
       <div className="chips-row">
@@ -295,7 +458,7 @@ export function LayoutPanel({ project, selection, onEdit }: PanelProps) {
             className="chip-sm"
             disabled={!targets.length}
             data-testid={`place-${p.id}`}
-            onClick={() => onEdit(updateItems(targets.map((t) => ({ id: t.id, set: p.set, unset: p.unset })), p.label.toLowerCase()))}
+            onClick={() => onEdit(updateItems(targets.map((t) => ({ id: t.id, set: p.set, unset: [...p.unset, "layout"] })), p.label.toLowerCase()))}
           >
             {p.label}
           </button>

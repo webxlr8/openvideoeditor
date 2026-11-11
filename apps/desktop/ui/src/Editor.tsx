@@ -322,6 +322,7 @@ export function Editor({
               onEdit={onEdit}
               onClose={() => setClosedFor(selected)}
               onCollapse={() => toggle("panelOpen")}
+              playhead={playhead}
             />
           ) : (
             layout.panelOpen && (
@@ -374,7 +375,11 @@ export function Editor({
             playhead={playhead}
             zoom={zoom}
             snap={snap}
-            onSelect={onSelect}
+            onSelect={(i, offset, mode) => {
+              // Clicking a clip brings its properties back after a tool panel was opened.
+              setClosedFor(null);
+              onSelect(i, offset, mode);
+            }}
             onScrub={(t) => {
               setScrubTime(t);
               onSelectMany([]);

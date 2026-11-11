@@ -100,9 +100,10 @@ Fields in projection attribute order:
 | `borderRadius` | number [0..] | `0` |  | Corner radius in pixels. |
 | `gaussianBlur` | number [0..] | `0` |  | Blur radius in pixels. |
 | `keyframeTracks` | array of object {property, keyframes, easing} |  |  | Animated properties. |
-| `transitionIn` | object {type, presetId, duration, easing, …} |  |  | Transition at the start. |
-| `transitionOut` | object {type, presetId, duration, easing, …} |  |  | Transition at the end. |
+| `transitionIn` | object {type, presetId, duration, easing, direction, …} |  |  | Transition at the start. |
+| `transitionOut` | object {type, presetId, duration, easing, direction, …} |  |  | Transition at the end. |
 | `effects` | array of object {id, type, …} |  |  | Effect stack. |
+| `layout` | object {preset, slot} |  |  | Layout slot the item fills (x, y, w, h from the preset). |
 | `captionComposition` | object {mode, fallback} |  |  | Caption depth compositing. |
 | `autoReframe` | boolean | `true` |  | Fill the frame height with a centred crop when not transformed. |
 | `colorGrading` | object {exposure, brightness, contrast, highlights, shadows, temperature, tint, saturation, vibrance, gamma} |  |  | Basic colour adjustments. |
@@ -135,9 +136,10 @@ Fields in projection attribute order:
 | `borderRadius` | number [0..] | `0` |  | Corner radius in pixels. |
 | `gaussianBlur` | number [0..] | `0` |  | Blur radius in pixels. |
 | `keyframeTracks` | array of object {property, keyframes, easing} |  |  | Animated properties. |
-| `transitionIn` | object {type, presetId, duration, easing, …} |  |  | Transition at the start. |
-| `transitionOut` | object {type, presetId, duration, easing, …} |  |  | Transition at the end. |
+| `transitionIn` | object {type, presetId, duration, easing, direction, …} |  |  | Transition at the start. |
+| `transitionOut` | object {type, presetId, duration, easing, direction, …} |  |  | Transition at the end. |
 | `effects` | array of object {id, type, …} |  |  | Effect stack. |
+| `layout` | object {preset, slot} |  |  | Layout slot the item fills (x, y, w, h from the preset). |
 | `captionComposition` | object {mode, fallback} |  |  | Caption depth compositing. |
 | `autoReframe` | boolean | `true` |  | Fill the frame height with a centred crop when not transformed. |
 | `colorGrading` | object {exposure, brightness, contrast, highlights, shadows, temperature, tint, saturation, vibrance, gamma} |  |  | Basic colour adjustments. |
@@ -164,9 +166,10 @@ Fields in projection attribute order:
 | `borderRadius` | number [0..] | `0` |  | Corner radius in pixels. |
 | `gaussianBlur` | number [0..] | `0` |  | Blur radius in pixels. |
 | `keyframeTracks` | array of object {property, keyframes, easing} |  |  | Animated properties. |
-| `transitionIn` | object {type, presetId, duration, easing, …} |  |  | Transition at the start. |
-| `transitionOut` | object {type, presetId, duration, easing, …} |  |  | Transition at the end. |
+| `transitionIn` | object {type, presetId, duration, easing, direction, …} |  |  | Transition at the start. |
+| `transitionOut` | object {type, presetId, duration, easing, direction, …} |  |  | Transition at the end. |
 | `effects` | array of object {id, type, …} |  |  | Effect stack. |
+| `layout` | object {preset, slot} |  |  | Layout slot the item fills (x, y, w, h from the preset). |
 | `captionComposition` | object {mode, fallback} |  |  | Caption depth compositing. |
 | `autoReframe` | boolean | `true` |  | Fill the frame height with a centred crop when not transformed. |
 | `volume` | number [0..200] | `100` |  | Volume in percent. |
@@ -216,9 +219,10 @@ Fields in projection attribute order:
 | `borderRadius` | number [0..] | `0` |  | Corner radius in pixels. |
 | `gaussianBlur` | number [0..] | `0` |  | Blur radius in pixels. |
 | `keyframeTracks` | array of object {property, keyframes, easing} |  |  | Animated properties. |
-| `transitionIn` | object {type, presetId, duration, easing, …} |  |  | Transition at the start. |
-| `transitionOut` | object {type, presetId, duration, easing, …} |  |  | Transition at the end. |
+| `transitionIn` | object {type, presetId, duration, easing, direction, …} |  |  | Transition at the start. |
+| `transitionOut` | object {type, presetId, duration, easing, direction, …} |  |  | Transition at the end. |
 | `effects` | array of object {id, type, …} |  |  | Effect stack. |
+| `layout` | object {preset, slot} |  |  | Layout slot the item fills (x, y, w, h from the preset). |
 | `captionComposition` | object {mode, fallback} |  |  | Caption depth compositing. |
 | `autoReframe` | boolean | `true` |  | Fill the frame height with a centred crop when not transformed. |
 
@@ -251,9 +255,10 @@ Fields in projection attribute order:
 | `borderRadius` | number [0..] | `0` |  | Corner radius in pixels. |
 | `gaussianBlur` | number [0..] | `0` |  | Blur radius in pixels. |
 | `keyframeTracks` | array of object {property, keyframes, easing} |  |  | Animated properties. |
-| `transitionIn` | object {type, presetId, duration, easing, …} |  |  | Transition at the start. |
-| `transitionOut` | object {type, presetId, duration, easing, …} |  |  | Transition at the end. |
+| `transitionIn` | object {type, presetId, duration, easing, direction, …} |  |  | Transition at the start. |
+| `transitionOut` | object {type, presetId, duration, easing, direction, …} |  |  | Transition at the end. |
 | `effects` | array of object {id, type, …} |  |  | Effect stack. |
+| `layout` | object {preset, slot} |  |  | Layout slot the item fills (x, y, w, h from the preset). |
 | `captionComposition` | object {mode, fallback} |  |  | Caption depth compositing. |
 | `autoReframe` | boolean | `true` |  | Fill the frame height with a centred crop when not transformed. |
 
@@ -279,9 +284,10 @@ Fields in projection attribute order:
 | `borderRadius` | number [0..] | `0` |  | Corner radius in pixels. |
 | `gaussianBlur` | number [0..] | `0` |  | Blur radius in pixels. |
 | `keyframeTracks` | array of object {property, keyframes, easing} |  |  | Animated properties. |
-| `transitionIn` | object {type, presetId, duration, easing, …} |  |  | Transition at the start. |
-| `transitionOut` | object {type, presetId, duration, easing, …} |  |  | Transition at the end. |
+| `transitionIn` | object {type, presetId, duration, easing, direction, …} |  |  | Transition at the start. |
+| `transitionOut` | object {type, presetId, duration, easing, direction, …} |  |  | Transition at the end. |
 | `effects` | array of object {id, type, …} |  |  | Effect stack. |
+| `layout` | object {preset, slot} |  |  | Layout slot the item fills (x, y, w, h from the preset). |
 | `captionComposition` | object {mode, fallback} |  |  | Caption depth compositing. |
 | `autoReframe` | boolean | `true` |  | Fill the frame height with a centred crop when not transformed. |
 
@@ -309,9 +315,10 @@ Fields in projection attribute order:
 | `borderRadius` | number [0..] | `0` |  | Corner radius in pixels. |
 | `gaussianBlur` | number [0..] | `0` |  | Blur radius in pixels. |
 | `keyframeTracks` | array of object {property, keyframes, easing} |  |  | Animated properties. |
-| `transitionIn` | object {type, presetId, duration, easing, …} |  |  | Transition at the start. |
-| `transitionOut` | object {type, presetId, duration, easing, …} |  |  | Transition at the end. |
+| `transitionIn` | object {type, presetId, duration, easing, direction, …} |  |  | Transition at the start. |
+| `transitionOut` | object {type, presetId, duration, easing, direction, …} |  |  | Transition at the end. |
 | `effects` | array of object {id, type, …} |  |  | Effect stack. |
+| `layout` | object {preset, slot} |  |  | Layout slot the item fills (x, y, w, h from the preset). |
 | `captionComposition` | object {mode, fallback} |  |  | Caption depth compositing. |
 | `autoReframe` | boolean | `true` |  | Fill the frame height with a centred crop when not transformed. |
 | `colorGrading` | object {exposure, brightness, contrast, highlights, shadows, temperature, tint, saturation, vibrance, gamma} |  |  | Basic colour adjustments. |
@@ -339,9 +346,10 @@ Fields in projection attribute order:
 | `borderRadius` | number [0..] | `0` |  | Corner radius in pixels. |
 | `gaussianBlur` | number [0..] | `0` |  | Blur radius in pixels. |
 | `keyframeTracks` | array of object {property, keyframes, easing} |  |  | Animated properties. |
-| `transitionIn` | object {type, presetId, duration, easing, …} |  |  | Transition at the start. |
-| `transitionOut` | object {type, presetId, duration, easing, …} |  |  | Transition at the end. |
+| `transitionIn` | object {type, presetId, duration, easing, direction, …} |  |  | Transition at the start. |
+| `transitionOut` | object {type, presetId, duration, easing, direction, …} |  |  | Transition at the end. |
 | `effects` | array of object {id, type, …} |  |  | Effect stack. |
+| `layout` | object {preset, slot} |  |  | Layout slot the item fills (x, y, w, h from the preset). |
 | `captionComposition` | object {mode, fallback} |  |  | Caption depth compositing. |
 | `autoReframe` | boolean | `true` |  | Fill the frame height with a centred crop when not transformed. |
 
@@ -389,6 +397,7 @@ Fields in projection attribute order:
 | `presetId` | string |  |  | Transition preset id. |
 | `duration` | seconds ≥ 0 |  |  | Seconds. |
 | `easing` | `linear` \| `ease-in` \| `ease-out` \| `ease-in-out` |  |  | Easing curve. |
+| `direction` | `left` \| `right` \| `up` \| `down` |  |  | Direction of travel for wipe, push and fly. |
 
 #### `transitionOut`
 
@@ -398,6 +407,7 @@ Fields in projection attribute order:
 | `presetId` | string |  |  | Transition preset id. |
 | `duration` | seconds ≥ 0 |  |  | Seconds. |
 | `easing` | `linear` \| `ease-in` \| `ease-out` \| `ease-in-out` |  |  | Easing curve. |
+| `direction` | `left` \| `right` \| `up` \| `down` |  |  | Direction of travel for wipe, push and fly. |
 
 #### `effects`
 
@@ -405,6 +415,13 @@ Fields in projection attribute order:
 |---|---|---|---|---|
 | `id` | string |  |  | Effect instance id. |
 | `type` | string |  |  | Effect preset type. |
+
+#### `layout`
+
+| field | type / range | default | required | meaning |
+|---|---|---|---|---|
+| `preset` | `split-horizontal` \| `split-vertical` \| `3up-horizontal` \| `3up-vertical` \| `4up-horizontal` \| `4up-vertical` \| `grid-2x2` \| `pip-bottom-right` \| `pip-bottom-left` \| `pip-top-right` \| `pip-top-left` \| `hero-top` \| `hero-bottom` \| `hero-left` \| `hero-right` |  |  | Layout preset. |
+| `slot` | number [0..] | `0` |  | Slot index within the preset. |
 
 #### `captionComposition`
 

@@ -19,24 +19,41 @@ import {
   itemDetail,
   updateItem,
 } from "./edit";
+import { useCatalog } from "./fx";
+import {
+  ColorGradeEditor,
+  EffectStackEditor,
+  ShaderEditor,
+  TransitionEditor,
+} from "./FxControls";
 import { Icon } from "./icons";
 import { CodeTab, FontPicker } from "./Motion";
 
-type Tab = "general" | "color" | "audio" | "text" | "caption" | "code";
+type Tab =
+  | "general"
+  | "color"
+  | "effects"
+  | "shader"
+  | "audio"
+  | "text"
+  | "caption"
+  | "code";
 
 const TABS: Record<string, Tab[]> = {
-  video: ["general", "color", "audio"],
-  image: ["general", "color"],
+  video: ["general", "color", "effects", "audio"],
+  image: ["general", "color", "effects"],
   audio: ["audio", "general"],
   text: ["text", "general"],
   caption: ["caption", "general"],
-  adjustment: ["color", "general"],
+  adjustment: ["color", "effects", "general"],
   code: ["code", "general"],
-  shader: ["general"],
+  shader: ["shader", "general"],
 };
 const TAB_LABEL: Record<Tab, string> = {
   general: "General",
   color: "Color",
+  effects: "Effects",
+  shader: "Shader",
   audio: "Audio",
   text: "Text",
   caption: "Caption",
@@ -258,14 +275,18 @@ export function Inspector({
   onEdit,
   onClose,
   onCollapse,
+  playhead = 0,
 }: {
   project: ProjectView_Serialize;
   item: ItemView_Serialize;
   onEdit: (p: EditResult) => void;
   onClose: () => void;
   onCollapse: () => void;
+  /** Timeline time of the playhead, seconds (colour match reference, scopes). */
+  playhead?: number;
 }) {
   const [detail, setDetail] = useState<Fields | null>(null);
+  const catalog = useCatalog();
   const tabs = TABS[item.kind] ?? ["general"];
   const [tabPick, setTab] = useState<Tab | null>(null);
   const tab = tabPick && tabs.includes(tabPick) ? tabPick : tabs[0];
@@ -599,10 +620,132 @@ export function Inspector({
               </>
             )}
             <Section title="Transitions">
-              {transitionRow("transitionIn", "In")}
-              {transitionRow("transitionOut", "Out")}
+              {catalog ? (
+                <>
+                  <TransitionEditor
+                    catalog={catalog}
+                    fields={d}
+                    field="transitionIn"
+                    title="In"
+                    set={set}
+                    unset={unset}
+                  />
+                  <TransitionEditor
+                    catalog={catalog}
+                    fields={d}
+                    field="transitionOut"
+                    title="Out"
+                    set={set}
+                    unset={unset}
+                  />
+                </>
+              ) : (
+                <>
+                  {transitionRow("transitionIn", "In")}
+                  {transitionRow("transitionOut", "Out")}
+                </>
+              )}
             </Section>
+            {catalog &&
+              (item.kind === "video" ||
+                item.kind === "image" ||
+                item.kind === "text") && (
+                <Section
+                  title="Layout"
+                  aside={
+                    d.layout !== undefined ? (
+                      <button
+                        className="link"
+                        onClick={() => unset(["layout"], "leave layout")}
+                      >
+                        Remove
+                      </button>
+                    ) : undefined
+                  }
+                >
+                  <label className="select-row">
+                    <span>Preset</span>
+                    <select
+                      value={str(obj(d.layout).preset, "")}
+                      data-testid="insp-layout"
+                      onChange={(e) =>
+                        e.target.value
+                          ? set(
+                              {
+                                layout: {
+                                  slot: 0,
+                                  ...obj(d.layout),
+                                  preset: e.target.value,
+                                },
+                              },
+                              "layout",
+                            )
+                          : unset(["layout"], "leave layout")
+                      }
+                    >
+                      <option value="">None (free placement)</option>
+                      {catalog.layouts.map((l) => (
+                        <option key={l.id} value={l.id}>
+                          {l.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {d.layout !== undefined && (
+                    <div className="chips-row">
+                      {(
+                        catalog.layouts.find(
+                          (l) => l.id === obj(d.layout).preset,
+                        )?.slots ?? []
+                      ).map((_, i) => (
+                        <button
+                          key={i}
+                          className={`chip-sm${num(obj(d.layout).slot, 0) === i ? " on" : ""}`}
+                          data-testid={`insp-layout-slot-${i}`}
+                          onClick={() =>
+                            setIn("layout", "slot", i, "layout slot")
+                          }
+                        >
+                          Slot {i + 1}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </Section>
+              )}
           </>
+        )}
+        {detail !== null && tab === "effects" && catalog && (
+          <Section title="Effects">
+            <EffectStackEditor catalog={catalog} fields={d} set={set} />
+          </Section>
+        )}
+        {detail !== null && tab === "shader" && catalog && (
+          <Section title="Shader">
+            <ShaderEditor catalog={catalog} fields={d} set={set} />
+          </Section>
+        )}
+        {detail !== null && tab === "color" && catalog && (
+          <Section
+            title="Grade"
+            aside={
+              <button
+                className="link"
+                onClick={() => unset(["colorGrade"], "reset grade")}
+              >
+                Reset
+              </button>
+            }
+          >
+            <ColorGradeEditor
+              catalog={catalog}
+              itemId={item.id}
+              fields={d}
+              playhead={playhead}
+              set={set}
+              onEdit={onEdit}
+            />
+          </Section>
         )}
         {detail !== null && tab === "color" && (
           <Section

@@ -96,6 +96,24 @@ pub const CAPTION_FALLBACKS: &[&str] = &["front", "hide"];
 pub const PROBE_STATUSES: &[&str] = &["awaiting-probe", "probed", "failed"];
 pub const LUT_STAGES: &[&str] = &["input", "look"];
 pub const SHADER_REGIONS: &[&str] = &["all", "subject", "background"];
+pub const TRANSITION_DIRECTIONS: &[&str] = &["left", "right", "up", "down"];
+pub const LAYOUT_PRESETS: &[&str] = &[
+    "split-horizontal",
+    "split-vertical",
+    "3up-horizontal",
+    "3up-vertical",
+    "4up-horizontal",
+    "4up-vertical",
+    "grid-2x2",
+    "pip-bottom-right",
+    "pip-bottom-left",
+    "pip-top-right",
+    "pip-top-left",
+    "hero-top",
+    "hero-bottom",
+    "hero-left",
+    "hero-right",
+];
 
 // ---------------------------------------------------------------------------------------------------------------
 // Nested objects
@@ -131,6 +149,12 @@ const TRANSITION: &[Field] = &[
     f("presetId", Kind::Str, "Transition preset id."),
     f("duration", Kind::Time, "Seconds."),
     f("easing", Kind::Enum(EASINGS), "Easing curve."),
+    f("direction", Kind::Enum(TRANSITION_DIRECTIONS), "Direction of travel for wipe, push and fly."),
+];
+
+const LAYOUT: &[Field] = &[
+    f("preset", Kind::Enum(LAYOUT_PRESETS), "Layout preset."),
+    fd("slot", Kind::Num { min: Some(0.0), max: None }, Def::Num(0.0), "Slot index within the preset."),
 ];
 
 const EFFECT: &[Field] = &[f("id", Kind::Str, "Effect instance id."), f("type", Kind::Str, "Effect preset type.")];
@@ -244,6 +268,7 @@ const LOOK: &[Field] = &[
     f("transitionIn", Kind::Obj { fields: TRANSITION, open: true }, "Transition at the start."),
     f("transitionOut", Kind::Obj { fields: TRANSITION, open: true }, "Transition at the end."),
     f("effects", Kind::Arr(&EFFECT_KIND), "Effect stack."),
+    f("layout", Kind::Obj { fields: LAYOUT, open: false }, "Layout slot the item fills (x, y, w, h from the preset)."),
     f("captionComposition", Kind::Obj { fields: CAPTION_COMPOSITION, open: false }, "Caption depth compositing."),
     fd("autoReframe", Kind::Bool, Def::Bool(true), "Fill the frame height with a centred crop when not transformed."),
 ];

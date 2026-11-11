@@ -84,14 +84,17 @@ fn put(dst: &mut [u8], s: [f32; 3], a: f32, mode: Blend) {
         return;
     }
     let da = dst[3] as f32 / 255.0;
+    // Straight-alpha "over": on an opaque destination this is d·(1−a) + b·a; on a transparent one (offscreen
+    // layers) the colour stays unpremultiplied.
+    let oa = a + da * (1.0 - a);
     for c in 0..3 {
         let d = dst[c] as f32 / 255.0;
         let b = if mode == Blend::Normal { s[c] } else { blend_ch(mode, d, s[c]) };
         // Over a transparent destination the blend mode has nothing to act on: use the source colour.
         let b = b * da + s[c] * (1.0 - da);
-        dst[c] = ((d * (1.0 - a) + b * a) * 255.0 + 0.5).clamp(0.0, 255.0) as u8;
+        dst[c] = (((d * da * (1.0 - a) + b * a) / oa.max(1e-6)) * 255.0 + 0.5).clamp(0.0, 255.0) as u8;
     }
-    dst[3] = ((da + a * (1.0 - da)) * 255.0 + 0.5).clamp(0.0, 255.0) as u8;
+    dst[3] = (oa * 255.0 + 0.5).clamp(0.0, 255.0) as u8;
 }
 
 #[inline]

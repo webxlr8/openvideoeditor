@@ -9,6 +9,7 @@ pub mod edits;
 pub mod engine;
 pub mod error;
 pub mod exporting;
+pub mod fx;
 pub mod interchange;
 pub mod logging;
 pub mod media;
@@ -168,6 +169,12 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             motion::list_templates,
             motion::template_thumbnail,
             motion::check_code,
+            // Effects, transitions, layouts and colour (change 12).
+            fx::fx_catalog,
+            fx::fx_preview,
+            fx::import_lut,
+            fx::match_color,
+            fx::color_scopes,
         ])
         .events(collect_events![
             PlaybackChanged,
