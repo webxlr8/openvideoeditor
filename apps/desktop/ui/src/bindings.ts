@@ -69,10 +69,21 @@ export const commands = {
 	reorderTracks: (order: string[]) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("reorder_tracks", { order })),
 	/**  Removes a track and everything on it. */
 	removeTrack: (id: string) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("remove_track", { id })),
+	agentStatus: () => typedError<AgentStatus_Serialize, AppError>(__TAURI_INVOKE("agent_status")),
+	agentSetKey: (key: string) => typedError<AgentStatus_Serialize, AppError>(__TAURI_INVOKE("agent_set_key", { key })),
+	agentClearKey: () => typedError<AgentStatus_Serialize, AppError>(__TAURI_INVOKE("agent_clear_key")),
+	agentSetModel: (model: string) => typedError<AgentStatus_Serialize, AppError>(__TAURI_INVOKE("agent_set_model", { model })),
+	agentChats: () => typedError<ChatSummaryView[], AppError>(__TAURI_INVOKE("agent_chats")),
+	agentChat: (id: string) => typedError<ChatItem_Serialize[], AppError>(__TAURI_INVOKE("agent_chat", { id })),
+	/**  Starts a turn in a chat (a new chat when `chat_id` is empty). Progress arrives as `agentUiEvent`. */
+	agentSend: (chatId: string | null, text: string) => typedError<SendResult, AppError>(__TAURI_INVOKE("agent_send", { chatId, text })),
+	agentStop: () => typedError<null, AppError>(__TAURI_INVOKE("agent_stop")),
+	agentAnswer: (questionId: string, answer: string) => typedError<null, AppError>(__TAURI_INVOKE("agent_answer", { questionId, answer })),
 };
 
 /** Events */
 export const events = {
+	agentUiEvent: makeEvent<AgentUiEvent_Serialize, AgentUiEvent_Deserialize>("agent-ui-event"),
 	appErrorRaised: makeEvent<AppErrorRaised, AppErrorRaised>("app-error-raised"),
 	openPathsRequested: makeEvent<OpenPathsRequested, OpenPathsRequested>("open-paths-requested"),
 	playbackChanged: makeEvent<PlaybackChanged, PlaybackChanged>("playback-changed"),
@@ -82,6 +93,39 @@ export const events = {
 };
 
 /* Types */
+export type AgentStatus = AgentStatus_Serialize | AgentStatus_Deserialize;
+
+export type AgentStatus_Deserialize = {
+	hasKey: boolean,
+	/**  "keychain" or "environment". */
+	keySource?: string | null,
+	model: string,
+	models: ModelOption[],
+	running: boolean,
+};
+
+export type AgentStatus_Serialize = {
+	hasKey: boolean,
+	/**  "keychain" or "environment". */
+	keySource: string | null,
+	model: string,
+	models: ModelOption[],
+	running: boolean,
+};
+
+/**  Live assistant activity. */
+export type AgentUiEvent = AgentUiEvent_Serialize | AgentUiEvent_Deserialize;
+
+/**  Live assistant activity. */
+export type AgentUiEvent_Deserialize = { kind: "turnStarted"; chatId: string } | { kind: "textDelta"; text: string } | { kind: "thinkingDelta"; text: string } | { kind: "toolCall"; id: string; name: string; label: string } | { kind: "toolResult"; id: string; ok: boolean; summary: string } | { kind: "question"; id: string; question: string; options: string[] } | { kind: "retrying"; message: string; seconds: number | null } | { kind: "turnDone"; chatId: string; stopped: boolean; durationMs: number | null; inputTokens: number | null; outputTokens: number | null; cacheReadTokens: number | null; costUsd: number | null; note?: string | null } | { kind: "error"; code: string; message: string } | 
+/**  The assistant asked to show a timeline time. */
+{ kind: "seek"; seconds: number | null };
+
+/**  Live assistant activity. */
+export type AgentUiEvent_Serialize = { kind: "turnStarted"; chatId: string } | { kind: "textDelta"; text: string } | { kind: "thinkingDelta"; text: string } | { kind: "toolCall"; id: string; name: string; label: string } | { kind: "toolResult"; id: string; ok: boolean; summary: string } | { kind: "question"; id: string; question: string; options: string[] } | { kind: "retrying"; message: string; seconds: number | null } | { kind: "turnDone"; chatId: string; stopped: boolean; durationMs: number | null; inputTokens: number | null; outputTokens: number | null; cacheReadTokens: number | null; costUsd: number | null; note: string | null } | { kind: "error"; code: string; message: string } | 
+/**  The assistant asked to show a timeline time. */
+{ kind: "seek"; seconds: number | null };
+
 /**  Error returned by every command: a code plus a plain-language message. */
 export type AppError = {
 	code: ErrorCode,
@@ -116,6 +160,37 @@ export type AppInfo_Serialize = {
 	/**  Presentation path the viewer is using now (may change once; see ViewerBackendChanged). */
 	viewerBackend: ViewerBackend,
 	logDir: string | null,
+};
+
+/**  One line of the chat as the UI shows it. */
+export type ChatItem = ChatItem_Serialize | ChatItem_Deserialize;
+
+/**  One line of the chat as the UI shows it. */
+export type ChatItem_Deserialize = {
+	/**  user, assistant, tool, question or note. */
+	role: string,
+	text: string,
+	/**  Tool call / question id. */
+	id?: string | null,
+	ok?: boolean | null,
+	options: string[],
+};
+
+/**  One line of the chat as the UI shows it. */
+export type ChatItem_Serialize = {
+	/**  user, assistant, tool, question or note. */
+	role: string,
+	text: string,
+	/**  Tool call / question id. */
+	id: string | null,
+	ok: boolean | null,
+	options: string[],
+};
+
+export type ChatSummaryView = {
+	id: string,
+	title: string,
+	updatedAt: number | null,
 };
 
 /**  Everything the diagnostics overlay shows. */
@@ -251,6 +326,11 @@ export type MediaView_Serialize = {
 	thumbnail: string | null,
 };
 
+export type ModelOption = {
+	id: string,
+	label: string,
+};
+
 /**  Paths routed to the running app (second launch, Open With, Dock/taskbar drop, window drop). */
 export type OpenPathsRequested = {
 	paths: string[],
@@ -352,6 +432,10 @@ export type ProjectView_Serialize = {
 	tracks: TrackView[],
 	items: ItemView_Serialize[],
 	media: MediaView_Serialize[],
+};
+
+export type SendResult = {
+	chatId: string,
 };
 
 export type TrackView = {

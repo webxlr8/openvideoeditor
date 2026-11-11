@@ -10,6 +10,7 @@ import type {
   ViewerBackend,
 } from "./bindings";
 import { commands, events } from "./bridge";
+import { setPendingDraft } from "./ChatPanel";
 import { Editor, type Layout } from "./Editor";
 import { Home } from "./Home";
 import { EDIT_ACTIONS, keyToAction } from "./keys";
@@ -211,6 +212,30 @@ export function App() {
               if (r.status === "error") showError(r.error);
               else openProjectView(r.data);
             })
+          }
+          onPrompt={(text) =>
+            void (async () => {
+              const name =
+                text
+                  .split(/\s+/)
+                  .slice(0, 6)
+                  .join(" ")
+                  .replace(/[^\p{L}\p{N} '-]/gu, "")
+                  .slice(0, 48)
+                  .trim() || "Untitled Project";
+              const created = await commands.createProject(name);
+              if (created.status === "error") return showError(created.error);
+              const status = await commands.agentStatus();
+              const ready = status.status === "ok" && status.data.hasKey;
+              // Without a key the words wait in the assistant's composer next to the key card.
+              if (!ready) setPendingDraft(text);
+              setLayout((l) => ({ ...l, chatOpen: true }));
+              openProjectView(created.data);
+              if (ready) {
+                const sent = await commands.agentSend(null, text);
+                if (sent.status === "error") showError(sent.error);
+              }
+            })()
           }
           onOpenProject={(bundle) =>
             void commands.openProject(bundle).then((r) => {
