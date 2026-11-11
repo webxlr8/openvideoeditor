@@ -914,6 +914,165 @@ kbd {
   outline: 0;
   background: none;
 }
+.chat-header-tools .pill:has(> svg:first-child) {
+  padding: 0 6px;
+}
+.chat-header-tools .menu {
+  width: 280px;
+}
+.chat-header-tools .menu-item span {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.chat-log {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 2px;
+}
+.msg {
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.msg p {
+  margin: 0 0 6px;
+}
+.msg p:last-child {
+  margin-bottom: 0;
+}
+.msg ul,
+.msg ol {
+  margin: 4px 0 6px;
+  padding-left: 20px;
+}
+.msg code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--bg-4);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+.msg-user {
+  align-self: flex-end;
+  max-width: 85%;
+  padding: 8px 12px;
+  border-radius: 12px 12px 4px 12px;
+  background: var(--bg-4);
+  white-space: pre-wrap;
+}
+.msg-error {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(240, 112, 112, 0.12);
+  color: var(--danger);
+}
+.msg-note,
+.chat-thinking,
+.chat-footer {
+  padding: 0 2px;
+}
+.chat-footer {
+  margin-bottom: 8px;
+}
+.tool-chip {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--bg-3);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tool-chip .dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: #4fc28a;
+}
+.tool-chip .dot.busy {
+  background: var(--accent);
+  animation: pulse 1s ease-in-out infinite;
+}
+.tool-chip.failed .dot {
+  background: var(--danger);
+}
+@keyframes pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+.question-card,
+.key-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 12px;
+  background: var(--bg-3);
+  border: 1px solid #34343b;
+}
+.question-text {
+  white-space: pre-wrap;
+  font-weight: 500;
+}
+.question-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.question-input,
+.key-card input {
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid #34343b;
+  background: var(--bg-2);
+  outline: 0;
+}
+.key-card {
+  margin: auto 0;
+  align-items: flex-start;
+}
+.key-card h3 {
+  margin: 0;
+  font-size: 15px;
+}
+.key-card p {
+  margin: 0;
+  line-height: 1.5;
+}
+.key-card input {
+  width: 100%;
+}
+.key-error {
+  color: var(--danger);
+}
+.send:not(:disabled) {
+  background: var(--text);
+  color: var(--bg-0);
+}
+.send.stop {
+  background: var(--text);
+}
+.stop-square {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: var(--bg-0);
+}
 
 /* Toasts */
 .toasts {

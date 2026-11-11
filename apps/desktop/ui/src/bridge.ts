@@ -4,7 +4,10 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import * as generated from "./bindings";
 import type {
+  AgentStatus_Serialize,
+  AgentUiEvent_Serialize,
   AppError,
+  ChatItem_Serialize,
   AppInfo_Serialize,
   Diagnostics_Serialize,
   MediaInfo_Serialize,
@@ -41,6 +44,8 @@ export interface MockControl {
   calls: string[];
   /** Simulates the native side routing paths to the window. */
   routePaths(paths: string[]): void;
+  /** The simulated assistant: whether a key is stored and how long each streamed step takes. */
+  agent: { hasKey: boolean; stepMs: number; ask: boolean };
 }
 
 declare global {
@@ -140,6 +145,7 @@ function createMock(): { commands: Commands; events: Events; control: MockContro
     routePaths(paths) {
       emit("open-paths-requested", { paths });
     },
+    agent: { hasKey: true, stepMs: 120, ask: false },
   };
   const track = (name: string) => control.calls.push(name);
 
@@ -220,6 +226,76 @@ function createMock(): { commands: Commands; events: Events; control: MockContro
       }
     });
   const findItem = (id: string): ItemView_Serialize | undefined => project?.items.find((i) => i.id === id);
+
+  // Simulated assistant: streams a reply, "calls" tools, and adds a title as one undo step.
+  const MODELS = [
+    { id: "claude-sonnet-5-5", label: "Claude Sonnet 5.5" },
+    { id: "claude-opus-5-5", label: "Claude Opus 5.5" },
+    { id: "claude-haiku-5-5", label: "Claude Haiku 5.5" },
+  ];
+  let agentModel = MODELS[0].id;
+  const chats = new Map<string, { title: string; updatedAt: number; items: ChatItem_Serialize[] }>();
+  let turn: { stop: boolean; answer?: (a: string) => void } | null = null;
+  const agentStatus = (): AgentStatus_Serialize => ({
+    hasKey: control.agent.hasKey,
+    keySource: control.agent.hasKey ? "keychain" : null,
+    model: agentModel,
+    models: MODELS,
+    running: turn !== null,
+  });
+  const agentEvent = (payload: AgentUiEvent_Serialize) => emit("agent-ui-event", payload);
+  const wait = () => new Promise((r) => setTimeout(r, control.agent.stepMs));
+  const item = (role: string, text: string, id: string | null = null, ok: boolean | null = null): ChatItem_Serialize => ({ role, text, id, ok, options: [] });
+  const runTurn = async (chatId: string) => {
+    const chat = chats.get(chatId)!;
+    const t = turn!;
+    const started = Date.now();
+    const say = async (text: string) => {
+      const it = item("assistant", "");
+      chat.items.push(it);
+      for (const word of text.split(/(?<= )/)) {
+        if (t.stop) return;
+        await wait();
+        it.text += word;
+        agentEvent({ kind: "textDelta", text: word });
+      }
+    };
+    const tool = async (id: string, name: string, label: string, run: () => string) => {
+      if (t.stop) return;
+      const it = item("tool", label, id);
+      chat.items.push(it);
+      agentEvent({ kind: "toolCall", id, name, label });
+      await wait();
+      const summary = run();
+      it.ok = true;
+      agentEvent({ kind: "toolResult", id, ok: true, summary });
+    };
+    agentEvent({ kind: "turnStarted", chatId });
+    agentEvent({ kind: "thinkingDelta", text: "…" });
+    await wait();
+    await say("Let me look at the timeline first. ");
+    await tool("tu_print", "print_timeline", "Read the timeline", () => `${project?.items.length ?? 0} items`);
+    if (control.agent.ask && !t.stop) {
+      const q = item("question", "Which style should the title use?", "tu_ask");
+      q.options = ["Bold", "Minimal"];
+      chat.items.push(q);
+      agentEvent({ kind: "question", id: "tu_ask", question: q.text, options: q.options });
+      const a = await new Promise<string>((r) => (t.answer = r));
+      q.text += `\n→ ${a}`;
+      q.ok = true;
+    }
+    await tool("tu_apply", "apply_timeline", "Edit the timeline", () => {
+      void editProject("assistant: add opening title", (p) => {
+        p.items.push({ id: `i${++seq}`, trackId: "t_text", kind: "text", name: "Opening title", start: 0, end: 3, trimStart: null, mediaId: null, pending: false });
+      });
+      return "added 1";
+    });
+    await tool("tu_verify", "verify_timeline", "Check the timeline", () => "no problems");
+    await say("Done: I added a 3-second **Welcome** title at the start. Undo removes it in one step.");
+    chat.updatedAt = Date.now();
+    turn = null;
+    agentEvent({ kind: "turnDone", chatId, stopped: t.stop, durationMs: Date.now() - started, inputTokens: 5400, outputTokens: 320, cacheReadTokens: 4800, costUsd: 0.0148, note: null });
+  };
 
   const commands: Commands = {
     appInfo: () =>
@@ -373,6 +449,51 @@ function createMock(): { commands: Commands; events: Events; control: MockContro
       project = redoStack.pop()!;
       return publish();
     },
+    agentStatus: () => ok(agentStatus()),
+    agentSetKey: (key: string) => {
+      if (!/^sk-ant-[\w-]{8,}$/.test(key.trim())) return fail("invalid_argument", "That doesn't look like an Anthropic API key (they start with sk-ant-).");
+      control.agent.hasKey = true;
+      return ok(agentStatus());
+    },
+    agentClearKey: () => {
+      control.agent.hasKey = false;
+      return ok(agentStatus());
+    },
+    agentSetModel: (model: string) => {
+      if (!MODELS.some((m) => m.id === model)) return fail("invalid_argument", "Unknown model.");
+      agentModel = model;
+      return ok(agentStatus());
+    },
+    agentChats: () =>
+      ok([...chats.entries()].sort((a, b) => b[1].updatedAt - a[1].updatedAt).map(([id, c]) => ({ id, title: c.title, updatedAt: c.updatedAt }))),
+    agentChat: (id: string) => {
+      const c = chats.get(id);
+      return c ? ok(JSON.parse(JSON.stringify(c.items)) as ChatItem_Serialize[]) : fail("not_found", "That conversation no longer exists.");
+    },
+    agentSend: (chatId: string | null, text: string) => {
+      if (!control.agent.hasKey) return fail("invalid_argument", "Add an Anthropic API key to use the assistant.");
+      if (!project) return fail("invalid_argument", "Open a project first.");
+      if (turn) return fail("invalid_argument", "The assistant is still working on the last message.");
+      const id = chatId ?? `c_${++seq}`;
+      if (!chats.has(id)) chats.set(id, { title: text.split("\n")[0].slice(0, 60), updatedAt: Date.now(), items: [] });
+      chats.get(id)!.items.push(item("user", text));
+      turn = { stop: false };
+      setTimeout(() => void runTurn(id), 0);
+      return ok({ chatId: id });
+    },
+    agentStop: () => {
+      if (turn) {
+        turn.stop = true;
+        turn.answer?.("(stopped)");
+      }
+      return ok(null);
+    },
+    agentAnswer: (_questionId: string, answer: string) => {
+      if (!turn?.answer) return fail("invalid_argument", "That question was already answered.");
+      turn.answer(answer);
+      turn.answer = undefined;
+      return ok(null);
+    },
   };
 
   const makeEvent = (name: string) => ({
@@ -383,6 +504,7 @@ function createMock(): { commands: Commands; events: Events; control: MockContro
     },
   });
   const events = {
+    agentUiEvent: makeEvent("agent-ui-event"),
     appErrorRaised: makeEvent("app-error-raised"),
     openPathsRequested: makeEvent("open-paths-requested"),
     playbackChanged: makeEvent("playback-changed"),
