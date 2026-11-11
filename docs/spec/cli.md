@@ -1,0 +1,92 @@
+# Bundled CLI surface
+
+The agent's hands. Same library as the app, works with the app closed, talks to the running app over the control
+socket. Every command takes a project name/id/bundle path and `--json`. Exit codes: 0 ok, 1 refused, 3 not signed in /
+app not running / project has no tab, 4 out of credits.
+
+Command paths with their arguments and flags (descriptions omitted):
+
+- `<cli> project [options] [command]`
+- `<cli> project create [options] <name>` — flags: `--open`, `--focus`
+- `<cli> project list|ls [options]`
+- `<cli> project show [options] <project>`
+- `<cli> project open [options] <project>` — flags: `--focus`
+- `<cli> project save-as [options] <project> <file>`
+- `<cli> project import-premiere [options] <file>` — flags: `--sequence <name>`
+- `<cli> project reveal [options] <project>`
+- `<cli> project rename [options] <project> <name>`
+- `<cli> project rm|remove [options] <project>` — flags: `-y, --yes`
+- `<cli> media [options] [command]`
+- `<cli> media add [options] <project> <sources...>` — flags: `--no-wait`, `--res <size>`, `--fps <n>`, `--copy`, `--no-copy`, `--max-height <px>`, `--audio-only`, `--browser <name>`, `--cookies <file>`
+- `<cli> media ls|list [options] <project>` — flags: `--all`
+- `<cli> media rm|remove [options] <project> <media...>`
+- `<cli> media relink [options] <project> [media] [path]` — flags: `--folder <dir>`
+- `<cli> media proxy [options] <project> [media...]` — flags: `--force`, `--res <size>`, `--fps <n>`
+- `<cli> media probe [options] <project> <media>`
+- `<cli> media grab|frame [options] <project> <media>` — flags: `--at <seconds>`, `--fps <n>`, `--from <seconds>`, `--to <seconds>`, `--count <n>`, `--crop <x,y,w,h>`, `--width <px>`, `--height <px>`, `--filter <name>`, `--format <name>`, `--quality <0-1>`, `--out <file>`
+- `<cli> media filmstrip [options] <project> <media>` — flags: `--out <file>`, `--at <seconds>`, `--count <n>`, `--every <seconds>`, `--columns <n>`, `--tile-width <px>`
+- `<cli> media sheet [options] <project> [media...]` — flags: `--out <file>`, `--grid`, `--columns <n>`, `--tile-width <px>`
+- `<cli> media scenes [options] <project> <media>` — flags: `--threshold <0-1>`
+- `<cli> media matte [options] <project> <media>` — flags: `--from <seconds>`, `--to <seconds>`, `--occlusion`, `--fast`, `--out <file>`, `--force`
+- `<cli> media cutout [options] <project> <media>` — flags: `--out <file>`, `--fast`, `--force`
+- `<cli> media levels [options] <project> <media>` — flags: `--at <seconds>`
+- `<cli> download [options] [urls...]` — flags: `--out <path>`, `--update`, `--max-height <px>`, `--audio-only`, `--browser <name>`, `--cookies <file>`
+- `<cli> capture [options] <urls...>` — flags: `--out <path>`, `--full-page`, `--selector <css>`, `--width <px>`, `--height <px>`, `--scale <n>`, `--theme <theme>`, `--wait <seconds>`, `--full-motion`, `--project <project>`
+- `<cli> footage [options] [command]`
+- `<cli> footage search [options] <query>` — flags: `--limit <n>`, `--orientation <name>`, `--min-duration <seconds>`, `--max-duration <seconds>`, `--downloadable-only`
+- `<cli> music [options] [command]`
+- `<cli> music search [options] [text...]` — flags: `--genre <name>`, `--mood <name>`, `--limit <n>`
+- `<cli> sfx [options] [command]`
+- `<cli> sfx search [options] [text...]` — flags: `--category <name>`, `--limit <n>`
+- `<cli> audio [options] [command]`
+- `<cli> audio process [options] <project> <media>` — flags: `--workflow <kind>`, `--deecho`, `--from <seconds>`, `--to <seconds>`
+- `<cli> audio transcribe [options] <project> <media>` — flags: `--format <kind>`, `--language <code>`, `--force`, `--timeline`, `--from <seconds>`, `--to <seconds>`
+- `<cli> audio search [options] <project> <phrase>`
+- `<cli> audio captions [options] <project>` — flags: `--words <n>`, `--preset <id>`, `--language <code>`, `--name <track>`, `--apply`
+- `<cli> audio waveform [options] <project> <media>` — flags: `--out <file>`, `--width <px>`, `--height <px>`
+- `<cli> audio levels [options] <project> <media>` — flags: `--points <n>`
+- `<cli> audio silence [options] <project> <media>` — flags: `--threshold <dB>`, `--min <seconds>`
+- `<cli> audio loudness [options] <project> <media>`
+- `<cli> generate [options] [command]`
+- `<cli> generate video [options] <project> <prompt>` — flags: `--quality <tier>`, `--character <name: description>`, `--motion <text>`, `--model <id>`, `--duration <seconds>`, `--aspect <ratio>`, `--image <media|path>`, `--first-frame <prompt>`, `--first-frame-model <id>`, `--first-frame-image <media|path>`, `--ref <media|path>`, `--audio`, `--resolution <res>`, `--negative <text>`, `--seed <n>`, `--start <seconds>`, `--track <name|id>`, `--name <label>`, `--no-wait`
+- `<cli> generate image [options] <project> <prompt>` — flags: `--quality <tier>`, `--model <id>`, `--aspect <ratio>`, `--image <media|path>`, `--duration <seconds>`, `--start <seconds>`, `--track <name|id>`, `--name <label>`, `--no-wait`
+- `<cli> generate character [options] <project> <name> <description>`
+- `<cli> generate voice [options] <project> <text>` — flags: `--voice <id|name>`, `--speed <factor>`, `--stability <0-1>`, `--style <0-1>`, `--language <code>`, `--target-duration <seconds>`, `--start <seconds>`, `--track <name|id>`, `--name <label>`
+- `<cli> generate music [options] <project> <prompt>` — flags: `--duration <seconds>`, `--section <seconds:prompt>`, `--auto`, `--dry-run`, `--start <seconds>`, `--track <name|id>`, `--name <label>`
+- `<cli> generate sfx [options] <project> <prompt>` — flags: `--duration <seconds>`, `--start <seconds>`, `--track <name|id>`, `--name <label>`
+- `<cli> generate status [options] <id>` — flags: `--wait`, `--cancel`
+- `<cli> generate models [options]`
+- `<cli> voice [options] [command]`
+- `<cli> voice ls|list [options]` — flags: `--owned`
+- `<cli> voice search [options] [text...]` — flags: `--gender <g>`, `--accent <name>`, `--language <code>`, `--cursor <token>`
+- `<cli> voice show [options] <id>`
+- `<cli> voice clone [options] <name> <sample...>` — flags: `--project <project>`, `--from <seconds>`, `--to <seconds>`
+- `<cli> voice rm|remove [options] <id>` — flags: `--yes`
+- `<cli> source [options] [command]`
+- `<cli> source print [options] <project>` — flags: `--from <line>`, `--lines <n>`
+- `<cli> source check [options] <project> [file]` — flags: `--eval`, `--prefer <side>`
+- `<cli> source apply [options] <project> [file]` — flags: `--eval`, `--prefer <side>`
+- `<cli> verify [options] <project>`
+- `<cli> history [options] <project>`
+- `<cli> undo [options] <project> [rev]`
+- `<cli> app [options] [command]`
+- `<cli> app context [options] [project]`
+- `<cli> app open [options] <project>` — flags: `--focus`
+- `<cli> app seek [options] <seconds> [project]`
+- `<cli> app play [options] [project]`
+- `<cli> app pause [options] [project]`
+- `<cli> screenshot [options] <out> [project]`
+- `<cli> look [options] <project>` — flags: `--at <seconds>`, `--range <from,to>`, `--every <seconds>`, `--out <dir>`, `--format <png|jpeg>`, `--sheet <file>`, `--width <px>`, `--stats`, `--reference <media>`, `--compare`
+- `<cli> export [options] <project> [out]` — flags: `--res <preset>`, `--fps <n>`, `--format <container>`, `--quality <level>`, `--no-wait`, `--cloud`
+- `<cli> code [options] [command]`
+- `<cli> code check [options] <file>` — flags: `--width <px>`, `--height <px>`, `--duration <seconds>`, `--frames <n>`, `--out <dir>`, `--sheet <file>`, `--asset <name=path[,in=s][,loop]>`, `--no-render`
+- `<cli> doctor [options]`
+- `<cli> docs [options] [topic]`
+- `<cli> skills [options] [command]`
+- `<cli> skills install [options]` — flags: `--dir <path...>`
+- `<cli> mcp [options]`
+- `<cli> auth [options] [command]`
+- `<cli> auth login [options]` — flags: `--no-browser`, `--device`
+- `<cli> auth logout [options]`
+- `<cli> auth status [options]`
+- `<cli> update [options]` — flags: `--check`, `--to <version>`

@@ -1,0 +1,54 @@
+# Local MCP tool surface (50 tools)
+
+The CLI can serve itself as an stdio MCP server; tools mirror CLI commands. Parameters (required marked *):
+
+- `sign_in` — no params
+- `auth_status` (read-only) — wait:boolean
+- `list_projects` (read-only) — search:string, limit:integer
+- `create_project` — name*:string
+- `print_timeline` (read-only) — project*:string, from:integer, lines:integer
+- `check_timeline` (read-only) — project*:string, edits:array, rev:integer, source:string, prefer:enum(file|editor)
+- `apply_timeline` — project*:string, edits:array, rev:integer, source:string, prefer:enum(file|editor)
+- `verify_timeline` (read-only) — project*:string
+- `timeline_history` (read-only) — project*:string
+- `undo_timeline` — project*:string, rev:integer
+- `list_media` (read-only) — project*:string, all:boolean
+- `add_media` — project*:string, paths*:array
+- `download_media` — project*:string, url*:string, audioOnly:boolean, maxHeight:integer
+- `capture_web_page` — url*:string, project:string, fullPage:boolean, selector:string, width:integer, height:integer, scale:number, theme:enum(light|dark|force-dark|system), wait:number, fullMotion:boolean
+- `search_footage` — query*:string, limit:integer, orientation:enum(landscape|portrait|square), minDuration:number, maxDuration:number
+- `search_music` (read-only) — query:string, genre:enum(acoustic|ambient|cinematic|electronic|folk|funk|pop|rock), mood:enum(calm|chill|confident|dramatic|inspirational|melancholic|mysterious|playful), limit:integer
+- `search_sfx` (read-only) — query:string, category:enum(typing|camera|impact|ui|transition|misc), limit:integer
+- `probe_media` (read-only) — project*:string, media*:string
+- `grab_frame` (read-only) — project*:string, media*:string, at:number, width:integer
+- `filmstrip` (read-only) — project*:string, media*:string, count:integer, every:number, columns:integer, tileWidth:integer
+- `waveform_image` (read-only) — project*:string, media*:string, width:integer, height:integer
+- `waveform_levels` (read-only) — project*:string, media*:string, points:integer
+- `process_audio` — project*:string, media*:string, workflow*:enum(voice-cleanup|remove-music|split-vocals), deecho:boolean, from:number, to:number
+- `transcribe_media` — project*:string, media*:string, format:enum(text|words|json|srt|vtt), language:string, force:boolean, timeline:boolean, from:number, to:number
+- `search_transcript` (read-only) — project*:string, phrase*:string
+- `caption_from_transcript` — project*:string, wordsPerCaption:integer, preset:string, language:string, trackName:string, apply:boolean
+- `generate_video` — project*:string, prompt*:string, quality:enum(standard|best), model:string, durationSeconds:integer, aspect:enum(16:9|9:16|1:1), image:string, ref:array, audio:boolean, resolution:enum(480p|720p|1080p), negativePrompt:string, seed:integer, character:array, motion:string, start:number, track:string, name:string, wait:boolean
+- `generate_image` — project*:string, prompt*:string, quality:enum(standard|best), model:string, aspect:enum(1:1|16:9|9:16|4:3|3:4), image:array, durationSeconds:number, start:number, track:string, name:string, wait:boolean
+- `generation_status` — id*:string, wait:boolean, cancel:boolean
+- `generate_voice` — project*:string, text*:string, voice:string, speed:number, stability:number, style:number, language:string, targetDuration:number, start:number, track:string, name:string
+- `generate_music` — project*:string, prompt*:string, durationSeconds:integer, sections:array, auto:boolean, dryRun:boolean, start:number, track:string, name:string
+- `generate_sfx` — project*:string, prompt*:string, durationSeconds:number, start:number, track:string, name:string
+- `list_voices` (read-only) — ownedOnly:boolean
+- `search_voices` (read-only) — query:string, gender:enum(male|female|neutral), accent:string, language:string, cursor:string
+- `clone_voice` — name*:string, sources*:array, project:string, from:number, to:number
+- `detect_silence` (read-only) — project*:string, media*:string, thresholdDb:number, minDuration:number
+- `measure_loudness` (read-only) — project*:string, media*:string
+- `detect_scenes` (read-only) — project*:string, media*:string, threshold:number
+- `matte_media` — project*:string, media*:string, from:number, to:number, occlusion:boolean, fast:boolean, out:string
+- `look` (read-only) — project*:string, at:union, range:array, every:number, format:enum(png|jpeg), width:integer, sheet:boolean, stats:boolean, reference:string, compare:boolean
+- `screenshot` (read-only) — project:string
+- `app_context` (read-only) — project:string
+- `open_in_app` — project*:string, focus:boolean
+- `seek` — seconds*:number, project:string
+- `play` — project:string
+- `pause` — project:string
+- `export_video` — project*:string, out*:string, resolution:enum(720p|1080p|4k), frameRate:number, format:enum(mp4|webm|mov|mkv), quality:enum(very low|low|medium|high|very high)
+- `docs` (read-only) — topic:string
+- `job_status` (read-only) — job_id*:string, wait:boolean
+- `cancel_job` — job_id*:string
