@@ -46,7 +46,7 @@
 - [ ] 4.1 Scaffold the Tauri 2 app with React 19 + TypeScript + Vite UI; dark window, macOS hidden-inset title bar,
       window state persistence with off-screen clamping, 1024×640 minimum; verify the first-launch and
       disconnected-display scenarios manually on both OSes (record in Results).
-- [ ] 4.2 Add the typed bridge (types generated from Rust, committed bindings, CI diff check) with `AppError{code,
+- [x] 4.2 Add the typed bridge (types generated from Rust, committed bindings, CI diff check) with `AppError{code,
       message}`; verify a test command's error reaches the UI as a structured error and the contract-drift check fails
       a deliberately stale binding.
 - [ ] 4.3 Add single instance, "Open with", drag-and-drop onto window and Dock/taskbar routing; verify each scenario in
