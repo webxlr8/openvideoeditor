@@ -41,6 +41,13 @@ lto = "thin"
 codegen-units = 1
 strip = "debuginfo"
 
+[profile.dev]
+# Smaller target dirs: line tables for our crates, no debug info for dependencies.
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
 [profile.test]
 opt-level = 1
 
