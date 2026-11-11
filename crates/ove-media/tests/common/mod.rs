@@ -76,9 +76,28 @@ pub fn frame_md5(f: &VideoFrame) -> String {
     format!("{:x}", h.finalize())
 }
 
+/// The ffmpeg CLI used for reference output: `OVE_FFMPEG_CLI` (CI points it at tools/ffmpeg's build, which uses the
+/// same libraries the crate links), else `ffmpeg` on PATH.
+pub fn ffmpeg_cli() -> String {
+    std::env::var("OVE_FFMPEG_CLI").unwrap_or_else(|_| "ffmpeg".into())
+}
+
+/// Whether the reference CLI runs the same FFmpeg version as the linked libraries. Video decoders are bit-exact
+/// across versions; audio decoders (AAC) are not, so audio checks are strict only when versions match.
+pub fn cli_matches_libraries() -> bool {
+    let out = Command::new(ffmpeg_cli()).arg("-version").output().expect("ffmpeg CLI");
+    let first = String::from_utf8_lossy(&out.stdout).lines().next().unwrap_or_default().to_string();
+    let lib = ove_media::ffmpeg_version();
+    let same = first.split_whitespace().nth(2) == Some(lib.as_str());
+    if !same {
+        eprintln!("note: reference CLI is '{first}', libraries are {lib}");
+    }
+    same
+}
+
 /// Per-frame md5 of the first video stream as decoded by the ffmpeg CLI (`framemd5`), in output order.
 pub fn reference_framemd5(path: &Path) -> Vec<String> {
-    let out = Command::new("ffmpeg")
+    let out = Command::new(ffmpeg_cli())
         .args(["-hide_banner", "-loglevel", "error", "-threads", "1", "-i"])
         .arg(path)
         .args(["-map", "0:v:0", "-fps_mode", "passthrough", "-f", "framemd5", "-"])

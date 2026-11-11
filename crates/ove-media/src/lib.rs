@@ -22,6 +22,6 @@ pub use error::{MediaError, Result};
 pub use fallback::{FallbackDecoder, open_video};
 pub use frame::{DecodePath, OutputFormat, PixelFormat, Plane, VideoFrame};
 pub use probe::{AudioStreamInfo, MediaInfo, VideoStreamInfo, probe};
-pub use util::{Micros, PixelFormatInfo, Rational, init};
+pub use util::{Micros, PixelFormatInfo, Rational, ffmpeg_version, init};
 pub use video::{DecoderOptions, FfmpegVideoDecoder, HwAccel, VideoDecoder};
 pub use worker::{DEFAULT_QUEUE_FRAMES, DecodeWorker, WorkerEvent};

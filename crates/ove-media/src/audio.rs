@@ -64,6 +64,9 @@ pub struct AudioChunk {
     pub samples: Samples,
 }
 
+/// Decoding starts this much before a seek target.
+const AUDIO_PREROLL_US: Micros = 200_000;
+
 /// Decodes the best audio stream and converts it to an [`AudioOutputSpec`].
 pub struct AudioDecoder {
     path: PathBuf,
@@ -253,7 +256,9 @@ impl AudioDecoder {
 
     /// Reposition so the next chunk starts at `t_us` (sample-accurate after the decoder's pre-roll is dropped).
     pub fn seek(&mut self, t_us: Micros) -> Result<()> {
-        let ts = self.start_ts + us_to_ts(t_us, self.tb);
+        // Start decoding a little before the target: codecs with pre-roll (AAC, Opus) need it, and some demuxers
+        // land after the requested time. Output before `t_us` is trimmed sample-accurately.
+        let ts = self.start_ts + us_to_ts((t_us - AUDIO_PREROLL_US).max(0), self.tb);
         // SAFETY: valid format context.
         let r =
             unsafe { ffi::avformat_seek_file(self.input.as_mut_ptr(), self.stream_index as i32, i64::MIN, ts, ts, 0) };

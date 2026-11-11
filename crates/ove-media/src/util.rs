@@ -24,6 +24,12 @@ pub fn init() {
     });
 }
 
+/// Version string of the linked FFmpeg libraries (e.g. `9.0.2`).
+pub fn ffmpeg_version() -> String {
+    // SAFETY: returns a static string.
+    unsafe { CStr::from_ptr(ffi::av_version_info()).to_string_lossy().into_owned() }
+}
+
 /// A rational number as reported by the container or codec.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct Rational {
