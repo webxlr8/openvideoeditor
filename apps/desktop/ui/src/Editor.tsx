@@ -18,7 +18,8 @@ import { Viewer } from "./Viewer";
 import { type EditResult, itemDetail, snapToFrame } from "./edit";
 import { Inspector } from "./Inspector";
 import { EDIT_ACTIONS, keyToAction } from "./keys";
-import { AudioPanel, CaptionsPanel, EffectsPanel, LayoutPanel, type PanelProps, TextPanel, TransitionsPanel } from "./Panels";
+import { CaptionsPanel } from "./CaptionsPanel";
+import { AudioPanel, EffectsPanel, LayoutPanel, type PanelProps, TextPanel, TransitionsPanel } from "./Panels";
 import { Shortcuts } from "./Shortcuts";
 import { type SelectMode, Timeline } from "./Timeline";
 

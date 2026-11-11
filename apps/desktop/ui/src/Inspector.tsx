@@ -4,6 +4,7 @@
 import { useEffect, useState } from "react";
 import type { ItemView_Serialize, ProjectView_Serialize } from "./bindings";
 import { commands } from "./bridge";
+import { CaptionSample, type CaptionSegment, DEFAULT_CAPTION_PRESET, animationLabel, retimeSegment, useCaptionPresets } from "./CaptionsPanelStyles";
 import { type EditResult, type Fields, TRANSITIONS, itemDetail, updateItem } from "./edit";
 import { Icon } from "./icons";
 
@@ -437,27 +438,53 @@ export function Inspector({
             </Section>
           </>
         )}
-        {detail !== null && tab === "caption" && <CaptionEditor detail={d} set={set} />}
+        {detail !== null && tab === "caption" && <CaptionEditor detail={d} set={set} onStyle={(id) => onEdit(commands.applyCaptionStyle(id, [item.id]))} />}
       </div>
     </aside>
   );
 }
 
-interface Segment {
-  id: string;
-  text: string;
-  startTime: number;
-  endTime: number;
-}
+type Segment = CaptionSegment;
 
-function CaptionEditor({ detail, set }: { detail: Fields; set: (f: Fields, summary?: string) => void }) {
+function CaptionEditor({ detail, set, onStyle }: { detail: Fields; set: (f: Fields, summary?: string) => void; onStyle: (presetId: string) => void }) {
   const segments: Segment[] = Array.isArray(detail.captionSegments) ? (detail.captionSegments as Segment[]) : [];
   const save = (next: Segment[], summary: string) =>
     set({ captionSegments: next, captionText: next.map((s) => s.text).join(" ") }, summary);
+  const presets = useCaptionPresets();
+  const presetId = str(detail.captionPresetId, DEFAULT_CAPTION_PRESET);
+  const preset = presets.find((p) => p.id.toLowerCase() === presetId.toLowerCase()) ?? presets.find((p) => p.id === DEFAULT_CAPTION_PRESET);
   return (
     <>
+      <Section title="Style">
+        <label className="select-row">
+          Style
+          <select value={preset?.id ?? presetId} data-testid="insp-caption-style" onChange={(e) => onStyle(e.target.value)}>
+            {presets.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.label} — {animationLabel(p.animation)}
+              </option>
+            ))}
+          </select>
+        </label>
+        {preset && (
+          <div className="preset-preview insp-caption-preview">
+            <CaptionSample preset={preset} />
+          </div>
+        )}
+        <ColorField label="Text" value={str(detail.captionTextColor, preset?.textColor ?? "#ffffff")} onCommit={(v) => set({ captionTextColor: v }, "caption color")} />
+        <ColorField label="Highlight" value={str(detail.captionHighlightColor, preset?.highlightColor ?? "#ffd84d")} onCommit={(v) => set({ captionHighlightColor: v }, "caption highlight")} />
+        <NumberField label="Size" unit="px" value={num(detail.captionFontSize, preset?.fontSize ?? 56)} onCommit={(v) => set({ captionFontSize: Math.max(1, v) }, "caption size")} />
+        <label className="select-row">
+          Position
+          <select value={str(detail.captionPosition, preset?.position ?? "bottom")} data-testid="insp-caption-position" onChange={(e) => set({ captionPosition: e.target.value }, "caption position")}>
+            <option value="top">Top</option>
+            <option value="center">Center</option>
+            <option value="bottom">Bottom</option>
+          </select>
+        </label>
+      </Section>
       <Section title="Transcript">
-        <p className="muted small">Automatic transcription arrives in a later version; type or paste the words here.</p>
+        <p className="muted small">Generate captions from the sound in the Captions panel, or type the words here.</p>
         {segments.map((s, i) => (
           <div className="segment" key={s.id ?? i} data-testid="caption-segment">
             <div className="segment-times">
@@ -467,7 +494,7 @@ function CaptionEditor({ detail, set }: { detail: Fields; set: (f: Fields, summa
                 <Icon name="close" size={14} />
               </button>
             </div>
-            <TextArea rows={2} value={s.text} onCommit={(v) => save(segments.map((x, j) => (j === i ? { ...x, text: v } : x)), "edit caption")} />
+            <TextArea rows={2} value={s.text} onCommit={(v) => save(segments.map((x, j) => (j === i ? retimeSegment(x, v) : x)), "edit caption")} />
           </div>
         ))}
         <button
@@ -481,11 +508,6 @@ function CaptionEditor({ detail, set }: { detail: Fields; set: (f: Fields, summa
         >
           <Icon name="plus" size={14} /> Add line
         </button>
-      </Section>
-      <Section title="Style">
-        <ColorField label="Text" value={str(detail.captionTextColor, "#ffffff")} onCommit={(v) => set({ captionTextColor: v }, "caption color")} />
-        <ColorField label="Highlight" value={str(detail.captionHighlightColor, "#ffd84d")} onCommit={(v) => set({ captionHighlightColor: v }, "caption highlight")} />
-        <NumberField label="Size" unit="px" value={num(detail.captionFontSize, 56)} onCommit={(v) => set({ captionFontSize: Math.max(1, v) }, "caption size")} />
       </Section>
     </>
   );

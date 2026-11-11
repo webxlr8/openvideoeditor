@@ -1,4 +1,5 @@
-// Left-rail tool panels: Text, Captions, Transitions, Effects, Audio, Layout. Each action is one revision.
+// Left-rail tool panels: Text, Transitions, Effects, Audio, Layout (Captions: CaptionsPanel.tsx). Each action is one
+// revision.
 
 import { useState } from "react";
 import type { ItemView_Serialize, ProjectView_Serialize } from "./bindings";
@@ -72,75 +73,6 @@ export function TextPanel({ project, playhead, onEdit }: PanelProps) {
           </button>
         ))}
       </div>
-    </>
-  );
-}
-
-const CAPTION_STYLES = [
-  { id: "clean", label: "Clean", fields: { captionPresetId: "clean", captionTextColor: "#ffffff", captionHighlightColor: "#ffffff", captionFontSize: 54 }, css: { color: "#fff" } },
-  { id: "pop", label: "Pop", fields: { captionPresetId: "pop", captionTextColor: "#ffffff", captionHighlightColor: "#ffd84d", captionFontSize: 64 }, css: { color: "#ffd84d", fontWeight: 800 } },
-  { id: "boxed", label: "Boxed", fields: { captionPresetId: "boxed", captionTextColor: "#111111", captionHighlightColor: "#111111", captionFontSize: 52 }, css: { color: "#111", background: "#fff", padding: "2px 6px" } },
-  { id: "neon", label: "Neon", fields: { captionPresetId: "neon", captionTextColor: "#c9f", captionHighlightColor: "#5ff", captionFontSize: 60 }, css: { color: "#5ff", textShadow: "0 0 6px #5ff" } },
-];
-
-export function CaptionsPanel({ project, playhead, selection, onEdit, onSelect }: PanelProps) {
-  const track = firstTrack(project, "caption", "t_captions");
-  const captions = project.items.filter((i) => i.kind === "caption");
-  const target = selection.filter((i) => i.kind === "caption");
-  return (
-    <>
-      <p className="muted panel-note">Automatic transcription arrives in a later version. Add a caption and type its lines in the properties.</p>
-      <button
-        className="btn wide"
-        data-testid="caption-add"
-        disabled={!track}
-        onClick={() =>
-          track &&
-          onEdit(
-            addItems(
-              [
-                {
-                  trackId: track,
-                  type: "caption",
-                  startTime: round(playhead),
-                  endTime: round(playhead + 3),
-                  name: "Caption",
-                  captionText: "Your words here",
-                  captionSegments: [{ id: "s1", text: "Your words here", startTime: 0, endTime: 3 }],
-                  ...CAPTION_STYLES[1].fields,
-                },
-              ],
-              "add caption",
-            ),
-          )
-        }
-      >
-        <Icon name="plus" size={15} /> Add caption at playhead
-      </button>
-      <h5 className="panel-sub">Styles {target.length ? `— apply to ${target.length} selected` : "— select a caption to apply"}</h5>
-      <div className="preset-grid">
-        {CAPTION_STYLES.map((s) => (
-          <button
-            key={s.id}
-            className="preset-card"
-            data-testid={`caption-style-${s.id}`}
-            disabled={target.length === 0}
-            onClick={() => onEdit(updateItems(target.map((t) => ({ id: t.id, set: s.fields })), `caption style ${s.label.toLowerCase()}`))}
-          >
-            <span className="preset-preview caption-sample" style={s.css}>
-              Hello there
-            </span>
-            <span className="preset-label">{s.label}</span>
-          </button>
-        ))}
-      </div>
-      <h5 className="panel-sub">In this project</h5>
-      {captions.length === 0 && <Empty>No captions yet.</Empty>}
-      {captions.map((c) => (
-        <button key={c.id} className="list-row" onClick={() => onSelect(c)}>
-          <span className="muted small">{(c.start ?? 0).toFixed(1)}s</span> {c.text ?? c.name}
-        </button>
-      ))}
     </>
   );
 }
