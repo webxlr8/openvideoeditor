@@ -30,8 +30,15 @@ setup `.exe`, Linux `.deb`). For development: `cd apps/desktop && pnpm install &
   editor at once (undoable). `ove mcp` serves the same commands as MCP tools; `ove skills install` sets up Claude
   Code / Codex (`claude mcp add openvideoeditor -- ove mcp`). Frames, contact sheets, scene cuts, silence and EBU R128
   loudness are built in.
-- Not yet: automatic transcription, motion-graphics code items, effects/LUT shaders beyond colour grading, templates,
-  AI generation, stock media search, signed installers and auto-update.
+- **Captions** transcribed on this computer (whisper models downloaded on first use) in 21 styles; **motion
+  graphics** as sandboxed TSX code items with 8 templates; 16 **text animations** and a 16-family font library;
+  41 **effects**, 24 **transitions**, 15 **layouts**, colour wheels, curves and LUTs.
+- **Generate** images, video, voice, music and sound effects with your own fal.ai / OpenAI / ElevenLabs keys:
+  the estimate shows first and nothing is spent without confirming; a placeholder fills in when the job is done.
+- **Templates** for common videos, **Settings** (keys, agents, shortcut rebinding, privacy), local crash reports
+  and an update check.
+- Not yet: GPU effects, subject masks, stock media search, voice cloning, signed installers and in-place updates
+  (need the owner's certificates).
 
 ## Docs
 
@@ -63,7 +70,8 @@ openspec validate --all --strict
 Fully specified, in order: `add-desktop-shell-and-native-preview` (viewer gate R1), `add-project-document`,
 `add-timeline-projection`. Changes 4–16 are listed in the roadmap and get specified just before they start.
 
-Status: changes 1–3 implemented, plus the render/export engine, editor workspace and assistant (v1 slices of
+Status: all roadmap changes have a first implementation (see each change's tasks for what is verified and what is
+left); changes 1–3 implemented, plus the render/export engine, editor workspace and assistant (v1 slices of
 changes 6–9) (see each change's `design.md` Results for what is verified and what still needs the
 macOS / Windows machines). Layout:
 
