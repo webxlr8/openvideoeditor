@@ -3,3 +3,4 @@ node_modules/
 dist/
 *.log
 /tests/media/files/
+.claude/worktrees/
