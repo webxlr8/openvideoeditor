@@ -7,7 +7,21 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[features]
+default = ["audio-output"]
+# System audio output through cpal (CoreAudio / WASAPI; ALSA on Linux dev machines).
+audio-output = ["dep:cpal", "dep:thiserror"]
+# FrameSource adapter for ove-media's decode worker (pulls in FFmpeg).
+media = ["dep:ove-media"]
+
 [dependencies]
+cpal = { version = "0.18", optional = true }
+ove-media = { path = "../ove-media", optional = true }
+serde = { version = "1.0.229", features = ["derive"] }
+thiserror = { version = "2", optional = true }
+
+[dev-dependencies]
+serde_json = "1.0.154"
 
 [lints]
 workspace = true
