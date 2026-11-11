@@ -82,10 +82,12 @@ export function ContextMenu({
   at,
   items,
   onClose,
+  testId = "context-menu",
 }: {
   at: { x: number; y: number } | null;
   items: MenuItem[];
   onClose: () => void;
+  testId?: string;
 }) {
   useEffect(() => {
     if (!at) return;
@@ -105,8 +107,8 @@ export function ContextMenu({
     <div
       className="menu context-menu"
       role="menu"
-      data-testid="context-menu"
-      style={{ left: at.x, top: at.y }}
+      data-testid={testId}
+      style={{ left: Math.min(at.x, window.innerWidth - 240), top: Math.min(at.y, window.innerHeight - 40 - items.length * 30) }}
       onMouseDown={(e) => e.stopPropagation()}
     >
       {items.map((item) => (
@@ -114,6 +116,7 @@ export function ContextMenu({
           key={item.id}
           role="menuitem"
           className={`menu-item${item.danger ? " danger" : ""}`}
+          data-testid={`menu-${item.id}`}
           onClick={() => {
             onClose();
             item.onSelect?.();
