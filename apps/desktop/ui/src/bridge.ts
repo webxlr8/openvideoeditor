@@ -20,6 +20,13 @@ import type {
   ViewerBackend,
   ViewerRect,
 } from "./bindings";
+import {
+  MOCK_FONTS,
+  MOCK_TEMPLATES,
+  mockCheck,
+  mockFontPreview,
+  mockThumbnail,
+} from "./motionMock";
 
 export type Commands = typeof generated.commands;
 export type Events = typeof generated.events;
@@ -57,61 +64,369 @@ declare global {
   }
 }
 
-
 const CAPTION_MODELS: [string, string, number][] = [
   ["tiny", "Fast", 77],
   ["base", "Balanced", 147],
   ["small", "Accurate", 487],
 ];
 
-const MOCK_TRANSCRIPT = ["Welcome back to the channel", "Today we cut a whole video", "with captions made offline"];
+const MOCK_TRANSCRIPT = [
+  "Welcome back to the channel",
+  "Today we cut a whole video",
+  "with captions made offline",
+];
 
 // The style list as the core reports it (a subset of fields is enough for the UI).
 const MOCK_CAPTION_PRESETS = (
   [
-    ["landmark", "Landmark", "display", 118, 400, "#ffffff", "color", "#f2c14e", "center", "stacked", true],
-    ["margin-type", "Margin Type", "sans", 108, 700, "#f4f1ea", "color", "#ff6b5a", "center", "stacked", false],
-    ["poster-stack", "Poster Stack", "condensed", 104, 800, "#ffffff", "color", "#ffe14d", "center", "stacked", true],
-    ["soft-script", "Soft Script", "script", 112, 700, "#fff7f0", "color", "#ffb3c7", "center", "stacked", false],
-    ["chrome-italic", "Chrome Italic", "display", 116, 900, "#e6ebf2", "color", "#9ad7ff", "center", "stacked", true],
-    ["scrapbook-cutout", "Scrapbook Cutout", "display", 106, 900, "#111111", "box", "#ff5a4e", "center", "stacked", true],
-    ["marker-circle", "Marker Circle", "sans", 118, 700, "#ffffff", "ring", "#ff3b30", "center", "stacked", false],
-    ["neo-brutal", "Neo Brutal", "condensed", 108, 400, "#111111", "color", "#ff3d7f", "center", "stacked", true],
-    ["hero-world-wall", "Hero Wall", "display", 104, 400, "#ffffff", "color", "#7cf2c8", "center", "stacked", true],
-    ["Cascade", "Cascade", "sans", 50, 500, "#ffffff", "color", "#a5b4ff", "center", "reveal", false],
-    ["rapid-reveal", "Rapid Reveal", "condensed", 96, 800, "#ffffff", "color", "#ffd400", "center", "reveal", true],
-    ["stacked-emphasis", "Stacked Emphasis", "sans", 56, 700, "#ffffff", "color", "#4fd1c5", "center", "stacked", false],
-    ["word-pop", "Word Pop", "sans", 88, 600, "#ffffff", "color", "#3cff7a", "center", "word-pop", false],
-    ["pulse-cut", "Pulse Cut", "condensed", 62, 850, "#ffffff", "box", "#ff2d55", "bottom", "pulse", true],
-    ["beast-mode", "Beast Mode", "display", 72, 400, "#fffae6", "color", "#39ff14", "center", "word-pop", true],
-    ["butter-serif", "Butter Serif", "serif", 52, 400, "#fff4d6", "color", "#ffd166", "bottom", "word", false],
-    ["minimal-modern", "Minimal Modern", "sans", 46, 300, "#ffffff", "underline", "#ffffff", "bottom", "word", false],
-    ["spotlight", "Spotlight", "sans", 60, 700, "#ffffff", "box", "#ffffff", "center", "spotlight", false],
-    ["classic", "Classic", "sans", 40, 500, "#ffffff", "none", null, "bottom", "word", false],
-    ["subtitle", "Subtitle", "sans", 40, 500, "#fff6c4", "none", null, "bottom", "word", false],
-    ["bold", "Bold", "sans", 60, 800, "#ffffff", "color", "#ffd400", "bottom", "word", false],
-  ] as [string, string, string, number, number, string, string, string | null, string, string, boolean][]
-).map(([id, label, family, fontSize, fontWeight, textColor, kind, color, position, animation, uppercase]) => ({
-  id,
-  label,
-  family,
-  fontSize,
-  fontWeight,
-  textColor,
-  highlightColor: color,
-  mark: { kind, color: color ?? undefined, text: kind === "box" ? (color === "#ffffff" ? "#111111" : "#ffffff") : undefined },
-  position,
-  align: id === "margin-type" ? "left" : "center",
-  uppercase,
-  lowercase: id === "margin-type",
-  letterSpacing: 0,
-  animation,
-  revealMs: 160,
-  stroke: ["bold", "word-pop", "beast-mode", "subtitle", "rapid-reveal"].includes(id) ? { color: "#111111", width: 0.08 } : null,
-  shadow: { color: "#000000a0", x: 0, y: 0.05 },
-  panel: id === "classic" ? { color: "#000000a0", perWord: false, radius: 0.18 } : id === "neo-brutal" ? { color: "#ffe600", perWord: false, radius: 0 } : id === "scrapbook-cutout" ? { color: "#fff3d6", perWord: true, radius: 0.04 } : null,
-  composition: animation === "stacked" && id !== "stacked-emphasis" ? "behind-subject" : "front",
-}));
+    [
+      "landmark",
+      "Landmark",
+      "display",
+      118,
+      400,
+      "#ffffff",
+      "color",
+      "#f2c14e",
+      "center",
+      "stacked",
+      true,
+    ],
+    [
+      "margin-type",
+      "Margin Type",
+      "sans",
+      108,
+      700,
+      "#f4f1ea",
+      "color",
+      "#ff6b5a",
+      "center",
+      "stacked",
+      false,
+    ],
+    [
+      "poster-stack",
+      "Poster Stack",
+      "condensed",
+      104,
+      800,
+      "#ffffff",
+      "color",
+      "#ffe14d",
+      "center",
+      "stacked",
+      true,
+    ],
+    [
+      "soft-script",
+      "Soft Script",
+      "script",
+      112,
+      700,
+      "#fff7f0",
+      "color",
+      "#ffb3c7",
+      "center",
+      "stacked",
+      false,
+    ],
+    [
+      "chrome-italic",
+      "Chrome Italic",
+      "display",
+      116,
+      900,
+      "#e6ebf2",
+      "color",
+      "#9ad7ff",
+      "center",
+      "stacked",
+      true,
+    ],
+    [
+      "scrapbook-cutout",
+      "Scrapbook Cutout",
+      "display",
+      106,
+      900,
+      "#111111",
+      "box",
+      "#ff5a4e",
+      "center",
+      "stacked",
+      true,
+    ],
+    [
+      "marker-circle",
+      "Marker Circle",
+      "sans",
+      118,
+      700,
+      "#ffffff",
+      "ring",
+      "#ff3b30",
+      "center",
+      "stacked",
+      false,
+    ],
+    [
+      "neo-brutal",
+      "Neo Brutal",
+      "condensed",
+      108,
+      400,
+      "#111111",
+      "color",
+      "#ff3d7f",
+      "center",
+      "stacked",
+      true,
+    ],
+    [
+      "hero-world-wall",
+      "Hero Wall",
+      "display",
+      104,
+      400,
+      "#ffffff",
+      "color",
+      "#7cf2c8",
+      "center",
+      "stacked",
+      true,
+    ],
+    [
+      "Cascade",
+      "Cascade",
+      "sans",
+      50,
+      500,
+      "#ffffff",
+      "color",
+      "#a5b4ff",
+      "center",
+      "reveal",
+      false,
+    ],
+    [
+      "rapid-reveal",
+      "Rapid Reveal",
+      "condensed",
+      96,
+      800,
+      "#ffffff",
+      "color",
+      "#ffd400",
+      "center",
+      "reveal",
+      true,
+    ],
+    [
+      "stacked-emphasis",
+      "Stacked Emphasis",
+      "sans",
+      56,
+      700,
+      "#ffffff",
+      "color",
+      "#4fd1c5",
+      "center",
+      "stacked",
+      false,
+    ],
+    [
+      "word-pop",
+      "Word Pop",
+      "sans",
+      88,
+      600,
+      "#ffffff",
+      "color",
+      "#3cff7a",
+      "center",
+      "word-pop",
+      false,
+    ],
+    [
+      "pulse-cut",
+      "Pulse Cut",
+      "condensed",
+      62,
+      850,
+      "#ffffff",
+      "box",
+      "#ff2d55",
+      "bottom",
+      "pulse",
+      true,
+    ],
+    [
+      "beast-mode",
+      "Beast Mode",
+      "display",
+      72,
+      400,
+      "#fffae6",
+      "color",
+      "#39ff14",
+      "center",
+      "word-pop",
+      true,
+    ],
+    [
+      "butter-serif",
+      "Butter Serif",
+      "serif",
+      52,
+      400,
+      "#fff4d6",
+      "color",
+      "#ffd166",
+      "bottom",
+      "word",
+      false,
+    ],
+    [
+      "minimal-modern",
+      "Minimal Modern",
+      "sans",
+      46,
+      300,
+      "#ffffff",
+      "underline",
+      "#ffffff",
+      "bottom",
+      "word",
+      false,
+    ],
+    [
+      "spotlight",
+      "Spotlight",
+      "sans",
+      60,
+      700,
+      "#ffffff",
+      "box",
+      "#ffffff",
+      "center",
+      "spotlight",
+      false,
+    ],
+    [
+      "classic",
+      "Classic",
+      "sans",
+      40,
+      500,
+      "#ffffff",
+      "none",
+      null,
+      "bottom",
+      "word",
+      false,
+    ],
+    [
+      "subtitle",
+      "Subtitle",
+      "sans",
+      40,
+      500,
+      "#fff6c4",
+      "none",
+      null,
+      "bottom",
+      "word",
+      false,
+    ],
+    [
+      "bold",
+      "Bold",
+      "sans",
+      60,
+      800,
+      "#ffffff",
+      "color",
+      "#ffd400",
+      "bottom",
+      "word",
+      false,
+    ],
+  ] as [
+    string,
+    string,
+    string,
+    number,
+    number,
+    string,
+    string,
+    string | null,
+    string,
+    string,
+    boolean,
+  ][]
+).map(
+  ([
+    id,
+    label,
+    family,
+    fontSize,
+    fontWeight,
+    textColor,
+    kind,
+    color,
+    position,
+    animation,
+    uppercase,
+  ]) => ({
+    id,
+    label,
+    family,
+    fontSize,
+    fontWeight,
+    textColor,
+    highlightColor: color,
+    mark: {
+      kind,
+      color: color ?? undefined,
+      text:
+        kind === "box"
+          ? color === "#ffffff"
+            ? "#111111"
+            : "#ffffff"
+          : undefined,
+    },
+    position,
+    align: id === "margin-type" ? "left" : "center",
+    uppercase,
+    lowercase: id === "margin-type",
+    letterSpacing: 0,
+    animation,
+    revealMs: 160,
+    stroke: [
+      "bold",
+      "word-pop",
+      "beast-mode",
+      "subtitle",
+      "rapid-reveal",
+    ].includes(id)
+      ? { color: "#111111", width: 0.08 }
+      : null,
+    shadow: { color: "#000000a0", x: 0, y: 0.05 },
+    panel:
+      id === "classic"
+        ? { color: "#000000a0", perWord: false, radius: 0.18 }
+        : id === "neo-brutal"
+          ? { color: "#ffe600", perWord: false, radius: 0 }
+          : id === "scrapbook-cutout"
+            ? { color: "#fff3d6", perWord: true, radius: 0.04 }
+            : null,
+    composition:
+      animation === "stacked" && id !== "stacked-emphasis"
+        ? "behind-subject"
+        : "front",
+  }),
+);
 
 type Listener = (event: { payload: unknown }) => void;
 
@@ -455,17 +770,35 @@ function createMock(): {
     const steps: [string, number, string][] = [];
     const sizeMb = CAPTION_MODELS.find(([id]) => id === model)?.[2] ?? 148;
     if (!control.captions.installed.includes(model))
-      for (let k = 1; k <= 5; k++) steps.push(["download", k / 5, `Downloading the ${model} speech model (${Math.round((sizeMb * k) / 5)} of ${sizeMb} MB)`]);
-    for (let k = 1; k <= 4; k++) steps.push(["transcribe", k / 4, "Transcribing talk.mp4"]);
+      for (let k = 1; k <= 5; k++)
+        steps.push([
+          "download",
+          k / 5,
+          `Downloading the ${model} speech model (${Math.round((sizeMb * k) / 5)} of ${sizeMb} MB)`,
+        ]);
+    for (let k = 1; k <= 4; k++)
+      steps.push(["transcribe", k / 4, "Transcribing talk.mp4"]);
     let k = 0;
     captionJob = setInterval(() => {
       const [stage, fraction, message] = steps[k++];
-      if (stage === "transcribe" && !control.captions.installed.includes(model)) control.captions.installed.push(model);
-      emit("caption-job-progress", { stage, fraction, message, done: false, error: null, cancelled: false, captions: null, language: null, secondsTaken: null });
+      if (stage === "transcribe" && !control.captions.installed.includes(model))
+        control.captions.installed.push(model);
+      emit("caption-job-progress", {
+        stage,
+        fraction,
+        message,
+        done: false,
+        error: null,
+        cancelled: false,
+        captions: null,
+        language: null,
+        secondsTaken: null,
+      });
       if (k >= steps.length) {
         if (captionJob) clearInterval(captionJob);
         captionJob = null;
-        if (!control.captions.installed.includes(model)) control.captions.installed.push(model);
+        if (!control.captions.installed.includes(model))
+          control.captions.installed.push(model);
         finish();
       }
     }, control.captions.stepMs);
@@ -1105,29 +1438,68 @@ function createMock(): {
     // Captions: simulated speech models, auto captions from a fixed transcript, and the style list.
     captionModels: () =>
       ok(
-        CAPTION_MODELS.map(([id, label, sizeMb]) => ({ id, label, sizeMb, installed: control.captions.installed.includes(id), default: id === "base" })),
+        CAPTION_MODELS.map(([id, label, sizeMb]) => ({
+          id,
+          label,
+          sizeMb,
+          installed: control.captions.installed.includes(id),
+          default: id === "base",
+        })),
       ),
     captionPresets: () => Promise.resolve(JSON.stringify(MOCK_CAPTION_PRESETS)),
     downloadCaptionModel: (model: string) => {
       track(`downloadCaptionModel:${model}`);
-      if (captionJob) return fail("invalid_argument", "Captions are already being made. Wait for them to finish or cancel.");
-      runCaptionJob(model, () => emit("caption-job-progress", { stage: "done", fraction: 1, message: "", done: true, error: null, cancelled: false, captions: null, language: null, secondsTaken: null }));
+      if (captionJob)
+        return fail(
+          "invalid_argument",
+          "Captions are already being made. Wait for them to finish or cancel.",
+        );
+      runCaptionJob(model, () =>
+        emit("caption-job-progress", {
+          stage: "done",
+          fraction: 1,
+          message: "",
+          done: true,
+          error: null,
+          cancelled: false,
+          captions: null,
+          language: null,
+          secondsTaken: null,
+        }),
+      );
       return ok(null);
     },
     autoCaption: (request: AutoCaptionRequest_Deserialize) => {
-      track(`autoCaption:${request.model}:${request.language ?? "auto"}:${request.itemIds.length}`);
-      if (!project) return fail("invalid_argument", "Open a project first.");
-      if (captionJob) return fail("invalid_argument", "Captions are already being made. Wait for them to finish or cancel.");
-      const sources = (project.items as MockItem[]).filter(
-        (i) => (i.kind === "video" || i.kind === "audio") && i.mediaId && (request.itemIds.length ? request.itemIds.includes(i.id) : i.trackId === "t_main"),
+      track(
+        `autoCaption:${request.model}:${request.language ?? "auto"}:${request.itemIds.length}`,
       );
-      if (sources.length === 0) return fail("invalid_argument", "There is no clip with sound to caption. Add a video or audio clip first.");
+      if (!project) return fail("invalid_argument", "Open a project first.");
+      if (captionJob)
+        return fail(
+          "invalid_argument",
+          "Captions are already being made. Wait for them to finish or cancel.",
+        );
+      const sources = (project.items as MockItem[]).filter(
+        (i) =>
+          (i.kind === "video" || i.kind === "audio") &&
+          i.mediaId &&
+          (request.itemIds.length
+            ? request.itemIds.includes(i.id)
+            : i.trackId === "t_main"),
+      );
+      if (sources.length === 0)
+        return fail(
+          "invalid_argument",
+          "There is no clip with sound to caption. Add a video or audio clip first.",
+        );
       runCaptionJob(request.model, () => {
         let n = 0;
         void editProject("auto captions", (p) => {
           const at = sources[0].start ?? 0;
-          const track = p.tracks.find((t) => t.kind === "caption")?.id ?? "t_captions";
-          if (request.replace) p.items = p.items.filter((i) => i.trackId !== track);
+          const track =
+            p.tracks.find((t) => t.kind === "caption")?.id ?? "t_captions";
+          if (request.replace)
+            p.items = p.items.filter((i) => i.trackId !== track);
           for (const [k, line] of MOCK_TRANSCRIPT.entries()) {
             const words = line.split(" ");
             const start = at + k * 2;
@@ -1141,13 +1513,35 @@ function createMock(): {
                 endTime: start + 1.9,
                 captionText: line,
                 captionPresetId: request.presetId ?? "butter-serif",
-                captionSegments: [{ id: "s1", text: line, startTime: 0, endTime: 1.9, wordTimings: words.map((word, j) => ({ word, start: j * 0.4, end: j * 0.4 + 0.38 })) }],
+                captionSegments: [
+                  {
+                    id: "s1",
+                    text: line,
+                    startTime: 0,
+                    endTime: 1.9,
+                    wordTimings: words.map((word, j) => ({
+                      word,
+                      start: j * 0.4,
+                      end: j * 0.4 + 0.38,
+                    })),
+                  },
+                ],
               }),
             );
             n++;
           }
         });
-        emit("caption-job-progress", { stage: "done", fraction: 1, message: "", done: true, error: null, cancelled: false, captions: n, language: request.language ?? "en", secondsTaken: 1.2 });
+        emit("caption-job-progress", {
+          stage: "done",
+          fraction: 1,
+          message: "",
+          done: true,
+          error: null,
+          cancelled: false,
+          captions: n,
+          language: request.language ?? "en",
+          secondsTaken: 1.2,
+        });
       });
       return ok(null);
     },
@@ -1156,19 +1550,51 @@ function createMock(): {
       if (captionJob) {
         clearInterval(captionJob);
         captionJob = null;
-        emit("caption-job-progress", { stage: "done", fraction: 0, message: "", done: true, error: null, cancelled: true, captions: null, language: null, secondsTaken: null });
+        emit("caption-job-progress", {
+          stage: "done",
+          fraction: 0,
+          message: "",
+          done: true,
+          error: null,
+          cancelled: true,
+          captions: null,
+          language: null,
+          secondsTaken: null,
+        });
       }
       return ok(null);
     },
     applyCaptionStyle: (presetId: string, itemIds: string[]) => {
       track(`applyCaptionStyle:${presetId}:${itemIds.length}`);
-      const targets = (project?.items ?? []).filter((i) => i.kind === "caption" && (itemIds.length === 0 || itemIds.includes(i.id)));
-      if (project && targets.length === 0) return fail("invalid_argument", "There are no captions to style yet.");
-      const label = MOCK_CAPTION_PRESETS.find((p) => p.id === presetId)?.label ?? presetId;
+      const targets = (project?.items ?? []).filter(
+        (i) =>
+          i.kind === "caption" &&
+          (itemIds.length === 0 || itemIds.includes(i.id)),
+      );
+      if (project && targets.length === 0)
+        return fail("invalid_argument", "There are no captions to style yet.");
+      const label =
+        MOCK_CAPTION_PRESETS.find((p) => p.id === presetId)?.label ?? presetId;
       return editProject(`caption style ${label.toLowerCase()}`, () => {
-        for (const t of targets) applyEdit(t.id, { captionPresetId: presetId }, ["captionFontSize", "captionTextColor", "captionHighlightColor", "captionPosition"]);
+        for (const t of targets)
+          applyEdit(t.id, { captionPresetId: presetId }, [
+            "captionFontSize",
+            "captionTextColor",
+            "captionHighlightColor",
+            "captionPosition",
+          ]);
       });
     },
+    // Motion graphics and fonts (see motionMock.ts).
+    listFonts: () => ok(MOCK_FONTS),
+    fontPreview: (family: string, text: string, size: number) =>
+      ok(mockFontPreview(family, text, size)),
+    listTemplates: () => ok(JSON.stringify(MOCK_TEMPLATES)),
+    templateThumbnail: (id: string) => {
+      const t = mockThumbnail(id);
+      return t ? ok(t) : fail("not_found", "Unknown template.");
+    },
+    checkCode: (compositionJson: string) => ok(mockCheck(compositionJson)),
   };
 
   const makeEvent = (name: string) => ({

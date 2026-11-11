@@ -12,6 +12,7 @@ pub mod exporting;
 pub mod interchange;
 pub mod logging;
 pub mod media;
+pub mod motion;
 pub mod projects;
 pub mod timeline;
 pub mod transport;
@@ -161,6 +162,12 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             captions::auto_caption,
             captions::cancel_captions,
             captions::apply_caption_style,
+            // Motion graphics and fonts (change 4 / 11).
+            motion::list_fonts,
+            motion::font_preview,
+            motion::list_templates,
+            motion::template_thumbnail,
+            motion::check_code,
         ])
         .events(collect_events![
             PlaybackChanged,

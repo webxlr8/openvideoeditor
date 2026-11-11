@@ -63,7 +63,7 @@ export const TEXT_PRESETS: TextPreset[] = [
     label: "Film title",
     sample: "Northern Light",
     duration: 5,
-    fields: { textContent: "Northern Light", fontFamily: "Georgia", fontSize: 110, fontWeight: 400, color: "#f4ead7", textAlign: "center", letterSpacing: 2 },
+    fields: { textContent: "Northern Light", fontFamily: "Playfair Display", fontSize: 110, fontWeight: 400, color: "#f4ead7", textAlign: "center", letterSpacing: 2 },
     style: { fontFamily: "Georgia, serif", fontSize: 24, color: "#f4ead7", lineHeight: 1.05 },
   },
   {
@@ -122,7 +122,7 @@ export const TEXT_PRESETS: TextPreset[] = [
     label: "Quote",
     sample: "“Make it simple.”",
     duration: 5,
-    fields: { textContent: "“Make it simple.”", fontFamily: "Georgia", fontStyle: "italic", fontSize: 84, color: "#ffffff", textAlign: "center", lineHeight: 1.2 },
+    fields: { textContent: "“Make it simple.”", fontFamily: "Lora", fontStyle: "italic", fontSize: 84, color: "#ffffff", textAlign: "center", lineHeight: 1.2 },
     style: { fontFamily: "Georgia, serif", fontStyle: "italic", fontSize: 18 },
   },
 ];

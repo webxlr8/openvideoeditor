@@ -119,6 +119,20 @@ export const commands = {
 	 *  size and colours so the style shows as designed. One revision.
 	 */
 	applyCaptionStyle: (presetId: string, itemIds: string[]) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("apply_caption_style", { presetId, itemIds })),
+	/**  Bundled families first, then installed system families. */
+	listFonts: () => typedError<FontFamily[], AppError>(__TAURI_INVOKE("list_fonts")),
+	/**  A white-on-transparent PNG (data URL) of `text` set in `family`, for the font dropdown. */
+	fontPreview: (family: string, text: string, size: number) => typedError<string, AppError>(__TAURI_INVOKE("font_preview", { family, text, size })),
+	/**  Built-in motion templates with their prop schemas (JSON array). */
+	listTemplates: () => typedError<string, AppError>(__TAURI_INVOKE("list_templates")),
+	/**  A small PNG (data URL) of a template two thirds of the way through, with its default props. */
+	templateThumbnail: (id: string) => typedError<string, AppError>(__TAURI_INVOKE("template_thumbnail", { id })),
+	/**
+	 *  Checks a code composition (`composition_json`: the `codeComposition` object) for an item lasting `duration`
+	 *  seconds. Returns the check report as JSON: `{ok, diagnostics[{severity, code, message, line, column}], logs,
+	 *  frameMs, width, height}`.
+	 */
+	checkCode: (compositionJson: string, duration: number | null) => typedError<string, AppError>(__TAURI_INVOKE("check_code", { compositionJson, duration })),
 };
 
 /** Events */
@@ -370,6 +384,18 @@ export type ExportRequest = {
 	/**  Output height in pixels (720, 1080, 2160, …). */
 	height: number,
 	fps: number,
+};
+
+/**  A font family the text tools can use. */
+export type FontFamily = {
+	family: string,
+	/**  `bundled` (ships with the app) or `system` (installed on this computer). */
+	source: string,
+	/**  `sans-serif`, `serif`, `display`, `mono`, `handwriting` or `system`. */
+	category: string,
+	minWeight: number,
+	maxWeight: number,
+	italic: boolean,
 };
 
 export type ItemView = ItemView_Serialize | ItemView_Deserialize;

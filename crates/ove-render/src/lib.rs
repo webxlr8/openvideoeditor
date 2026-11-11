@@ -7,9 +7,11 @@ pub mod captions;
 pub mod captions_presets;
 pub mod eval;
 pub mod export;
+pub mod fonts;
 pub mod render;
 pub mod sources;
 pub mod text;
+pub mod text_anim;
 
 pub use canvas::Rgba;
 pub use export::{ExportError, ExportResult, ExportSettings, Progress, export};

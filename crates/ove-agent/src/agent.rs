@@ -101,6 +101,13 @@ fn summarize_result(name: &str, ok: bool, out: &str) -> String {
             .unwrap_or_else(|| "applied".into()),
         "print_timeline" => format!("{} lines", out.lines().count()),
         "verify_timeline" => out.lines().next().unwrap_or_default().chars().take(160).collect(),
+        "check_code" => serde_json::from_str::<Value>(out)
+            .ok()
+            .map(|v| match v["diagnostics"].as_array().map(Vec::len).unwrap_or(0) {
+                0 => "no problems".to_string(),
+                n => format!("{n} problem{}", if n == 1 { "" } else { "s" }),
+            })
+            .unwrap_or_default(),
         "list_media" => serde_json::from_str::<Value>(out)
             .ok()
             .and_then(|v| v.as_array().map(|a| format!("{} files", a.len())))

@@ -1,11 +1,13 @@
 //! Text and caption rasterisation: word layout with wrapping and alignment, stroke, shadow, background box and a
-//! highlighted word, using the bundled Inter (SIL OFL 1.1, assets/fonts).
+//! highlighted word. The default face is the bundled Inter (SIL OFL 1.1, assets/fonts); `TextStyle::font` picks any
+//! family from the font library (see `fonts`).
 
 use std::sync::OnceLock;
 
 use ab_glyph::{Font, FontArc, PxScale, ScaleFont, point};
 
 use crate::canvas::Rgba;
+use crate::fonts::{FontSpec, face};
 
 struct Fonts {
     regular: FontArc,
@@ -46,6 +48,8 @@ pub struct TextStyle {
     pub max_width: f32,
     /// (word index, colour)
     pub highlight: Option<(usize, [u8; 4])>,
+    /// Font family/weight/style; `None` is Inter regular or bold (by `bold`).
+    pub font: Option<FontSpec>,
 }
 
 impl Default for TextStyle {
@@ -62,6 +66,7 @@ impl Default for TextStyle {
             background: None,
             max_width: 1e9,
             highlight: None,
+            font: None,
         }
     }
 }
@@ -159,8 +164,18 @@ pub fn words_of(text: &str) -> Vec<String> {
 
 /// Renders words into a tight RGBA image (with padding for stroke, shadow and background).
 pub fn render_words(words: &[String], st: &TextStyle) -> Rgba {
+    render_words_partial(words, st, usize::MAX)
+}
+
+/// Like [`render_words`], laying out every word but drawing only the first `reveal` characters (typewriter).
+pub fn render_words_partial(words: &[String], st: &TextStyle, reveal: usize) -> Rgba {
     let f = fonts();
-    let font = if st.bold { &f.bold } else { &f.regular };
+    let chosen = st.font.as_ref().map(face);
+    let font = match &chosen {
+        Some(c) => c,
+        None if st.bold => &f.bold,
+        None => &f.regular,
+    };
     let (placed, lines, _) = layout(words, st, font);
     let sf = font.as_scaled(PxScale::from(st.size));
     let lh = st.size * st.line_height;
@@ -212,10 +227,18 @@ pub fn render_words(words: &[String], st: &TextStyle) -> Rgba {
             prev = Some(id);
         }
     };
+    let mut budget = reveal;
     for p in &placed {
+        if budget == 0 {
+            break;
+        }
         let x = line_x(p.line) + p.x;
         let base = pad + p.line as f32 * lh + (lh - st.size) / 2.0 + sf.ascent();
-        let word = &words[p.word];
+        let full = &words[p.word];
+        let n = full.chars().count();
+        let word: &str =
+            if n <= budget { full } else { &full[..full.char_indices().nth(budget).map_or(full.len(), |c| c.0)] };
+        budget = budget.saturating_sub(n + 1);
         let is_hi = st.highlight.is_some_and(|(i, _)| i == p.word);
         raster(if is_hi { &mut hi } else { &mut fill }, word, x, base);
         for (ox, oy) in &offsets {

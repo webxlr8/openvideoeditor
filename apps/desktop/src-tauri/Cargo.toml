@@ -27,6 +27,7 @@ ove-agent = { path = "../../../crates/ove-agent" }
 ove-control = { path = "../../../crates/ove-control" }
 ove-core = { path = "../../../crates/ove-core" }
 ove-interchange = { path = "../../../crates/ove-interchange" }
+ove-graphics = { path = "../../../crates/ove-graphics" }
 ove-media = { path = "../../../crates/ove-media" }
 ove-render = { path = "../../../crates/ove-render" }
 ove-store = { path = "../../../crates/ove-store" }

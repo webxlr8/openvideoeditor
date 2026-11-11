@@ -16,6 +16,7 @@ members = [
     "crates/ove-transcribe",
     "crates/ove-render",
     "crates/ove-analyze",
+    "crates/ove-graphics",
     "apps/desktop/src-tauri",
 ]
 default-members = [

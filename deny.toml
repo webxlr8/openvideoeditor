@@ -30,6 +30,11 @@ allow = [
     # whisper-rs / whisper-rs-sys (speech recognition bindings) are public domain; whisper.cpp itself is MIT.
     "Unlicense",
 ]
+# jpeg-encoder (a required dependency of the Takumi raster backend used by ove-graphics) is
+# "(MIT OR Apache-2.0) AND IJG": its forward DCT is ported from the Independent JPEG Group's code. The IJG terms are
+# permissive (no warranty; acknowledge the IJG code in the documentation); the acknowledgement is in
+# crates/ove-graphics/SUPPORTED.md. Allowed for this crate only.
+exceptions = [{ allow = ["IJG"], crate = "jpeg-encoder" }]
 
 [bans]
 multiple-versions = "warn"

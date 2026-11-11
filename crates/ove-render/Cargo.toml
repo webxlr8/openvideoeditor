@@ -12,6 +12,7 @@ ab_glyph = "0.2.32"
 ffmpeg-the-third = { version = "6", default-features = false, features = ["codec", "format", "software-resampling", "software-scaling"] }
 libc = "0.2"
 ove-core = { path = "../ove-core" }
+ove-graphics = { path = "../ove-graphics" }
 ove-media = { path = "../ove-media" }
 rayon = "1.10"
 serde = { version = "1", features = ["derive"] }

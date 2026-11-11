@@ -282,6 +282,7 @@ pub fn draw_caption(
         background: None,
         max_width: 1e9,
         highlight: None,
+        font: None,
     };
     let pad_of = |st: &TextStyle| {
         let sw = st.stroke.map(|s| s.1).unwrap_or(0.0);

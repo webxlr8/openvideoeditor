@@ -25,7 +25,15 @@ import { type EditResult, itemDetail, snapToFrame } from "./edit";
 import { Inspector } from "./Inspector";
 import { EDIT_ACTIONS, keyToAction } from "./keys";
 import { CaptionsPanel } from "./CaptionsPanel";
-import { AudioPanel, EffectsPanel, LayoutPanel, type PanelProps, TextPanel, TransitionsPanel } from "./Panels";
+import {
+  AudioPanel,
+  EffectsPanel,
+  LayoutPanel,
+  type PanelProps,
+  TextPanel,
+  TransitionsPanel,
+} from "./Panels";
+import { MotionPanel } from "./Motion";
 import { Shortcuts } from "./Shortcuts";
 import { type SelectMode, Timeline } from "./Timeline";
 
@@ -35,6 +43,7 @@ export const RAIL: { id: string; label: string; icon: IconName }[] = [
   { id: "audio", label: "Audio", icon: "audio" },
   { id: "captions", label: "Captions", icon: "captions" },
   { id: "text", label: "Text", icon: "text" },
+  { id: "motion", label: "Motion", icon: "templates" },
   { id: "transitions", label: "Transitions", icon: "transitions" },
   { id: "effects", label: "Effects", icon: "effects" },
 ];
@@ -549,6 +558,7 @@ function SidePanel({
       ) : panelProps ? (
         <div className="panel-body" data-testid={`panel-${id}`}>
           {id === "text" && <TextPanel {...panelProps} />}
+          {id === "motion" && <MotionPanel {...panelProps} />}
           {id === "captions" && <CaptionsPanel {...panelProps} />}
           {id === "transitions" && <TransitionsPanel {...panelProps} />}
           {id === "effects" && <EffectsPanel {...panelProps} />}
