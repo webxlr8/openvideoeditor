@@ -3555,6 +3555,7 @@ dependencies = [
  "clap",
  "ove-core",
  "ove-projection",
+ "ove-render",
  "ove-store",
  "serde_json",
  "tempfile",

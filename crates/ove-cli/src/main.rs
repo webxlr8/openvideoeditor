@@ -43,6 +43,16 @@ enum Cmd {
     History { project: String },
     /// Revert the latest revision, or return to revision REV, as a new revision.
     Undo { project: String, rev: Option<i64> },
+    /// Render the timeline to an MP4 file (H.264 + AAC). With --json, progress is printed as JSON lines.
+    Export {
+        project: String,
+        out: PathBuf,
+        /// Output height in pixels; the width follows the aspect ratio.
+        #[arg(long, default_value_t = 1080)]
+        height: u32,
+        #[arg(long, default_value_t = 30)]
+        fps: u32,
+    },
 }
 
 #[derive(Subcommand)]
@@ -305,7 +315,55 @@ fn run(cli: &Cli) -> Out {
             p.close()?;
             Ok((v, text))
         }
+        Cmd::Export { project, out, height, fps } => export(&lib, project, out, *height, *fps, cli.json),
     }
+}
+
+#[cfg(feature = "export")]
+fn export(lib: &Library, project: &str, out: &Path, height: u32, fps: u32, json_lines: bool) -> Out {
+    use std::io::Write;
+    let p = Project::open(&lib.find(project)?, Mode::ReadOnly, clock())?;
+    let settings = ove_render::ExportSettings { height, fps, ..Default::default() };
+    let cancel = std::sync::atomic::AtomicBool::new(false);
+    let mut last = -1i64;
+    let res = ove_render::export(p.doc(), Some(p.bundle()), out, &settings, &cancel, |pr| {
+        let pct = (pr.fraction * 100.0) as i64;
+        if pct != last {
+            last = pct;
+            if json_lines {
+                println!("{}", json!({"progress": pr}));
+            } else {
+                eprint!("\rexporting {pct}%");
+            }
+            let _ = std::io::stdout().flush();
+        }
+    })
+    .map_err(|e| Fail {
+        code: match e {
+            ove_render::ExportError::Refused(_) => "export.refused".into(),
+            ove_render::ExportError::Cancelled => "export.cancelled".into(),
+            ove_render::ExportError::Ffmpeg(_) => "export.failed".into(),
+        },
+        message: e.to_string(),
+        details: Value::Null,
+    })?;
+    if !json_lines {
+        eprintln!();
+    }
+    let text = format!(
+        "exported {} ({}x{}, {:.1} s, {}) in {:.1} s",
+        res.path, res.width, res.height, res.duration_seconds, res.video_encoder, res.seconds_taken
+    );
+    Ok((serde_json::to_value(&res).unwrap(), text))
+}
+
+#[cfg(not(feature = "export"))]
+fn export(_: &Library, _: &str, _: &Path, _: u32, _: u32, _: bool) -> Out {
+    Err(Fail {
+        code: "export.unavailable".into(),
+        message: "this build of ove has no export; build it with `--features export`".into(),
+        details: Value::Null,
+    })
 }
 
 fn main() -> ExitCode {
