@@ -3,6 +3,8 @@
 
 pub mod audio;
 pub mod canvas;
+pub mod captions;
+pub mod captions_presets;
 pub mod eval;
 pub mod export;
 pub mod render;

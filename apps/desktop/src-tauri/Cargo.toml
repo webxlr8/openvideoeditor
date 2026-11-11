@@ -30,6 +30,7 @@ ove-interchange = { path = "../../../crates/ove-interchange" }
 ove-media = { path = "../../../crates/ove-media" }
 ove-render = { path = "../../../crates/ove-render" }
 ove-store = { path = "../../../crates/ove-store" }
+ove-transcribe = { path = "../../../crates/ove-transcribe" }
 png = "0.18"
 base64 = "0.22"
 ove-playback = { path = "../../../crates/ove-playback", features = ["media", "audio-output"] }

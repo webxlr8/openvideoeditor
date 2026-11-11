@@ -12,6 +12,7 @@ members = [
     "crates/ove-playback",
     "crates/ove-gpu",
     "crates/ove-bench",
+    "crates/ove-transcribe",
     "crates/ove-render",
     "crates/ove-analyze",
     "apps/desktop/src-tauri",
@@ -60,4 +61,11 @@ debug = false
 opt-level = 1
 
 [profile.dev.package.proptest]
+opt-level = 3
+
+# Speech recognition is unusably slow unoptimised; build whisper.cpp optimised in dev and test builds too.
+[profile.dev.package.whisper-rs-sys]
+opt-level = 3
+
+[profile.test.package.whisper-rs-sys]
 opt-level = 3

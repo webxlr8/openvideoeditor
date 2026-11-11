@@ -2,6 +2,7 @@
 //! containment, the native viewer, and playback through ove-media / ove-playback (change 1).
 
 pub mod assistant;
+pub mod captions;
 pub mod commands;
 pub mod control;
 pub mod edits;
@@ -153,6 +154,13 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             assistant::agent_send,
             assistant::agent_stop,
             assistant::agent_answer,
+            // Captions: speech models, auto-captions, caption styles (change 10).
+            captions::caption_models,
+            captions::caption_presets,
+            captions::download_caption_model,
+            captions::auto_caption,
+            captions::cancel_captions,
+            captions::apply_caption_style,
         ])
         .events(collect_events![
             PlaybackChanged,
@@ -164,6 +172,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             control::RemoteOpened,
             exporting::ExportProgress,
             assistant::AgentUiEvent,
+            captions::CaptionJobProgress,
         ])
         .error_handling(tauri_specta::ErrorHandlingMode::Result)
 }
