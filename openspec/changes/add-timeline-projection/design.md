@@ -138,6 +138,7 @@ Environment: Linux x86_64 dev container (4 vCPU), Rust 1.97.0, release build for
 | 23 named spec-scenario tests (stable output, header edits, literal-only, backslash, multiple errors, unknown keys, identity, merge, granularity, conflicts, removal conflicts, base availability, text edits, media refs, placeholders, verify) | pass |
 | CLI: every documented example in `docs/cli/timeline.md` runs with its documented exit code; success and refusal paths of every command incl. lock held by another writer | pass |
 | Concurrency soak, 60 s: 27,510 GUI batches racing 11,792 print → edit → apply round trips | 0 lost edits, 0 invariant failures, 0 conflicts on disjoint fields |
+| Fuzz `parse_projection` (parse + read + merge + validate on arbitrary text), 3 minutes locally: 80 k runs | no crashes, no panics |
 | Print a 5,000-item project (790 KB projection) | **28 ms** p50 (budget 100 ms) |
 | Check + apply a one-item edit on 5,000 items | **61 ms** p50, 92 ms max (budget 150 ms) |
 | 1-op GUI commit with projection following | p50 0.96 ms, p95 2.0 ms |

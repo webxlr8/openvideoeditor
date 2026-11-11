@@ -1,7 +1,8 @@
 //! Transport state for the viewer: play/pause, step, J/K/L shuttle, loop, seek, volume.
 //!
-//! Interim engine used by the shell until ove-playback is wired in; the command and state types
-//! are the bridge contract and stay. Time is in frames of a constant-rate source.
+//! The command and state types are the bridge contract. The `Transport` state machine below is a
+//! frame-based model of the same behaviour kept for unit tests of the contract; playback itself runs in
+//! `engine` on ove-playback.
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -48,6 +49,12 @@ pub struct PlaybackState {
     pub muted: bool,
     /// False when no audio output device is available (video then runs on the system clock).
     pub audio_available: bool,
+}
+
+impl Default for PlaybackState {
+    fn default() -> Self {
+        Transport::default().state
+    }
 }
 
 /// The transport state machine. `tick` advances one frame in the current direction.

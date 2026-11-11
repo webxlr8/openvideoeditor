@@ -144,6 +144,8 @@ timings. macOS and Windows numbers come from the CI jobs and the reference machi
 | Durable record write alone (`fdatasync` + rename + dir fsync) | p50 0.59 ms, p95 3.6 ms |
 | 10,000-revision project | commit 0.96 ms each; open with replay 58 ms; rebuild an old revision 55 ms; prune 8,000 records 0.74 s |
 
+| Fuzz, 3 minutes per target locally (libFuzzer, nightly toolchain): `read_json` 1.62 M runs, `apply_batch` 3.06 M runs | no crashes, no panics |
+
 Not yet verified (tasks left open): owner review of `docs/spec/project-schema-v1.md` (1.1); the 30-minute nightly
 fuzz runs (2.4, workflow added, short local runs below); every "on both OSes" check (4.1, 4.3, 4.5, 5.1, 5.2, 6.2)
 until the macOS/Windows CI jobs have run; SMB-share library refusal on real network volumes (5.1, detection code is

@@ -47,6 +47,9 @@ jobs:
       matrix:
         os: [macos-15, windows-2025]
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
@@ -58,9 +61,31 @@ jobs:
           node-version: 22
           cache: pnpm
           cache-dependency-path: apps/desktop/pnpm-lock.yaml
+      - name: build prerequisites (macOS)
+        if: runner.os == 'macOS'
+        run: brew install dav1d nasm pkg-config ffmpeg
+      - name: build prerequisites (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          choco install -y ffmpeg nasm
+          vcpkg install dav1d:x64-windows
+      - uses: msys2/setup-msys2@v2
+        if: runner.os == 'Windows'
+        with:
+          msystem: MINGW64
+          path-type: inherit
+          install: make pkg-config diffutils
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+      - uses: actions/cache@v4
+        with:
+          path: tools/ffmpeg/out
+          key: ffmpeg-${{ matrix.os }}-${{ hashFiles('tools/ffmpeg/*.sh') }}
       - name: FFmpeg (LGPL, shared)
-        shell: bash
-        run: tools/ffmpeg/build.sh --ci
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then msys2 -c 'tools/ffmpeg/build.sh --ci'; else tools/ffmpeg/build.sh --ci; fi
+      - name: test media matrix (generated with the runner's ffmpeg CLI; test-only)
+        run: python3 tests/media/media.py generate
       - name: UI typecheck / lint / test / licences
         working-directory: apps/desktop
         run: |
@@ -69,21 +94,32 @@ jobs:
           pnpm run lint
           pnpm run test
           pnpm run licenses
-      - name: clippy + test (media, playback, gpu, desktop)
-        shell: bash
+      - name: clippy + test (media, playback, gpu, bench, desktop)
         run: |
           source tools/ffmpeg/env.sh
-          cargo clippy --workspace --all-targets -- -D warnings
-          cargo test --workspace
+          cargo clippy -p ove-media -p ove-playback -p ove-gpu -p ove-bench -p ove-desktop --all-targets --all-features -- -D warnings
+          cargo test -p ove-media -p ove-playback -p ove-gpu -p ove-bench -p ove-desktop --all-features
       - name: bindings drift
-        shell: bash
         run: |
           source tools/ffmpeg/env.sh
-          cargo run -q -p ove-desktop --bin export-bindings
-          git diff --exit-code apps/desktop/ui/src/bindings.ts
+          cargo run -q -p ove-desktop --bin export-bindings -- --check
+      - name: benchmark on the matrix (JSON artefacts)
+        run: |
+          source tools/ffmpeg/env.sh
+          mkdir -p bench-out
+          for f in tests/media/files/*; do cargo run -q --release -p ove-bench -- "$f" > "bench-out/$(basename "$f").json" || true; done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench-and-ffmpeg-${{ matrix.os }}
+          path: |
+            bench-out
+            tools/ffmpeg/out/*/buildconf.txt
+            tools/ffmpeg/out/*/sizes.txt
       - name: debug app build
         working-directory: apps/desktop
-        run: pnpm tauri build --debug --no-bundle
+        run: |
+          source ../../tools/ffmpeg/env.sh
+          pnpm tauri build --debug --no-bundle
 
   deny:
     runs-on: ubuntu-24.04

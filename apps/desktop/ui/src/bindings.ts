@@ -7,6 +7,7 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 
 /** Commands */
 export const commands = {
+	/**  Sends the frame at the transport's position to the viewer and notifies the UI. */
 	appInfo: () => typedError<AppInfo_Serialize, AppError>(__TAURI_INVOKE("app_info")),
 	/**
 	 *  Paths the app was launched with (or that arrived before the UI was ready). Marks the UI ready:
@@ -15,10 +16,8 @@ export const commands = {
 	takePendingOpenPaths: () => typedError<string[], AppError>(__TAURI_INVOKE("take_pending_open_paths")),
 	/**  Opens a media file in the viewer. On failure nothing changes (the current file keeps playing). */
 	openMedia: (path: string) => typedError<MediaInfo_Serialize, AppError>(__TAURI_INVOKE("open_media", { path })),
-	/**  Shows the system file dialog and opens the chosen file. `None` when cancelled. */
 	openMediaDialog: () => typedError<MediaInfo_Serialize | null, AppError>(__TAURI_INVOKE("open_media_dialog")),
 	closeMedia: () => typedError<PlaybackState, AppError>(__TAURI_INVOKE("close_media")),
-	/**  The viewer element's rectangle, measured by the UI after every layout change. */
 	setViewerRect: (rect: ViewerRect) => typedError<null, AppError>(__TAURI_INVOKE("set_viewer_rect", { rect })),
 	transport: (command: TransportCommand) => typedError<PlaybackState, AppError>(__TAURI_INVOKE("transport", { command })),
 	setVolume: (volume: number | null, muted: boolean) => typedError<PlaybackState, AppError>(__TAURI_INVOKE("set_volume", { volume, muted })),

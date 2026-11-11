@@ -193,3 +193,36 @@ Observations:
 - 3.2: output-device switching (manual, both OSes); the no-device path is verified for real here (ALSA reports no
   device → `AudioUnavailable`, player on the system clock) and the rebuild decision is unit-tested.
 - 3.3: running `ove-bench` on the CI OSes; done on Linux for every matrix file.
+
+### Integration: decode + playback in the desktop app (Linux dev container)
+
+The shell's interim test-pattern transport was replaced by `apps/desktop/src-tauri/src/engine.rs`: a playback thread
+that opens files with `ove_media::open_video` (hardware first, software fallback) behind a `DecodeWorker`, drives them
+with `ove_playback::Player` (audio-master clock when an output device exists, system clock otherwise), feeds the audio
+ring from `AudioDecoder`, and sends decoded NV12/P010/RGBA frames to the GPU viewer. The bridge contract
+(`TransportCommand`, `PlaybackState`, `MediaInfo`) is unchanged except that `open_media` is now async.
+
+Verified in the real app under Xvfb (software GPU, no audio device) with a 1280×720 25 fps H.264 + AAC file whose
+frames carry a burned-in frame counter:
+- The file opens through the decoder (`h264 (High)`), its first frame shows, and playback advances; with no audio
+  device the log says so and video runs on the system clock.
+- **Frame step:** Home, then 10 rapid step-forward key presses → the viewer shows frame 10 (burned-in counter) and
+  the UI timecode reads `00:00:00:10`.
+- Two bugs found and fixed by this run: (1) the transport command returned the state from *before* the engine
+  applied it and the UI could apply that reply over a newer `playbackChanged` event (timecode one frame behind the
+  picture) — events are now authoritative and replies only carry errors; (2) a step pressed while the previous step's
+  frame was still decoding was merged into it — the engine now queues steps and issues each one when the player has
+  settled (`Player::is_settled`). Plus a frame-index rounding fix (2.88 s × 25 fps is frame 72, not 71), unit-tested
+  at 24/25/30/60 and 29.97 fps.
+
+Still needed on macOS/Windows (tasks 5.x, 6.x): native layering in place of the Linux frame-stream fallback,
+hardware decode, audio device switching, and the performance gate.
+
+### UI reference check
+
+The Home and Editor placeholders were compared side by side with the reference screenshots (01-home, 20-editor-default,
+29b timeline hidden, 27a context menu). Layout matches: left navigation with search and bottom items; centred prompt
+card with chips and a templates/projects tray; editor icon rail with seven panels, collapsible side panel, viewer,
+transport bar, four-track timeline (Text, Captions, Overlay, Main), assistant panel with composer, and the
+hidden-timeline mode with a scrub bar and timecodes. All copy, icons and branding are our own. Differences are later
+scope: the properties panel and per-item context menus, timeline zoom and snapshot controls (change 7).

@@ -108,6 +108,12 @@ impl<S: FrameSource> Player<S> {
         &self.transport
     }
 
+    /// True when no seek or step is waiting for its frame. Hosts queue further steps until then, because a step
+    /// issued while another is pending is merged into it.
+    pub fn is_settled(&self) -> bool {
+        self.waiting == Waiting::None
+    }
+
     pub fn clock_source(&self) -> ClockSource {
         self.clock.source()
     }

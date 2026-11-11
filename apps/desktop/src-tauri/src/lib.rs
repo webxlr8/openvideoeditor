@@ -1,7 +1,8 @@
 //! Desktop shell: window, single instance and open-file routing, typed bridge, logs and crash
-//! containment, and the native viewer with an interim transport (change 1).
+//! containment, the native viewer, and playback through ove-media / ove-playback (change 1).
 
 pub mod commands;
+pub mod engine;
 pub mod error;
 pub mod logging;
 pub mod media;
@@ -13,7 +14,7 @@ pub mod worker;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
@@ -22,8 +23,7 @@ use tauri::{Manager, RunEvent, WindowEvent};
 use tauri_specta::{Event, collect_commands, collect_events};
 
 use crate::error::AppError;
-use crate::media::MediaInfo;
-use crate::transport::{PlaybackState, Transport};
+use crate::transport::PlaybackState;
 use crate::viewer::{NativeLayer, ViewerBackend, ViewerMsg, ViewerStats};
 
 /// Playback state changed (frame, play/pause, speed, loop, volume).
@@ -54,8 +54,7 @@ pub struct AppErrorRaised(pub AppError);
 
 /// Shared app state behind the commands.
 pub struct AppState {
-    pub transport: Arc<(Mutex<Transport>, Condvar)>,
-    pub media: Mutex<Option<MediaInfo>>,
+    pub engine: engine::EngineHandle,
     pub viewer_tx: Mutex<Sender<ViewerMsg>>,
     pub viewer_stats: Arc<Mutex<ViewerStats>>,
     pub seek_started: Arc<Mutex<Option<Instant>>>,
@@ -75,8 +74,12 @@ impl AppState {
 }
 
 /// What the decoder can do. Reported in the startup log line and app info.
-pub const DECODE_CAPABILITIES: &str = "decoder not wired into the shell yet (test pattern only); \
-     planned: VideoToolbox on macOS, D3D11VA on Windows, software fallback";
+#[cfg(target_os = "macos")]
+pub const DECODE_CAPABILITIES: &str = "FFmpeg (LGPL); hardware: VideoToolbox, software fallback";
+#[cfg(windows)]
+pub const DECODE_CAPABILITIES: &str = "FFmpeg (LGPL); hardware: D3D11VA, software fallback";
+#[cfg(not(any(target_os = "macos", windows)))]
+pub const DECODE_CAPABILITIES: &str = "FFmpeg; software decode (hardware paths are macOS/Windows only)";
 
 /// The bridge contract: every command and event the UI may use.
 pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
@@ -362,13 +365,11 @@ pub fn run() {
                 })?;
             }
 
-            let transport = Arc::new((Mutex::new(Transport::default()), Condvar::new()));
-            commands::spawn_playback_thread(handle.clone(), transport.clone(), viewer_tx.clone())?;
+            let engine = engine::spawn(handle.clone(), viewer_tx.clone())?;
 
             app.manage(stream);
             app.manage(AppState {
-                transport,
-                media: Mutex::new(None),
+                engine,
                 viewer_tx: Mutex::new(viewer_tx),
                 viewer_stats: stats,
                 seek_started,

@@ -2,22 +2,20 @@
 //! bridge (work that could panic runs inside [`crate::worker::contain`]).
 
 use std::path::PathBuf;
+use std::sync::Mutex;
 use std::sync::atomic::Ordering;
-use std::sync::mpsc::Sender;
-use std::sync::{Arc, Condvar, Mutex};
 use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_dialog::DialogExt;
-use tauri_specta::Event;
 
+use crate::AppState;
 use crate::error::{AppError, AppResult, ErrorCode};
 use crate::media::{self, MediaInfo};
-use crate::transport::{PlaybackState, Transport, TransportCommand};
+use crate::transport::{PlaybackState, TransportCommand};
 use crate::viewer::{ViewerBackend, ViewerMsg, ViewerRect, ViewerStats};
-use crate::{AppState, PlaybackChanged};
 
 /// Static facts about the running app.
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -51,53 +49,6 @@ fn lock<'a, T>(m: &'a Mutex<T>, what: &str) -> AppResult<std::sync::MutexGuard<'
 }
 
 /// Sends the frame at the transport's position to the viewer and notifies the UI.
-fn show_current(app: &AppHandle, state: &PlaybackState, viewer: &Sender<ViewerMsg>) {
-    if state.has_media && state.total_frames > 0 {
-        let frame = media::test_pattern_frame(state.frame, state.total_frames, state.frame_rate);
-        let _ = viewer.send(ViewerMsg::Frame(frame));
-    }
-    let _ = PlaybackChanged(state.clone()).emit(app);
-}
-
-/// Advances playback in real time while playing.
-pub fn spawn_playback_thread(
-    app: AppHandle,
-    transport: Arc<(Mutex<Transport>, Condvar)>,
-    viewer: Sender<ViewerMsg>,
-) -> std::io::Result<()> {
-    crate::worker::spawn_contained("playback", move || {
-        let (lock, cvar) = &*transport;
-        let mut next = Instant::now();
-        loop {
-            let Ok(guard) = lock.lock() else { return };
-            if !guard.state.playing {
-                let Ok((g, _)) = cvar.wait_timeout(guard, std::time::Duration::from_millis(250)) else { return };
-                drop(g);
-                next = Instant::now();
-                continue;
-            }
-            let interval = guard.tick_interval();
-            drop(guard);
-            next += interval;
-            let now = Instant::now();
-            if next > now {
-                std::thread::sleep(next - now);
-            } else {
-                next = now;
-            }
-            let Ok(mut guard) = lock.lock() else { return };
-            let was_playing = guard.state.playing;
-            let changed = guard.tick();
-            let snapshot = guard.state.clone();
-            drop(guard);
-            if changed || (was_playing && !snapshot.playing) {
-                show_current(&app, &snapshot, &viewer);
-            }
-        }
-    })?;
-    Ok(())
-}
-
 #[tauri::command]
 #[specta::specta]
 pub fn app_info(state: State<'_, AppState>) -> AppResult<AppInfo> {
@@ -127,24 +78,23 @@ pub fn take_pending_open_paths(state: State<'_, AppState>) -> AppResult<Vec<Stri
 /// Opens a media file in the viewer. On failure nothing changes (the current file keeps playing).
 #[tauri::command]
 #[specta::specta]
-pub fn open_media(app: AppHandle, state: State<'_, AppState>, path: String) -> AppResult<MediaInfo> {
-    let info = media::open(&PathBuf::from(&path)).inspect_err(|e| {
-        tracing::warn!(path, code = ?e.code, "open failed: {}", e.message);
-    })?;
-    let (lock_t, cvar) = &*state.transport;
-    let snapshot = {
-        let mut t = lock(lock_t, "transport")?;
-        t.load(info.total_frames, info.frame_rate);
-        t.state.clone()
-    };
-    cvar.notify_all();
-    *lock(&state.media, "media")? = Some(info.clone());
-    tracing::info!(path, placeholder = info.placeholder, "media opened");
-    show_current(&app, &snapshot, &lock(&state.viewer_tx, "viewer")?.clone());
+pub async fn open_media(state: State<'_, AppState>, path: String) -> AppResult<MediaInfo> {
+    let p = PathBuf::from(&path);
+    crate::engine::precheck(&p).inspect_err(|e| tracing::warn!(path, code = ?e.code, "open refused: {}", e.message))?;
+    let (reply, rx) = std::sync::mpsc::channel();
+    state
+        .engine
+        .tx
+        .send(crate::engine::EngineMsg::Open(p, reply))
+        .map_err(|_| AppError::new(ErrorCode::Internal, "The playback engine is not running."))?;
+    let info = tauri::async_runtime::spawn_blocking(move || rx.recv_timeout(std::time::Duration::from_secs(30)))
+        .await
+        .map_err(|e| AppError::new(ErrorCode::Internal, e.to_string()))?
+        .map_err(|_| AppError::new(ErrorCode::Internal, "Opening the file timed out."))??;
+    tracing::info!(path, codec = info.video_codec, "media opened");
     Ok(info)
 }
 
-/// Shows the system file dialog and opens the chosen file. `None` when cancelled.
 #[tauri::command]
 #[specta::specta]
 pub async fn open_media_dialog(app: AppHandle) -> AppResult<Option<MediaInfo>> {
@@ -156,23 +106,19 @@ pub async fn open_media_dialog(app: AppHandle) -> AppResult<Option<MediaInfo>> {
         .into_path()
         .map_err(|e| AppError::new(ErrorCode::InvalidArgument, format!("Unsupported file location: {e}")))?;
     let state = app.state::<AppState>();
-    open_media(app.clone(), state, path.display().to_string()).map(Some)
+    open_media(state, path.display().to_string()).await.map(Some)
 }
 
 #[tauri::command]
 #[specta::specta]
-pub fn close_media(app: AppHandle, state: State<'_, AppState>) -> AppResult<PlaybackState> {
-    let snapshot = {
-        let mut t = lock(&state.transport.0, "transport")?;
-        t.load(0, 30.0);
-        t.state.clone()
-    };
-    *lock(&state.media, "media")? = None;
-    let _ = PlaybackChanged(snapshot.clone()).emit(&app);
-    Ok(snapshot)
+pub fn close_media(state: State<'_, AppState>) -> AppResult<PlaybackState> {
+    let _ = state.engine.tx.send(crate::engine::EngineMsg::Close);
+    let mut snap = lock(&state.engine.shared.state, "playback")?.clone();
+    snap.has_media = false;
+    snap.playing = false;
+    Ok(snap)
 }
 
-/// The viewer element's rectangle, measured by the UI after every layout change.
 #[tauri::command]
 #[specta::specta]
 pub fn set_viewer_rect(app: AppHandle, state: State<'_, AppState>, rect: ViewerRect) -> AppResult<()> {
@@ -194,51 +140,54 @@ pub fn set_viewer_rect(app: AppHandle, state: State<'_, AppState>, rect: ViewerR
 
 #[tauri::command]
 #[specta::specta]
-pub fn transport(app: AppHandle, state: State<'_, AppState>, command: TransportCommand) -> AppResult<PlaybackState> {
-    let (lock_t, cvar) = &*state.transport;
-    let (before, snapshot) = {
-        let mut t = lock(lock_t, "transport")?;
-        let before = t.state.frame;
-        t.apply(command);
-        (before, t.state.clone())
-    };
-    cvar.notify_all();
-    if snapshot.frame != before {
+pub fn transport(state: State<'_, AppState>, command: TransportCommand) -> AppResult<PlaybackState> {
+    if matches!(
+        command,
+        TransportCommand::SeekFrame { .. }
+            | TransportCommand::Step { .. }
+            | TransportCommand::GoToStart
+            | TransportCommand::GoToEnd
+    ) {
         *lock(&state.seek_started, "seek timer")? = Some(Instant::now());
     }
-    show_current(&app, &snapshot, &lock(&state.viewer_tx, "viewer")?.clone());
-    Ok(snapshot)
+    state
+        .engine
+        .tx
+        .send(crate::engine::EngineMsg::Transport(command))
+        .map_err(|_| AppError::new(ErrorCode::Internal, "The playback engine is not running."))?;
+    // The engine applies the command on its next turn and emits `playbackChanged`; this is the state before it.
+    Ok(lock(&state.engine.shared.state, "playback")?.clone())
 }
 
 #[tauri::command]
 #[specta::specta]
-pub fn set_volume(app: AppHandle, state: State<'_, AppState>, volume: f64, muted: bool) -> AppResult<PlaybackState> {
-    let snapshot = {
-        let mut t = lock(&state.transport.0, "transport")?;
-        t.set_volume(volume, muted);
-        t.state.clone()
-    };
-    let _ = PlaybackChanged(snapshot.clone()).emit(&app);
-    Ok(snapshot)
+pub fn set_volume(state: State<'_, AppState>, volume: f64, muted: bool) -> AppResult<PlaybackState> {
+    let volume = if volume.is_finite() { volume.clamp(0.0, 1.0) } else { 1.0 };
+    let _ = state.engine.tx.send(crate::engine::EngineMsg::Volume(volume, muted));
+    let mut snap = lock(&state.engine.shared.state, "playback")?.clone();
+    snap.volume = volume;
+    snap.muted = muted;
+    Ok(snap)
 }
 
 #[tauri::command]
 #[specta::specta]
 pub fn playback_state(state: State<'_, AppState>) -> AppResult<PlaybackState> {
-    Ok(lock(&state.transport.0, "transport")?.state.clone())
+    Ok(lock(&state.engine.shared.state, "playback")?.clone())
 }
 
 #[tauri::command]
 #[specta::specta]
 pub fn diagnostics(state: State<'_, AppState>) -> AppResult<Diagnostics> {
     let viewer = lock(&state.viewer_stats, "viewer")?.clone();
-    let has_media = lock(&state.media, "media")?.is_some();
-    let audio_available = lock(&state.transport.0, "transport")?.state.audio_available;
+    let has_media = lock(&state.engine.shared.media, "media")?.is_some();
+    let audio_available = lock(&state.engine.shared.state, "playback")?.audio_available;
+    let d = lock(&state.engine.shared.diag, "diagnostics")?.clone();
     Ok(Diagnostics {
-        decode_path: if has_media { "test pattern (CPU)".into() } else { "none".into() },
+        decode_path: if has_media { d.decode_path } else { "none".into() },
         viewer,
-        dropped_frames: 0,
-        av_offset_ms: None,
+        dropped_frames: d.dropped_frames.min(u32::MAX as u64) as u32,
+        av_offset_ms: d.av_offset_ms,
         process_memory_bytes: memory_stats::memory_stats().map(|m| m.physical_mem as f64),
         audio_available,
     })

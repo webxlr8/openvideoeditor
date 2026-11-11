@@ -3543,6 +3543,8 @@ dependencies = [
  "objc2-quartz-core",
  "os_info",
  "ove-gpu",
+ "ove-media",
+ "ove-playback",
  "raw-window-handle",
  "serde",
  "serde_json",

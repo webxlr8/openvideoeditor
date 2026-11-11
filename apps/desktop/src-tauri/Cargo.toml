@@ -23,6 +23,8 @@ path = "src/bin/export-bindings.rs"
 memory-stats = "1.2.0"
 os_info = "3.15.0"
 ove-gpu = { version = "0.1.0", path = "../../../crates/ove-gpu" }
+ove-media = { path = "../../../crates/ove-media" }
+ove-playback = { path = "../../../crates/ove-playback", features = ["media", "audio-output"] }
 raw-window-handle = "0.6"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1"

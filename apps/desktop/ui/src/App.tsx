@@ -62,9 +62,10 @@ export function App() {
 
   const transport = useCallback(
     (command: TransportCommand) => {
+      // The engine applies commands asynchronously and reports every change through `playbackChanged`;
+      // replies are only checked for errors so a late reply never overwrites a newer state.
       void commands.transport(command).then((r) => {
         if (r.status === "error") showError(r.error);
-        else setPlayback(r.data);
       });
     },
     [showError],

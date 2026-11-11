@@ -33,4 +33,19 @@ openspec validate --all --strict
 Fully specified, in order: `add-desktop-shell-and-native-preview` (viewer gate R1), `add-project-document`,
 `add-timeline-projection`. Changes 4–16 are listed in the roadmap and get specified just before they start.
 
-Status: planning complete for changes 1–3. No code yet.
+Status: changes 1–3 implemented (see each change's `design.md` Results for what is verified and what still needs the
+macOS / Windows machines). Layout:
+
+```
+crates/ove-core        document model, ops, invariants, revisions          crates/ove-store   bundles, durable log, locking, library
+crates/ove-projection  timeline.tsx printer/parser/merge/verify            crates/ove-cli     `ove` command line
+crates/ove-media       probe + decode (FFmpeg)                             crates/ove-playback clock, transport, A/V sync
+crates/ove-gpu         wgpu viewer renderer                                crates/ove-bench   headless playback benchmark
+apps/desktop           Tauri 2 shell + React UI                            tools/ffmpeg       LGPL FFmpeg build
+```
+
+```
+cargo test -p ove-core -p ove-store -p ove-projection -p ove-cli -p ove-playback   # document core (no FFmpeg needed)
+source tools/ffmpeg/env.sh && cargo test --workspace                                # everything
+cd apps/desktop && pnpm install && pnpm tauri dev                                   # run the app
+```
