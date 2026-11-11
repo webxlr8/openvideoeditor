@@ -204,6 +204,22 @@ struct Laid {
     index: usize,
 }
 
+/// How long the mark stays on a word after it is spoken when the next word is not yet due.
+const HOLD_US: Micros = 600_000;
+
+/// Keeps the spoken-word mark on a word through short gaps until the next word starts (and briefly after the last),
+/// so the mark does not flicker off between words.
+fn hold_marks(words: &mut [TimedWord]) {
+    for i in 0..words.len() {
+        let held = words[i].end + HOLD_US;
+        let until = match words.get(i + 1) {
+            Some(next) => held.min(next.start),
+            None => held,
+        };
+        words[i].end = words[i].end.max(until);
+    }
+}
+
 /// The group (for stacked styles) shown at `rel_us`: words split into runs of `n`, breaking after punctuation.
 fn group_at(words: &[TimedWord], n: usize, rel_us: Micros) -> std::ops::Range<usize> {
     let mut groups: Vec<std::ops::Range<usize>> = Vec::new();
@@ -241,11 +257,14 @@ pub fn draw_caption(
     }
     let timed = timed_words(fields, rel_us);
     let animated = timed.is_some();
-    let all: Vec<TimedWord> = timed.unwrap_or_else(|| {
+    let mut all: Vec<TimedWord> = timed.unwrap_or_else(|| {
         fallback.iter().map(|w| TimedWord { text: w.clone(), start: Micros::MIN, end: Micros::MIN }).collect()
     });
     if all.is_empty() {
         return;
+    }
+    if animated {
+        hold_marks(&mut all);
     }
     let range = if p.anim == Anim::Stacked && animated { group_at(&all, p.group, rel_us) } else { 0..all.len() };
     let words = &all[range.clone()];
@@ -442,7 +461,12 @@ pub fn draw_caption(
                 }
             }
         }
-        let st = style(l.size, text_color);
+        let mut st = style(l.size, text_color);
+        if active && matches!(p.mark, Mark::Box(..)) {
+            // Text on a box needs no outline or shadow.
+            st.shadow = None;
+            st.stroke = None;
+        }
         let img = cache.word(&l.text, &st);
         // The rasteriser pads the ink; keep the ink centred on its slot.
         if rotation == 0.0 {
@@ -514,6 +538,16 @@ mod tests {
         assert_eq!(group_at(&words, 2, 50), 0..2);
         assert_eq!(group_at(&words, 2, 250), 2..3);
         assert_eq!(group_at(&words, 2, 450), 3..5);
+    }
+
+    #[test]
+    fn the_mark_holds_through_short_gaps() {
+        let t = |s: i64, e: i64| TimedWord { text: "w".into(), start: s, end: e };
+        let mut words = vec![t(0, 100_000), t(400_000, 500_000), t(2_000_000, 2_100_000)];
+        hold_marks(&mut words);
+        assert_eq!(words[0].end, 400_000, "until the next word");
+        assert_eq!(words[1].end, 1_100_000, "a long pause: held briefly");
+        assert_eq!(words[2].end, 2_700_000);
     }
 
     #[test]

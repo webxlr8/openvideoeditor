@@ -70,6 +70,9 @@ fn contexts() -> &'static Loaded {
 
 /// Loads (and caches) a model.
 fn context(model_path: &Path) -> Result<Arc<WhisperContext>> {
+    // whisper.cpp prints every decoded token to stderr; route its logging to (silent) hooks instead.
+    static QUIET: std::sync::Once = std::sync::Once::new();
+    QUIET.call_once(whisper_rs::install_logging_hooks);
     let key = model_path.display().to_string();
     let mut cache = contexts().lock().unwrap();
     if let Some((_, c)) = cache.iter().find(|(k, _)| *k == key) {
@@ -187,7 +190,7 @@ pub fn transcribe(
         // the DTW time of its first token when available (clamped into the segment).
         let seg_start = seg.start_timestamp().max(0) * 10_000;
         let seg_end = (seg.end_timestamp() * 10_000).max(seg_start + 10_000);
-        let start_us = dtw.map(|t| (t * 10_000).clamp(seg_start, seg_end - 10_000)).unwrap_or(seg_start);
+        let start_us = dtw.map(|t| t * 10_000).filter(|t| *t >= 0).unwrap_or(seg_start);
         let end_us = seg_end;
         // A punctuation-only "word" attaches to the previous word.
         if t.chars().all(|c| c.is_ascii_punctuation()) {
@@ -199,27 +202,60 @@ pub fn transcribe(
         }
         words.push(Word { text: t.to_string(), start_us, end_us, confidence });
     }
-    // Monotonic, non-overlapping.
-    for i in 1..words.len() {
-        if words[i].start_us < words[i - 1].end_us {
-            let mid = words[i].start_us.max(words[i - 1].start_us);
-            words[i - 1].end_us = mid;
-            words[i].start_us = mid;
-        }
-        if words[i].end_us <= words[i].start_us {
-            words[i].end_us = words[i].start_us + 10_000;
-        }
-    }
+    let duration_us = (audio.len() as i64 * 1_000_000) / SAMPLE_RATE as i64;
+    finish_word_times(&mut words, duration_us);
     let lang_id = state.full_lang_id_from_state();
     let language = opts
         .language
         .clone()
         .or_else(|| whisper_rs::get_lang_str(lang_id).map(str::to_string))
         .unwrap_or_else(|| "en".into());
-    Ok(Transcript {
-        language,
-        model: opts.model_name.clone(),
-        words,
-        duration_us: (audio.len() as i64 * 1_000_000) / SAMPLE_RATE as i64,
-    })
+    Ok(Transcript { language, model: opts.model_name.clone(), words, duration_us })
+}
+
+/// A spoken word's typical length, from its letters (used where the next word is far away).
+fn natural_length_us(text: &str) -> i64 {
+    (text.chars().filter(|c| c.is_alphanumeric()).count() as i64 * 75_000).clamp(180_000, 900_000)
+}
+
+/// Word starts come from the alignment; segment end times lag behind the speech, so each word instead ends where the
+/// next begins, or after its natural length when a pause follows. Times end up monotonic, non-overlapping and inside
+/// the audio.
+fn finish_word_times(words: &mut [Word], duration_us: i64) {
+    for i in 1..words.len() {
+        if words[i].start_us < words[i - 1].start_us {
+            words[i].start_us = words[i - 1].start_us;
+        }
+    }
+    for i in 0..words.len() {
+        let natural = words[i].start_us + natural_length_us(&words[i].text);
+        let end = match words.get(i + 1) {
+            Some(next) => next.start_us.min(natural.max(words[i].start_us + 1)),
+            None => natural,
+        };
+        words[i].end_us = end.min(duration_us).max(words[i].start_us);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn w(t: &str, s: f64) -> Word {
+        Word { text: t.into(), start_us: (s * 1e6) as i64, end_us: 0, confidence: 1.0 }
+    }
+
+    #[test]
+    fn words_end_at_the_next_word_or_after_their_natural_length() {
+        let mut words = vec![w("Welcome", 0.8), w("to", 1.0), w("the", 1.3), w("editor.", 2.1), w("Late", 1.9)];
+        finish_word_times(&mut words, 2_500_000);
+        let ends: Vec<i64> = words.iter().map(|w| w.end_us).collect();
+        // "the" is followed by a pause: it ends after ~3 letters, not at 2.1 s.
+        assert_eq!(ends[..3], [1_000_000, 1_180_000, 1_525_000]);
+        // An out-of-order start is pulled forward; the last word stops at the end of the audio.
+        assert_eq!(words[4].start_us, 2_100_000);
+        assert_eq!(words[3].end_us, 2_100_000);
+        assert_eq!(words[4].end_us, 2_400_000);
+        assert!(words.windows(2).all(|p| p[0].end_us <= p[1].start_us));
+    }
 }

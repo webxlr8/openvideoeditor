@@ -266,14 +266,13 @@ function TranscriptRow({ item, selected, onSelect, onEdit }: { item: ItemView_Se
   };
   return (
     <div className={`cap-line${selected ? " on" : ""}`} data-testid="caption-line">
-      <button className="cap-time" onClick={onSelect} title="Select this caption">
+      <button className="cap-time" onClick={onSelect} title="Open this caption in the inspector">
         {fmt(item.start ?? 0)}
       </button>
       <textarea
         rows={1}
         value={text}
         onChange={(e) => setDraft(e.target.value)}
-        onFocus={onSelect}
         onBlur={() => void commit(draft)}
         onKeyDown={(e) => {
           if (e.key === "Enter" && !e.shiftKey) {
