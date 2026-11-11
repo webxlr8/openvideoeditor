@@ -222,10 +222,76 @@ function createMock(): { commands: Commands; events: Events; control: MockContro
         const track = audio ? "t_audio" : "t_main";
         const end = Math.max(0, ...p.items.filter((i) => i.trackId === track).map((i) => i.end ?? 0));
         p.media.push({ id: `m${n}`, name, path, kind: audio ? "audio" : "video", durationSeconds: 60, width: audio ? null : 1920, height: audio ? null : 1080, status: "online", thumbnail: null });
-        p.items.push({ id: `i${n}`, trackId: track, kind: audio ? "audio" : "video", name, start: end, end: end + 60, trimStart: 0, mediaId: `m${n}`, pending: false });
+        p.items.push(fromDetail({ id: `i${n}`, trackId: track, type: audio ? "audio" : "video", name, startTime: end, endTime: end + 60, mediaItemId: `m${n}` }));
       }
     });
   const findItem = (id: string): ItemView_Serialize | undefined => project?.items.find((i) => i.id === id);
+
+  // Full item fields (document names) ride along on each mock item, as the real core keeps them in the document.
+  type Fields = Record<string, unknown>;
+  type MockItem = ItemView_Serialize & { fields: Fields };
+  const HEAD = ["id", "trackId", "type", "startTime", "endTime", "name", "trimStart", "mediaItemId", "pending"];
+  const n = (v: unknown, d = 0) => (typeof v === "number" ? v : d);
+  const refresh = (i: MockItem) => {
+    const f = i.fields;
+    const tr = (k: string) => n((f[k] as Fields | undefined)?.duration);
+    i.hidden = f.hidden === true;
+    i.muted = f.muted === true;
+    i.text = typeof f.textContent === "string" ? f.textContent : typeof f.captionText === "string" ? f.captionText : null;
+    i.transitionIn = tr("transitionIn");
+    i.transitionOut = tr("transitionOut");
+    i.speed = n(f.playbackSpeed, 1);
+    return i;
+  };
+  function fromDetail(d: Fields): MockItem {
+    const fields: Fields = {};
+    for (const [k, v] of Object.entries(d)) if (!HEAD.includes(k)) fields[k] = v;
+    return refresh({
+      id: String(d.id ?? `i${++seq}`),
+      trackId: String(d.trackId),
+      kind: String(d.type),
+      name: String(d.name ?? d.textContent ?? d.type),
+      start: n(d.startTime),
+      end: n(d.endTime),
+      trimStart: n(d.trimStart),
+      mediaId: typeof d.mediaItemId === "string" ? d.mediaItemId : null,
+      pending: d.pending === true,
+      hidden: false,
+      muted: false,
+      text: null,
+      transitionIn: 0,
+      transitionOut: 0,
+      speed: 1,
+      fields,
+    });
+  }
+  const toDetail = (i: MockItem): Fields => ({
+    id: i.id,
+    trackId: i.trackId,
+    type: i.kind,
+    startTime: i.start,
+    endTime: i.end,
+    name: i.name,
+    trimStart: i.trimStart,
+    ...(i.mediaId ? { mediaItemId: i.mediaId } : {}),
+    ...i.fields,
+  });
+  const mock = (id: string) => findItem(id) as MockItem | undefined;
+  const applyEdit = (id: string, set: Fields, unset: string[]) => {
+    const i = mock(id);
+    if (!i) return;
+    for (const k of unset) delete i.fields[k];
+    for (const [k, v] of Object.entries(set)) {
+      if (k === "startTime") i.start = n(v);
+      else if (k === "endTime") i.end = n(v);
+      else if (k === "trackId") i.trackId = String(v);
+      else if (k === "name") i.name = String(v);
+      else if (k === "trimStart") i.trimStart = n(v);
+      else if (k === "mediaItemId") i.mediaId = String(v);
+      else i.fields[k] = v;
+    }
+    refresh(i);
+  };
 
   // Simulated assistant: streams a reply, "calls" tools, and adds a title as one undo step.
   const MODELS = [
@@ -286,7 +352,7 @@ function createMock(): { commands: Commands; events: Events; control: MockContro
     }
     await tool("tu_apply", "apply_timeline", "Edit the timeline", () => {
       void editProject("assistant: add opening title", (p) => {
-        p.items.push({ id: `i${++seq}`, trackId: "t_text", kind: "text", name: "Opening title", start: 0, end: 3, trimStart: null, mediaId: null, pending: false });
+        p.items.push(fromDetail({ id: `i${++seq}`, trackId: "t_text", type: "text", name: "Opening title", startTime: 0, endTime: 3, textContent: "Welcome" }));
       });
       return "added 1";
     });
@@ -449,6 +515,67 @@ function createMock(): { commands: Commands; events: Events; control: MockContro
       project = redoStack.pop()!;
       return publish();
     },
+    itemDetail: (id: string) => {
+      const i = mock(id);
+      return i ? ok(JSON.stringify(toDetail(i))) : fail("not_found", "That item no longer exists.");
+    },
+    updateItem: (id: string, setJson: string, unset: string[], summary: string | null) =>
+      editProject(summary ?? "edit item", () => applyEdit(id, JSON.parse(setJson) as Fields, unset)),
+    updateItems: (editsJson: string, summary: string | null) =>
+      editProject(summary ?? "edit items", () => {
+        for (const e of JSON.parse(editsJson) as { id: string; set?: Fields; unset?: string[] }[]) applyEdit(e.id, e.set ?? {}, e.unset ?? []);
+      }),
+    addItems: (itemsJson: string, summary: string | null) =>
+      editProject(summary ?? "add items", (p) => {
+        for (const d of JSON.parse(itemsJson) as Fields[]) p.items.push(fromDetail({ ...d, id: d.id ?? `i${++seq}` }));
+      }),
+    duplicateItems: (ids: string[]) =>
+      editProject("duplicate", (p) => {
+        for (const id of ids) {
+          const i = mock(id);
+          if (!i) continue;
+          const len = (i.end ?? 0) - (i.start ?? 0);
+          p.items.push(fromDetail({ ...toDetail(i), id: `i${++seq}`, startTime: i.end, endTime: (i.end ?? 0) + len }));
+        }
+      }),
+    pasteItems: (itemsJson: string, at: number | null) =>
+      editProject("paste", (p) => {
+        const list = JSON.parse(itemsJson) as Fields[];
+        const min = Math.min(...list.map((d) => n(d.startTime)));
+        for (const d of list)
+          p.items.push(fromDetail({ ...d, id: `i${++seq}`, startTime: (at ?? 0) + n(d.startTime) - min, endTime: (at ?? 0) + n(d.endTime) - min }));
+      }),
+    trimItem: (id: string, edge: string, time: number | null) =>
+      editProject("trim", () => {
+        const i = mock(id);
+        if (!i || time === null) return;
+        if (edge === "start") {
+          const s = Math.min(Math.max(0, time), (i.end ?? 0) - 0.04);
+          const trim = Math.max(0, (i.trimStart ?? 0) + (s - (i.start ?? 0)));
+          i.trimStart = trim;
+          i.start = s;
+        } else i.end = Math.max((i.start ?? 0) + 0.04, time);
+      }),
+    addTrack: (kind: string, name: string) =>
+      editProject("add track", (p) => {
+        const t = { id: `t${++seq}`, name, kind, locked: false, visible: true, muted: false };
+        if (kind === "audio") p.tracks.push(t);
+        else p.tracks.unshift(t);
+      }),
+    renameTrack: (id: string, name: string) =>
+      editProject("rename track", (p) => {
+        const t = p.tracks.find((x) => x.id === id);
+        if (t) t.name = name;
+      }),
+    reorderTracks: (order: string[]) =>
+      editProject("reorder tracks", (p) => {
+        p.tracks = order.map((id) => p.tracks.find((t) => t.id === id)!).filter(Boolean);
+      }),
+    removeTrack: (id: string) =>
+      editProject("remove track", (p) => {
+        p.tracks = p.tracks.filter((t) => t.id !== id);
+        p.items = p.items.filter((i) => i.trackId !== id);
+      }),
     agentStatus: () => ok(agentStatus()),
     agentSetKey: (key: string) => {
       if (!/^sk-ant-[\w-]{8,}$/.test(key.trim())) return fail("invalid_argument", "That doesn't look like an Anthropic API key (they start with sk-ant-).");

@@ -76,6 +76,9 @@ describe("fitBox", () => {
     await openEditorWithMedia();
     await waitFor(() => expect(screen.getAllByTestId("clip").length).toBe(1));
     expect(screen.getByTestId("track-Main").textContent).toContain("Sample clip.mov");
+    // The imported clip is selected, so its properties show; closing them returns to the media panel.
+    expect(screen.getByTestId("inspector")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("close-inspector"));
     expect(screen.getAllByTestId("media-card").length).toBe(1);
     // The imported clip is selected and previewed; Delete removes it, undo brings it back.
     fireEvent.keyDown(window, { key: "Delete" });

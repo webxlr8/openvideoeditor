@@ -3,6 +3,7 @@
 
 pub mod assistant;
 pub mod commands;
+pub mod edits;
 pub mod engine;
 pub mod error;
 pub mod logging;
@@ -117,6 +118,17 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             projects::set_track_flag,
             projects::undo,
             projects::redo,
+            edits::item_detail,
+            edits::update_item,
+            edits::update_items,
+            edits::add_items,
+            edits::duplicate_items,
+            edits::paste_items,
+            edits::trim_item,
+            edits::add_track,
+            edits::rename_track,
+            edits::reorder_tracks,
+            edits::remove_track,
             assistant::agent_status,
             assistant::agent_set_key,
             assistant::agent_clear_key,

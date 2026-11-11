@@ -13,7 +13,7 @@ import { commands, events } from "./bridge";
 import { setPendingDraft } from "./ChatPanel";
 import { Editor, type Layout } from "./Editor";
 import { Home } from "./Home";
-import { keyToAction } from "./keys";
+import { EDIT_ACTIONS, keyToAction } from "./keys";
 
 const EMPTY: PlaybackState = {
   hasMedia: false,
@@ -39,7 +39,7 @@ export function App() {
   const [route, setRoute] = useState<"home" | "editor">("home");
   const [project, setProject] = useState<ProjectView_Serialize | null>(null);
   const [projects, setProjects] = useState<ProjectSummary_Serialize[]>([]);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selection, setSelection] = useState<string[]>([]);
   const [media, setMedia] = useState<MediaInfo_Serialize | null>(null);
   const [playback, setPlayback] = useState<PlaybackState>(EMPTY);
   const [backend, setBackend] = useState<ViewerBackend>("stream");
@@ -69,7 +69,7 @@ export function App() {
     async (item: ItemView_Serialize, offsetSeconds = 0) => {
       const p = projectRef.current;
       const m = p?.media.find((x) => x.id === item.mediaId);
-      setSelected(item.id);
+      setSelection([item.id]);
       if (!m) return;
       const r = await commands.openMedia(m.path);
       if (r.status === "error") return showError(r.error);
@@ -175,7 +175,7 @@ export function App() {
     await commands.closeProject();
     setProject(null);
     projectRef.current = null;
-    setSelected(null);
+    setSelection([]);
     setMedia(null);
     setRoute("home");
     void refreshProjects();
@@ -190,19 +190,16 @@ export function App() {
         setDiagnostics((d) => !d);
         return;
       }
-      if (route !== "editor") return;
+      // Editing keys (delete, split, copy/paste, zoom, …) are handled by the editor.
+      if (route !== "editor" || EDIT_ACTIONS.has(action.type)) return;
       e.preventDefault();
       if (action.type === "transport") transport(action.command);
       else if (action.type === "undo") void run(commands.undo());
       else if (action.type === "redo") void run(commands.redo());
-      else if (action.type === "delete" && selected) {
-        void run(commands.removeItems([selected]));
-        setSelected(null);
-      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [route, transport, run, selected]);
+  }, [route, transport, run]);
 
   return (
     <div className="app">
@@ -250,7 +247,7 @@ export function App() {
       ) : (
         <Editor
           project={project}
-          selected={selected}
+          selection={selection}
           media={media}
           playback={playback}
           backend={backend}
@@ -261,7 +258,13 @@ export function App() {
           onImport={() => void importInto(null)}
           onError={showError}
           onHome={() => void goHome()}
-          onSelect={(item, offset) => (item ? void preview(item, offset) : setSelected(null))}
+          onSelect={(item, offset, mode) => {
+            if (!item) setSelection([]);
+            else if (mode === "toggle")
+              setSelection((s) => (s.includes(item.id) ? s.filter((x) => x !== item.id) : [...s, item.id]));
+            else void preview(item, offset);
+          }}
+          onSelectMany={setSelection}
           onEdit={(p) => void run(p)}
         />
       )}

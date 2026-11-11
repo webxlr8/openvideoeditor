@@ -6,3 +6,4 @@ dist/
 .claude/worktrees/
 /tools/ffmpeg/out/
 /tools/ffmpeg/.work/
+apps/desktop/src-tauri/tauri.bundle.generated.json

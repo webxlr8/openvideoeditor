@@ -33,7 +33,7 @@ describe("ChatPanel", () => {
     expect(footer.textContent).toMatch(/≈\$0\.01/);
     const reply = screen.getAllByTestId("msg-assistant").map((m) => m.textContent).join(" ");
     expect(reply).toContain("Done: I added a 3-second Welcome title");
-    expect(screen.getAllByText("Opening title").length).toBeGreaterThan(0);
+    expect(screen.getByTestId("lane-Text").textContent).toContain("Welcome");
     expect(screen.queryByTestId("stop")).toBeNull();
     // The conversation is in the history menu.
     fireEvent.click(screen.getByTestId("chat-history-button"));
@@ -54,7 +54,7 @@ describe("ChatPanel", () => {
     fireEvent.click(await screen.findByTestId("stop"));
     const footer = await screen.findByTestId("chat-footer", {}, { timeout: 3000 });
     expect(footer.textContent).toBe("Stopped.");
-    expect(screen.queryAllByText("Opening title").length).toBe(0);
+    expect(screen.getByTestId("lane-Text").textContent).not.toContain("Welcome");
     expect(await screen.findByTestId("send")).toBeTruthy();
   });
 
@@ -81,7 +81,7 @@ describe("ChatPanel", () => {
     await act(async () => fireEvent.click(screen.getByText("Minimal")));
     await screen.findByTestId("chat-footer", {}, { timeout: 3000 });
     expect(screen.getByTestId("question-card").textContent).toContain("→ Minimal");
-    expect(screen.getAllByText("Opening title").length).toBeGreaterThan(0);
+    expect(screen.getByTestId("lane-Text").textContent).toContain("Welcome");
   });
 
   it("sends the Home prompt as the first message of a new project", async () => {

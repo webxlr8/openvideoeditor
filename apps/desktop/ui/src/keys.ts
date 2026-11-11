@@ -5,7 +5,20 @@ export type KeyAction =
   | { type: "toggleDiagnostics" }
   | { type: "undo" }
   | { type: "redo" }
-  | { type: "delete" };
+  | { type: "delete" }
+  | { type: "split" }
+  | { type: "duplicate" }
+  | { type: "copy" }
+  | { type: "paste" }
+  | { type: "selectAll" }
+  | { type: "zoomIn" }
+  | { type: "zoomOut" }
+  | { type: "zoomFit" }
+  | { type: "help" }
+  | { type: "escape" };
+
+/** Editing actions the editor handles itself (the app handles transport, undo/redo and diagnostics). */
+export const EDIT_ACTIONS = new Set(["delete", "split", "duplicate", "copy", "paste", "selectAll", "zoomIn", "zoomOut", "zoomFit", "help", "escape"]);
 
 export interface KeyLike {
   key: string;
@@ -29,6 +42,10 @@ export function keyToAction(e: KeyLike): KeyAction | null {
   if (isTextEntry(e.target)) return null;
   if (mod && !e.altKey && e.key.toLowerCase() === "z") return { type: e.shiftKey ? "redo" : "undo" };
   if (mod && !e.altKey && e.key.toLowerCase() === "y") return { type: "redo" };
+  if (mod && !e.altKey && e.key.toLowerCase() === "c") return { type: "copy" };
+  if (mod && !e.altKey && e.key.toLowerCase() === "v") return { type: "paste" };
+  if (mod && !e.altKey && e.key.toLowerCase() === "a") return { type: "selectAll" };
+  if (mod && !e.altKey && e.key === "0") return { type: "zoomFit" };
   if (mod || e.altKey) return null;
   const t = (command: TransportCommand): KeyAction => ({ type: "transport", command });
   switch (e.key) {
@@ -54,6 +71,22 @@ export function keyToAction(e: KeyLike): KeyAction | null {
     case "Delete":
     case "Backspace":
       return { type: "delete" };
+    case "s":
+    case "S":
+      return { type: "split" };
+    case "d":
+    case "D":
+      return { type: "duplicate" };
+    case "=":
+    case "+":
+      return { type: "zoomIn" };
+    case "-":
+    case "_":
+      return { type: "zoomOut" };
+    case "?":
+      return { type: "help" };
+    case "Escape":
+      return { type: "escape" };
     default:
       return null;
   }

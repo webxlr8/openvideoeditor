@@ -1,0 +1,51 @@
+name: Release build
+
+# Unsigned installers for testers (signing/notarisation arrive with change 16). Run manually.
+on:
+  workflow_dispatch:
+
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, windows-2025]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: prerequisites (macOS)
+        if: runner.os == 'macOS'
+        run: brew install dav1d nasm pkg-config
+      - name: prerequisites (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          choco install -y nasm
+          vcpkg install dav1d:x64-windows
+      - uses: msys2/setup-msys2@v2
+        if: runner.os == 'Windows'
+        with:
+          msystem: MINGW64
+          path-type: inherit
+          install: make pkg-config diffutils
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+      - name: package
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then msys2 -c 'tools/package.sh'; else tools/package.sh; fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installers-${{ matrix.os }}
+          path: |
+            target/release/bundle/dmg/*.dmg
+            target/release/bundle/msi/*.msi
+            target/release/bundle/nsis/*.exe
