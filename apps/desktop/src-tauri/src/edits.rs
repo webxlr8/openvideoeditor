@@ -128,7 +128,8 @@ pub fn add_items(
 ) -> AppResult<ProjectView> {
     let items: Vec<Value> = parse(&items_json, "the new items")?;
     let n = items.len();
-    let ops = items.into_iter().map(|i| prepare_new(i).map(|item| Op::AddItem { item })).collect::<AppResult<Vec<_>>>()?;
+    let ops =
+        items.into_iter().map(|i| prepare_new(i).map(|item| Op::AddItem { item })).collect::<AppResult<Vec<_>>>()?;
     let summary = summary.unwrap_or_else(|| format!("add {n} item{}", if n == 1 { "" } else { "s" }));
     edit(&app, &state, ops, &summary)
 }
@@ -175,13 +176,21 @@ pub fn paste_items(app: AppHandle, state: State<'_, AppState>, items_json: Strin
         let min = items.iter().filter_map(|i| i.get("startTime").and_then(json_to_micros)).min().unwrap_or(0);
         let mut ops = Vec::new();
         for mut i in items {
-            let (Some(s), Some(e)) = (i.get("startTime").and_then(json_to_micros), i.get("endTime").and_then(json_to_micros)) else {
+            let (Some(s), Some(e)) =
+                (i.get("startTime").and_then(json_to_micros), i.get("endTime").and_then(json_to_micros))
+            else {
                 continue;
             };
             let track = i.get("trackId").and_then(Value::as_str).unwrap_or_default().to_string();
             if p.doc().track(&track).is_none() {
                 let kind = i.get("type").and_then(Value::as_str).unwrap_or("video");
-                let want = if kind == "audio" { "audio" } else if kind == "caption" { "caption" } else { "video" };
+                let want = if kind == "audio" {
+                    "audio"
+                } else if kind == "caption" {
+                    "caption"
+                } else {
+                    "video"
+                };
                 match p.doc().project.tracks.iter().find(|t| t.kind == want) {
                     Some(t) => i["trackId"] = t.id.clone().into(),
                     None => continue,
@@ -205,7 +214,12 @@ pub fn paste_items(app: AppHandle, state: State<'_, AppState>, items_json: Strin
 
 /// The trim of one edge, in microseconds: `(start, end, trimStart)` after moving `edge` to `time`, keeping the
 /// source in sync (moving the start edge moves the in-point by the same amount × speed) and within the source.
-pub fn trimmed(it: &Item, media_duration: Option<Micros>, edge: &str, time: Micros) -> Result<(Micros, Micros, Micros), String> {
+pub fn trimmed(
+    it: &Item,
+    media_duration: Option<Micros>,
+    edge: &str,
+    time: Micros,
+) -> Result<(Micros, Micros, Micros), String> {
     let speed = it.fields.get("playbackSpeed").and_then(Value::as_f64).unwrap_or(1.0).max(0.01);
     let has_source = it.media_id().is_some() && matches!(it.kind.as_str(), "video" | "audio");
     let trim = it.time_field("trimStart");
@@ -237,7 +251,13 @@ pub fn trimmed(it: &Item, media_duration: Option<Micros>, edge: &str, time: Micr
 /// Trims an item's start or end edge to `time` (seconds on the timeline).
 #[tauri::command]
 #[specta::specta]
-pub fn trim_item(app: AppHandle, state: State<'_, AppState>, id: String, edge: String, time: f64) -> AppResult<ProjectView> {
+pub fn trim_item(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+    edge: String,
+    time: f64,
+) -> AppResult<ProjectView> {
     let set = with_project(&state, |p| {
         let it = item(p, &id)?;
         let dur = it
@@ -266,7 +286,12 @@ pub fn add_track(app: AppHandle, state: State<'_, AppState>, kind: String, name:
         let id = format!("t_{}", new_item_id().trim_start_matches("i_"));
         Ok((if kind == "audio" { n } else { 0 }, id))
     })?;
-    edit(&app, &state, vec![Op::AddTrack { track: json!({"id": id, "name": name, "order": order, "type": kind}) }], "add track")
+    edit(
+        &app,
+        &state,
+        vec![Op::AddTrack { track: json!({"id": id, "name": name, "order": order, "type": kind}) }],
+        "add track",
+    )
 }
 
 #[tauri::command]
@@ -288,7 +313,8 @@ pub fn reorder_tracks(app: AppHandle, state: State<'_, AppState>, order: Vec<Str
 #[tauri::command]
 #[specta::specta]
 pub fn remove_track(app: AppHandle, state: State<'_, AppState>, id: String) -> AppResult<ProjectView> {
-    let ids = with_project(&state, |p| Ok(p.doc().items_on_track(&id).iter().map(|i| i.id.clone()).collect::<Vec<_>>()))?;
+    let ids =
+        with_project(&state, |p| Ok(p.doc().items_on_track(&id).iter().map(|i| i.id.clone()).collect::<Vec<_>>()))?;
     let mut ops = Vec::new();
     if !ids.is_empty() {
         ops.push(Op::RemoveItems { ids });
@@ -338,12 +364,16 @@ mod tests {
         let lib = Library::open(d.path(), crate::projects::clock()).unwrap();
         let mut p = lib.create("Edits").unwrap();
         p.apply(crate::projects::default_tracks(), Source::Gui, None).unwrap();
-        let title = prepare_new(json!({"trackId": "t_text", "type": "text", "startTime": 1, "endTime": 4, "textContent": "Hello"})).unwrap();
+        let title = prepare_new(
+            json!({"trackId": "t_text", "type": "text", "startTime": 1, "endTime": 4, "textContent": "Hello"}),
+        )
+        .unwrap();
         p.apply(vec![Op::AddItem { item: title.clone() }], Source::Gui, None).unwrap();
         let id = title["id"].as_str().unwrap().to_string();
         let mut set = Map::new();
         set.insert("opacity".into(), json!(0.5));
-        p.apply(edit_ops(vec![ItemEdit { id: id.clone(), set, unset: vec!["textContent".into()] }]), Source::Gui, None).unwrap();
+        p.apply(edit_ops(vec![ItemEdit { id: id.clone(), set, unset: vec!["textContent".into()] }]), Source::Gui, None)
+            .unwrap();
         let it = p.doc().item(&id).unwrap();
         assert_eq!(it.fields["opacity"], json!(0.5));
         assert!(!it.fields.contains_key("textContent"));

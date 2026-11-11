@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { Icon } from "./icons";
 
 export interface MenuItem {
@@ -103,7 +104,7 @@ export function ContextMenu({
     };
   }, [at, onClose]);
   if (!at) return null;
-  return (
+  return createPortal(
     <div
       className="menu context-menu"
       role="menu"
@@ -126,6 +127,7 @@ export function ContextMenu({
           {item.hint && <kbd>{item.hint}</kbd>}
         </button>
       ))}
-    </div>
+    </div>,
+    document.body,
   );
 }

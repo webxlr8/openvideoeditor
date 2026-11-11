@@ -271,7 +271,7 @@ export function Inspector({
           <Icon name="eye" size={16} />
         </button>
         <button className="icon-btn" title="Duplicate (D)" data-testid="insp-duplicate" onClick={() => onEdit(commands.duplicateItems([item.id]))}>
-          <Icon name="layout" size={16} />
+          <Icon name="copy" size={16} />
         </button>
         {(item.kind === "video" || item.kind === "audio") && (
           <button className={`icon-btn${item.muted ? " on" : ""}`} title={item.muted ? "Unmute" : "Mute"} data-testid="insp-mute" onClick={() => set({ muted: !item.muted }, item.muted ? "unmute" : "mute")}>
