@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   AppError,
   ItemView_Serialize,
@@ -11,6 +11,7 @@ import type {
 } from "./bindings";
 import { commands, events } from "./bridge";
 import { Editor, type Layout } from "./Editor";
+import { ExportDialog, type PreviewMode, PreviewModeToggle, referenceSize } from "./ExportDialog";
 import { Home } from "./Home";
 import { EDIT_ACTIONS, keyToAction } from "./keys";
 
@@ -46,10 +47,15 @@ export function App() {
   const [diagnostics, setDiagnostics] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [layout, setLayout] = useState<Layout>({ panelOpen: true, timelineOpen: true, chatOpen: true, viewerOpen: true });
+  const [mode, setMode] = useState<PreviewMode>("timeline");
+  const [exporting, setExporting] = useState(false);
+  const modeRef = useRef(mode);
   const projectRef = useRef(project);
+  const selectionRef = useRef(selection);
   useEffect(() => {
     projectRef.current = project;
-  }, [project]);
+    selectionRef.current = selection;
+  }, [project, selection]);
 
   const showError = useCallback((error: AppError) => {
     const id = ++toastId;
@@ -63,12 +69,29 @@ export function App() {
     else showError(r.error);
   }, [showError]);
 
+  /** Plays the open project's composited timeline in the viewer, optionally starting at a timeline time. */
+  const showTimeline = useCallback(
+    async (at?: number) => {
+      const r = await commands.openTimeline();
+      if (r.status === "error") return showError(r.error);
+      setMedia(r.data);
+      if (at != null) void commands.transport({ kind: "seekFrame", frame: Math.max(0, Math.round(at * (r.data.frameRate || 30))) });
+    },
+    [showError],
+  );
+
   /** Shows an item's source in the viewer, positioned at the item's in-point (+ an offset into the item). */
   const preview = useCallback(
     async (item: ItemView_Serialize, offsetSeconds = 0) => {
       const p = projectRef.current;
       const m = p?.media.find((x) => x.id === item.mediaId);
       setSelection([item.id]);
+      if (modeRef.current === "timeline") {
+        // The timeline viewer seeks to the clicked point instead of switching to the clip's source.
+        const frame = Math.max(0, Math.round(((item.start ?? 0) + offsetSeconds) * 30));
+        void commands.transport({ kind: "seekFrame", frame });
+        return;
+      }
       if (!m) return;
       const r = await commands.openMedia(m.path);
       if (r.status === "error") return showError(r.error);
@@ -85,6 +108,7 @@ export function App() {
       setProject(v);
       projectRef.current = v;
       setRoute("editor");
+      if (modeRef.current === "timeline") return void showTimeline(0);
       const first = v.items.find((i) => i.mediaId && i.trackId === "t_main") ?? v.items.find((i) => i.mediaId);
       if (first) void preview(first);
       else {
@@ -92,7 +116,7 @@ export function App() {
         void commands.closeMedia();
       }
     },
-    [preview],
+    [preview, showTimeline],
   );
 
   const importInto = useCallback(
@@ -111,10 +135,40 @@ export function App() {
       setProject(r.data);
       projectRef.current = r.data;
       const added = r.data.items.find((i) => !before.has(i.id) && i.mediaId);
-      if (added) void preview(added);
+      if (modeRef.current === "timeline") {
+        if (added) setSelection([added.id]);
+        void showTimeline(added?.start ?? 0);
+      } else if (added) void preview(added);
     },
-    [preview, showError],
+    [preview, showError, showTimeline],
   );
+
+  const switchMode = useCallback(
+    (m: PreviewMode) => {
+      if (m === modeRef.current) return;
+      setMode(m);
+      modeRef.current = m;
+      const p = projectRef.current;
+      if (!p) return;
+      const sel = p.items.find((i) => i.id === selectionRef.current[selectionRef.current.length - 1]);
+      if (m === "timeline") return void showTimeline(sel?.start ?? 0);
+      const clip = sel?.mediaId ? sel : (p.items.find((i) => i.mediaId && i.trackId === "t_main") ?? p.items.find((i) => i.mediaId));
+      if (clip) void preview(clip);
+      else {
+        setMedia(null);
+        void commands.closeMedia();
+      }
+    },
+    [preview, showTimeline],
+  );
+
+  // The engine's timeline follows edits; keep the viewer's frame shape in step with the aspect ratio.
+  const aspect = project?.aspectRatio;
+  const viewerMedia = useMemo(() => {
+    if (!aspect || media?.videoCodec !== "timeline") return media;
+    const [width, height] = referenceSize(aspect);
+    return media.width === width && media.height === height ? media : { ...media, width, height };
+  }, [media, aspect]);
 
   const transport = useCallback(
     (command: TransportCommand) => {
@@ -223,7 +277,7 @@ export function App() {
         <Editor
           project={project}
           selection={selection}
-          media={media}
+          media={viewerMedia}
           playback={playback}
           backend={backend}
           diagnosticsOpen={diagnostics}
@@ -241,7 +295,19 @@ export function App() {
           }}
           onSelectMany={setSelection}
           onEdit={(p) => void run(p)}
+          timelineMode={mode === "timeline"}
+          barExtras={
+            <>
+              <PreviewModeToggle mode={mode} onChange={switchMode} />
+              <button className="btn primary xp-open" onClick={() => setExporting(true)} data-testid="open-export">
+                Export
+              </button>
+            </>
+          }
         />
+      )}
+      {exporting && project && (
+        <ExportDialog projectName={project.name} aspect={project.aspectRatio} onClose={() => setExporting(false)} onError={showError} />
       )}
       <div className="toasts" role="status" aria-live="polite">
         {toasts.map((t) => (

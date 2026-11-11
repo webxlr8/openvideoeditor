@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import type {
   AppError,
   ItemView_Serialize,
@@ -62,6 +62,8 @@ export function Editor({
   onImport,
   onError,
   onHome,
+  timelineMode = false,
+  barExtras,
 }: {
   media: MediaInfo_Serialize | null;
   playback: PlaybackState;
@@ -79,6 +81,10 @@ export function Editor({
   onSelect: (item: ItemView_Serialize | null, offsetSeconds?: number, mode?: SelectMode) => void;
   onSelectMany: (ids: string[]) => void;
   onEdit: (p: EditResult) => void;
+  /** The viewer plays the composited timeline: the playhead is the engine position. */
+  timelineMode?: boolean;
+  /** Extra controls at the end of the project bar. */
+  barExtras?: ReactNode;
 }) {
   const [panel, setPanel] = useState("media");
   const [zoom, setZoom] = useState<number | null>(null);
@@ -94,7 +100,13 @@ export function Editor({
   const selectedItems = (project?.items ?? []).filter((i) => selection.includes(i.id));
   const itemMedia = project?.media.find((m) => m.id === item?.mediaId);
   const previewing = !!(item && itemMedia && media && media.path === itemMedia.path);
-  const playhead = previewing ? playheadSeconds(item, playback, previewing) : item && !item.mediaId ? (item.start ?? 0) : scrubTime;
+  const playhead = timelineMode
+    ? playback.frame / (playback.frameRate || 30)
+    : previewing
+      ? playheadSeconds(item, playback, previewing)
+      : item && !item.mediaId
+        ? (item.start ?? 0)
+        : scrubTime;
   const inspecting = !!(item && project && closedFor !== selected && layout.panelOpen);
 
   const copy = useCallback(async (ids: string[]) => {
@@ -179,6 +191,7 @@ export function Editor({
       <span className="muted small" title="Saved continuously; every change is a revision">
         Saved · rev {String(project.rev ?? 0).slice(-6)}
       </span>
+      {barExtras}
     </div>
   );
 
@@ -273,6 +286,7 @@ export function Editor({
             onScrub={(t) => {
               setScrubTime(t);
               onSelectMany([]);
+              if (timelineMode) onTransport({ kind: "seekFrame", frame: Math.round(t * (playback.frameRate || 30)) });
             }}
             onEdit={onEdit}
             onCopy={(ids) => void copy(ids)}
