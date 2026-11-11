@@ -5,19 +5,25 @@ v1 rebuilds a proven reference design feature for feature; later versions add pr
 
 ## Using the app
 
-`cd apps/desktop && pnpm install && pnpm tauri dev` (or pass media files on the command line).
+Install: `tools/package.sh` builds an unsigned installer for the machine it runs on (macOS `.dmg`, Windows `.msi` /
+setup `.exe`, Linux `.deb`). For development: `cd apps/desktop && pnpm install && pnpm tauri dev`.
 
-- **Home** lists your projects (library: `~/Movies/OpenVideoEditor` on macOS, `%USERPROFILE%\Videos\OpenVideoEditor`
-  on Windows, `OVE_LIBRARY` to override). *Blank project* or the upload button starts one; dropping files on the window
-  creates a project named after the first file and imports them.
-- **Editor**: Import (button or drop) probes each file, makes a thumbnail, registers it and appends a clip to Main
-  (audio files to Audio). Click a clip to preview it at its in-point and move the playhead there; drag clips to move
-  them; ✂ splits the selected clip at the playhead; Delete removes it; ⌘Z / ⇧⌘Z (Ctrl on Windows) undo and redo;
-  rename the project and change its aspect ratio above the viewer; mute/hide tracks in the track headers.
-- Every edit is a durable revision in the bundle, and `timeline.tsx` follows it, so `ove source print|apply` and agents
-  see the same timeline.
-- Not yet: playing the whole sequence (the viewer previews one clip's source; compositing/export is change 6),
-  the Layout/Audio/Captions/Text/Transitions/Effects panels, templates and the assistant.
+- **Home / Projects**: your projects with thumbnails (library: `~/Movies/OpenVideoEditor` on macOS,
+  `%USERPROFILE%\Videos\OpenVideoEditor` on Windows, `OVE_LIBRARY` to override). Start a blank project, drop footage,
+  or describe a video in the prompt box (the assistant starts on it).
+- **Editor**: import media (probed, thumbnailed, appended to Main / Audio); the viewer plays the composited timeline
+  (or one clip's source with the Source toggle); select, drag between tracks, trim edges with snapping, split (S),
+  duplicate (D), copy/paste, delete, undo/redo, zoom; right-click menus; `?` lists shortcuts.
+- **Inspector** for the selected clip: speed/reverse, transform, opacity, blend, crop, transitions; colour; volume and
+  fades; text style; caption segments.
+- **Panels**: Text (title styles), Captions (manual for now), Transitions, Effects (colour looks), Audio, Layout.
+- **Assistant**: bring your own Anthropic API key (stored in the OS credential store). It reads and edits the
+  timeline through `timeline.tsx`; each edit is one undo step; chats are saved in the project.
+- **Export**: MP4 (H.264 + AAC) at 720p / 1080p / 4K, 24–60 fps, with progress and cancel; `ove export` does the same
+  from the command line.
+- Every edit is a durable revision; `ove source print|apply` and agents see the same timeline.
+- Not yet: automatic transcription, motion-graphics code items, effects/LUT shaders beyond colour grading, templates,
+  AI generation, interchange (FCPXML/EDL), signed installers and auto-update.
 
 ## Docs
 
@@ -49,7 +55,8 @@ openspec validate --all --strict
 Fully specified, in order: `add-desktop-shell-and-native-preview` (viewer gate R1), `add-project-document`,
 `add-timeline-projection`. Changes 4–16 are listed in the roadmap and get specified just before they start.
 
-Status: changes 1–3 implemented (see each change's `design.md` Results for what is verified and what still needs the
+Status: changes 1–3 implemented, plus the render/export engine, editor workspace and assistant (v1 slices of
+changes 6–9) (see each change's `design.md` Results for what is verified and what still needs the
 macOS / Windows machines). Layout:
 
 ```
