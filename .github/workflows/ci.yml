@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  core:
+    name: core (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show active-toolchain
+      - uses: Swatinem/rust-cache@v2
+      - name: fmt
+        run: cargo fmt --all -- --check
+      - name: clippy (document core)
+        run: cargo clippy -p ove-core -p ove-store -p ove-projection -p ove-cli -p ove-playback --all-targets -- -D warnings
+      - name: test (document core)
+        run: cargo test -p ove-core -p ove-store -p ove-projection -p ove-cli -p ove-playback
+      - name: schema / typings drift
+        shell: bash
+        run: |
+          cargo run -q -p ove-core --bin ove-schema -- --check
+          cargo run -q -p ove-projection --bin ove-typings -- --check
+
+  media:
+    name: media + desktop (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/desktop/pnpm-lock.yaml
+      - name: FFmpeg (LGPL, shared)
+        shell: bash
+        run: tools/ffmpeg/build.sh --ci
+      - name: UI typecheck / lint / test / licences
+        working-directory: apps/desktop
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run typecheck
+          pnpm run lint
+          pnpm run test
+          pnpm run licenses
+      - name: clippy + test (media, playback, gpu, desktop)
+        shell: bash
+        run: |
+          source tools/ffmpeg/env.sh
+          cargo clippy --workspace --all-targets -- -D warnings
+          cargo test --workspace
+      - name: bindings drift
+        shell: bash
+        run: |
+          source tools/ffmpeg/env.sh
+          cargo run -q -p ove-desktop --bin export-bindings
+          git diff --exit-code apps/desktop/ui/src/bindings.ts
+      - name: debug app build
+        working-directory: apps/desktop
+        run: pnpm tauri build --debug --no-bundle
+
+  deny:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
