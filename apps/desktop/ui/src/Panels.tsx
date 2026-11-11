@@ -14,6 +14,7 @@ import {
   nextAdjacent,
   updateItem,
   updateItems,
+  snapToFrame,
 } from "./edit";
 import { Icon } from "./icons";
 
@@ -27,7 +28,7 @@ export interface PanelProps {
   onSelect: (item: ItemView_Serialize) => void;
 }
 
-const round = (t: number) => Math.round(t * 1000) / 1000;
+const round = (t: number) => snapToFrame(t);
 const visual = (i: ItemView_Serialize) => i.kind === "video" || i.kind === "image";
 
 function Empty({ children }: { children: React.ReactNode }) {

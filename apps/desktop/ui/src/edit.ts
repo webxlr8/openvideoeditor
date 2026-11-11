@@ -176,3 +176,12 @@ export const ASPECTS = [
 export function nextAdjacent(p: ProjectView_Serialize, item: ItemView_Serialize): ItemView_Serialize | undefined {
   return p.items.find((i) => i.trackId === item.trackId && i.id !== item.id && Math.abs((i.start ?? 0) - (item.end ?? 0)) < 0.05);
 }
+
+/** Project frame rate used for placing items (the timeline renders at 30 fps). */
+export const TIMELINE_FPS = 30;
+
+/** Snaps a time in seconds to the nearest frame of the timeline grid, at microsecond precision. */
+export function snapToFrame(t: number, fps = TIMELINE_FPS): number {
+  const frames = Math.round(Math.max(0, t) * fps);
+  return Math.round((frames / fps) * 1e6) / 1e6;
+}

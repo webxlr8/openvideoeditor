@@ -15,7 +15,7 @@ import { Icon, type IconName } from "./icons";
 import { Dropdown } from "./Menu";
 import { formatShort, formatTimecode, parseTimecode } from "./timecode";
 import { Viewer } from "./Viewer";
-import { type EditResult, itemDetail } from "./edit";
+import { type EditResult, itemDetail, snapToFrame } from "./edit";
 import { Inspector } from "./Inspector";
 import { EDIT_ACTIONS, keyToAction } from "./keys";
 import { AudioPanel, CaptionsPanel, EffectsPanel, LayoutPanel, type PanelProps, TextPanel, TransitionsPanel } from "./Panels";
@@ -116,7 +116,7 @@ export function Editor({
   }, []);
   const paste = useCallback(
     (at: number) => {
-      if (clipboard.length) onEdit(commands.pasteItems(JSON.stringify(clipboard), Math.round(at * 1000) / 1000));
+      if (clipboard.length) onEdit(commands.pasteItems(JSON.stringify(clipboard), snapToFrame(at)));
     },
     [clipboard, onEdit],
   );

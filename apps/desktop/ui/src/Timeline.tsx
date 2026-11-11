@@ -5,7 +5,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ItemView_Serialize, ProjectView_Serialize } from "./bindings";
 import { commands } from "./bridge";
-import { type EditResult, addItems, firstTrack, trackAccepts, updateItem, updateItems } from "./edit";
+import { type EditResult, addItems, firstTrack, trackAccepts, updateItem, updateItems, snapToFrame } from "./edit";
 import { Icon, type IconName } from "./icons";
 import { ContextMenu, type MenuItem } from "./Menu";
 
@@ -155,7 +155,7 @@ export function Timeline(props: TimelineProps) {
       const s1 = snapTime(raw, group);
       const s2 = snapTime(raw + len, group) - len;
       let start = Math.abs(s1 - raw) <= Math.abs(s2 - raw) ? s1 : s2;
-      start = Math.max(0, Math.round(start * 1000) / 1000);
+      start = snapToFrame(start);
       const delta = start - (item.start ?? 0);
       const target = trackAtY(ev.clientY);
       const changeTrack = group.length === 1 && target && target.id !== item.trackId && trackAccepts(target.kind, item.kind) ? target.id : null;
@@ -192,7 +192,7 @@ export function Timeline(props: TimelineProps) {
       if (!moved) return;
       const base = edge === "start" ? (item.start ?? 0) : (item.end ?? 0);
       const t = snapTime(base + (ev.clientX - x0) / pps, [item.id]);
-      onEdit(commands.trimItem(item.id, edge, Math.max(0, Math.round(t * 1000) / 1000)));
+      onEdit(commands.trimItem(item.id, edge, snapToFrame(t)));
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
@@ -219,7 +219,7 @@ export function Timeline(props: TimelineProps) {
 
   const laneMenu = (e: React.MouseEvent, trackId: string, trackKind: string) => {
     e.preventDefault();
-    const t = Math.round(timeAt(e.clientX) * 1000) / 1000;
+    const t = snapToFrame(timeAt(e.clientX));
     const list: MenuItem[] = [];
     if (canPaste) list.push({ id: "paste", label: "Paste here", onSelect: () => onPaste(t) });
     if (trackKind === "video")
