@@ -48,7 +48,6 @@ fn lock<'a, T>(m: &'a Mutex<T>, what: &str) -> AppResult<std::sync::MutexGuard<'
     m.lock().map_err(|_| AppError::new(ErrorCode::Internal, format!("internal state ({what}) is unavailable")))
 }
 
-/// Sends the frame at the transport's position to the viewer and notifies the UI.
 #[tauri::command]
 #[specta::specta]
 pub fn app_info(state: State<'_, AppState>) -> AppResult<AppInfo> {

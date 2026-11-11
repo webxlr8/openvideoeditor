@@ -3,6 +3,22 @@
 Agent-native desktop video editor (macOS Apple silicon + Windows 11 x64), built in Rust with a Tauri shell.
 v1 rebuilds a proven reference design feature for feature; later versions add production-house workflows.
 
+## Using the app
+
+`cd apps/desktop && pnpm install && pnpm tauri dev` (or pass media files on the command line).
+
+- **Home** lists your projects (library: `~/Movies/OpenVideoEditor` on macOS, `%USERPROFILE%\Videos\OpenVideoEditor`
+  on Windows, `OVE_LIBRARY` to override). *Blank project* or the upload button starts one; dropping files on the window
+  creates a project named after the first file and imports them.
+- **Editor**: Import (button or drop) probes each file, makes a thumbnail, registers it and appends a clip to Main
+  (audio files to Audio). Click a clip to preview it at its in-point and move the playhead there; drag clips to move
+  them; ✂ splits the selected clip at the playhead; Delete removes it; ⌘Z / ⇧⌘Z (Ctrl on Windows) undo and redo;
+  rename the project and change its aspect ratio above the viewer; mute/hide tracks in the track headers.
+- Every edit is a durable revision in the bundle, and `timeline.tsx` follows it, so `ove source print|apply` and agents
+  see the same timeline.
+- Not yet: playing the whole sequence (the viewer previews one clip's source; compositing/export is change 6),
+  the Layout/Audio/Captions/Text/Transitions/Effects panels, templates and the assistant.
+
 ## Docs
 
 - `docs/03-architecture-plan.md` — decided architecture, alternatives, roadmap of OpenSpec changes, engineering

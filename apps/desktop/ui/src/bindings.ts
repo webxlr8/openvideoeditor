@@ -7,7 +7,6 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 
 /** Commands */
 export const commands = {
-	/**  Sends the frame at the transport's position to the viewer and notifies the UI. */
 	appInfo: () => typedError<AppInfo_Serialize, AppError>(__TAURI_INVOKE("app_info")),
 	/**
 	 *  Paths the app was launched with (or that arrived before the UI was ready). Marks the UI ready:
@@ -29,6 +28,23 @@ export const commands = {
 	debugPanicWorker: () => typedError<null, AppError>(__TAURI_INVOKE("debug_panic_worker")),
 	/**  Diagnostics hook: panics inside the viewer thread; the error arrives as `AppErrorRaised`. */
 	debugPanicViewer: () => typedError<null, AppError>(__TAURI_INVOKE("debug_panic_viewer")),
+	listProjects: () => typedError<ProjectSummary_Serialize[], AppError>(__TAURI_INVOKE("list_projects")),
+	createProject: (name: string) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("create_project", { name })),
+	openProject: (bundle: string) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("open_project", { bundle })),
+	closeProject: () => typedError<null, AppError>(__TAURI_INVOKE("close_project")),
+	projectView: () => typedError<ProjectView_Serialize | null, AppError>(__TAURI_INVOKE("project_view")),
+	importMedia: (paths: string[]) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("import_media", { paths })),
+	importMediaDialog: () => typedError<ProjectView_Serialize | null, AppError>(__TAURI_INVOKE("import_media_dialog")),
+	/**  Moves an item to a new start time (and optionally another track), keeping its duration. */
+	moveItem: (id: string, start: number | null, trackId: string | null) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("move_item", { id, start, trackId })),
+	removeItems: (ids: string[]) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("remove_items", { ids })),
+	/**  Splits a clip at a timeline time (seconds): the left part keeps the id, the right part is a new item. */
+	splitItem: (id: string, at: number | null) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("split_item", { id, at })),
+	setAspectRatio: (aspect: string) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("set_aspect_ratio", { aspect })),
+	renameProject: (name: string) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("rename_project", { name })),
+	setTrackFlag: (id: string, flag: string, value: boolean) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("set_track_flag", { id, flag, value })),
+	undo: () => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("undo")),
+	redo: () => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("redo")),
 };
 
 /** Events */
@@ -36,6 +52,7 @@ export const events = {
 	appErrorRaised: makeEvent<AppErrorRaised, AppErrorRaised>("app-error-raised"),
 	openPathsRequested: makeEvent<OpenPathsRequested, OpenPathsRequested>("open-paths-requested"),
 	playbackChanged: makeEvent<PlaybackChanged, PlaybackChanged>("playback-changed"),
+	projectChanged: makeEvent<ProjectChanged_Serialize, ProjectChanged_Deserialize>("project-changed"),
 	viewerBackendChanged: makeEvent<ViewerBackendChanged, ViewerBackendChanged>("viewer-backend-changed"),
 	viewerFrameReady: makeEvent<ViewerFrameReady, ViewerFrameReady>("viewer-frame-ready"),
 };
@@ -105,6 +122,32 @@ export type Diagnostics_Serialize = {
 /**  Machine-readable error category. The UI switches on this; `message` is shown to the user. */
 export type ErrorCode = "not_found" | "unsupported" | "corrupt" | "media_offline" | "no_media" | "invalid_argument" | "worker_panic" | "gpu" | "io" | "internal";
 
+export type ItemView = ItemView_Serialize | ItemView_Deserialize;
+
+export type ItemView_Deserialize = {
+	id: string,
+	trackId: string,
+	kind: string,
+	name: string,
+	start: number | null,
+	end: number | null,
+	trimStart: number | null,
+	mediaId?: string | null,
+	pending: boolean,
+};
+
+export type ItemView_Serialize = {
+	id: string,
+	trackId: string,
+	kind: string,
+	name: string,
+	start: number | null,
+	end: number | null,
+	trimStart: number | null,
+	mediaId: string | null,
+	pending: boolean,
+};
+
 /**  Properties shown next to the viewer. */
 export type MediaInfo = MediaInfo_Serialize | MediaInfo_Deserialize;
 
@@ -138,6 +181,36 @@ export type MediaInfo_Serialize = {
 	placeholder: boolean,
 };
 
+export type MediaView = MediaView_Serialize | MediaView_Deserialize;
+
+export type MediaView_Deserialize = {
+	id: string,
+	name: string,
+	path: string,
+	kind: string,
+	durationSeconds?: number | null,
+	width?: number | null,
+	height?: number | null,
+	/**  online, offline or changed. */
+	status: string,
+	/**  `data:image/png;base64,…` thumbnail, when one could be made. */
+	thumbnail?: string | null,
+};
+
+export type MediaView_Serialize = {
+	id: string,
+	name: string,
+	path: string,
+	kind: string,
+	durationSeconds: number | null,
+	width: number | null,
+	height: number | null,
+	/**  online, offline or changed. */
+	status: string,
+	/**  `data:image/png;base64,…` thumbnail, when one could be made. */
+	thumbnail: string | null,
+};
+
 /**  Paths routed to the running app (second launch, Open With, Dock/taskbar drop, window drop). */
 export type OpenPathsRequested = {
 	paths: string[],
@@ -160,6 +233,94 @@ export type PlaybackState = {
 	muted: boolean,
 	/**  False when no audio output device is available (video then runs on the system clock). */
 	audioAvailable: boolean,
+};
+
+/**  The open project changed (any source). */
+export type ProjectChanged = ProjectChanged_Serialize | ProjectChanged_Deserialize;
+
+/**  The open project changed (any source). */
+export type ProjectChanged_Deserialize = ProjectView_Deserialize | null;
+
+/**  The open project changed (any source). */
+export type ProjectChanged_Serialize = ProjectView_Serialize | null;
+
+/**  A row on Home. */
+export type ProjectSummary = ProjectSummary_Serialize | ProjectSummary_Deserialize;
+
+/**  A row on Home. */
+export type ProjectSummary_Deserialize = {
+	bundle: string,
+	id: string,
+	name: string,
+	/**  ms since the epoch. */
+	updatedAt: number | null,
+	aspectRatio: string,
+	durationSeconds: number | null,
+	itemCount: number,
+	/**  Set when the bundle could not be read. */
+	damaged?: string | null,
+	/**  Thumbnail of the project's first video, as a data URL. */
+	thumbnail?: string | null,
+};
+
+/**  A row on Home. */
+export type ProjectSummary_Serialize = {
+	bundle: string,
+	id: string,
+	name: string,
+	/**  ms since the epoch. */
+	updatedAt: number | null,
+	aspectRatio: string,
+	durationSeconds: number | null,
+	itemCount: number,
+	/**  Set when the bundle could not be read. */
+	damaged: string | null,
+	/**  Thumbnail of the project's first video, as a data URL. */
+	thumbnail: string | null,
+};
+
+/**  Everything the editor shows about the open project. */
+export type ProjectView = ProjectView_Serialize | ProjectView_Deserialize;
+
+/**  Everything the editor shows about the open project. */
+export type ProjectView_Deserialize = {
+	id: string,
+	name: string,
+	bundle: string,
+	rev: number | null,
+	aspectRatio: string,
+	durationSeconds: number | null,
+	canUndo: boolean,
+	canRedo: boolean,
+	undoSummary?: string | null,
+	tracks: TrackView[],
+	items: ItemView_Deserialize[],
+	media: MediaView_Deserialize[],
+};
+
+/**  Everything the editor shows about the open project. */
+export type ProjectView_Serialize = {
+	id: string,
+	name: string,
+	bundle: string,
+	rev: number | null,
+	aspectRatio: string,
+	durationSeconds: number | null,
+	canUndo: boolean,
+	canRedo: boolean,
+	undoSummary: string | null,
+	tracks: TrackView[],
+	items: ItemView_Serialize[],
+	media: MediaView_Serialize[],
+};
+
+export type TrackView = {
+	id: string,
+	name: string,
+	kind: string,
+	locked: boolean,
+	visible: boolean,
+	muted: boolean,
 };
 
 /**  Transport commands sent by the UI (buttons and keys). */

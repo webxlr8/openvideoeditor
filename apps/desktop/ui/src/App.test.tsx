@@ -71,4 +71,28 @@ describe("fitBox", () => {
     expect(b.width).toBe(452);
     expect(b.left).toBe(24);
   });
+
+  it("imports into a project, edits the timeline and undoes", async () => {
+    await openEditorWithMedia();
+    await waitFor(() => expect(screen.getAllByTestId("clip").length).toBe(1));
+    expect(screen.getByTestId("track-Main").textContent).toContain("Sample clip.mov");
+    expect(screen.getAllByTestId("media-card").length).toBe(1);
+    // The imported clip is selected and previewed; Delete removes it, undo brings it back.
+    fireEvent.keyDown(window, { key: "Delete" });
+    await waitFor(() => expect(screen.queryAllByTestId("clip").length).toBe(0));
+    fireEvent.click(screen.getByTestId("undo"));
+    await waitFor(() => expect(screen.getAllByTestId("clip").length).toBe(1));
+    fireEvent.keyDown(window, { key: "z", ctrlKey: true, shiftKey: true });
+    await waitFor(() => expect(screen.queryAllByTestId("clip").length).toBe(0));
+  });
+
+  it("lists the project on Home after going back", async () => {
+    await openEditorWithMedia();
+    fireEvent.click(screen.getByTestId("go-home"));
+    await screen.findByTestId("home");
+    await waitFor(() => expect(screen.getAllByTestId("project-card").length).toBeGreaterThan(0));
+    fireEvent.click(screen.getAllByTestId("project-card")[0]);
+    await screen.findByTestId("editor");
+    expect(screen.getByTestId("project-name").textContent).toBeTruthy();
+  });
 });

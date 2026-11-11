@@ -1,5 +1,14 @@
-import { useCallback, useEffect, useState } from "react";
-import type { AppError, MediaInfo_Serialize, PlaybackState, TransportCommand, ViewerBackend } from "./bindings";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type {
+  AppError,
+  ItemView_Serialize,
+  MediaInfo_Serialize,
+  PlaybackState,
+  ProjectSummary_Serialize,
+  ProjectView_Serialize,
+  TransportCommand,
+  ViewerBackend,
+} from "./bindings";
 import { commands, events } from "./bridge";
 import { Editor, type Layout } from "./Editor";
 import { Home } from "./Home";
@@ -27,6 +36,9 @@ let toastId = 0;
 
 export function App() {
   const [route, setRoute] = useState<"home" | "editor">("home");
+  const [project, setProject] = useState<ProjectView_Serialize | null>(null);
+  const [projects, setProjects] = useState<ProjectSummary_Serialize[]>([]);
+  const [selected, setSelected] = useState<string | null>(null);
   const [media, setMedia] = useState<MediaInfo_Serialize | null>(null);
   const [playback, setPlayback] = useState<PlaybackState>(EMPTY);
   const [backend, setBackend] = useState<ViewerBackend>("stream");
@@ -34,6 +46,10 @@ export function App() {
   const [diagnostics, setDiagnostics] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [layout, setLayout] = useState<Layout>({ panelOpen: true, timelineOpen: true, chatOpen: true, viewerOpen: true });
+  const projectRef = useRef(project);
+  useEffect(() => {
+    projectRef.current = project;
+  }, [project]);
 
   const showError = useCallback((error: AppError) => {
     const id = ++toastId;
@@ -41,24 +57,64 @@ export function App() {
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 6000);
   }, []);
 
-  const openPath = useCallback(
-    async (path: string) => {
-      const r = await commands.openMedia(path);
+  const refreshProjects = useCallback(async () => {
+    const r = await commands.listProjects();
+    if (r.status === "ok") setProjects(r.data);
+    else showError(r.error);
+  }, [showError]);
+
+  /** Shows an item's source in the viewer, positioned at the item's in-point (+ an offset into the item). */
+  const preview = useCallback(
+    async (item: ItemView_Serialize, offsetSeconds = 0) => {
+      const p = projectRef.current;
+      const m = p?.media.find((x) => x.id === item.mediaId);
+      setSelected(item.id);
+      if (!m) return;
+      const r = await commands.openMedia(m.path);
       if (r.status === "error") return showError(r.error);
       setMedia(r.data);
-      setRoute("editor");
+      const fps = r.data.frameRate ?? 30;
+      const frame = Math.max(0, Math.round(((item.trimStart ?? 0) + offsetSeconds) * fps));
+      void commands.transport({ kind: "seekFrame", frame });
     },
     [showError],
   );
 
-  const importMedia = useCallback(async () => {
-    const r = await commands.openMediaDialog();
-    if (r.status === "error") return showError(r.error);
-    if (r.data) {
-      setMedia(r.data);
+  const openProjectView = useCallback(
+    (v: ProjectView_Serialize) => {
+      setProject(v);
+      projectRef.current = v;
       setRoute("editor");
-    }
-  }, [showError]);
+      const first = v.items.find((i) => i.mediaId && i.trackId === "t_main") ?? v.items.find((i) => i.mediaId);
+      if (first) void preview(first);
+      else {
+        setMedia(null);
+        void commands.closeMedia();
+      }
+    },
+    [preview],
+  );
+
+  const importInto = useCallback(
+    async (paths: string[] | null) => {
+      if (!projectRef.current) {
+        const created = await commands.createProject(paths?.[0]?.split(/[\\/]/).pop()?.replace(/\.[^.]+$/, "") ?? "Untitled Project");
+        if (created.status === "error") return showError(created.error);
+        setProject(created.data);
+        projectRef.current = created.data;
+        setRoute("editor");
+      }
+      const before = new Set(projectRef.current?.items.map((i) => i.id));
+      const r = paths ? await commands.importMedia(paths) : await commands.importMediaDialog();
+      if (r.status === "error") return showError(r.error);
+      if (!r.data) return;
+      setProject(r.data);
+      projectRef.current = r.data;
+      const added = r.data.items.find((i) => !before.has(i.id) && i.mediaId);
+      if (added) void preview(added);
+    },
+    [preview, showError],
+  );
 
   const transport = useCallback(
     (command: TransportCommand) => {
@@ -71,14 +127,26 @@ export function App() {
     [showError],
   );
 
-  // Bridge wiring: app info, routed paths, playback and error events.
+  const run = useCallback(
+    async (p: Promise<{ status: "ok"; data: ProjectView_Serialize } | { status: "error"; error: AppError }>) => {
+      const r = await p;
+      if (r.status === "error") showError(r.error);
+      else setProject(r.data);
+    },
+    [showError],
+  );
+
+  // Bridge wiring: app info, routed paths, playback, project and error events.
   useEffect(() => {
     const unlisten = [
       events.playbackChanged.listen((e) => setPlayback(e.payload)),
       events.appErrorRaised.listen((e) => showError(e.payload)),
       events.viewerBackendChanged.listen((e) => setBackend(e.payload)),
+      events.projectChanged.listen((e) => {
+        if (e.payload) setProject(e.payload as ProjectView_Serialize);
+      }),
       events.openPathsRequested.listen((e) => {
-        if (e.payload.paths.length > 0) void openPath(e.payload.paths[0]);
+        if (e.payload.paths.length > 0) void importInto(e.payload.paths);
       }),
     ];
     void commands.appInfo().then((r) => {
@@ -87,17 +155,30 @@ export function App() {
         setPlatform(r.data.os.toLowerCase().startsWith("mac") ? "macos" : r.data.os.toLowerCase());
       }
     });
+    void commands.listProjects().then((r) => {
+      if (r.status === "ok") setProjects(r.data);
+    });
     void commands.takePendingOpenPaths().then((r) => {
-      if (r.status === "ok" && r.data.length > 0) void openPath(r.data[0]);
+      if (r.status === "ok" && r.data.length > 0) void importInto(r.data);
     });
     return () => unlisten.forEach((p) => void p.then((f) => f()));
-  }, [openPath, showError]);
+  }, [importInto, showError]);
 
   // Native viewer under a transparent web view needs a transparent page behind the viewer box.
   useEffect(() => {
     document.documentElement.dataset.viewer = backend === "stream" ? "stream" : "native";
     document.documentElement.dataset.platform = platform;
   }, [backend, platform]);
+
+  const goHome = useCallback(async () => {
+    await commands.closeProject();
+    setProject(null);
+    projectRef.current = null;
+    setSelected(null);
+    setMedia(null);
+    setRoute("home");
+    void refreshProjects();
+  }, [refreshProjects]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -106,21 +187,45 @@ export function App() {
       if (action.type === "toggleDiagnostics") {
         e.preventDefault();
         setDiagnostics((d) => !d);
-      } else if (route === "editor") {
-        e.preventDefault();
-        transport(action.command);
+        return;
+      }
+      if (route !== "editor") return;
+      e.preventDefault();
+      if (action.type === "transport") transport(action.command);
+      else if (action.type === "undo") void run(commands.undo());
+      else if (action.type === "redo") void run(commands.redo());
+      else if (action.type === "delete" && selected) {
+        void run(commands.removeItems([selected]));
+        setSelected(null);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [route, transport]);
+  }, [route, transport, run, selected]);
 
   return (
     <div className="app">
       {route === "home" ? (
-        <Home onOpenFile={() => void importMedia()} onBlank={() => setRoute("editor")} />
+        <Home
+          projects={projects}
+          onOpenFile={() => void importInto(null)}
+          onBlank={() =>
+            void commands.createProject("Untitled Project").then((r) => {
+              if (r.status === "error") showError(r.error);
+              else openProjectView(r.data);
+            })
+          }
+          onOpenProject={(bundle) =>
+            void commands.openProject(bundle).then((r) => {
+              if (r.status === "error") showError(r.error);
+              else openProjectView(r.data);
+            })
+          }
+        />
       ) : (
         <Editor
+          project={project}
+          selected={selected}
           media={media}
           playback={playback}
           backend={backend}
@@ -128,9 +233,11 @@ export function App() {
           layout={layout}
           setLayout={setLayout}
           onTransport={transport}
-          onImport={() => void importMedia()}
+          onImport={() => void importInto(null)}
           onError={showError}
-          onHome={() => setRoute("home")}
+          onHome={() => void goHome()}
+          onSelect={(item, offset) => (item ? void preview(item, offset) : setSelected(null))}
+          onEdit={(p) => void run(p)}
         />
       )}
       <div className="toasts" role="status" aria-live="polite">

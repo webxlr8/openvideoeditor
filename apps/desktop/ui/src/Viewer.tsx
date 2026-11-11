@@ -56,6 +56,7 @@ export function Viewer({
   visible,
   diagnosticsOpen,
   onError,
+  toolbarLeft,
 }: {
   media: MediaInfo_Serialize | null;
   frame: number;
@@ -63,6 +64,7 @@ export function Viewer({
   visible: boolean;
   diagnosticsOpen: boolean;
   onError: (e: AppError) => void;
+  toolbarLeft?: React.ReactNode;
 }) {
   const areaRef = useRef<HTMLElement>(null);
   const rectRef = useRef<HTMLDivElement>(null);
@@ -164,8 +166,9 @@ export function Viewer({
         }}
       >
         {stream && <canvas ref={canvasRef} className="viewer-canvas" data-testid="viewer-canvas" />}
-        {!media && <div className="viewer-empty">Drop a video here or use Import to preview it.</div>}
+        {!media && <div className="viewer-empty">Import media to see it here.</div>}
       </div>
+      {toolbarLeft && <div className="viewer-tools-left">{toolbarLeft}</div>}
       <div className="viewer-tools">
         <Dropdown
           testId="viewer-zoom"

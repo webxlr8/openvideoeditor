@@ -6,6 +6,7 @@ pub mod engine;
 pub mod error;
 pub mod logging;
 pub mod media;
+pub mod projects;
 pub mod transport;
 pub mod viewer;
 pub mod window_state;
@@ -55,6 +56,7 @@ pub struct AppErrorRaised(pub AppError);
 /// Shared app state behind the commands.
 pub struct AppState {
     pub engine: engine::EngineHandle,
+    pub projects: projects::Projects,
     pub viewer_tx: Mutex<Sender<ViewerMsg>>,
     pub viewer_stats: Arc<Mutex<ViewerStats>>,
     pub seek_started: Arc<Mutex<Option<Instant>>>,
@@ -98,6 +100,21 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::simulate_device_loss,
             commands::debug_panic_worker,
             commands::debug_panic_viewer,
+            projects::list_projects,
+            projects::create_project,
+            projects::open_project,
+            projects::close_project,
+            projects::project_view,
+            projects::import_media,
+            projects::import_media_dialog,
+            projects::move_item,
+            projects::remove_items,
+            projects::split_item,
+            projects::set_aspect_ratio,
+            projects::rename_project,
+            projects::set_track_flag,
+            projects::undo,
+            projects::redo,
         ])
         .events(collect_events![
             PlaybackChanged,
@@ -105,6 +122,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             ViewerFrameReady,
             ViewerBackendChanged,
             AppErrorRaised,
+            projects::ProjectChanged,
         ])
         .error_handling(tauri_specta::ErrorHandlingMode::Result)
 }
@@ -370,6 +388,7 @@ pub fn run() {
             app.manage(stream);
             app.manage(AppState {
                 engine,
+                projects: projects::Projects::default(),
                 viewer_tx: Mutex::new(viewer_tx),
                 viewer_stats: stats,
                 seek_started,
@@ -409,6 +428,13 @@ pub fn run() {
         }
         if let RunEvent::Exit = event {
             let state = handle.state::<AppState>();
+            // Final snapshot, full flush, prune and lock release for the open project.
+            if let Ok(mut open) = state.projects.open.lock()
+                && let Some(p) = open.take()
+                && let Err(e) = p.close()
+            {
+                tracing::error!(error = %e, "closing the project on exit failed; its revision log is intact");
+            }
             state.send_viewer(ViewerMsg::Quit);
         }
     });

@@ -58,3 +58,20 @@ export function parseTimecode(text: string, fps: number | null, totalFrames: num
   const last = Math.max(0, totalFrames - 1);
   return Math.min(Math.max(0, frame), last);
 }
+
+/** `m:ss` for a duration in seconds. */
+export function formatDuration(seconds: number): string {
+  const s = Math.max(0, Math.round(seconds));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  return h > 0 ? `${h}:${pad(m)}:${pad(s % 60)}` : `${m}:${pad(s % 60)}`;
+}
+
+/** "just now", "5 min ago", "3 h ago", or a date, for a time in ms since the epoch. */
+export function formatWhen(ms: number, now = Date.now()): string {
+  const d = Math.max(0, now - ms) / 1000;
+  if (d < 60) return "just now";
+  if (d < 3600) return `${Math.floor(d / 60)} min ago`;
+  if (d < 86400) return `${Math.floor(d / 3600)} h ago`;
+  return new Date(ms).toLocaleDateString();
+}

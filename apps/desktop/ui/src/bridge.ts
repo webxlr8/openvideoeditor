@@ -10,6 +10,9 @@ import type {
   MediaInfo_Serialize,
   PlaybackState,
   TransportCommand,
+  ItemView_Serialize,
+  ProjectSummary_Serialize,
+  ProjectView_Serialize,
   ViewerBackend,
   ViewerRect,
 } from "./bindings";
@@ -154,6 +157,70 @@ function createMock(): { commands: Commands; events: Events; control: MockContro
   });
   const backend: ViewerBackend = "stream";
 
+  // In-memory project store: one revision per edit, snapshot-based undo/redo.
+  const library: ProjectView_Serialize[] = [];
+  let project: ProjectView_Serialize | null = null;
+  let undoStack: ProjectView_Serialize[] = [];
+  let redoStack: ProjectView_Serialize[] = [];
+  let seq = 0;
+  const clone = (p: ProjectView_Serialize) => JSON.parse(JSON.stringify(p)) as ProjectView_Serialize;
+  const withFlags = (p: ProjectView_Serialize): ProjectView_Serialize => ({
+    ...p,
+    canUndo: undoStack.length > 0,
+    canRedo: redoStack.length > 0,
+    durationSeconds: Math.max(0, ...p.items.map((i) => i.end ?? 0)),
+  });
+  const publish = () => {
+    if (!project) return ok<ProjectView_Serialize>(null as unknown as ProjectView_Serialize);
+    project = withFlags(project);
+    const i = library.findIndex((x) => x.bundle === project!.bundle);
+    if (i >= 0) library[i] = project;
+    emit("project-changed", clone(project));
+    return ok(clone(project));
+  };
+  const editProject = (summary: string, f: (p: ProjectView_Serialize) => void) => {
+    if (!project) return fail("invalid_argument", "No project is open.");
+    undoStack.push(clone(project));
+    redoStack = [];
+    f(project);
+    project.rev = (project.rev ?? 0) + 1;
+    project.undoSummary = summary;
+    return publish();
+  };
+  const newProject = (name: string): ProjectView_Serialize => ({
+    id: `p_${++seq}`,
+    name,
+    bundle: `/mock/library/${name}.ove`,
+    rev: Date.now(),
+    aspectRatio: "16:9",
+    durationSeconds: 0,
+    canUndo: false,
+    canRedo: false,
+    undoSummary: null,
+    tracks: [
+      ["t_text", "Text", "video"],
+      ["t_captions", "Captions", "caption"],
+      ["t_overlay", "Overlay", "video"],
+      ["t_main", "Main", "video"],
+      ["t_audio", "Audio", "audio"],
+    ].map(([id, name, kind]) => ({ id, name, kind, locked: false, visible: true, muted: false })),
+    items: [],
+    media: [],
+  });
+  const importPaths = (paths: string[]) =>
+    editProject(`import ${paths.length} file${paths.length === 1 ? "" : "s"}`, (p) => {
+      for (const path of paths) {
+        const n = ++seq;
+        const name = path.split(/[\\/]/).pop() ?? path;
+        const audio = /\.(m4a|wav|caf|opus|ogg|aac)$/i.test(path);
+        const track = audio ? "t_audio" : "t_main";
+        const end = Math.max(0, ...p.items.filter((i) => i.trackId === track).map((i) => i.end ?? 0));
+        p.media.push({ id: `m${n}`, name, path, kind: audio ? "audio" : "video", durationSeconds: 60, width: audio ? null : 1920, height: audio ? null : 1080, status: "online", thumbnail: null });
+        p.items.push({ id: `i${n}`, trackId: track, kind: audio ? "audio" : "video", name, start: end, end: end + 60, trimStart: 0, mediaId: `m${n}`, pending: false });
+      }
+    });
+  const findItem = (id: string): ItemView_Serialize | undefined => project?.items.find((i) => i.id === id);
+
   const commands: Commands = {
     appInfo: () =>
       ok<AppInfo_Serialize>({
@@ -230,6 +297,82 @@ function createMock(): { commands: Commands; events: Events; control: MockContro
     simulateDeviceLoss: () => ok(null),
     debugPanicWorker: () => fail("worker_panic", "An internal error stopped a test worker. Details are in the log."),
     debugPanicViewer: () => ok(null),
+    listProjects: () =>
+      ok<ProjectSummary_Serialize[]>(
+        library.map((p) => ({
+          bundle: p.bundle,
+          id: p.id,
+          name: p.name,
+          updatedAt: Date.now(),
+          aspectRatio: p.aspectRatio,
+          durationSeconds: p.durationSeconds,
+          itemCount: p.items.length,
+          damaged: null,
+          thumbnail: null,
+        })),
+      ),
+    createProject: (name: string) => {
+      project = newProject(name || "Untitled Project");
+      undoStack = [];
+      redoStack = [];
+      library.unshift(project);
+      return publish();
+    },
+    openProject: (bundle: string) => {
+      const p = library.find((x) => x.bundle === bundle);
+      if (!p) return fail("not_found", "That project no longer exists.");
+      project = clone(p);
+      undoStack = [];
+      redoStack = [];
+      return publish();
+    },
+    closeProject: () => {
+      project = null;
+      emit("project-changed", null);
+      return ok(null);
+    },
+    projectView: () => ok(project ? clone(project) : null),
+    importMedia: (paths: string[]) => importPaths(paths),
+    importMediaDialog: () => importPaths(["/mock/Sample clip.mov"]) as ReturnType<Commands["importMediaDialog"]>,
+    moveItem: (id: string, start: number | null, trackId: string | null) =>
+      editProject("move clip", () => {
+        const i = findItem(id);
+        if (!i) return;
+        const d = (i.end ?? 0) - (i.start ?? 0);
+        i.start = Math.max(0, start ?? 0);
+        i.end = i.start + d;
+        if (trackId) i.trackId = trackId;
+      }),
+    removeItems: (ids: string[]) =>
+      editProject(`delete ${ids.length} item${ids.length === 1 ? "" : "s"}`, (p) => {
+        p.items = p.items.filter((i) => !ids.includes(i.id));
+      }),
+    splitItem: (id: string, at: number | null) =>
+      editProject("split clip", (p) => {
+        const i = findItem(id);
+        if (!i || at === null || at <= (i.start ?? 0) || at >= (i.end ?? 0)) return;
+        p.items.push({ ...i, id: `${i.id}_b`, start: at, trimStart: (i.trimStart ?? 0) + at - (i.start ?? 0) });
+        i.end = at;
+      }),
+    setAspectRatio: (aspect: string) => editProject("change aspect ratio", (p) => void (p.aspectRatio = aspect)),
+    renameProject: (name: string) => editProject("rename project", (p) => void (p.name = name)),
+    setTrackFlag: (id: string, flag: string, value: boolean) =>
+      editProject("track setting", (p) => {
+        const t = p.tracks.find((x) => x.id === id);
+        if (t && (flag === "muted" || flag === "visible" || flag === "locked")) t[flag] = value;
+      }),
+    undo: () => {
+      if (!project || undoStack.length === 0) return fail("invalid_argument", "Nothing to undo.");
+      redoStack.push(clone(project));
+      project = undoStack.pop()!;
+      return publish();
+    },
+    redo: () => {
+      if (!project || redoStack.length === 0) return fail("invalid_argument", "Nothing to redo.");
+      undoStack.push(clone(project));
+      project = redoStack.pop()!;
+      return publish();
+    },
   };
 
   const makeEvent = (name: string) => ({
@@ -243,6 +386,7 @@ function createMock(): { commands: Commands; events: Events; control: MockContro
     appErrorRaised: makeEvent("app-error-raised"),
     openPathsRequested: makeEvent("open-paths-requested"),
     playbackChanged: makeEvent("playback-changed"),
+    projectChanged: makeEvent("project-changed"),
     viewerBackendChanged: makeEvent("viewer-backend-changed"),
     viewerFrameReady: makeEvent("viewer-frame-ready"),
   } as unknown as Events;

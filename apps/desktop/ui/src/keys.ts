@@ -2,7 +2,10 @@ import type { TransportCommand } from "./bindings";
 
 export type KeyAction =
   | { type: "transport"; command: TransportCommand }
-  | { type: "toggleDiagnostics" };
+  | { type: "toggleDiagnostics" }
+  | { type: "undo" }
+  | { type: "redo" }
+  | { type: "delete" };
 
 export interface KeyLike {
   key: string;
@@ -19,11 +22,14 @@ function isTextEntry(target: EventTarget | null): boolean {
   return el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable;
 }
 
-/** Maps a key press to a viewer action (J/K/L, space, arrows, Home/End). */
+/** Maps a key press to an editor action (J/K/L, space, arrows, Home/End, undo/redo, delete). */
 export function keyToAction(e: KeyLike): KeyAction | null {
   const mod = e.metaKey || e.ctrlKey;
   if (mod && e.shiftKey && e.key.toLowerCase() === "d") return { type: "toggleDiagnostics" };
-  if (isTextEntry(e.target) || mod || e.altKey) return null;
+  if (isTextEntry(e.target)) return null;
+  if (mod && !e.altKey && e.key.toLowerCase() === "z") return { type: e.shiftKey ? "redo" : "undo" };
+  if (mod && !e.altKey && e.key.toLowerCase() === "y") return { type: "redo" };
+  if (mod || e.altKey) return null;
   const t = (command: TransportCommand): KeyAction => ({ type: "transport", command });
   switch (e.key) {
     case " ":
@@ -45,6 +51,9 @@ export function keyToAction(e: KeyLike): KeyAction | null {
       return t({ kind: "goToStart" });
     case "End":
       return t({ kind: "goToEnd" });
+    case "Delete":
+    case "Backspace":
+      return { type: "delete" };
     default:
       return null;
   }
