@@ -2333,3 +2333,10 @@ button.preset-card:disabled {
   flex-direction: column;
   gap: 6px;
 }
+.cards.template-cards .template-card {
+  width: 200px;
+  height: 220px;
+}
+.set-row .btn {
+  white-space: nowrap;
+}
