@@ -49,6 +49,8 @@ export function frameUrl(): string {
 // Browser mock
 
 export interface MockControl {
+  /** Crash reports the native side would list. */
+  crashReports?: { path: string; at: number; summary: string; seen: boolean }[];
   /** How long a simulated generation job takes (ms). */
   generationMs?: number;
   rects: ViewerRect[];
@@ -1395,6 +1397,22 @@ function createMock(): {
       ok<string | null>(`/mock/exports/${defaultName}.mp4`)
     ),
     revealPath: (path: string) => (track(`revealPath:${path}`), ok(null)),
+    crashReports: () => Promise.resolve(control.crashReports ?? []),
+    markCrashReportsSeen: () => {
+      for (const r of control.crashReports ?? []) r.seen = true;
+      return ok(null);
+    },
+    readCrashReport: (path: string) => ok(`report ${path}`),
+    checkForUpdates: () =>
+      ok({
+        current: "0.1.0",
+        latest: "0.2.0",
+        available: true,
+        notes: "Faster export.",
+        url: "https://example.invalid/download",
+        message: null,
+      }),
+    openUrl: (url: string) => (track(`openUrl:${url}`), ok(null)),
     // Generation (change 14): a catalog, keys in memory, jobs that finish after a moment.
     generationCatalog: () => Promise.resolve(JSON.stringify(genCatalog())),
     setProviderKey: (provider: string, key: string) => {

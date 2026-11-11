@@ -20,6 +20,7 @@ name = "export-bindings"
 path = "src/bin/export-bindings.rs"
 
 [dependencies]
+ureq = { version = "2.12", default-features = false, features = ["tls"] }
 memory-stats = "1.2.0"
 os_info = "3.15.0"
 ove-gpu = { version = "0.1.0", path = "../../../crates/ove-gpu" }

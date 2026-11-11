@@ -47,6 +47,14 @@ export const commands = {
 	redo: () => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("redo")),
 	/**  The UI reports its selection and viewer mode (for `ove app context`). */
 	reportUiState: (ui: UiState) => typedError<null, AppError>(__TAURI_INVOKE("report_ui_state", { ui })),
+	/**  Reports on this computer, newest first. */
+	crashReports: () => __TAURI_INVOKE<CrashReport[]>("crash_reports"),
+	markCrashReportsSeen: () => typedError<null, AppError>(__TAURI_INVOKE("mark_crash_reports_seen")),
+	/**  The text of one report (to copy into feedback). */
+	readCrashReport: (path: string) => typedError<string, AppError>(__TAURI_INVOKE("read_crash_report", { path })),
+	checkForUpdates: () => typedError<UpdateInfo_Serialize, AppError>(__TAURI_INVOKE("check_for_updates")),
+	/**  Opens a web page in the default browser (download page from the update check). */
+	openUrl: (url: string) => typedError<null, AppError>(__TAURI_INVOKE("open_url", { url })),
 	/**  Models and key status, as JSON `{models, keys}`. */
 	generationCatalog: () => __TAURI_INVOKE<string>("generation_catalog"),
 	setProviderKey: (provider: string, key: string) => typedError<string, AppError>(__TAURI_INVOKE("set_provider_key", { provider, key })),
@@ -361,6 +369,15 @@ export type ChatSummaryView = {
 	id: string,
 	title: string,
 	updatedAt: number | null,
+};
+
+export type CrashReport = {
+	path: string,
+	/**  Milliseconds since the epoch. */
+	at: number | null,
+	/**  First line of the message. */
+	summary: string,
+	seen: boolean,
 };
 
 /**  Everything the diagnostics overlay shows. */
@@ -722,6 +739,28 @@ export type UiState = {
 	selection: string[],
 	/**  `timeline` or `source`. */
 	viewer: string,
+};
+
+export type UpdateInfo = UpdateInfo_Serialize | UpdateInfo_Deserialize;
+
+export type UpdateInfo_Deserialize = {
+	current: string,
+	latest?: string | null,
+	available: boolean,
+	notes?: string | null,
+	url?: string | null,
+	/**  Why there is no answer (not configured, offline, …). */
+	message?: string | null,
+};
+
+export type UpdateInfo_Serialize = {
+	current: string,
+	latest: string | null,
+	available: boolean,
+	notes: string | null,
+	url: string | null,
+	/**  Why there is no answer (not configured, offline, …). */
+	message: string | null,
 };
 
 /**  Which presentation path is active. */

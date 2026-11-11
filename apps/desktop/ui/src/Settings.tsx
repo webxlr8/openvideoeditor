@@ -6,6 +6,8 @@ import type {
   AgentStatus_Serialize,
   AppError,
   AppInfo_Serialize,
+  CrashReport,
+  UpdateInfo_Serialize as UpdateInfo,
 } from "./bindings";
 import { commands } from "./bridge";
 import { type Catalog, KeyEntry, loadCatalog } from "./Generate";
@@ -26,6 +28,7 @@ const SECTIONS = [
   { id: "agents", label: "Agents & command line" },
   { id: "shortcuts", label: "Shortcuts" },
   { id: "privacy", label: "Privacy" },
+  { id: "about", label: "About & updates" },
 ] as const;
 type Section = (typeof SECTIONS)[number]["id"];
 
@@ -134,6 +137,9 @@ export function Settings({ onError }: { onError: (e: AppError) => void }) {
   const [catalog, setCatalog] = useState<Catalog>({ models: [], keys: [] });
   const [agent, setAgent] = useState<AgentStatus_Serialize | null>(null);
   const [agentKey, setAgentKey] = useState("");
+  const [reports, setReports] = useState<CrashReport[]>([]);
+  const [update, setUpdate] = useState<UpdateInfo | null>(null);
+  const [checking, setChecking] = useState(false);
   const [crash, setCrash] = useState(() => {
     try {
       return localStorage.getItem("ove.crashReports") === "on";
@@ -148,6 +154,10 @@ export function Settings({ onError }: { onError: (e: AppError) => void }) {
     void commands
       .agentStatus()
       .then((r) => r.status === "ok" && setAgent(r.data));
+    void commands.crashReports().then((r) => {
+      setReports(r);
+      if (r.some((x) => !x.seen)) void commands.markCrashReportsSeen();
+    });
   }, []);
 
   const saveAgentKey = async () => {
@@ -334,6 +344,76 @@ export function Settings({ onError }: { onError: (e: AppError) => void }) {
                 </button>
               )}
             </div>
+            {reports.length > 0 && (
+              <ul className="gen-jobs" data-testid="crash-list">
+                {reports.slice(0, 8).map((r) => (
+                  <li key={r.path} className="gen-job">
+                    <div className="gen-job-text">
+                      <span className="gen-job-prompt">
+                        {r.summary || "Problem report"}
+                      </span>
+                      <span className="muted small">
+                        {new Date(r.at ?? 0).toLocaleString()}
+                      </span>
+                    </div>
+                    {crash && (
+                      <button
+                        className="btn"
+                        onClick={async () => {
+                          const t = await commands.readCrashReport(r.path);
+                          if (t.status === "error") return onError(t.error);
+                          void navigator.clipboard?.writeText(t.data);
+                        }}
+                      >
+                        Copy
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        )}
+        {section === "about" && (
+          <section>
+            <h3>About & updates</h3>
+            <p>
+              OpenVideoEditor {info?.version ?? ""} · {info?.os} · {info?.arch}
+            </p>
+            <p className="muted small">{info?.decodeCapabilities}</p>
+            <div className="set-row">
+              <button
+                className="btn"
+                disabled={checking}
+                onClick={async () => {
+                  setChecking(true);
+                  const r = await commands.checkForUpdates();
+                  setChecking(false);
+                  if (r.status === "error") onError(r.error);
+                  else setUpdate(r.data);
+                }}
+                data-testid="check-updates"
+              >
+                {checking ? "Checking…" : "Check for updates"}
+              </button>
+              {update?.available && update.url && (
+                <button
+                  className="btn primary"
+                  onClick={() => void commands.openUrl(update.url!)}
+                >
+                  Download {update.latest}
+                </button>
+              )}
+            </div>
+            {update && (
+              <p className="small" data-testid="update-result">
+                {update.available
+                  ? `Version ${update.latest} is available.`
+                  : (update.message ??
+                    `You have the latest version (${update.current}).`)}
+              </p>
+            )}
+            {update?.notes && <p className="muted small">{update.notes}</p>}
           </section>
         )}
       </div>

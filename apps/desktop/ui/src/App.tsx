@@ -328,6 +328,15 @@ export function App() {
         );
       }
     });
+    // A problem recorded last time: say so once (reports stay on this computer).
+    void commands.crashReports().then((reports) => {
+      if (reports.some((r) => !r.seen)) {
+        showInfo(
+          "OpenVideoEditor ran into a problem last time. A report was saved on this computer — see Settings → Privacy.",
+        );
+        void commands.markCrashReportsSeen();
+      }
+    });
     void commands.listProjects().then((r) => {
       if (r.status === "ok") setProjects(r.data);
     });

@@ -114,3 +114,33 @@ describe("templates", () => {
     );
   });
 });
+
+describe("about and crash reports", () => {
+  it("mentions a recorded problem once and checks for updates", async () => {
+    window.__oveMock!.crashReports = [
+      {
+        path: "/logs/crash-reports/crash-1.txt",
+        at: 1,
+        summary: "index out of bounds",
+        seen: false,
+      },
+    ];
+    render(<App />);
+    await waitFor(() =>
+      expect(
+        screen
+          .getAllByTestId("toast")
+          .some((t) => t.textContent?.includes("ran into a problem")),
+      ).toBe(true),
+    );
+    fireEvent.click(screen.getByTestId("nav-settings"));
+    fireEvent.click(await screen.findByTestId("set-about"));
+    fireEvent.click(screen.getByTestId("check-updates"));
+    await waitFor(() =>
+      expect(screen.getByTestId("update-result").textContent).toContain(
+        "0.2.0",
+      ),
+    );
+    window.__oveMock!.crashReports = [];
+  });
+});

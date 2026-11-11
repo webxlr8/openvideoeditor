@@ -16,6 +16,7 @@ pub mod logging;
 pub mod media;
 pub mod motion;
 pub mod projects;
+pub mod support;
 pub mod timeline;
 pub mod transport;
 pub mod viewer;
@@ -128,6 +129,12 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             projects::redo,
             // Timeline exchange (FCPXML, XML, EDL, OTIO).
             control::report_ui_state,
+            // Distribution: crash reports and update check (change 16).
+            support::crash_reports,
+            support::mark_crash_reports_seen,
+            support::read_crash_report,
+            support::check_for_updates,
+            support::open_url,
             // AI generation with the user's provider keys (change 14).
             generation::generation_catalog,
             generation::set_provider_key,
