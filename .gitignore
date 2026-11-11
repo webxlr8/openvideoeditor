@@ -4,3 +4,5 @@ dist/
 *.log
 /tests/media/files/
 .claude/worktrees/
+/tools/ffmpeg/out/
+/tools/ffmpeg/.work/
