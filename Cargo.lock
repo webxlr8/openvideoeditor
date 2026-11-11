@@ -3911,6 +3911,7 @@ dependencies = [
  "ove-analyze",
  "ove-control",
  "ove-core",
+ "ove-generate",
  "ove-interchange",
  "ove-media",
  "ove-projection",

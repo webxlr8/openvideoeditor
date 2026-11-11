@@ -10,6 +10,7 @@ mod analyze;
 mod app;
 mod common;
 mod docs;
+mod generate;
 mod mcp;
 mod media;
 mod project;
@@ -89,6 +90,11 @@ enum Cmd {
         out: PathBuf,
         #[arg(long, default_value_t = 1280)]
         width: u32,
+    },
+    /// AI generation with your own provider keys: image, video, voice, music, sfx, status, models, key.
+    Generate {
+        #[command(subcommand)]
+        cmd: generate::GenerateCmd,
     },
     /// The running app: context, open, seek, play, pause.
     App {
@@ -308,6 +314,7 @@ fn run(cli: &Cli, source: Source) -> Out {
         Cmd::Media { cmd } => media::run(&ctx, cmd),
         Cmd::App { cmd } => app::run(&ctx, cmd),
         Cmd::Audio { cmd } => analyze::audio(&ctx, cmd),
+        Cmd::Generate { cmd } => generate::run(&ctx, cmd),
         Cmd::Look { project, at, every, count, width, out, sheet, columns, stats } => analyze::look(
             &ctx,
             project,
