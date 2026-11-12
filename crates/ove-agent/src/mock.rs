@@ -4,7 +4,7 @@
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use serde_json::{Value, json};
@@ -42,6 +42,11 @@ impl MockServer {
         Self::start_routed_on("127.0.0.1:0", handler)
     }
 
+    #[allow(
+        clippy::expect_used,
+        clippy::unwrap_used,
+        reason = "test support: tests and the demo example cannot run without the listening socket"
+    )]
     pub fn start_routed_on(
         addr: &str,
         handler: impl Fn(usize, &str, &Value) -> Reply + Send + Sync + 'static,
@@ -89,7 +94,7 @@ fn serve(mut stream: TcpStream, reqs: &Mutex<Vec<Value>>, handler: &Handler) -> 
     reader.read_exact(&mut body)?;
     let req: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
     let n = {
-        let mut r = reqs.lock().unwrap();
+        let mut r = reqs.lock().unwrap_or_else(PoisonError::into_inner);
         r.push(req.clone());
         r.len() - 1
     };

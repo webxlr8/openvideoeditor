@@ -3,7 +3,7 @@
 //! is used when nothing is stored. Every key this module hands out or stores is registered with
 //! [`ove_guard::register_secret`], so log output never shows it.
 
-use std::sync::Mutex;
+use std::sync::{Mutex, PoisonError};
 
 /// Where a key came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
@@ -84,14 +84,14 @@ pub struct MemoryKeyStore(Mutex<Option<String>>);
 
 impl KeyStore for MemoryKeyStore {
     fn get(&self) -> Option<(String, KeySource)> {
-        loaded(self.0.lock().unwrap().clone().map(|k| (k, KeySource::Keychain)))
+        loaded(self.0.lock().unwrap_or_else(PoisonError::into_inner).clone().map(|k| (k, KeySource::Keychain)))
     }
     fn set(&self, key: &str) -> Result<(), String> {
-        *self.0.lock().unwrap() = Some(validate(key)?);
+        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = Some(validate(key)?);
         Ok(())
     }
     fn clear(&self) -> Result<(), String> {
-        *self.0.lock().unwrap() = None;
+        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = None;
         Ok(())
     }
 }

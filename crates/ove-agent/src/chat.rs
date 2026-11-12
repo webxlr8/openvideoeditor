@@ -153,7 +153,7 @@ impl ChatStore {
     fn write_index(&self, v: &[ChatSummary]) -> std::io::Result<()> {
         std::fs::create_dir_all(&self.dir)?;
         let tmp = self.dir.join(".chats.json.tmp");
-        std::fs::write(&tmp, serde_json::to_vec_pretty(v).unwrap())?;
+        std::fs::write(&tmp, serde_json::to_vec_pretty(v)?)?;
         std::fs::rename(tmp, self.index_path())
     }
 
@@ -183,9 +183,9 @@ impl ChatStore {
 
     pub fn append(&self, id: &str, r: &Record) -> std::io::Result<()> {
         let p = self.log_path(id)?;
-        std::fs::create_dir_all(p.parent().unwrap())?;
+        std::fs::create_dir_all(self.dir.join("chats"))?;
         let mut f = std::fs::OpenOptions::new().create(true).append(true).open(p)?;
-        let mut line = serde_json::to_vec(r).unwrap();
+        let mut line = serde_json::to_vec(r)?;
         line.push(b'\n');
         f.write_all(&line)
     }
@@ -334,8 +334,9 @@ pub fn messages(records: &[Record]) -> Vec<Value> {
     fn push_user(msgs: &mut Vec<Value>, block: Value) {
         if let Some(last) = msgs.last_mut()
             && last["role"] == "user"
+            && let Some(content) = last["content"].as_array_mut()
         {
-            last["content"].as_array_mut().unwrap().push(block);
+            content.push(block);
             return;
         }
         msgs.push(json!({"role": "user", "content": [block]}));

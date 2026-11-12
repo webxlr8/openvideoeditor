@@ -4,6 +4,7 @@
 //! transport transition and the frame scheduling are unit-tested on simulated time. Frames come from any
 //! [`FrameSource`] (the `media` feature adapts `ove_media::DecodeWorker`); audio output is the `audio-output`
 //! feature (cpal), with the system clock used when no device is available.
+#![forbid(unsafe_code)]
 
 mod audio;
 mod clock;

@@ -3,7 +3,7 @@
 //! renderer (Takumi) and by timeline text and captions (ove-render).
 
 use std::collections::BTreeMap;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, OnceLock, PoisonError};
 
 use serde::Serialize;
 
@@ -69,6 +69,9 @@ pub static FACES: &[Face] = &[
 
 /// The family used when a requested family is unknown.
 pub const DEFAULT_FAMILY: &str = "Inter";
+
+/// The upright face of [`DEFAULT_FAMILY`], the last resort of [`resolve`] (indexed at compile time).
+static DEFAULT_FACE: &Face = &FACES[0];
 
 /// A family as listed in the UI.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -188,7 +191,7 @@ pub fn resolve(family: &str, weight: u16, italic: bool) -> Resolved {
     {
         return r;
     }
-    from_face(pick(&normalise_family(DEFAULT_FAMILY)).expect("default family is bundled"), weight)
+    from_face(pick(&normalise_family(DEFAULT_FAMILY)).unwrap_or(DEFAULT_FACE), weight)
 }
 
 fn from_face(f: &'static Face, weight: u16) -> Resolved {
@@ -197,7 +200,7 @@ fn from_face(f: &'static Face, weight: u16) -> Resolved {
     let data = CACHE
         .get_or_init(Default::default)
         .lock()
-        .expect("font cache")
+        .unwrap_or_else(PoisonError::into_inner)
         .entry(f.file)
         .or_insert_with(|| Arc::new(f.bytes.to_vec()))
         .clone();
@@ -238,6 +241,7 @@ mod tests {
             assert!(ttf_header_ok(f.bytes), "{}", f.file);
         }
         assert!(bundled_families().len() >= 16);
+        assert_eq!((DEFAULT_FACE.family, DEFAULT_FACE.italic), (DEFAULT_FAMILY, false));
     }
 
     fn ttf_header_ok(b: &[u8]) -> bool {

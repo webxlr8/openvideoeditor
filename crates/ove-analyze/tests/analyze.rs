@@ -1,5 +1,12 @@
 //! Analysis on synthetic media. Needs the ffmpeg CLI to make the media (`OVE_FIXTURE_FFMPEG` or `ffmpeg` on PATH);
 //! skipped with a message otherwise.
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    reason = "test code: a failure here is a failed test; clippy.toml only covers #[test] functions, not helpers"
+)]
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -88,7 +95,7 @@ fn grab_and_filmstrip() {
     assert_eq!((sheet.width, sheet.height), (4 * 80 + 5 * gap, 45 + 2 * gap));
     // Last tile is blue.
     assert!(sheet.px(gap + 3 * (80 + gap) + 40, gap + 22)[2] > 200);
-    assert_eq!(&sheet.png()[1..4], b"PNG");
+    assert_eq!(&sheet.png().unwrap()[1..4], b"PNG");
 }
 
 #[test]

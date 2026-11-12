@@ -535,7 +535,8 @@ pub fn thumbnail(bundle: &Path, media_id: &str, file: &Path) {
         canvas.blit(&fit, (160 - fit.width) / 2, (90 - fit.height) / 2);
         let dir = bundle.join("cache").join("thumbs");
         let _ = std::fs::create_dir_all(&dir)
-            .and_then(|_| std::fs::write(dir.join(format!("{media_id}.png")), canvas.png()));
+            .and_then(|_| canvas.png())
+            .and_then(|png| std::fs::write(dir.join(format!("{media_id}.png")), png));
     }
 }
 
