@@ -22,7 +22,11 @@ import {
 import { Home } from "./Home";
 import { fire, logError, runCommand, setErrorSink, unlisten } from "./notify";
 import { EDIT_ACTIONS, keyToAction } from "./keys";
-import { templateMessage, templateProjectName } from "./templates";
+import {
+  templateAspect,
+  templateMessage,
+  templateProjectName,
+} from "./templates";
 
 const EMPTY: PlaybackState = {
   hasMedia: false,
@@ -501,12 +505,13 @@ export function App() {
             onPrompt={(text) =>
               fire(startWithAssistant(text, projectNameFrom(text)))
             }
-            onTemplate={(t, details) =>
+            onTemplate={(t, values) =>
               fire(
                 startWithAssistant(
-                  templateMessage(t, details),
-                  templateProjectName(t, details),
-                  t.aspect,
+                  templateMessage(t, values),
+                  templateProjectName(t, values),
+                  templateAspect(t, values),
+                  t.name,
                 ),
               )
             }
