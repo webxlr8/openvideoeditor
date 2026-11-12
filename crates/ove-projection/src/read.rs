@@ -96,7 +96,7 @@ pub fn resolve_path(bundle: Option<&Path>, s: &str) -> PathBuf {
 /// Canonical form for comparing paths: resolved symlinks where the file exists; case-folded on Windows and macOS
 /// (case-insensitive by default).
 pub fn path_key(p: &Path) -> PathBuf {
-    let c = std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    let c = dunce::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
     if cfg!(any(windows, target_os = "macos")) { PathBuf::from(c.to_string_lossy().to_lowercase()) } else { c }
 }
 
@@ -166,7 +166,7 @@ impl Reader<'_> {
             n += 1;
         }
         self.known_paths.insert(key, id.clone());
-        self.new_media.push(NewMedia { id: id.clone(), path: std::fs::canonicalize(&path).unwrap_or(path), name });
+        self.new_media.push(NewMedia { id: id.clone(), path: dunce::canonicalize(&path).unwrap_or(path), name });
         Some(id)
     }
 

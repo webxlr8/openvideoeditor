@@ -4049,6 +4049,7 @@ name = "ove-cli"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "dunce",
  "ove-analyze",
  "ove-control",
  "ove-core",
@@ -4093,6 +4094,7 @@ name = "ove-desktop"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "dunce",
  "memory-stats",
  "objc2",
  "objc2-app-kit",
@@ -4234,6 +4236,7 @@ dependencies = [
 name = "ove-projection"
 version = "0.1.0"
 dependencies = [
+ "dunce",
  "ove-core",
  "oxc_allocator",
  "oxc_ast",
@@ -4268,6 +4271,7 @@ dependencies = [
 name = "ove-store"
 version = "0.1.0"
 dependencies = [
+ "dunce",
  "libc",
  "ove-core",
  "ove-projection",

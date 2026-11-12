@@ -149,6 +149,42 @@ jobs:
           source ../../tools/ffmpeg/env.sh
           pnpm tauri build --debug --no-bundle
 
+  windows-cross:
+    # The Windows code (cfg(windows), the Windows viewer, keyring, FFmpeg and whisper.cpp bindings) checked from a
+    # Linux runner with the MinGW-w64 cross build, so it cannot break silently without a Windows runner.
+    name: Windows code (cross clippy on Linux)
+    runs-on: ${{ fromJSON(vars.OVE_RUNNER_LINUX || '["self-hosted","Linux","X64"]') }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.97.0
+        with:
+          components: rustfmt, clippy
+          targets: x86_64-pc-windows-gnu
+      - uses: Swatinem/rust-cache@v2
+      - name: prerequisites (MinGW-w64)
+        run: |
+          pkgs="gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 mingw-w64-tools nasm meson ninja-build pkg-config cmake clang
+            libclang-dev"
+          if command -v apt-get >/dev/null && sudo -n true 2>/dev/null; then
+            sudo apt-get update && sudo apt-get install -y $pkgs
+          else
+            echo "No passwordless apt on this runner; expecting these packages to be installed: $pkgs"
+          fi
+      - uses: actions/cache@v4
+        with:
+          path: tools/ffmpeg/out/windows-x64-gnu
+          key: ffmpeg-windows-x64-gnu-${{ hashFiles('tools/ffmpeg/*.sh') }}
+      - name: FFmpeg for Windows (LGPL, shared, cross-built)
+        run: tools/ffmpeg/build.sh --ci --target windows-x64-gnu
+      - name: clippy (x86_64-pc-windows-gnu, whole workspace)
+        run: |
+          export OVE_FFMPEG_TARGET=windows-x64-gnu
+          source tools/ffmpeg/env.sh
+          cargo clippy --target x86_64-pc-windows-gnu --workspace --all-targets -- -D warnings
+
   deny:
     runs-on: ${{ fromJSON(vars.OVE_RUNNER_LINUX || '["self-hosted","Linux","X64"]') }}
     steps:
