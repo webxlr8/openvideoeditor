@@ -213,6 +213,9 @@ impl Client {
             .timeout_connect(Duration::from_secs(15))
             // SSE sends pings; a long silence means the connection is gone.
             .timeout_read(Duration::from_secs(120))
+            // ureq forwards `x-api-key` on a redirect to another host (it only drops `Authorization`); the API never
+            // redirects, so redirects are not followed at all.
+            .redirects(0)
             .build();
         Client {
             agent,

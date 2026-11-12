@@ -1,5 +1,10 @@
 //! fal.ai queue API: `POST https://queue.fal.run/<endpoint>` with `Authorization: Key <key>`, then poll the returned
 //! `status_url` (IN_QUEUE → IN_PROGRESS → COMPLETED) and read `response_url`. Cancel with `PUT cancel_url`.
+//!
+//! Those URLs come from fal's reply; the key is attached only when they are on fal's own API domains (see
+//! [`key_allowed`]). The output itself is downloaded without the key.
+
+use std::time::{Duration, Instant};
 
 use serde_json::{Map, Value, json};
 
@@ -70,9 +75,46 @@ pub fn output_url(v: &Value) -> Option<&str> {
         .and_then(Value::as_str)
 }
 
+/// The queue API root.
+pub const QUEUE_URL: &str = "https://queue.fal.run";
+/// fal's own API domains (the queue is `queue.fal.run`; storage and REST APIs live under `fal.ai`). Only these, over
+/// https, or the configured queue root itself, ever receive the key.
+pub const API_DOMAINS: &[&str] = &["fal.run", "fal.ai"];
+/// Longest a queued request is followed before giving up (`OVE_GENERATE_TIMEOUT_S` overrides it).
+pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30 * 60);
+
+fn timeout() -> Duration {
+    std::env::var("OVE_GENERATE_TIMEOUT_S")
+        .ok()
+        .and_then(|v| v.trim().parse::<f64>().ok())
+        .filter(|s| s.is_finite() && *s > 0.0)
+        .map(Duration::from_secs_f64)
+        .unwrap_or(DEFAULT_TIMEOUT)
+}
+
+/// Whether the key may be sent to `url`: https on one of [`API_DOMAINS`], or the same origin as `root` (the queue
+/// root in use, which is the real one unless a development override is in effect). URLs come from fal's replies, so
+/// a spoofed or tampered reply must not be able to collect the key.
+pub fn key_allowed(url: &str, root: &str) -> bool {
+    use ove_guard::endpoint::origin;
+    let Some(o) = origin(url) else { return false };
+    if o.scheme == "https" && API_DOMAINS.iter().any(|d| o.host_within(d)) {
+        return true;
+    }
+    origin(root).is_some_and(|r| r.same_as(&o))
+}
+
+fn refuse_url(what: &str, url: &str) -> GenError {
+    let host = ove_guard::endpoint::origin(url).map(|o| o.host).unwrap_or_else(|| "an unusable address".into());
+    GenError::new(
+        "provider.failed",
+        format!("fal.ai: the {what} address points to {host}, not to fal.ai; the key was not sent there"),
+    )
+}
+
 pub fn run(model: &Model, req: &Request, aspect: &str, r: &mut Run) -> Result<Output> {
     let (endpoint, body) = input(model, req, aspect)?;
-    let root = base("OVE_FAL_QUEUE_URL", "https://queue.fal.run");
+    let root = base("OVE_FAL_QUEUE_URL", QUEUE_URL);
     let auth = format!("Key {}", r.key);
     let a = agent();
     let sub: Value = a
@@ -86,14 +128,32 @@ pub fn run(model: &Model, req: &Request, aspect: &str, r: &mut Run) -> Result<Ou
     let (Some(status_url), Some(response_url)) = (field("status_url"), field("response_url")) else {
         return Err(GenError::new("provider.failed", format!("fal.ai: unexpected submit reply {sub}")));
     };
+    if !key_allowed(&status_url, &root) {
+        return Err(refuse_url("status", &status_url));
+    }
+    if !key_allowed(&response_url, &root) {
+        return Err(refuse_url("result", &response_url));
+    }
+    let cancel_url = field("cancel_url").filter(|c| key_allowed(c, &root));
+    let cancel_remote = || {
+        if let Some(c) = &cancel_url {
+            let _ = a.put(c).set("Authorization", &auth).call();
+        }
+    };
     let request_id = field("request_id");
     (r.progress)(Some(0.0), request_id.as_deref());
+    let deadline = Instant::now() + timeout();
     loop {
         if (r.cancelled)() {
-            if let Some(c) = field("cancel_url") {
-                let _ = a.put(&c).set("Authorization", &auth).call();
-            }
+            cancel_remote();
             return Err(GenError::new("cancelled", "cancelled"));
+        }
+        if Instant::now() >= deadline {
+            cancel_remote();
+            return Err(GenError::new(
+                "provider.timeout",
+                format!("fal.ai: no result after {} minutes; the request was cancelled", timeout().as_secs() / 60),
+            ));
         }
         std::thread::sleep(poll_interval());
         let st: Value = a

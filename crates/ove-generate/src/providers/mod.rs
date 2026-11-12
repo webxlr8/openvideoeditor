@@ -57,7 +57,18 @@ pub fn base(var: &str, default: &str) -> String {
     ove_guard::endpoint::base_url(var, default)
 }
 
+/// The HTTP agent for calls that carry a key. Redirects are not followed: ureq drops `Authorization` on a redirect to
+/// another host but forwards custom key headers (`xi-api-key`), and no provider API redirects.
 pub fn agent() -> ureq::Agent {
+    ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_secs(15))
+        .timeout_read(Duration::from_secs(300))
+        .redirects(0)
+        .build()
+}
+
+/// The HTTP agent for downloading outputs (no key is ever set on it; CDNs redirect).
+fn download_agent() -> ureq::Agent {
     ureq::AgentBuilder::new().timeout_connect(Duration::from_secs(15)).timeout_read(Duration::from_secs(300)).build()
 }
 
@@ -144,7 +155,7 @@ pub fn fetch(url: &str) -> Result<(Vec<u8>, String)> {
         let mime = meta.split(';').next().unwrap_or("").to_string();
         return Ok((b64_decode(data)?, mime));
     }
-    let r = agent().get(url).call().map_err(|e| http_error("download", e))?;
+    let r = download_agent().get(url).call().map_err(|e| http_error("download", e))?;
     let mime = r.content_type().to_string();
     Ok((read_bytes(r, 2 << 30)?, mime))
 }
