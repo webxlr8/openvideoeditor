@@ -403,18 +403,23 @@ impl Project {
     }
 
     pub fn restore_as(&mut self, rev: i64, source: Source) -> Result<Option<Committed>> {
+        self.restore_with(rev, source, None)
+    }
+
+    /// [`Project::restore_as`] with the revision's summary (`None`: one naming the target revision).
+    pub fn restore_with(&mut self, rev: i64, source: Source, summary: Option<String>) -> Result<Option<Committed>> {
         self.ensure_writable()?;
         let target = self.doc_at(rev)?;
         let ops = ove_core::diff::diff_documents(self.session.doc(), &target);
         if ops.is_empty() {
             return Ok(None);
         }
-        let summary = match source {
+        let summary = summary.unwrap_or_else(|| match source {
             Source::Restore => format!("restore revision {rev}"),
             Source::Undo => format!("undo to revision {rev}"),
             Source::Redo => format!("redo to revision {rev}"),
             _ => format!("return to revision {rev}"),
-        };
+        });
         let p = self.session.prepare(ops, source, Some(summary), self.clock.as_ref())?;
         Ok(Some(self.commit_prepared(p)?))
     }
