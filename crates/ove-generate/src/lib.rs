@@ -49,6 +49,8 @@ pub fn execute(
     store: &dyn keys::KeyStore,
     cancelled: &dyn Fn() -> bool,
 ) -> Result<(), GenError> {
+    // The id names the output file.
+    job::check_id(&job.id).map_err(|e| GenError::new("job.invalid", e.to_string()))?;
     let model = catalog::find(Some(&job.model), job.kind).map_err(|e| GenError::new("model.unknown", e))?;
     let res = (|| -> Result<(), GenError> {
         let (key, _) = store.get(model.provider).ok_or_else(|| {
@@ -80,17 +82,17 @@ pub fn execute(
             snapshot.updated_at = now();
             let _ = job::save(bundle, &snapshot);
         };
+        let dir = job::output_dir(bundle);
+        std::fs::create_dir_all(&dir).map_err(|e| GenError::new("file.unwritable", e.to_string()))?;
         let out = providers::run(
             &model,
             &job.request,
             &aspect,
-            &mut providers::Run { key: &key, cancelled: &is_cancelled, progress: &mut progress },
+            &mut providers::Run { key: &key, cancelled: &is_cancelled, progress: &mut progress, out_dir: &dir },
         )?;
         job.remote_id = snapshot.remote_id.clone();
-        let dir = job::output_dir(bundle);
-        std::fs::create_dir_all(&dir).map_err(|e| GenError::new("file.unwritable", e.to_string()))?;
         let file = format!("{}.{}", job.id, out.ext);
-        std::fs::write(dir.join(&file), &out.bytes).map_err(|e| GenError::new("file.unwritable", e.to_string()))?;
+        out.data.save(&dir.join(&file)).map_err(|e| GenError::new("file.unwritable", e.to_string()))?;
         job.output = Some(format!("media/generated/{file}"));
         job.details = out.details;
         Ok(())

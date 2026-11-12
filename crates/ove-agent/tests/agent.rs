@@ -266,6 +266,54 @@ fn errors_map_and_retries_recover() {
 }
 
 #[test]
+fn cost_uses_the_served_model_and_counts_streams_that_fail_part_way() {
+    let ev = |v: serde_json::Value| format!("event: {}\ndata: {}\n\n", v["type"].as_str().unwrap(), v);
+    let server = MockServer::start(move |n, _| {
+        let chunks = if n == 0 {
+            // Opus starts answering, then the stream breaks off with an overload (retried: nothing was shown).
+            vec![
+                ev(
+                    json!({"type": "message_start", "message": {"id": "m0", "model": "claude-opus-5-5", "usage": {"input_tokens": 1_000_000}}}),
+                ),
+                ev(json!({"type": "error", "error": {"type": "overloaded_error", "message": "Overloaded"}})),
+            ]
+        } else {
+            // A server-side fallback answers with a dated Haiku id.
+            sse_reply("done", &[])
+                .into_iter()
+                .map(|c| c.replace("\"model\":\"mock\"", "\"model\":\"claude-haiku-5-5-20261001\""))
+                .collect()
+        };
+        Reply::Stream { chunks, delay: Duration::ZERO }
+    });
+    let d = tempfile::tempdir().unwrap();
+    let mut host = TestHost { project: project(d.path()), answers: vec![] };
+    let store = ChatStore::for_bundle(host.project.bundle());
+    let chat = store.create("hi", "claude-sonnet-5-5").unwrap();
+    let mut events = vec![];
+    run_turn(
+        &fast_client(&server.url),
+        &store,
+        &chat.id,
+        "hi",
+        &mut host,
+        &TurnConfig::default(), // asks for Sonnet
+        &AtomicBool::new(false),
+        &mut |e| events.push(e),
+    )
+    .unwrap();
+    let Some(AgentEvent::TurnDone { usage, cost_usd, .. }) = events.last() else { panic!("{events:?}") };
+    // The failed attempt's input is billed at Opus prices, the answer at Haiku prices (sse_reply: 1200 input,
+    // 3000 cache read, 180 output).
+    assert_eq!(usage.input_tokens, 1_000_000 + 1200);
+    let opus = 4.0;
+    let haiku = (1200.0 * 0.10 + 3000.0 * 0.01 + 180.0 * 0.50) / 1e6;
+    assert!((cost_usd - (opus + haiku)).abs() < 1e-9, "{cost_usd}");
+    let recs = store.records(&chat.id);
+    assert!(matches!(recs.last(), Some(Record::Result { cost_usd: c, .. }) if (c - cost_usd).abs() < 1e-12));
+}
+
+#[test]
 fn stop_cancels_mid_stream_and_keeps_history_valid() {
     let server = MockServer::start(|n, _| {
         if n == 0 {

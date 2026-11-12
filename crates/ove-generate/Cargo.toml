@@ -10,11 +10,17 @@ publish.workspace = true
 [dependencies]
 getrandom = "0.3"
 ove-core = { path = "../ove-core" }
+ove-guard = { path = "../ove-guard" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
+tempfile = "3"
 thiserror = "2"
 tracing = "0.1"
 ureq = { version = "2.12", default-features = false, features = ["tls", "json"] }
+
+[target.'cfg(unix)'.dependencies]
+# kill(pid, 0): whether a job's worker process still exists.
+libc = "0.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 keyring = { version = "3.6", features = ["apple-native"] }
@@ -23,10 +29,7 @@ keyring = { version = "3.6", features = ["apple-native"] }
 keyring = { version = "3.6", features = ["windows-native"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-keyring = { version = "3.6", features = ["linux-native"] }
-
-[dev-dependencies]
-tempfile = "3"
+keyring = { version = "3.6", features = ["linux-native-sync-persistent", "crypto-rust"] }
 
 [lints]
 workspace = true

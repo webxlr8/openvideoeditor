@@ -32,6 +32,7 @@ ove-core = { path = "../../../crates/ove-core" }
 ove-generate = { path = "../../../crates/ove-generate" }
 ove-interchange = { path = "../../../crates/ove-interchange" }
 ove-graphics = { path = "../../../crates/ove-graphics" }
+ove-guard = { path = "../../../crates/ove-guard" }
 ove-media = { path = "../../../crates/ove-media" }
 ove-render = { path = "../../../crates/ove-render" }
 ove-store = { path = "../../../crates/ove-store" }
@@ -73,6 +74,7 @@ windows = { version = "0.62", features = [
 tempfile = "3"
 # Mock runtime: drives the real invoke handler in tests.
 tauri = { version = "2.12", features = ["macos-private-api", "test"] }
+tracing-log = "0.2"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

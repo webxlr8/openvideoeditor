@@ -7,11 +7,11 @@
 //!
 //! Methods the app answers (see `docs/cli/app.md`): `context`, `open`, `seek`, `play`, `pause`, `apply`, `restore`.
 
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -152,17 +152,35 @@ fn new_token() -> String {
     b.iter().map(|x| format!("{x:02x}")).collect()
 }
 
+/// Writes the endpoint record readable by its owner only, whatever was there before.
+///
+/// Unix: a fresh temporary file is created with mode 0600 (any stale one is removed first, so neither its old mode
+/// nor a link planted in its place is reused), set to 0600 explicitly in case the creation mode was altered, and
+/// renamed over `path`, so the record always ends up 0600 even when `path` existed with wider permissions.
+///
+/// Windows: no ACL is set. The file inherits the ACL of the library folder, which by default is inside the user's
+/// profile and so readable only by that user, administrators and SYSTEM. A library placed in a shared folder
+/// exposes the token to whoever can read that folder (the token only grants access from this machine's loopback).
 fn write_private(path: &Path, text: &str) -> std::io::Result<()> {
     let tmp = path.with_extension("json.tmp");
+    match std::fs::remove_file(&tmp) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e),
+        _ => {}
+    }
     {
         let mut o = std::fs::OpenOptions::new();
-        o.write(true).create(true).truncate(true);
+        o.write(true).create_new(true);
         #[cfg(unix)]
         {
             use std::os::unix::fs::OpenOptionsExt;
             o.mode(0o600);
         }
         let mut f = o.open(&tmp)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            f.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+        }
         f.write_all(text.as_bytes())?;
         f.sync_all()?;
     }
@@ -173,8 +191,34 @@ fn constant_time_eq(a: &str, b: &str) -> bool {
     a.len() == b.len() && a.bytes().zip(b.bytes()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
+/// Most connections handled at once; more are answered `server.busy` straight away.
+pub const MAX_CONNECTIONS: usize = 32;
+
+/// A connection slot; freed when dropped (also when the connection thread could not start).
+struct Slot(Arc<AtomicUsize>);
+
+impl Drop for Slot {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+/// Answers a connection over [`MAX_CONNECTIONS`] on the accept thread: read its request briefly (closing with unread
+/// data would reset the connection before the client reads the answer), then say why.
+fn refuse_busy(conn: TcpStream) {
+    conn.set_read_timeout(Some(Duration::from_millis(50))).ok();
+    conn.set_write_timeout(Some(Duration::from_millis(200))).ok();
+    let mut line = String::new();
+    let _ = BufReader::new(&conn).take(64 << 10).read_line(&mut line);
+    let reply = json!({"ok": false, "error": {"code": "server.busy", "message": "the app is handling too many control requests; try again"}});
+    let mut w = &conn;
+    let _ = w.write_all(format!("{reply}\n").as_bytes());
+    let _ = w.flush();
+    let _ = conn.shutdown(std::net::Shutdown::Write);
+}
+
 /// Starts serving `library` on a loopback port and publishes the endpoint. One thread accepts; each connection is
-/// handled on its own thread (requests are small and rare).
+/// handled on its own thread (requests are small and rare), at most [`MAX_CONNECTIONS`] at a time.
 pub fn serve(library: &Path, version: &str, handler: Handler) -> std::io::Result<Server> {
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
     let port = listener.local_addr()?.port();
@@ -183,18 +227,40 @@ pub fn serve(library: &Path, version: &str, handler: Handler) -> std::io::Result
     write_private(&file, &serde_json::to_string_pretty(&endpoint).unwrap_or_default())?;
     let stop = Arc::new(AtomicBool::new(false));
     let (stop2, token) = (stop.clone(), endpoint.token.clone());
+    let active = Arc::new(AtomicUsize::new(0));
     std::thread::Builder::new().name("control-accept".into()).spawn(move || {
         for conn in listener.incoming() {
             if stop2.load(Ordering::SeqCst) {
                 break;
             }
             let Ok(conn) = conn else { continue };
+            if active.fetch_add(1, Ordering::SeqCst) >= MAX_CONNECTIONS {
+                active.fetch_sub(1, Ordering::SeqCst);
+                tracing::warn!("control link: too many connections; refusing one");
+                refuse_busy(conn);
+                continue;
+            }
+            let slot = Slot(active.clone());
             let (h, token) = (handler.clone(), token.clone());
-            let _ = std::thread::Builder::new().name("control-conn".into()).spawn(move || handle(conn, &token, &h));
+            let _ = std::thread::Builder::new().name("control-conn".into()).spawn(move || {
+                let _slot = slot;
+                handle(conn, &token, &h)
+            });
         }
     })?;
     tracing::info!(port, library = %library.display(), "control link listening");
     Ok(Server { endpoint, file, stop })
+}
+
+/// Runs the handler; a panic in it becomes an `app.internal` refusal instead of a dropped connection.
+fn call_handler(handler: &Handler, method: &str, params: Value) -> Result<Value, Refusal> {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| handler(method, params))) {
+        Ok(r) => r,
+        Err(_) => {
+            tracing::error!(method, "control link: the handler panicked");
+            Err(Refusal::new("app.internal", format!("the app hit an internal error handling `{method}`")))
+        }
+    }
 }
 
 fn handle(conn: TcpStream, token: &str, handler: &Handler) {
@@ -208,7 +274,7 @@ fn handle(conn: TcpStream, token: &str, handler: &Handler) {
         Ok(r) if !constant_time_eq(&r.token, token) => {
             json!({"ok": false, "error": {"code": "token.invalid", "message": "wrong control token"}})
         }
-        Ok(r) => match handler(&r.method, r.params) {
+        Ok(r) => match call_handler(handler, &r.method, r.params) {
             Ok(v) => json!({"ok": true, "result": v}),
             Err(e) => json!({"ok": false, "error": e}),
         },
@@ -225,7 +291,6 @@ trait TakeLine {
 
 impl<R: BufRead> TakeLine for R {
     fn take_line(&mut self, out: &mut String) -> std::io::Result<usize> {
-        use std::io::Read;
         self.take(4 << 20).read_line(out)
     }
 }

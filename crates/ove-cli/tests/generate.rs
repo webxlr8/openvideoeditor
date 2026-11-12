@@ -129,3 +129,35 @@ fn plan_confirm_run_and_background() {
     assert_eq!(code, Some(0));
     assert!(m["models"].as_array().unwrap().iter().all(|x| x["kind"] == "video"));
 }
+
+#[test]
+fn jobs_whose_worker_died_are_failed_and_their_placeholder_removed() {
+    let d = tempfile::tempdir().unwrap();
+    let lib = d.path().join("lib");
+    let l = ove_store::Library::open(&lib, Arc::new(ove_core::SystemClock)).unwrap();
+    let mut p = l.create("Promo").unwrap();
+    p.apply(ove_store::library::starter_tracks(), ove_core::Source::Gui, None).unwrap();
+    // A job left running by a worker that crashed: its placeholder is still on the timeline.
+    let req = ove_generate::Request { prompt: "a lighthouse".into(), ..Default::default() };
+    let plan = ove_generate::plan(p.doc(), ove_generate::Kind::Image, &req, "i_gen_dead").unwrap();
+    p.apply(plan.ops.clone(), ove_core::Source::Gui, None).unwrap();
+    let bundle = p.bundle().to_path_buf();
+    p.close().unwrap();
+    let mut worker =
+        Command::new(env!("CARGO_BIN_EXE_ove")).arg("--version").stdout(std::process::Stdio::null()).spawn().unwrap();
+    let gone = worker.id();
+    worker.wait().unwrap();
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64;
+    let mut job = ove_generate::new_job(&plan, &req, "g_dead_worker", now - 5 * 60_000);
+    job.status = ove_generate::Status::Running;
+    job.worker_pid = Some(gone);
+    ove_generate::job::save(&bundle, &job).unwrap();
+
+    let (code, list, e) = ove(&lib, &[], &["generate", "list", "Promo"]);
+    assert_eq!(code, Some(0), "{e}");
+    let j = &list["jobs"][0];
+    assert_eq!(j["status"], "failed", "{list}");
+    assert!(j["error"].as_str().unwrap().contains("stopped before finishing"));
+    let (_, src, _) = ove(&lib, &[], &["source", "print", "Promo"]);
+    assert!(!src["text"].as_str().unwrap().contains("pending={true}"), "placeholder removed: {src}");
+}

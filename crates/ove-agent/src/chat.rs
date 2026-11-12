@@ -78,8 +78,13 @@ impl ChatStore {
         self.dir.join("chats.json")
     }
 
-    fn log_path(&self, id: &str) -> PathBuf {
-        self.dir.join("chats").join(format!("{id}.jsonl"))
+    /// The log file of chat `id`; refused unless the id is a plain name ([`ove_guard::is_safe_id`]), since ids come
+    /// from the bundle's index and from callers.
+    fn log_path(&self, id: &str) -> std::io::Result<PathBuf> {
+        if !ove_guard::is_safe_id(id) {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, format!("invalid chat id {id:?}")));
+        }
+        Ok(self.dir.join("chats").join(format!("{id}.jsonl")))
     }
 
     pub fn list(&self) -> Vec<ChatSummary> {
@@ -121,7 +126,7 @@ impl ChatStore {
     }
 
     pub fn append(&self, id: &str, r: &Record) -> std::io::Result<()> {
-        let p = self.log_path(id);
+        let p = self.log_path(id)?;
         std::fs::create_dir_all(p.parent().unwrap())?;
         let mut f = std::fs::OpenOptions::new().create(true).append(true).open(p)?;
         let mut line = serde_json::to_vec(r).unwrap();
@@ -129,13 +134,10 @@ impl ChatStore {
         f.write_all(&line)
     }
 
-    /// Records of a chat; a torn last line (crash mid-write) is skipped.
+    /// Records of a chat; a torn last line (crash mid-write) is skipped. An invalid id has none.
     pub fn records(&self, id: &str) -> Vec<Record> {
-        std::fs::read_to_string(self.log_path(id))
-            .unwrap_or_default()
-            .lines()
-            .filter_map(|l| serde_json::from_str(l).ok())
-            .collect()
+        let Ok(path) = self.log_path(id) else { return Vec::new() };
+        std::fs::read_to_string(path).unwrap_or_default().lines().filter_map(|l| serde_json::from_str(l).ok()).collect()
     }
 }
 
@@ -227,6 +229,26 @@ mod tests {
         assert_eq!(last[1]["is_error"], true);
         assert_eq!(last[2]["text"], "continue");
         assert_eq!(store.list().len(), 1);
+    }
+
+    #[test]
+    fn chat_ids_cannot_escape_the_chats_folder() {
+        let d = tempfile::tempdir().unwrap();
+        let bundle = d.path().join("p.ove");
+        let store = ChatStore::for_bundle(&bundle);
+        let r = Record::User { id: "u".into(), text: "x".into(), time: 0 };
+        for id in ["../../escape", "..", "a/b", "a\\b", "/tmp/abs", "", "con"] {
+            let e = store.append(id, &r).unwrap_err();
+            assert_eq!(e.kind(), std::io::ErrorKind::InvalidInput, "{id:?}");
+            assert!(store.records(id).is_empty());
+        }
+        assert!(!d.path().join("escape.jsonl").exists());
+        assert!(!bundle.join("escape.jsonl").exists());
+        // An index entry pointing outside (a bundle made elsewhere) reads as an empty chat.
+        std::fs::create_dir_all(bundle.join("agent")).unwrap();
+        std::fs::write(bundle.join("secret.jsonl"), "{\"type\":\"user\",\"id\":\"u\",\"text\":\"s\",\"time\":0}\n")
+            .unwrap();
+        assert!(store.records("../../secret").is_empty());
     }
 
     #[test]

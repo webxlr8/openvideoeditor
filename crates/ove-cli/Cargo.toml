@@ -17,21 +17,20 @@ ove-analyze = { path = "../ove-analyze", optional = true }
 ove-control = { path = "../ove-control" }
 ove-core = { path = "../ove-core" }
 ove-generate = { path = "../ove-generate" }
+ove-guard = { path = "../ove-guard" }
 ove-interchange = { path = "../ove-interchange" }
 ove-projection = { path = "../ove-projection" }
 ove-media = { path = "../ove-media", optional = true }
 ove-render = { path = "../ove-render", optional = true }
 ove-store = { path = "../ove-store" }
 serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
+tempfile = "3"
 
 [features]
 # Reading media, analysis and `ove export` (links FFmpeg). Desktop bundles build the CLI with it.
 media = ["dep:ove-analyze", "dep:ove-media", "dep:ove-render"]
 # Former name of `media`.
 export = ["media"]
-
-[dev-dependencies]
-tempfile = "3"
 
 [lints]
 workspace = true

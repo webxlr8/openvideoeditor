@@ -1,12 +1,13 @@
 //! Provider adapters. Each turns a request into output bytes, polling where the provider is asynchronous and
 //! stopping when cancelled. Base URLs can be overridden for tests (`OVE_FAL_QUEUE_URL`, `OVE_OPENAI_URL`,
-//! `OVE_ELEVENLABS_URL`).
+//! `OVE_ELEVENLABS_URL`) in debug builds, or in release builds with `OVE_DEV_ENDPOINTS=1` (see [`base`]).
 
 pub mod elevenlabs;
 pub mod fal;
 pub mod openai;
 
-use std::io::Read;
+use std::io::{Read, Write};
+use std::path::Path;
 use std::time::Duration;
 
 use serde_json::Value;
@@ -31,13 +32,59 @@ impl GenError {
 pub type Result<T> = std::result::Result<T, GenError>;
 
 /// What a provider returned.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Output {
-    pub bytes: Vec<u8>,
+    pub data: Data,
     /// File extension: png, jpg, mp4, mp3, …
     pub ext: String,
     pub details: Value,
 }
+
+/// The output's content: small results in memory, downloads already on disk next to their final place.
+#[derive(Debug)]
+pub enum Data {
+    Bytes(Vec<u8>),
+    /// A finished download in [`Run::out_dir`], removed if dropped without being persisted.
+    File(tempfile::NamedTempFile),
+}
+
+impl Data {
+    /// Size in bytes.
+    pub fn len(&self) -> u64 {
+        match self {
+            Data::Bytes(b) => b.len() as u64,
+            Data::File(f) => f.as_file().metadata().map(|m| m.len()).unwrap_or(0),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Reads the content into memory (tests, small files).
+    pub fn to_vec(&self) -> std::io::Result<Vec<u8>> {
+        match self {
+            Data::Bytes(b) => Ok(b.clone()),
+            Data::File(f) => std::fs::read(f.path()),
+        }
+    }
+
+    /// Saves the content at `path` (a download is renamed into place; it is already on the same volume).
+    pub fn save(self, path: &Path) -> std::io::Result<()> {
+        match self {
+            Data::Bytes(b) => {
+                let dir = path.parent().unwrap_or(Path::new("."));
+                let mut t = tempfile::Builder::new().prefix(".output-").tempfile_in(dir)?;
+                t.write_all(&b)?;
+                t.persist(path).map(|_| ()).map_err(|e| e.error)
+            }
+            Data::File(t) => t.persist(path).map(|_| ()).map_err(|e| e.error),
+        }
+    }
+}
+
+/// Largest output downloaded (video).
+pub const MAX_DOWNLOAD: u64 = 2 << 30;
 
 /// Progress callbacks and the cancel check for one run.
 pub struct Run<'a> {
@@ -45,22 +92,32 @@ pub struct Run<'a> {
     pub cancelled: &'a dyn Fn() -> bool,
     /// (progress 0–1 if known, provider request id once known)
     pub progress: &'a mut dyn FnMut(Option<f64>, Option<&str>),
+    /// Where downloads are streamed (the output folder, so the finished file is renamed into place).
+    pub out_dir: &'a Path,
 }
 
 pub fn poll_interval() -> Duration {
     Duration::from_millis(std::env::var("OVE_GENERATE_POLL_MS").ok().and_then(|v| v.parse().ok()).unwrap_or(1500))
 }
 
+/// A provider's API root: `default`, or the override in `var` where the build allows it (debug builds, or
+/// `OVE_DEV_ENDPOINTS=1`; https, or http to localhost only). See [`ove_guard::endpoint`].
 pub fn base(var: &str, default: &str) -> String {
-    std::env::var(var)
-        .ok()
-        .filter(|v| !v.is_empty())
-        .unwrap_or_else(|| default.to_string())
-        .trim_end_matches('/')
-        .to_string()
+    ove_guard::endpoint::base_url(var, default)
 }
 
+/// The HTTP agent for calls that carry a key. Redirects are not followed: ureq drops `Authorization` on a redirect to
+/// another host but forwards custom key headers (`xi-api-key`), and no provider API redirects.
 pub fn agent() -> ureq::Agent {
+    ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_secs(15))
+        .timeout_read(Duration::from_secs(300))
+        .redirects(0)
+        .build()
+}
+
+/// The HTTP agent for downloading outputs (no key is ever set on it; CDNs redirect).
+fn download_agent() -> ureq::Agent {
     ureq::AgentBuilder::new().timeout_connect(Duration::from_secs(15)).timeout_read(Duration::from_secs(300)).build()
 }
 
@@ -98,10 +155,29 @@ pub fn http_error(provider: &str, e: ureq::Error) -> GenError {
     }
 }
 
-pub fn read_bytes(r: ureq::Response, limit: u64) -> Result<Vec<u8>> {
-    let mut v = Vec::new();
-    r.into_reader().take(limit).read_to_end(&mut v).map_err(|e| GenError::new("network", e.to_string()))?;
-    Ok(v)
+/// Streams a response body into a temporary file in `dir`, failing (and removing it) past `limit` bytes.
+pub fn download_to(r: ureq::Response, dir: &Path, limit: u64) -> Result<Data> {
+    let too_large =
+        || GenError::new("provider.tooLarge", format!("the output is larger than {} MiB; not saved", limit >> 20));
+    if r.header("content-length").and_then(|v| v.trim().parse::<u64>().ok()).is_some_and(|n| n > limit) {
+        return Err(too_large());
+    }
+    let unwritable = |e: std::io::Error| GenError::new("file.unwritable", format!("{}: {e}", dir.display()));
+    std::fs::create_dir_all(dir).map_err(unwritable)?;
+    let mut file =
+        tempfile::Builder::new().prefix(".download-").suffix(".part").tempfile_in(dir).map_err(unwritable)?;
+    let n = std::io::copy(&mut r.into_reader().take(limit + 1), &mut file).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::WriteZero || e.kind() == std::io::ErrorKind::StorageFull {
+            unwritable(e)
+        } else {
+            GenError::new("network", e.to_string())
+        }
+    })?;
+    if n > limit {
+        return Err(too_large());
+    }
+    file.as_file().sync_all().map_err(unwritable)?;
+    Ok(Data::File(file))
 }
 
 const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -140,16 +216,17 @@ pub fn b64_decode(s: &str) -> Result<Vec<u8>> {
     Ok(out)
 }
 
-/// Downloads a result URL (or decodes a `data:` URI).
-pub fn fetch(url: &str) -> Result<(Vec<u8>, String)> {
+/// Downloads a result URL into `dir` (streamed, at most [`MAX_DOWNLOAD`] bytes), or decodes a `data:` URI. No key
+/// is sent.
+pub fn fetch(url: &str, dir: &Path) -> Result<(Data, String)> {
     if let Some(rest) = url.strip_prefix("data:") {
         let (meta, data) = rest.split_once(',').ok_or_else(|| GenError::new("provider.failed", "bad data URI"))?;
         let mime = meta.split(';').next().unwrap_or("").to_string();
-        return Ok((b64_decode(data)?, mime));
+        return Ok((Data::Bytes(b64_decode(data)?), mime));
     }
-    let r = agent().get(url).call().map_err(|e| http_error("download", e))?;
+    let r = download_agent().get(url).call().map_err(|e| http_error("download", e))?;
     let mime = r.content_type().to_string();
-    Ok((read_bytes(r, 2 << 30)?, mime))
+    Ok((download_to(r, dir, MAX_DOWNLOAD)?, mime))
 }
 
 pub fn ext_for(mime: &str, url: &str, fallback: &str) -> String {
@@ -188,6 +265,7 @@ pub fn data_uri(path: &std::path::Path) -> Result<String> {
 
 /// Runs one request on its provider.
 pub fn run(model: &Model, req: &Request, aspect: &str, r: &mut Run) -> Result<Output> {
+    ove_guard::register_secret(r.key);
     match model.provider {
         Provider::Fal => fal::run(model, req, aspect, r),
         Provider::OpenAi => openai::run(model, req, aspect, r),

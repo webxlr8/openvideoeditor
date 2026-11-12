@@ -451,32 +451,42 @@ fn scalar(v: &Value, name: &str, kind: Kind) -> Result<String, Fail> {
     })
 }
 
-/// Temporary files a call created; removed when dropped.
+/// Temporary files a call created, inside a private directory (random name, owner-only on Unix) made on first use
+/// and removed with everything in it when dropped. Paths in the shared temp folder were predictable and written
+/// through symlinks; nothing else can create entries in this directory.
 #[derive(Default)]
-pub struct Scratch(Vec<PathBuf>);
+pub struct Scratch {
+    dir: Option<tempfile::TempDir>,
+    made: usize,
+}
 
 impl Scratch {
-    pub fn file(&mut self, ext: &str) -> PathBuf {
-        let p = std::env::temp_dir().join(format!(
-            "ove-mcp-{}-{}.{ext}",
-            std::process::id(),
-            crate::common::now_ms() as u64 + self.0.len() as u64
-        ));
-        self.0.push(p.clone());
-        p
+    /// A fresh path in the private directory (not created).
+    pub fn file(&mut self, ext: &str) -> Result<PathBuf, Fail> {
+        let dir = match &mut self.dir {
+            Some(d) => d,
+            empty => {
+                let mut b = tempfile::Builder::new();
+                b.prefix("ove-mcp-");
+                // Owner-only (the default follows the umask, usually 0755). On Windows the per-user temp folder's
+                // ACL already keeps other users out.
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    b.permissions(std::fs::Permissions::from_mode(0o700));
+                }
+                empty.insert(b.tempdir().map_err(|e| Fail::new("file.unwritable", format!("temporary folder: {e}")))?)
+            }
+        };
+        self.made += 1;
+        Ok(dir.path().join(format!("{}.{ext}", self.made)))
     }
 }
 
-impl Drop for Scratch {
-    fn drop(&mut self) {
-        for p in &self.0 {
-            if p.is_dir() {
-                let _ = std::fs::remove_dir_all(p);
-            } else {
-                let _ = std::fs::remove_file(p);
-            }
-        }
-    }
+/// Writes a new file (never an existing one, never through a link).
+fn write_new(path: &std::path::Path, text: &str) -> std::io::Result<()> {
+    let mut f = std::fs::OpenOptions::new().write(true).create_new(true).open(path)?;
+    f.write_all(text.as_bytes())
 }
 
 /// Command-line arguments for a tool call (without the program name and global flags), plus the image output path.
@@ -515,8 +525,8 @@ pub fn argv(
                 .map(|x| scalar(x, a.name, Kind::Str))
                 .collect::<Result<_, _>>()?,
             Kind::TextFile => {
-                let p = scratch.file("tsx");
-                std::fs::write(&p, scalar(v, a.name, Kind::TextFile)?)
+                let p = scratch.file("tsx")?;
+                write_new(&p, &scalar(v, a.name, Kind::TextFile)?)
                     .map_err(|e| Fail::new("file.unwritable", format!("temporary file: {e}")))?;
                 vec![p.display().to_string()]
             }
@@ -540,11 +550,11 @@ pub fn argv(
     let mut image = None;
     if let Some((f, many)) = t.images {
         let p = if many {
-            let d = scratch.file("d");
+            let d = scratch.file("d")?;
             std::fs::create_dir_all(&d).map_err(|e| Fail::new("file.unwritable", e.to_string()))?;
             d
         } else {
-            scratch.file("png")
+            scratch.file("png")?
         };
         if f.is_empty() {
             positional.push(p.display().to_string());
@@ -634,7 +644,7 @@ pub fn serve(run: &dyn Fn(Vec<String>) -> crate::common::Out) -> std::io::Result
             Err(e) => Some(
                 json!({"jsonrpc": "2.0", "id": null, "error": {"code": -32700, "message": format!("parse error: {e}")}}),
             ),
-            Ok(msg) => handle(&msg, run),
+            Ok(msg) => handle_contained(&msg, run),
         };
         if let Some(r) = reply {
             writeln!(stdout, "{r}")?;
@@ -680,4 +690,70 @@ pub fn handle(msg: &Value, run: &dyn Fn(Vec<String>) -> crate::common::Out) -> O
         Ok(r) => json!({"jsonrpc": "2.0", "id": id, "result": r}),
         Err((code, message)) => json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message}}),
     })
+}
+
+/// [`handle`], with a panic anywhere in the message's handling (a tool, a command it runs) answered as a JSON-RPC
+/// internal error, so one bad call does not end the session.
+pub fn handle_contained(msg: &Value, run: &dyn Fn(Vec<String>) -> crate::common::Out) -> Option<Value> {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| handle(msg, run))) {
+        Ok(reply) => reply,
+        Err(payload) => {
+            let what = payload
+                .downcast_ref::<&str>()
+                .map(|s| s.to_string())
+                .or_else(|| payload.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "unknown panic".into());
+            let id = msg.get("id").cloned()?;
+            Some(
+                json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32603, "message": format!("internal error: {what}")}}),
+            )
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn call_msg(name: &str, arguments: Value) -> Value {
+        json!({"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": name, "arguments": arguments}})
+    }
+
+    #[test]
+    fn a_panicking_tool_is_an_error_reply_not_the_end() {
+        let msg = call_msg("list_projects", json!({}));
+        let reply = handle_contained(&msg, &|_| panic!("tool blew up")).unwrap();
+        assert_eq!(reply["id"], 7);
+        assert_eq!(reply["error"]["code"], -32603);
+        assert!(reply["error"]["message"].as_str().unwrap().contains("tool blew up"));
+        // The next message is served normally.
+        let ok = handle_contained(&msg, &|_| Ok((json!({"projects": []}), String::new()))).unwrap();
+        assert_eq!(ok["result"]["isError"], false);
+        // A notification that panics gets no reply.
+        let note = json!({"jsonrpc": "2.0", "method": "tools/call", "params": {"name": "list_projects"}});
+        assert!(handle_contained(&note, &|_| panic!("quiet")).is_none());
+    }
+
+    #[test]
+    fn timeline_text_goes_to_a_private_folder_that_is_removed() {
+        let seen = std::cell::RefCell::new(None::<PathBuf>);
+        let msg = call_msg("check_timeline", json!({"project": "p", "source": "<timeline />"}));
+        let reply = handle_contained(&msg, &|args| {
+            let path = PathBuf::from(args.iter().find(|a| a.ends_with(".tsx")).unwrap());
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), "<timeline />");
+            let dir = path.parent().unwrap().to_path_buf();
+            assert!(dir.file_name().unwrap().to_string_lossy().starts_with("ove-mcp-"));
+            assert_ne!(dir, std::env::temp_dir(), "not directly in the shared temp folder");
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                assert_eq!(std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777, 0o700);
+            }
+            *seen.borrow_mut() = Some(dir);
+            Ok((json!({}), String::new()))
+        })
+        .unwrap();
+        assert_eq!(reply["result"]["isError"], false, "{reply}");
+        assert!(!seen.borrow().as_ref().unwrap().exists(), "removed after the call");
+    }
 }

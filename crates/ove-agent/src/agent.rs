@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use serde::Serialize;
 use serde_json::{Value, json};
 
-use crate::api::{ApiError, Client, StreamEvent, Usage, model_info};
+use crate::api::{ApiError, Client, StreamEvent, Usage, model_info, pricing_model};
 use crate::chat::{ChatStore, QuestionItem, QuestionOption, Record, messages};
 use crate::prompt::SYSTEM_PROMPT;
 use crate::tools::{ToolHost, definitions, dispatch, label};
@@ -144,6 +144,7 @@ pub fn run_turn(
     emit(AgentEvent::TurnStarted { chat_id: chat_id.into() });
 
     let mut usage = Usage::default();
+    let mut cost = 0.0;
     let mut final_text = String::new();
     let mut note: Option<String> = None;
     let mut stopped = false;
@@ -167,6 +168,12 @@ pub fn run_turn(
                 StreamEvent::TextDelta(t) => (shared.borrow_mut())(AgentEvent::TextDelta { text: t }),
                 StreamEvent::ThinkingDelta(t) => (shared.borrow_mut())(AgentEvent::ThinkingDelta { text: t }),
                 StreamEvent::ToolUseStart(..) => {}
+                // Every attempt that started is billed, including ones that failed part-way or were stopped, at the
+                // price of the model that actually served it.
+                StreamEvent::Usage { model, usage: u } => {
+                    usage.add(&u);
+                    cost += u.cost_usd(pricing_model(&model, &cfg.model));
+                }
             },
             &mut |e, wait| {
                 (shared.borrow_mut())(AgentEvent::Retrying { message: e.message.clone(), seconds: wait.as_secs_f64() })
@@ -183,7 +190,6 @@ pub fn run_turn(
                 break;
             }
         };
-        usage.add(&resp.usage);
         store
             .append(
                 chat_id,
@@ -283,7 +289,6 @@ pub fn run_turn(
     }
 
     let duration_ms = started.elapsed().as_millis() as u64;
-    let cost = usage.cost_usd(&cfg.model);
     let (is_error, text) = match &error {
         Some(e) => (true, e.message.clone()),
         None if stopped => (true, "Stopped.".to_string()),

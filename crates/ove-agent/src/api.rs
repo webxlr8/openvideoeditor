@@ -10,8 +10,11 @@ use serde_json::{Map, Value, json};
 
 /// API version header value.
 pub const API_VERSION: &str = "2026-10-21";
-/// Default API host; `OVE_ANTHROPIC_BASE_URL` overrides it (tests and local mocks).
+/// Default API host. `OVE_ANTHROPIC_BASE_URL` overrides it for tests and local mocks, in debug builds only (or with
+/// `OVE_DEV_ENDPOINTS=1`), and only with an https URL or http to localhost; see [`ove_guard::endpoint`].
 pub const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
+/// Environment variable that overrides [`DEFAULT_BASE_URL`].
+pub const BASE_URL_VAR: &str = "OVE_ANTHROPIC_BASE_URL";
 /// Beta header enabling server-side refusal fallbacks.
 pub const FALLBACK_BETA: &str = "server-side-fallback-2026-07-01";
 
@@ -56,7 +59,24 @@ pub struct ModelInfo {
 }
 
 pub fn model_info(id: &str) -> ModelInfo {
-    MODELS.iter().copied().find(|m| m.id == id).unwrap_or(MODELS[0])
+    known_model(id).unwrap_or(MODELS[0])
+}
+
+/// The listed model `id` names: exact, or a dated / suffixed variant of a listed id (`claude-opus-5-5-20261101`).
+pub fn known_model(id: &str) -> Option<ModelInfo> {
+    MODELS.iter().copied().find(|m| m.id == id).or_else(|| {
+        MODELS
+            .iter()
+            .copied()
+            .filter(|m| id.starts_with(m.id) && id[m.id.len()..].starts_with('-'))
+            .max_by_key(|m| m.id.len())
+    })
+}
+
+/// The model to price a response by: the one the API reports it was served by (a server-side fallback can differ
+/// from the one asked for), or `requested` when the reported one is missing or not in [`MODELS`].
+pub fn pricing_model<'a>(reported: &'a str, requested: &'a str) -> &'a str {
+    if known_model(reported).is_some() { reported } else { requested }
 }
 
 /// Token usage of one or more requests.
@@ -166,6 +186,13 @@ pub enum StreamEvent {
     ThinkingDelta(String),
     /// A tool call began (id, name).
     ToolUseStart(String, String),
+    /// Tokens billed for one response (attempt), with the model the API reports serving it. Sent once per attempt
+    /// that got as far as `message_start`, also when the stream then fails or is stopped, so partial responses are
+    /// counted. Not output: it does not stop a retry.
+    Usage {
+        model: String,
+        usage: Usage,
+    },
 }
 
 /// One complete model response.
@@ -192,24 +219,32 @@ pub struct Client {
 }
 
 impl Client {
+    /// A client for the real API, or for the override in `OVE_ANTHROPIC_BASE_URL` where the build allows it.
     pub fn new(api_key: impl Into<String>) -> Self {
-        let base = std::env::var("OVE_ANTHROPIC_BASE_URL")
-            .ok()
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| DEFAULT_BASE_URL.into());
-        Self::with_base_url(api_key, base)
+        Self::with_base_url(api_key, ove_guard::endpoint::base_url(BASE_URL_VAR, DEFAULT_BASE_URL))
     }
 
+    /// The API root requests go to.
+    pub fn base_url(&self) -> &str {
+        &self.base_url
+    }
+
+    /// A client for an explicit API root (tests, embedding). Unlike [`Client::new`] this trusts the caller.
     pub fn with_base_url(api_key: impl Into<String>, base_url: impl Into<String>) -> Self {
+        let api_key = api_key.into();
+        ove_guard::register_secret(&api_key);
         let agent = ureq::AgentBuilder::new()
             .timeout_connect(Duration::from_secs(15))
             // SSE sends pings; a long silence means the connection is gone.
             .timeout_read(Duration::from_secs(120))
+            // ureq forwards `x-api-key` on a redirect to another host (it only drops `Authorization`); the API never
+            // redirects, so redirects are not followed at all.
+            .redirects(0)
             .build();
         Client {
             agent,
             base_url: base_url.into().trim_end_matches('/').to_string(),
-            api_key: api_key.into(),
+            api_key,
             backoff: vec![
                 Duration::from_secs(1),
                 Duration::from_secs(3),
@@ -234,7 +269,9 @@ impl Client {
             }
             let mut produced = false;
             let result = self.stream_once(body, cancel, &mut |e| {
-                produced = true;
+                if !matches!(e, StreamEvent::Usage { .. }) {
+                    produced = true;
+                }
                 on_event(e)
             });
             match result {
@@ -286,7 +323,8 @@ impl Client {
     }
 }
 
-/// Parses a Messages SSE stream into a complete response.
+/// Parses a Messages SSE stream into a complete response. Once the stream has started (`message_start`), its usage
+/// is reported with [`StreamEvent::Usage`] whether it then completes, fails or is cancelled.
 pub fn parse_sse(
     reader: impl BufRead,
     cancel: &AtomicBool,
@@ -300,6 +338,23 @@ pub fn parse_sse(
         usage: Usage::default(),
         invalid_tool_inputs: Vec::new(),
     };
+    let mut started = false;
+    let res = read_sse(reader, cancel, on_event, &mut out, &mut started);
+    if started {
+        on_event(StreamEvent::Usage { model: out.model.clone(), usage: out.usage });
+    }
+    res?;
+    out.content.retain(|b| !b.is_null());
+    Ok(out)
+}
+
+fn read_sse(
+    reader: impl BufRead,
+    cancel: &AtomicBool,
+    on_event: &mut dyn FnMut(StreamEvent),
+    out: &mut Response,
+    started: &mut bool,
+) -> Result<(), ApiError> {
     let mut partial_json: Vec<String> = Vec::new();
     let mut data = String::new();
     let mut done = false;
@@ -323,6 +378,7 @@ pub fn parse_sse(
         data.clear();
         match ev["type"].as_str().unwrap_or("") {
             "message_start" => {
+                *started = true;
                 let m = &ev["message"];
                 out.id = m["id"].as_str().unwrap_or_default().to_string();
                 out.model = m["model"].as_str().unwrap_or_default().to_string();
@@ -424,8 +480,7 @@ pub fn parse_sse(
             retry_after: None,
         });
     }
-    out.content.retain(|b| !b.is_null());
-    Ok(out)
+    Ok(())
 }
 
 fn append(block: &mut Value, key: &str, text: &str) {
@@ -504,6 +559,60 @@ mod tests {
             parse_sse(cut.as_bytes(), &AtomicBool::new(false), &mut |_| {}).unwrap_err().code,
             "net.interrupted"
         );
+    }
+
+    #[test]
+    fn usage_is_reported_even_when_the_stream_fails() {
+        let usage_of = |body: String| {
+            let mut got = vec![];
+            let r = parse_sse(body.as_bytes(), &AtomicBool::new(false), &mut |e| {
+                if let StreamEvent::Usage { model, usage } = e {
+                    got.push((model, usage));
+                }
+            });
+            (r.is_ok(), got)
+        };
+        let start =
+            json!({"type":"message_start","message":{"id":"m","model":"claude-opus-5-5","usage":{"input_tokens":50}}});
+        let delta = json!({"type":"message_delta","delta":{},"usage":{"output_tokens":7}});
+        let err = json!({"type":"error","error":{"type":"api_error","message":"boom"}});
+        let (ok, got) = usage_of(sse(&[start.clone(), delta.clone(), err.clone()]));
+        assert!(!ok);
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].0, "claude-opus-5-5");
+        assert_eq!((got[0].1.input_tokens, got[0].1.output_tokens), (50, 7));
+        // Cut off, and complete: one report each.
+        assert_eq!(usage_of(sse(std::slice::from_ref(&start))).1.len(), 1);
+        assert_eq!(usage_of(sse(&[start, delta, json!({"type":"message_stop"})])).1.len(), 1);
+        // Failed before the response started: nothing was billed.
+        assert!(usage_of(sse(&[err])).1.is_empty());
+    }
+
+    #[test]
+    fn pricing_follows_the_served_model() {
+        assert_eq!(known_model("claude-haiku-5-5-20261001").unwrap().id, "claude-haiku-5-5");
+        assert!(known_model("claude-haiku-5-50").is_none());
+        assert!(known_model("mock").is_none());
+        assert_eq!(pricing_model("claude-opus-5-5", "claude-sonnet-5-5"), "claude-opus-5-5");
+        assert_eq!(pricing_model("", "claude-sonnet-5-5"), "claude-sonnet-5-5");
+        assert_eq!(pricing_model("mock", "claude-haiku-5-5"), "claude-haiku-5-5");
+    }
+
+    #[test]
+    fn base_url_override_must_be_https_or_local() {
+        // The only test in this crate that touches the variable.
+        let with = |v: &str| {
+            unsafe { std::env::set_var(BASE_URL_VAR, v) };
+            let c = Client::new("sk-ant-test-0123456789abcdef");
+            unsafe { std::env::remove_var(BASE_URL_VAR) };
+            c.base_url().to_string()
+        };
+        // Debug build (tests): local mocks and https hosts are accepted…
+        assert_eq!(with("http://127.0.0.1:8787/"), "http://127.0.0.1:8787");
+        assert_eq!(with("https://proxy.example.com"), "https://proxy.example.com");
+        // …plain http to another machine is not.
+        assert_eq!(with("http://203.0.113.9"), DEFAULT_BASE_URL);
+        assert_eq!(with(""), DEFAULT_BASE_URL);
     }
 
     #[test]

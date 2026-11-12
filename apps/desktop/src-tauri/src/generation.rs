@@ -125,11 +125,62 @@ pub fn start_generation(
     let _ = GenerationUpdated(text.clone()).emit(&app);
     let keys = g.keys.clone();
     let a = app.clone();
-    std::thread::Builder::new()
-        .name(format!("generate-{}", job.id))
-        .spawn(move || run(&a, &bundle, job, keys.as_ref()))
-        .map_err(|e| AppError::new(ErrorCode::Internal, e.to_string()))?;
+    let task = format!("generate-{}", job.id);
+    crate::worker::spawn_contained(&task, move || {
+        let id = job.id.clone();
+        // A panic must not leave the job "running" with its placeholder on the timeline.
+        if crate::worker::contain("generation", || run(&a, &bundle, job, keys.as_ref())).is_err() {
+            give_up(&a, &bundle, &id, "an internal error stopped the generation (details are in the log)");
+        }
+    })
+    .map_err(|e| AppError::new(ErrorCode::Internal, e.to_string()))?;
     Ok(text)
+}
+
+/// Marks an unfinished job failed with `why`, removes its placeholder and tells the UI.
+fn give_up(app: &AppHandle, bundle: &Path, id: &str, why: &str) {
+    let Some(mut job) = ove_generate::job::load(bundle, id) else { return };
+    if !job.status.done() {
+        job.status = Status::Failed;
+        job.error = Some(why.to_string());
+        job.updated_at = ove_core::Clock::now_ms(&ove_core::SystemClock);
+        let _ = ove_generate::job::save(bundle, &job);
+    }
+    remove_placeholder(app, bundle, &job);
+    let _ = GenerationUpdated(serde_json::to_string(&job).unwrap_or_default()).emit(app);
+}
+
+/// The document of the job's project: the open one, or read from the bundle when another project is open.
+fn doc_of(app: &AppHandle, bundle: &Path) -> Option<ove_core::model::Document> {
+    let open = {
+        let state = app.state::<AppState>();
+        let g = state.projects.open.lock().ok();
+        g.and_then(|g| g.as_ref().filter(|p| p.bundle() == bundle).map(|p| p.doc().clone()))
+    };
+    open.or_else(|| {
+        ove_store::project::Project::open(bundle, ove_store::project::Mode::ReadOnly, Arc::new(ove_core::SystemClock))
+            .ok()
+            .map(|p| p.doc().clone())
+    })
+}
+
+/// Removes a failed or cancelled job's pending placeholder, whether or not its project is open.
+fn remove_placeholder(app: &AppHandle, bundle: &Path, job: &Job) {
+    let Some(doc) = doc_of(app, bundle) else {
+        tracing::warn!(job = %job.id, "project for a failed job is not available; placeholder left");
+        return;
+    };
+    let ops = ove_generate::place::failed_ops(&doc, job);
+    apply_to(
+        app,
+        bundle,
+        ops,
+        format!(
+            "generate {}: {}",
+            job.kind.as_str(),
+            if job.status == Status::Cancelled { "cancelled" } else { "failed" }
+        ),
+    );
 }
 
 fn probe(path: &Path) -> ove_generate::Probed {
@@ -187,21 +238,7 @@ fn run(app: &AppHandle, bundle: &Path, mut job: Job, keys: &dyn KeyStore) {
                     probed.duration_us.unwrap_or(0),
                 );
             }
-            let doc = {
-                let state = app.state::<AppState>();
-                let g = state.projects.open.lock().ok();
-                g.and_then(|g| g.as_ref().filter(|p| p.bundle() == bundle).map(|p| p.doc().clone()))
-            };
-            let doc = doc.or_else(|| {
-                ove_store::project::Project::open(
-                    bundle,
-                    ove_store::project::Mode::ReadOnly,
-                    Arc::new(ove_core::SystemClock),
-                )
-                .ok()
-                .map(|p| p.doc().clone())
-            });
-            if let Some(doc) = doc {
+            if let Some(doc) = doc_of(app, bundle) {
                 let now = ove_core::Clock::now_ms(&ove_core::SystemClock);
                 let ops = ove_generate::finish_ops(&doc, &job, &rel, &probed, now);
                 apply_to(
@@ -218,26 +255,8 @@ fn run(app: &AppHandle, bundle: &Path, mut job: Job, keys: &dyn KeyStore) {
         }
         Err(e) => {
             tracing::warn!(job = %job.id, code = %e.code, "generation did not finish: {}", e.message);
-            let doc = app
-                .state::<AppState>()
-                .projects
-                .open
-                .lock()
-                .ok()
-                .and_then(|g| g.as_ref().filter(|p| p.bundle() == bundle).map(|p| p.doc().clone()));
-            if let Some(doc) = doc {
-                let ops = ove_generate::place::failed_ops(&doc, &job);
-                apply_to(
-                    app,
-                    bundle,
-                    ops,
-                    format!(
-                        "generate {}: {}",
-                        job.kind.as_str(),
-                        if job.status == Status::Cancelled { "cancelled" } else { "failed" }
-                    ),
-                );
-            }
+            // Like success, this works whether or not the project is still the open one.
+            remove_placeholder(app, bundle, &job);
         }
     }
     let _ = GenerationUpdated(serde_json::to_string(&job).unwrap_or_default()).emit(app);
@@ -246,9 +265,26 @@ fn run(app: &AppHandle, bundle: &Path, mut job: Job, keys: &dyn KeyStore) {
 /// Jobs of the open project, newest first (JSON array).
 #[tauri::command]
 #[specta::specta]
-pub fn generation_jobs(state: State<'_, AppState>) -> AppResult<String> {
-    let g = lock(&state.projects.open)?;
-    let jobs = g.as_ref().map(|p| ove_generate::job::list(p.bundle())).unwrap_or_default();
+pub fn generation_jobs(app: AppHandle, state: State<'_, AppState>) -> AppResult<String> {
+    // Jobs whose worker is gone (the app or `ove` closed while it ran) or that stopped making progress are marked
+    // failed first and their placeholders removed. (Doc comment above is mirrored into ui/src/bindings.ts.)
+    let mut g = lock(&state.projects.open)?;
+    let Some(p) = g.as_mut() else { return Ok("[]".into()) };
+    let now = ove_core::Clock::now_ms(&ove_core::SystemClock);
+    let reaped = ove_generate::job::reap_stale_jobs(p.bundle(), now);
+    if !reaped.is_empty() {
+        let ops: Vec<_> = reaped.iter().flat_map(|j| ove_generate::place::failed_ops(p.doc(), j)).collect();
+        if !ops.is_empty() {
+            match p.apply(ops, Source::Gui, Some(format!("generate: {} stopped job(s)", reaped.len()))) {
+                Ok(_) => emit(&app, Some(p)),
+                Err(e) => tracing::warn!(error = %e, "could not remove the placeholders of stopped jobs"),
+            }
+        }
+        for j in &reaped {
+            let _ = GenerationUpdated(serde_json::to_string(j).unwrap_or_default()).emit(&app);
+        }
+    }
+    let jobs = ove_generate::job::list(p.bundle());
     Ok(serde_json::to_string(&jobs).unwrap_or_else(|_| "[]".into()))
 }
 
