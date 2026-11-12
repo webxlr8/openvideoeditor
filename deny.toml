@@ -1,6 +1,9 @@
 # Licence and advisory policy (docs/03-architecture-plan.md §5, openspec/config.yaml hard rules).
 [graph]
 all-features = true
+# Only the shipped platforms. Linux builds are for development and pull in the GTK3 stack, whose unmaintained-crate
+# advisories do not apply to anything we ship.
+targets = ["aarch64-apple-darwin", "x86_64-pc-windows-msvc"]
 
 [advisories]
 version = 2
