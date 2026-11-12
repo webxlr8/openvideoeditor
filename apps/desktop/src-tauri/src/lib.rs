@@ -140,6 +140,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             generation::generation_catalog,
             generation::set_provider_key,
             generation::clear_provider_key,
+            generation::test_provider_key,
             generation::plan_generation,
             generation::start_generation,
             generation::generation_jobs,

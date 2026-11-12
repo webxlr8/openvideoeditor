@@ -1559,6 +1559,18 @@ function createMock(): {
       genKeys.delete(provider);
       return ok(JSON.stringify(genCatalog()));
     },
+    testProviderKey: (provider: string) =>
+      ok(
+        !genKeys.has(provider)
+          ? { ok: false, message: "No key is saved." }
+          : provider === "fal"
+            ? {
+                ok: false,
+                message:
+                  "fal.ai keys can't be tested in advance; it is checked on your first request.",
+              }
+            : { ok: true, message: "Key works." },
+      ),
     planGeneration: (kind: string, request: string) => {
       if (!project) return fail("invalid_argument", "Open a project first.");
       const r = JSON.parse(request) as {

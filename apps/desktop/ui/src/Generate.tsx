@@ -4,7 +4,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { commands, events } from "./bridge";
-import type { AppError } from "./bindings";
+import type { AppError, KeyCheck } from "./bindings";
 import { Icon } from "./icons";
 import { fire, reportError, runCommand, unlisten } from "./notify";
 import type { PanelProps } from "./Panels";
@@ -118,15 +118,27 @@ export function KeyEntry({
   onError: (e: AppError) => void;
 }) {
   const [key, setKey] = useState("");
+  const [check, setCheck] = useState<KeyCheck | "checking" | null>(null);
+  // fal.ai has no free request to try a key with; it is checked on first use.
+  const testable = status.provider !== "fal";
+  const test = () => {
+    setCheck("checking");
+    runCommand(commands.testProviderKey(status.provider), setCheck, (e) => {
+      setCheck(null);
+      onError(e);
+    });
+  };
   const save = async () => {
     const r = await commands.setProviderKey(status.provider, key);
     if (r.status === "error") return onError(r.error);
     setKey("");
     onSaved(JSON.parse(r.data) as Catalog);
+    if (testable) test();
   };
   const clear = async () => {
     const r = await commands.clearProviderKey(status.provider);
     if (r.status === "error") return onError(r.error);
+    setCheck(null);
     onSaved(JSON.parse(r.data) as Catalog);
   };
   return (
@@ -160,12 +172,37 @@ export function KeyEntry({
         >
           Save
         </button>
+        {status.hasKey && testable && (
+          <button
+            className="btn"
+            disabled={check === "checking"}
+            onClick={test}
+            data-testid={`key-test-${status.provider}`}
+          >
+            Test
+          </button>
+        )}
         {status.hasKey && status.source !== "environment" && (
           <button className="btn" onClick={() => fire(clear(), onError)}>
             Remove
           </button>
         )}
       </div>
+      {check && (
+        <p
+          className={
+            check === "checking"
+              ? "muted small"
+              : check.ok
+                ? "key-ok small"
+                : "key-error small"
+          }
+          role="status"
+          data-testid={`key-check-${status.provider}`}
+        >
+          {check === "checking" ? "Checking the key…" : check.message}
+        </p>
+      )}
       <p className="muted small">
         Kept in your system's credential store; sent only to {status.label}.
         Create one at <span className="mono">{status.keyUrl}</span>.

@@ -78,6 +78,30 @@ pub fn clear_provider_key(g: State<'_, Generation>, provider: String) -> AppResu
     Ok(generation_catalog(g))
 }
 
+/// Tries a provider's saved key with a free request that only lists something (OpenAI's models, the ElevenLabs
+/// account's voices). fal.ai has no such request; its key is checked on first use.
+#[tauri::command]
+#[specta::specta]
+pub async fn test_provider_key(app: AppHandle, provider: String) -> AppResult<crate::assistant::KeyCheck> {
+    use crate::assistant::KeyCheck;
+    let p = provider_of(&provider)?;
+    let keys = app.state::<Generation>().keys.clone();
+    crate::worker::blocking("test_provider_key", move || {
+        let Some((key, _)) = keys.get(p) else {
+            return Ok(KeyCheck { ok: false, message: "No key is saved.".into() });
+        };
+        Ok(match ove_generate::providers::check_key(p, &key) {
+            Ok(true) => KeyCheck { ok: true, message: "Key works.".into() },
+            Ok(false) => KeyCheck {
+                ok: false,
+                message: format!("{} keys can't be tested in advance; it is checked on your first request.", p.label()),
+            },
+            Err(e) => KeyCheck { ok: false, message: e.message },
+        })
+    })
+    .await
+}
+
 /// The plan for a request on the open project: model, aspect, seconds, estimate, track, start (JSON).
 #[tauri::command]
 #[specta::specta]

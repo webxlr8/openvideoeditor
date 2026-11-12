@@ -272,3 +272,31 @@ pub fn run(model: &Model, req: &Request, aspect: &str, r: &mut Run) -> Result<Ou
         Provider::ElevenLabs => elevenlabs::run(model, req, r),
     }
 }
+
+/// Tries a key with a free request that only lists something (OpenAI's models, the ElevenLabs account's voices).
+/// `Ok(false)`: the provider has no such request (fal.ai), so the key is checked on first use.
+pub fn check_key(provider: Provider, key: &str) -> Result<bool> {
+    ove_guard::register_secret(key);
+    match provider {
+        Provider::OpenAi => {
+            let root = base("OVE_OPENAI_URL", "https://api.openai.com");
+            agent()
+                .get(&format!("{root}/v1/models"))
+                .set("Authorization", &format!("Bearer {key}"))
+                .call()
+                .map_err(|e| http_error("OpenAI", e))?;
+            Ok(true)
+        }
+        Provider::ElevenLabs => {
+            let root = base("OVE_ELEVENLABS_URL", "https://api.elevenlabs.io");
+            agent()
+                .get(&format!("{root}/v2/voices"))
+                .set("xi-api-key", key)
+                .query("page_size", "1")
+                .call()
+                .map_err(|e| http_error("ElevenLabs", e))?;
+            Ok(true)
+        }
+        Provider::Fal => Ok(false),
+    }
+}

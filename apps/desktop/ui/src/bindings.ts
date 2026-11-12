@@ -63,6 +63,11 @@ export const commands = {
 	generationCatalog: () => __TAURI_INVOKE<string>("generation_catalog"),
 	setProviderKey: (provider: string, key: string) => typedError<string, AppError>(__TAURI_INVOKE("set_provider_key", { provider, key })),
 	clearProviderKey: (provider: string) => typedError<string, AppError>(__TAURI_INVOKE("clear_provider_key", { provider })),
+	/**
+	 *  Tries a provider's saved key with a free request that only lists something (OpenAI's models, the ElevenLabs
+	 *  account's voices). fal.ai has no such request; its key is checked on first use.
+	 */
+	testProviderKey: (provider: string) => typedError<KeyCheck, AppError>(__TAURI_INVOKE("test_provider_key", { provider })),
 	/**  The plan for a request on the open project: model, aspect, seconds, estimate, track, start (JSON). */
 	planGeneration: (kind: string, request: string) => typedError<string, AppError>(__TAURI_INVOKE("plan_generation", { kind, request })),
 	/**

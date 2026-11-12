@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 import { App } from "./App";
 import { commands } from "./bridge";
@@ -60,6 +60,26 @@ describe("settings", () => {
     window.__oveMock!.agent.keyWorks = true;
     fireEvent.click(screen.getByTestId("agent-key-test"));
     await waitFor(() => expect(screen.getByTestId("agent-key-check").textContent).toBe("Key works."));
+  });
+
+  it("tests a generation key when it is saved, where the provider allows it", async () => {
+    await openSettings("generation");
+    expect((await screen.findByTestId("generation-data")).textContent).toContain(
+      "prompt and any reference image you attach",
+    );
+    const box = await screen.findByTestId("key-openai");
+    fireEvent.change(box.querySelector("input")!, { target: { value: "sk-openai-test-0123456789" } });
+    fireEvent.click(within(box).getByText("Save"));
+    await waitFor(() => expect(screen.getByTestId("key-check-openai").textContent).toBe("Key works."));
+    expect(screen.getByTestId("key-test-openai")).toBeTruthy();
+    // fal.ai has no free request to try a key with: no Test button.
+    const fal = screen.getByTestId("key-fal");
+    fireEvent.change(fal.querySelector("input")!, { target: { value: "fal-test-key-0123456789" } });
+    fireEvent.click(within(fal).getByText("Save"));
+    await waitFor(() => expect(within(fal).getByText("key saved")).toBeTruthy());
+    expect(screen.queryByTestId("key-test-fal")).toBeNull();
+    await commands.clearProviderKey("openai");
+    await commands.clearProviderKey("fal");
   });
 
   it("privacy lists what leaves the computer and nothing vaguer", async () => {
