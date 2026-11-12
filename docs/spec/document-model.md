@@ -104,4 +104,8 @@ compositions.
 
 `user{id,text}`, `session{sessionId,model}`, `assistant{messageId, blocks[text|tool_use{id,name,input}]}`,
 `tool-result{toolUseId,text}`, `question{id, questions[{header,question,multiSelect,options[{label,description}]}]}`,
-`result{isError,durationMs,costUsd,text,threadUsage{inputTokens,cachedInputTokens,…}}`.
+`result{isError,durationMs,costUsd,text,threadUsage{inputTokens,cachedInputTokens,…},time,note?}` (one per turn,
+successful or not; `note` names the limit a turn stopped at), `revisions{turn,revs[]}` (project revisions a tool call
+of the turn starting at user record `turn` made), `turn-undone{turn,rev}` ("Undo this turn" reverted them as `rev`),
+`summary{firstKept,text,time}` (the turns before the `firstKept`-th user record are sent to the model as this
+summary; the records stay for display).

@@ -588,7 +588,7 @@ fn install(app: &AppHandle, state: &AppState, p: Project) -> AppResult<ProjectVi
 
 #[tauri::command]
 #[specta::specta]
-pub async fn create_project(app: AppHandle, name: String) -> AppResult<ProjectView> {
+pub async fn create_project(app: AppHandle, name: String, template: Option<String>) -> AppResult<ProjectView> {
     serial(&app, "create_project", move |app, state| {
         close_open(state)?;
         let mut p = {
@@ -596,7 +596,12 @@ pub async fn create_project(app: AppHandle, name: String) -> AppResult<ProjectVi
             let name = if name.trim().is_empty() { "Untitled Project".to_string() } else { name };
             lib.as_ref().unwrap().create(&name)?
         };
-        p.apply(default_tracks(), Source::Gui, Some("new project".into()))?;
+        // The history panel attributes a project started from a template to it.
+        let summary = match template.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
+            Some(t) => format!("{TEMPLATE_SUMMARY}“{t}”"),
+            None => "new project".into(),
+        };
+        p.apply(default_tracks(), Source::Gui, Some(summary))?;
         tracing::info!(bundle = %p.bundle().display(), "project created");
         install(app, state, p)
     })
@@ -642,9 +647,19 @@ pub async fn project_view(app: AppHandle) -> AppResult<Option<ProjectView>> {
 
 /// Applies ops to the open project as one revision (nothing to apply: no revision).
 fn commit<'a>(open: &'a mut Option<Project>, ops: Vec<Op>, summary: &str) -> AppResult<&'a mut Project> {
+    commit_as(open, ops, summary, Source::Gui)
+}
+
+/// [`commit`] attributed to `source`.
+fn commit_as<'a>(
+    open: &'a mut Option<Project>,
+    ops: Vec<Op>,
+    summary: &str,
+    source: Source,
+) -> AppResult<&'a mut Project> {
     let p = open.as_mut().ok_or_else(|| AppError::new(ErrorCode::InvalidArgument, "No project is open."))?;
     if !ops.is_empty() {
-        p.apply(ops, Source::Gui, Some(summary.to_string()))?;
+        p.apply(ops, source, Some(summary.to_string()))?;
     }
     Ok(p)
 }
@@ -798,6 +813,7 @@ fn add_probed(
     bundle: &Path,
     probed: Vec<Probed>,
     now: i64,
+    source: Source,
 ) -> AppResult<ProjectView> {
     let mut g = lock(&state.projects.open)?;
     let p = g.as_ref().ok_or_else(|| AppError::new(ErrorCode::InvalidArgument, "Open or create a project first."))?;
@@ -828,18 +844,29 @@ fn add_probed(
         });
     }
     let count = ops.len() / 2;
-    let p = commit(&mut g, ops, &format!("import {count} file{}", if count == 1 { "" } else { "s" }))?;
+    let summary = format!(
+        "{}import {count} file{}",
+        if source == Source::Agent { "assistant: " } else { "" },
+        if count == 1 { "" } else { "s" }
+    );
+    let p = commit_as(&mut g, ops, &summary, source)?;
     emit_view(app, Some(p)).ok_or_else(|| AppError::new(ErrorCode::Internal, "No project is open."))
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn import_media(app: AppHandle, paths: Vec<String>) -> AppResult<ProjectView> {
+    import_paths(app, paths, Source::Gui).await
+}
+
+/// Imports files as one revision attributed to `source` (the editor, or the assistant's `import_media` tool).
+pub(crate) async fn import_paths(app: AppHandle, paths: Vec<String>, source: Source) -> AppResult<ProjectView> {
     let now = ove_core::Clock::now_ms(&ove_core::SystemClock);
     let a = app.clone();
     let (bundle, probed, errors) =
         worker::blocking("import_media", move || probe_paths(&a.state::<AppState>(), &paths, now)).await?;
-    let v = serial(&app, "import_media", move |app, state| add_probed(app, state, &bundle, probed, now)).await?;
+    let v =
+        serial(&app, "import_media", move |app, state| add_probed(app, state, &bundle, probed, now, source)).await?;
     if !errors.is_empty() {
         let _ = crate::AppErrorRaised(AppError::new(ErrorCode::Unsupported, errors.join(" "))).emit(&app);
     }
@@ -958,6 +985,101 @@ pub async fn set_track_flag(app: AppHandle, id: String, flag: String, value: boo
     .await
 }
 
+/// How a project started from a template is summarised in its first revision.
+pub(crate) const TEMPLATE_SUMMARY: &str = "new project from template ";
+
+/// One revision in the history panel.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryRow {
+    pub rev: f64,
+    /// ms since the epoch.
+    pub time: f64,
+    /// The recorded source: gui, cli, mcp, agent, migration, undo, redo or restore.
+    pub source: String,
+    /// Who made it, in words: You, Assistant, Command line, MCP, Template, Generation, App update.
+    pub who: String,
+    pub summary: String,
+    /// The project as it was before this revision can still be rebuilt (older ones may have been pruned).
+    pub can_restore: bool,
+}
+
+/// Who a revision is attributed to, as far as its record tells.
+pub fn who(source: Source, summary: &str) -> &'static str {
+    match source {
+        Source::Agent => "Assistant",
+        Source::Cli => "Command line",
+        Source::Mcp => "MCP",
+        Source::Migration => "App update",
+        Source::Gui if summary.starts_with(TEMPLATE_SUMMARY) => "Template",
+        Source::Gui if summary.starts_with("generate") => "Generation",
+        Source::Gui | Source::Undo | Source::Redo | Source::Restore => "You",
+    }
+}
+
+/// The newest `limit` revisions of a project, newest first.
+pub fn history_rows(p: &Project, limit: usize) -> AppResult<Vec<HistoryRow>> {
+    let rows: Vec<HistoryRow> = p
+        .history()?
+        .into_iter()
+        .rev()
+        .take(limit)
+        .map(|h| HistoryRow {
+            rev: h.rev as f64,
+            time: h.time as f64,
+            source: h.source.as_str().into(),
+            who: who(h.source, &h.summary).into(),
+            can_restore: p.is_retained(h.parent),
+            summary: h.summary,
+        })
+        .collect();
+    Ok(rows)
+}
+
+/// Restores the project to how it was before revision `rev`, as one new (undoable) revision.
+pub fn restore_before_rev(p: &mut Project, rev: i64) -> AppResult<()> {
+    let rec = ove_store::project::read_record(p.bundle(), rev)?;
+    if !p.is_retained(rec.parent) {
+        return Err(AppError::new(
+            ErrorCode::NotFound,
+            "That change is too old to go back to: older history is cleared after 30 days or 2,000 changes.",
+        ));
+    }
+    let short: String = rec.summary.chars().take(60).collect();
+    let summary = if short.is_empty() {
+        format!("restore to before revision {rev}")
+    } else {
+        format!("restore to before “{short}”")
+    };
+    p.restore_with(rec.parent, Source::Restore, Some(summary))?;
+    Ok(())
+}
+
+/// The open project's revisions, newest first (the history panel).
+#[tauri::command]
+#[specta::specta]
+pub async fn project_history(app: AppHandle) -> AppResult<Vec<HistoryRow>> {
+    serial(&app, "project_history", |_, state| {
+        let g = lock(&state.projects.open)?;
+        let p = g.as_ref().ok_or_else(|| AppError::new(ErrorCode::InvalidArgument, "No project is open."))?;
+        history_rows(p, 500)
+    })
+    .await
+}
+
+/// "Restore to before this": one new revision with the project as it was before `rev`.
+#[tauri::command]
+#[specta::specta]
+pub async fn restore_before(app: AppHandle, rev: f64) -> AppResult<ProjectView> {
+    serial(&app, "restore_before", move |app, state| {
+        let mut g = lock(&state.projects.open)?;
+        let p = g.as_mut().ok_or_else(|| AppError::new(ErrorCode::InvalidArgument, "No project is open."))?;
+        restore_before_rev(p, rev as i64)?;
+        emit_view(app, Some(p)).ok_or_else(|| AppError::new(ErrorCode::Internal, "No project is open."))
+    })
+    .await
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn undo(app: AppHandle) -> AppResult<ProjectView> {
@@ -1015,6 +1137,37 @@ mod tests {
         let rows = summaries(&lib).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].name, "Trip");
+    }
+
+    #[test]
+    fn history_lists_who_did_what_newest_first_and_restores_before_a_change() {
+        let d = tempfile::tempdir().unwrap();
+        let lib = Library::open(d.path(), clock()).unwrap();
+        let mut p = lib.create("Trip").unwrap();
+        p.apply(default_tracks(), Source::Gui, Some(format!("{TEMPLATE_SUMMARY}“Event recap”"))).unwrap();
+        p.apply(rename("By hand"), Source::Gui, Some("rename project".into())).unwrap();
+        p.apply(rename("By agent"), Source::Agent, Some("assistant: updated 1".into())).unwrap();
+        p.apply(rename("By cli"), Source::Cli, None).unwrap();
+        p.apply(rename("By mcp"), Source::Mcp, None).unwrap();
+        p.apply(rename("Generated"), Source::Gui, Some("generate image: placeholder".into())).unwrap();
+        let rows = history_rows(&p, 100).unwrap();
+        let who: Vec<&str> = rows.iter().map(|r| r.who.as_str()).collect();
+        assert_eq!(who, ["Generation", "MCP", "Command line", "Assistant", "You", "Template"]);
+        assert!(rows.windows(2).all(|w| w[0].rev > w[1].rev));
+        assert!(rows.iter().all(|r| r.can_restore));
+        assert_eq!(history_rows(&p, 2).unwrap().len(), 2);
+
+        // Restore to before the assistant's change: one new, undoable revision.
+        let agent_rev = rows[3].rev as i64;
+        restore_before_rev(&mut p, agent_rev).unwrap();
+        assert_eq!(p.doc().project.name, "By hand");
+        let latest = p.latest_record().unwrap().unwrap();
+        assert_eq!(latest.source, Source::Restore);
+        assert_eq!(latest.summary, "restore to before “assistant: updated 1”");
+        assert_eq!(history_rows(&p, 1).unwrap()[0].who, "You");
+        p.undo().unwrap();
+        assert_eq!(p.doc().project.name, "Generated");
+        assert!(restore_before_rev(&mut p, 12345).is_err());
     }
 
     #[test]

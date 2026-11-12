@@ -101,7 +101,12 @@ describe("templates", () => {
     fireEvent.click(screen.getByTestId("nav-templates"));
     await screen.findByTestId("templates-page");
     fireEvent.click(screen.getByTestId("template-podcast-clip"));
-    fireEvent.change(await screen.findByTestId("template-details"), {
+    // The show is required: starting without it says so and stays in the dialog.
+    fireEvent.click(await screen.findByTestId("template-start"));
+    expect(screen.getByTestId("template-missing").textContent).toContain(
+      "Show and episode",
+    );
+    fireEvent.change(screen.getByTestId("template-field-subject"), {
       target: { value: "Harbour Talks, episode 12" },
     });
     fireEvent.click(screen.getByTestId("template-start"));

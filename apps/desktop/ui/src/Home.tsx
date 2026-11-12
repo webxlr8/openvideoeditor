@@ -3,7 +3,14 @@ import type { AppError, ProjectSummary_Serialize } from "./bindings";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { reportError } from "./notify";
 import { Settings } from "./Settings";
-import { PROJECT_TEMPLATES, type ProjectTemplate } from "./templates";
+import {
+  PROJECT_TEMPLATES,
+  type ProjectTemplate,
+  type TemplateValues,
+  missingFields,
+  templateDefaults,
+  templateFields,
+} from "./templates";
 import { Icon, type IconName } from "./icons";
 import { formatDuration, formatWhen } from "./timecode";
 
@@ -45,8 +52,8 @@ export function Home({
   /** Starts a new project and hands the description to the assistant. */
   onPrompt?: (text: string) => void;
   onError?: (e: AppError) => void;
-  /** Starts a project from a template with the person's details. */
-  onTemplate?: (t: ProjectTemplate, details: string) => void;
+  /** Starts a project from a template with what the person filled in. */
+  onTemplate?: (t: ProjectTemplate, values: TemplateValues) => void;
 }) {
   const [chosen, setChosen] = useState<ProjectTemplate | null>(null);
   const [prompt, setPrompt] = useState("");
@@ -116,9 +123,9 @@ export function Home({
         <TemplateDialog
           template={chosen}
           onClose={() => setChosen(null)}
-          onStart={(details) => {
+          onStart={(values) => {
             setChosen(null);
-            onTemplate?.(chosen, details);
+            onTemplate?.(chosen, values);
           }}
         />
       )}
@@ -298,9 +305,21 @@ function TemplateDialog({
 }: {
   template: ProjectTemplate;
   onClose: () => void;
-  onStart: (details: string) => void;
+  onStart: (values: TemplateValues) => void;
 }) {
-  const [details, setDetails] = useState("");
+  const [values, setValues] = useState<TemplateValues>(() =>
+    templateDefaults(t),
+  );
+  const [missing, setMissing] = useState<string[]>([]);
+  const set = (id: string, v: string) => {
+    setValues((cur) => ({ ...cur, [id]: v }));
+    setMissing([]);
+  };
+  const start = () => {
+    const m = missingFields(t, values);
+    if (m.length) return setMissing(m);
+    onStart(values);
+  };
   return (
     <div
       className="modal-backdrop"
@@ -329,15 +348,66 @@ function TemplateDialog({
             the cost before spending.
           </p>
         )}
-        <textarea
-          className="gen-prompt"
-          rows={4}
-          placeholder={t.ask}
-          value={details}
-          onChange={(e) => setDetails(e.target.value)}
-          data-testid="template-details"
-          autoFocus
-        />
+        <div className="template-fields" data-testid="template-fields">
+          {templateFields(t).map((f, i) => {
+            const bad = missing.includes(f.label);
+            const common = {
+              id: `tf-${f.id}`,
+              className: bad ? "invalid" : undefined,
+              value: values[f.id] ?? "",
+              "aria-invalid": bad || undefined,
+              "aria-required": f.required || undefined,
+              "data-testid":
+                f.id === "details" ? "template-details" : `template-field-${f.id}`,
+              autoFocus: i === 0,
+            };
+            return (
+              <label key={f.id} htmlFor={common.id}>
+                <span>
+                  {f.label}
+                  {f.required ? (
+                    <span className="field-error" aria-hidden>
+                      {" "}
+                      *
+                    </span>
+                  ) : (
+                    <span className="muted small"> (optional)</span>
+                  )}
+                </span>
+                {f.kind === "select" ? (
+                  <select
+                    {...common}
+                    onChange={(e) => set(f.id, e.target.value)}
+                  >
+                    {(f.options ?? []).map((o) => (
+                      <option key={o} value={o}>
+                        {o}
+                      </option>
+                    ))}
+                  </select>
+                ) : f.kind === "textarea" ? (
+                  <textarea
+                    {...common}
+                    rows={f.id === "details" || f.id === "media" ? 2 : 3}
+                    placeholder={f.placeholder}
+                    onChange={(e) => set(f.id, e.target.value)}
+                  />
+                ) : (
+                  <input
+                    {...common}
+                    placeholder={f.placeholder}
+                    onChange={(e) => set(f.id, e.target.value)}
+                  />
+                )}
+              </label>
+            );
+          })}
+        </div>
+        {missing.length > 0 && (
+          <p className="field-error small" role="alert" data-testid="template-missing">
+            Fill in {missing.join(", ")} to start.
+          </p>
+        )}
         <p className="muted small">
           A new project opens and the assistant starts the first cut; add your
           media to it any time.
@@ -348,7 +418,7 @@ function TemplateDialog({
           </button>
           <button
             className="btn primary"
-            onClick={() => onStart(details)}
+            onClick={start}
             data-testid="template-start"
           >
             Start project

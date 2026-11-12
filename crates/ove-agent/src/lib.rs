@@ -10,8 +10,8 @@ pub mod mock;
 pub mod prompt;
 pub mod tools;
 
-pub use agent::{AgentEvent, TurnConfig, TurnSummary, run_turn};
+pub use agent::{AgentEvent, ProjectCap, TurnConfig, TurnSummary, run_turn};
 pub use api::{ApiError, Client, MODELS, ModelInfo, Usage};
-pub use chat::{ChatStore, ChatSummary, Record};
+pub use chat::{ChatStore, ChatSummary, Record, Spend};
 pub use keys::{KeySource, KeyStore, MemoryKeyStore, OsKeyStore};
 pub use tools::{ApplyRequest, ToolHost};

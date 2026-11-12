@@ -159,6 +159,15 @@ fn history_restore_and_retention() {
     assert_eq!(rec.record.source, Source::Restore);
     assert!(p.doc().content_eq(&at_mid));
     assert_eq!(p.restore(mid).unwrap().map(|c| c.record.rev), None, "already equal");
+    // Restoring to before a revision, with a summary that says so, is one more undoable revision.
+    let before_last = hist[450].parent;
+    let c = p
+        .restore_with(before_last, Source::Restore, Some("restore to before the last change".into()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(c.record.summary, "restore to before the last change");
+    assert!(p.doc().content_eq(&p.doc_at(before_last).unwrap()));
+    assert_eq!(p.session().undo_summary(), Some("restore to before the last change"));
     // A revision that is exactly a periodic snapshot rebuilds from the snapshot alone.
     let snap_rev = hist[199].rev;
     assert_eq!(p.doc_at(snap_rev).unwrap().project.rev, snap_rev);

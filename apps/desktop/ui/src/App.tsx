@@ -22,7 +22,11 @@ import {
 import { Home } from "./Home";
 import { fire, logError, runCommand, setErrorSink, unlisten } from "./notify";
 import { EDIT_ACTIONS, keyToAction } from "./keys";
-import { templateMessage, templateProjectName } from "./templates";
+import {
+  templateAspect,
+  templateMessage,
+  templateProjectName,
+} from "./templates";
 
 const EMPTY: PlaybackState = {
   hasMedia: false,
@@ -239,6 +243,7 @@ export function App() {
             ?.split(/[\\/]/)
             .pop()
             ?.replace(/\.[^.]+$/, "") ?? "Untitled Project",
+          null,
         );
         if (created.status === "error") return showError(created.error);
         setProject(created.data);
@@ -324,8 +329,9 @@ export function App() {
     text: string,
     name: string,
     aspect?: string,
+    template?: string,
   ) => {
-    const created = await commands.createProject(name);
+    const created = await commands.createProject(name, template ?? null);
     if (created.status === "error") return showError(created.error);
     let view = created.data;
     if (aspect && aspect !== view.aspectRatio) {
@@ -491,7 +497,7 @@ export function App() {
             onOpenFile={() => fire(importInto(null))}
             onBlank={() =>
               runCommand(
-                commands.createProject("Untitled Project"),
+                commands.createProject("Untitled Project", null),
                 openProjectView,
                 showError,
               )
@@ -499,12 +505,13 @@ export function App() {
             onPrompt={(text) =>
               fire(startWithAssistant(text, projectNameFrom(text)))
             }
-            onTemplate={(t, details) =>
+            onTemplate={(t, values) =>
               fire(
                 startWithAssistant(
-                  templateMessage(t, details),
-                  templateProjectName(t, details),
-                  t.aspect,
+                  templateMessage(t, values),
+                  templateProjectName(t, values),
+                  templateAspect(t, values),
+                  t.name,
                 ),
               )
             }

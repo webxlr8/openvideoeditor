@@ -125,6 +125,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             projects::rename_project,
             projects::set_track_flag,
             projects::undo,
+            projects::project_history,
+            projects::restore_before,
             projects::redo,
             // Timeline exchange (FCPXML, XML, EDL, OTIO).
             control::report_ui_state,
@@ -138,6 +140,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             generation::generation_catalog,
             generation::set_provider_key,
             generation::clear_provider_key,
+            generation::test_provider_key,
             generation::plan_generation,
             generation::start_generation,
             generation::generation_jobs,
@@ -172,6 +175,10 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             assistant::agent_send,
             assistant::agent_stop,
             assistant::agent_answer,
+            assistant::agent_set_limits,
+            assistant::agent_check_key,
+            assistant::agent_usage,
+            assistant::agent_undo_turn,
             // Captions: speech models, auto-captions, caption styles (change 10).
             captions::caption_models,
             captions::caption_presets,
@@ -626,8 +633,12 @@ mod tests {
             for chunk in text.split("#[tauri::command]").skip(1) {
                 let Some(sig) = chunk.lines().find(|l| l.starts_with("pub ")) else { continue };
                 let body = chunk.split("\n}\n").next().unwrap_or_default();
+                // `projects::import_paths` (shared with the assistant's import) runs through `worker::blocking` and
+                // `serial` itself.
                 if sig.contains("async fn")
-                    && !["worker::blocking(", "worker::guarded(", "serial("].iter().any(|g| body.contains(g))
+                    && !["worker::blocking(", "worker::guarded(", "serial(", "import_paths("]
+                        .iter()
+                        .any(|g| body.contains(g))
                 {
                     unguarded.push(format!("{name}: {sig}"));
                 }

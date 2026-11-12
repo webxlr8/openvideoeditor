@@ -26,6 +26,7 @@ pub const MODELS: &[ModelInfo] = &[
         input_per_mtok: 2.0,
         output_per_mtok: 10.0,
         cache_read_per_mtok: 0.10,
+        context_window: 1_000_000,
         fallbacks: true,
     },
     ModelInfo {
@@ -34,6 +35,7 @@ pub const MODELS: &[ModelInfo] = &[
         input_per_mtok: 4.0,
         output_per_mtok: 20.0,
         cache_read_per_mtok: 0.20,
+        context_window: 1_000_000,
         fallbacks: true,
     },
     ModelInfo {
@@ -42,6 +44,7 @@ pub const MODELS: &[ModelInfo] = &[
         input_per_mtok: 0.10,
         output_per_mtok: 0.50,
         cache_read_per_mtok: 0.01,
+        context_window: 1_000_000,
         fallbacks: false,
     },
 ];
@@ -54,6 +57,8 @@ pub struct ModelInfo {
     pub input_per_mtok: f64,
     pub output_per_mtok: f64,
     pub cache_read_per_mtok: f64,
+    /// Input context window in tokens.
+    pub context_window: u64,
     /// Server-side refusal fallbacks are available for this model.
     pub fallbacks: bool,
 }
@@ -290,6 +295,40 @@ impl Client {
                 }
                 other => return other,
             }
+        }
+    }
+
+    /// Counts the input tokens of a Messages request body (`POST /v1/messages/count_tokens`; free, nothing is
+    /// generated). One attempt, no retries.
+    pub fn count_tokens(&self, body: &Value) -> Result<u64, ApiError> {
+        let req = self
+            .agent
+            .post(&format!("{}/v1/messages/count_tokens", self.base_url))
+            .set("x-api-key", &self.api_key)
+            .set("anthropic-version", API_VERSION)
+            .set("content-type", "application/json");
+        let resp = match req.send_string(&body.to_string()) {
+            Ok(r) => r,
+            Err(ureq::Error::Status(code, r)) => {
+                let text = r.into_string().unwrap_or_default();
+                return Err(ApiError::from_status(code, &text, None));
+            }
+            Err(ureq::Error::Transport(t)) => return Err(ApiError::network(t)),
+        };
+        let text = resp.into_string().map_err(ApiError::network)?;
+        serde_json::from_str::<Value>(&text)
+            .ok()
+            .and_then(|v| v["input_tokens"].as_u64())
+            .ok_or_else(|| ApiError::new("api.badResponse", "Unreadable response from the API."))
+    }
+
+    /// Checks that the key works with the smallest request there is: counting the tokens of a one-word message.
+    /// Costs nothing and generates nothing.
+    pub fn check_key(&self, model: &str) -> Result<(), ApiError> {
+        match self.count_tokens(&json!({"model": model, "messages": [{"role": "user", "content": "hi"}]})) {
+            // Rate limited: the key was accepted.
+            Err(e) if e.code == "api.rateLimited" => Ok(()),
+            r => r.map(|_| ()),
         }
     }
 

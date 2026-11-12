@@ -3,13 +3,16 @@
 
 import { useEffect, useState } from "react";
 import type {
+  AgentLimits_Serialize,
   AgentStatus_Serialize,
   AppError,
   AppInfo_Serialize,
   CrashReport,
+  KeyCheck,
   UpdateInfo_Serialize as UpdateInfo,
 } from "./bindings";
 import { commands } from "./bridge";
+import { AssistantDataList } from "./ChatPanel";
 import { type Catalog, KeyEntry, loadCatalog } from "./Generate";
 import { Icon } from "./icons";
 import { fire, logError, runCommand } from "./notify";
@@ -58,6 +61,130 @@ function Copyable({ text }: { text: string }) {
         }}
       >
         {done ? "Copied" : "Copy"}
+      </button>
+    </div>
+  );
+}
+
+/** A dollar amount typed in a box: empty is "no cap"; anything else must be a positive number. */
+export function parseCap(text: string): number | null | "invalid" {
+  const t = text.trim().replace(/^\$/, "");
+  if (!t) return null;
+  const n = Number(t);
+  return Number.isFinite(n) && n > 0 ? n : "invalid";
+}
+
+function LimitsForm({
+  limits,
+  onSaved,
+  onError,
+}: {
+  limits: AgentLimits_Serialize;
+  onSaved: (s: AgentStatus_Serialize) => void;
+  onError: (e: AppError) => void;
+}) {
+  const money = (v: number | null) => (v == null ? "" : v.toFixed(2));
+  const [turnCap, setTurnCap] = useState(money(limits.turnCapUsd));
+  const [monthCap, setMonthCap] = useState(money(limits.projectMonthCapUsd));
+  const [requests, setRequests] = useState(String(limits.maxRequests));
+  const [minutes, setMinutes] = useState(String(limits.maxMinutes));
+  const [problem, setProblem] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  const save = () => {
+    const t = parseCap(turnCap);
+    const m = parseCap(monthCap);
+    const r = Number(requests);
+    const mins = Number(minutes);
+    if (t === "invalid" || m === "invalid")
+      return setProblem(
+        "A spend cap must be an amount in dollars above $0, or empty for no cap.",
+      );
+    if (!Number.isInteger(r) || r < 1 || !Number.isInteger(mins) || mins < 1)
+      return setProblem(
+        "Max requests and minutes per turn must be whole numbers of at least 1.",
+      );
+    setProblem(null);
+    runCommand(
+      commands.agentSetLimits({
+        turnCapUsd: t,
+        projectMonthCapUsd: m,
+        maxRequests: r,
+        maxMinutes: mins,
+      }),
+      (s) => {
+        setSaved(true);
+        onSaved(s);
+      },
+      (e) => {
+        setProblem(e.message);
+        onError(e);
+      },
+    );
+  };
+  const field = (
+    label: string,
+    hint: string,
+    value: string,
+    set: (v: string) => void,
+    id: string,
+    placeholder?: string,
+  ) => (
+    <>
+      <label htmlFor={id}>
+        {label}
+        <br />
+        <span className="muted small">{hint}</span>
+      </label>
+      <input
+        id={id}
+        value={value}
+        placeholder={placeholder}
+        inputMode="decimal"
+        data-testid={id}
+        onChange={(e) => {
+          set(e.target.value);
+          setSaved(false);
+        }}
+      />
+    </>
+  );
+  return (
+    <div data-testid="assistant-limits">
+      <div className="limits-grid">
+        {field(
+          "Spend cap per turn ($)",
+          "The assistant stops when one turn has spent this much.",
+          turnCap,
+          setTurnCap,
+          "limit-turn-cap",
+          "no cap",
+        )}
+        {field(
+          "Spend cap per project per month ($)",
+          "No new turns in this project once its chats have spent this much this calendar month.",
+          monthCap,
+          setMonthCap,
+          "limit-month-cap",
+          "no cap",
+        )}
+        {field(
+          "Max requests per turn",
+          "Each step of a turn (reading, editing, checking) is one request.",
+          requests,
+          setRequests,
+          "limit-requests",
+        )}
+        {field(
+          "Max minutes per turn",
+          "How long one turn may keep working.",
+          minutes,
+          setMinutes,
+          "limit-minutes",
+        )}
+      </div>
+      {problem && <p className="key-error">{problem}</p>}
+      <button className="btn" onClick={save} data-testid="limits-save">
+        {saved ? "Saved" : "Save limits"}
       </button>
     </div>
   );
@@ -148,6 +275,9 @@ export function Settings({ onError }: { onError: (e: AppError) => void }) {
   const [catalog, setCatalog] = useState<Catalog>({ models: [], keys: [] });
   const [agent, setAgent] = useState<AgentStatus_Serialize | null>(null);
   const [agentKey, setAgentKey] = useState("");
+  const [keyCheck, setKeyCheck] = useState<KeyCheck | "checking" | null>(
+    null,
+  );
   const [reports, setReports] = useState<CrashReport[]>([]);
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
   const [checking, setChecking] = useState(false);
@@ -173,11 +303,21 @@ export function Settings({ onError }: { onError: (e: AppError) => void }) {
     );
   }, [onError]);
 
+  /** Tries the saved key with a real (free) request. */
+  const testAgentKey = () => {
+    setKeyCheck("checking");
+    runCommand(commands.agentCheckKey(), setKeyCheck, (e) => {
+      setKeyCheck(null);
+      onError(e);
+    });
+  };
+
   const saveAgentKey = async () => {
     const r = await commands.agentSetKey(agentKey);
     if (r.status === "error") return onError(r.error);
     setAgentKey("");
     setAgent(r.data);
+    testAgentKey();
   };
 
   return (
@@ -234,6 +374,10 @@ export function Settings({ onError }: { onError: (e: AppError) => void }) {
               own accounts. Each request shows its estimated cost and asks
               before spending; the provider bills you directly.
             </p>
+            <p className="muted small" data-testid="generation-data">
+              Generation sends the prompt and any reference image you attach
+              to the provider you pick, and nothing else.
+            </p>
             {catalog.keys.map((k) => (
               <KeyEntry
                 key={k.provider}
@@ -249,8 +393,9 @@ export function Settings({ onError }: { onError: (e: AppError) => void }) {
             <h3>Assistant</h3>
             <p className="muted">
               The assistant uses your Anthropic API key, kept in the system
-              credential store and sent only to Anthropic.
+              credential store.
             </p>
+            <AssistantDataList />
             <div className="gen-key">
               <div className="gen-key-head">
                 <strong>Anthropic</strong>
@@ -276,15 +421,56 @@ export function Settings({ onError }: { onError: (e: AppError) => void }) {
                 {agent?.hasKey && (
                   <button
                     className="btn"
-                    onClick={() =>
-                      runCommand(commands.agentClearKey(), setAgent, onError)
-                    }
+                    disabled={keyCheck === "checking"}
+                    onClick={testAgentKey}
+                    data-testid="agent-key-test"
+                  >
+                    Test
+                  </button>
+                )}
+                {agent?.hasKey && (
+                  <button
+                    className="btn"
+                    onClick={() => {
+                      setKeyCheck(null);
+                      runCommand(commands.agentClearKey(), setAgent, onError);
+                    }}
                   >
                     Remove
                   </button>
                 )}
               </div>
+              {keyCheck && (
+                <p
+                  className={
+                    keyCheck === "checking"
+                      ? "muted small"
+                      : keyCheck.ok
+                        ? "key-ok small"
+                        : "key-error small"
+                  }
+                  role="status"
+                  data-testid="agent-key-check"
+                >
+                  {keyCheck === "checking"
+                    ? "Checking the key…"
+                    : keyCheck.message}
+                </p>
+              )}
             </div>
+            <h4>Spending and limits</h4>
+            <p className="muted small">
+              Costs are estimates from the token counts the API reports;
+              Anthropic bills you directly. Limits are checked between the
+              assistant's requests, so a turn can end slightly over its cap.
+            </p>
+            {agent && (
+              <LimitsForm
+                limits={agent.limits}
+                onSaved={setAgent}
+                onError={onError}
+              />
+            )}
           </section>
         )}
         {section === "agents" && (
@@ -315,12 +501,22 @@ export function Settings({ onError }: { onError: (e: AppError) => void }) {
         {section === "privacy" && (
           <section>
             <h3>Privacy</h3>
-            <ul className="set-list">
-              <li>No usage data or analytics are collected.</li>
+            <ul className="set-list" data-testid="privacy-list">
               <li>
-                Projects and media stay on this computer. Files leave it only
-                when you send them to a provider you set up (assistant,
-                generation).
+                The assistant sends the timeline as text (item names and
+                times, text and caption words, media file names), the chat and
+                the results of its tools to Anthropic. It never sends media
+                files or video frames.
+              </li>
+              <li>
+                Generation sends the prompt and any reference image you
+                attach to the provider you pick.
+              </li>
+              <li>
+                Nothing else leaves this computer: projects and media stay
+                here, and there is no telemetry or analytics. (Check for
+                updates asks for the latest version number only when you
+                click it.)
               </li>
               <li>
                 API keys are kept in the system credential store, never in

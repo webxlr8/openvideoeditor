@@ -5,9 +5,10 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use ove_agent::mock::{MockServer, Reply, demo_brain, sse_reply};
+use ove_agent::chat::{SUMMARY_PREFIX, estimate_tokens, validate_messages};
+use ove_agent::mock::{MockServer, Reply, count_tokens_reply, demo_brain, sse_reply};
 use ove_agent::tools::{self, ApplyRequest, ToolHost};
-use ove_agent::{AgentEvent, ChatStore, Client, Record, TurnConfig, run_turn};
+use ove_agent::{AgentEvent, ChatStore, Client, ProjectCap, Record, TurnConfig, run_turn};
 use ove_core::ops::Op;
 use ove_core::revision::Source;
 use ove_store::Library;
@@ -18,6 +19,15 @@ use serde_json::json;
 struct TestHost {
     project: Project,
     answers: Vec<String>,
+    /// The revision last reported by `take_revisions`.
+    seen: i64,
+}
+
+impl TestHost {
+    fn new(project: Project, answers: Vec<String>) -> Self {
+        let seen = project.rev();
+        TestHost { project, answers, seen }
+    }
 }
 
 impl ToolHost for TestHost {
@@ -38,6 +48,14 @@ impl ToolHost for TestHost {
     }
     fn ask_user(&mut self, _id: &str, _q: &str, _o: &[String]) -> Result<String, String> {
         self.answers.pop().ok_or_else(|| "no answer".into())
+    }
+    fn take_revisions(&mut self) -> Vec<i64> {
+        let rev = self.project.rev();
+        if rev == self.seen {
+            return vec![];
+        }
+        self.seen = rev;
+        vec![rev]
     }
 }
 
@@ -69,7 +87,7 @@ fn streams_text_and_logs_the_turn() {
         delay: Duration::ZERO,
     });
     let d = tempfile::tempdir().unwrap();
-    let mut host = TestHost { project: project(d.path()), answers: vec![] };
+    let mut host = TestHost::new(project(d.path()), vec![]);
     let store = ChatStore::for_bundle(host.project.bundle());
     let chat = store.create("hi", "claude-sonnet-5-5").unwrap();
     let mut events = vec![];
@@ -108,7 +126,7 @@ fn streams_text_and_logs_the_turn() {
 fn tool_loop_edits_the_project_as_one_agent_revision() {
     let server = MockServer::start(demo_brain);
     let d = tempfile::tempdir().unwrap();
-    let mut host = TestHost { project: project(d.path()), answers: vec![] };
+    let mut host = TestHost::new(project(d.path()), vec![]);
     let store = ChatStore::for_bundle(host.project.bundle());
     let chat = store.create("add a title", "claude-sonnet-5-5").unwrap();
     let before = host.project.rev();
@@ -161,7 +179,7 @@ fn tool_loop_edits_the_project_as_one_agent_revision() {
 #[test]
 fn stale_rev_and_bad_edits_are_reported_to_the_model() {
     let d = tempfile::tempdir().unwrap();
-    let mut host = TestHost { project: project(d.path()), answers: vec![] };
+    let mut host = TestHost::new(project(d.path()), vec![]);
     let e = host
         .apply_timeline(ApplyRequest { rev: Some(1), edits: Some(vec![]), source: None, prefer: None })
         .unwrap_err();
@@ -187,7 +205,7 @@ fn stale_rev_and_bad_edits_are_reported_to_the_model() {
 #[test]
 fn check_code_reports_problems_with_positions() {
     let d = tempfile::tempdir().unwrap();
-    let mut host = TestHost { project: project(d.path()), answers: vec![] };
+    let mut host = TestHost::new(project(d.path()), vec![]);
     let ok = tools::dispatch(&mut host, "x", "check_code", &json!({"composition": {"template": "counter"}})).unwrap();
     let v: serde_json::Value = serde_json::from_str(&ok).unwrap();
     assert_eq!(v["ok"], true, "{ok}");
@@ -209,7 +227,7 @@ fn errors_map_and_retries_recover() {
         )
     });
     let d = tempfile::tempdir().unwrap();
-    let mut host = TestHost { project: project(d.path()), answers: vec![] };
+    let mut host = TestHost::new(project(d.path()), vec![]);
     let store = ChatStore::for_bundle(host.project.bundle());
     let chat = store.create("hi", "m").unwrap();
     let mut events = vec![];
@@ -287,7 +305,7 @@ fn cost_uses_the_served_model_and_counts_streams_that_fail_part_way() {
         Reply::Stream { chunks, delay: Duration::ZERO }
     });
     let d = tempfile::tempdir().unwrap();
-    let mut host = TestHost { project: project(d.path()), answers: vec![] };
+    let mut host = TestHost::new(project(d.path()), vec![]);
     let store = ChatStore::for_bundle(host.project.bundle());
     let chat = store.create("hi", "claude-sonnet-5-5").unwrap();
     let mut events = vec![];
@@ -325,7 +343,7 @@ fn stop_cancels_mid_stream_and_keeps_history_valid() {
         }
     });
     let d = tempfile::tempdir().unwrap();
-    let mut host = TestHost { project: project(d.path()), answers: vec![] };
+    let mut host = TestHost::new(project(d.path()), vec![]);
     let store = ChatStore::for_bundle(host.project.bundle());
     let chat = store.create("long", "m").unwrap();
     let cancel = Arc::new(AtomicBool::new(false));
@@ -381,7 +399,7 @@ fn ask_user_round_trip() {
         Reply::Stream { chunks, delay: Duration::ZERO }
     });
     let d = tempfile::tempdir().unwrap();
-    let mut host = TestHost { project: project(d.path()), answers: vec!["9:16".into()] };
+    let mut host = TestHost::new(project(d.path()), vec!["9:16".into()]);
     let store = ChatStore::for_bundle(host.project.bundle());
     let chat = store.create("q", "m").unwrap();
     let mut events = vec![];
@@ -402,12 +420,219 @@ fn ask_user_round_trip() {
     assert_eq!(reqs[1]["messages"][2]["content"][0]["content"], "9:16");
 }
 
+/// A server whose model never stops calling a (harmless) tool; each reply costs about $0.0045 at Sonnet prices
+/// (sse_reply: 1200 input, 3000 cache read, 180 output tokens).
+fn endless_tool_calls() -> MockServer {
+    MockServer::start(|n, _| Reply::Stream {
+        chunks: sse_reply("Checking again.", &[(&format!("tu_{n}"), "verify_timeline", json!({}))]),
+        delay: Duration::ZERO,
+    })
+}
+
+fn turn_with(server: &MockServer, cfg: &TurnConfig) -> (ove_agent::TurnSummary, Vec<Record>, tempfile::TempDir) {
+    let d = tempfile::tempdir().unwrap();
+    let mut host = TestHost::new(project(d.path()), vec![]);
+    let store = ChatStore::for_bundle(host.project.bundle());
+    let chat = store.create("loop", "claude-sonnet-5-5").unwrap();
+    let out = run_turn(
+        &fast_client(&server.url),
+        &store,
+        &chat.id,
+        "keep checking",
+        &mut host,
+        cfg,
+        &AtomicBool::new(false),
+        &mut |_| {},
+    )
+    .unwrap();
+    let recs = store.records(&chat.id);
+    (out, recs, d)
+}
+
+#[test]
+fn spend_cap_per_turn_stops_between_requests_and_says_how_to_raise_it() {
+    let server = endless_tool_calls();
+    let cfg = TurnConfig { max_cost_usd: Some(0.01), ..TurnConfig::default() };
+    let (out, recs, _d) = turn_with(&server, &cfg);
+    // $0.0045 per request: after three the turn has spent $0.0135 ≥ $0.01, so no fourth request is sent.
+    assert_eq!(server.requests.lock().unwrap().len(), 3);
+    let note = out.note.unwrap();
+    assert!(note.contains("spend cap of $0.01"), "{note}");
+    assert!(note.contains("Settings → Assistant"), "{note}");
+    assert!((out.cost_usd - 0.0135).abs() < 1e-9, "{}", out.cost_usd);
+    // The note and the cost survive in the log.
+    let Some(Record::Result { note: Some(n), cost_usd, time, .. }) = recs.last() else { panic!("{recs:?}") };
+    assert_eq!(*n, note);
+    assert!((cost_usd - 0.0135).abs() < 1e-9);
+    assert!(*time > 0);
+}
+
+#[test]
+fn request_and_time_limits_name_the_limit() {
+    let server = endless_tool_calls();
+    let cfg = TurnConfig { max_requests: 2, max_cost_usd: None, ..TurnConfig::default() };
+    let (out, _, _d) = turn_with(&server, &cfg);
+    assert_eq!(server.requests.lock().unwrap().len(), 2);
+    assert!(out.note.unwrap().contains("limit of 2 requests"));
+
+    // Each reply streams for well over 50 ms.
+    let server = MockServer::start(|n, _| Reply::Stream {
+        chunks: sse_reply("Checking again.", &[(&format!("tu_{n}"), "verify_timeline", json!({}))]),
+        delay: Duration::from_millis(15),
+    });
+    let cfg = TurnConfig { max_duration: Duration::from_millis(50), ..TurnConfig::default() };
+    let (out, _, _d) = turn_with(&server, &cfg);
+    assert_eq!(server.requests.lock().unwrap().len(), 1);
+    assert!(out.note.unwrap().contains("Max minutes per turn"));
+}
+
+#[test]
+fn project_cap_blocks_a_turn_before_it_starts_and_stops_one_that_reaches_it() {
+    let server = endless_tool_calls();
+    let reached = TurnConfig { project_cap: Some(ProjectCap { cap_usd: 5.0, spent_usd: 5.0 }), ..Default::default() };
+    let (out, _, _d) = turn_with(&server, &reached);
+    assert!(server.requests.lock().unwrap().is_empty(), "nothing is sent once the cap is reached");
+    let note = out.note.unwrap();
+    assert!(note.contains("monthly assistant spend cap of $5.00"), "{note}");
+    assert!(note.contains("Spend cap per project per month"), "{note}");
+
+    let server = endless_tool_calls();
+    let close = TurnConfig { project_cap: Some(ProjectCap { cap_usd: 5.0, spent_usd: 4.995 }), ..Default::default() };
+    let (out, _, _d) = turn_with(&server, &close);
+    assert_eq!(server.requests.lock().unwrap().len(), 2);
+    assert!(out.note.unwrap().contains("monthly"));
+}
+
+#[test]
+fn a_turn_records_the_revisions_it_made() {
+    let server = MockServer::start(demo_brain);
+    let d = tempfile::tempdir().unwrap();
+    let mut host = TestHost::new(project(d.path()), vec![]);
+    let store = ChatStore::for_bundle(host.project.bundle());
+    let chat = store.create("add a title", "claude-sonnet-5-5").unwrap();
+    let out = run_turn(
+        &fast_client(&server.url),
+        &store,
+        &chat.id,
+        "add a title",
+        &mut host,
+        &TurnConfig::default(),
+        &AtomicBool::new(false),
+        &mut |_| {},
+    )
+    .unwrap();
+    assert_eq!(out.revs, vec![host.project.rev()]);
+    let recs = store.records(&chat.id);
+    let user_id = recs.iter().find_map(|r| if let Record::User { id, .. } = r { Some(id.clone()) } else { None });
+    assert_eq!(user_id.as_deref(), Some(out.turn_id.as_str()));
+    let logged: Vec<(String, Vec<i64>)> = recs
+        .iter()
+        .filter_map(
+            |r| if let Record::Revisions { turn, revs } = r { Some((turn.clone(), revs.clone())) } else { None },
+        )
+        .collect();
+    assert_eq!(logged, vec![(out.turn_id.clone(), out.revs.clone())]);
+}
+
+#[test]
+fn key_check_uses_token_counting_and_reports_the_provider_error() {
+    let ok = MockServer::start_routed(|_, path, _| count_tokens_reply(path).unwrap_or(Reply::Status(404, "{}".into())));
+    fast_client(&ok.url).check_key("claude-sonnet-5-5").unwrap();
+    let req = &ok.requests.lock().unwrap()[0];
+    assert_eq!(req["model"], "claude-sonnet-5-5");
+    assert!(req.get("max_tokens").is_none(), "nothing is generated");
+
+    let bad = MockServer::start_routed(|_, _, _| {
+        Reply::Status(
+            401,
+            r#"{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}"#.into(),
+        )
+    });
+    let e = fast_client(&bad.url).check_key("claude-sonnet-5-5").unwrap_err();
+    assert_eq!(e.code, "auth.invalidKey");
+    assert!(e.message.contains("rejected"));
+    let e = fast_client("http://127.0.0.1:9").check_key("claude-sonnet-5-5").unwrap_err();
+    assert_eq!(e.code, "net.unreachable");
+}
+
+#[test]
+fn a_200_turn_chat_is_summarised_to_stay_under_the_limit_with_tool_pairs_intact() {
+    let server = MockServer::start(|_, req| {
+        // The summary call has no tools; the turn itself does.
+        let text = if req.get("tools").is_none() { "The user built a 200-step edit." } else { "ok" };
+        Reply::Stream { chunks: sse_reply(text, &[]), delay: Duration::ZERO }
+    });
+    let d = tempfile::tempdir().unwrap();
+    let mut host = TestHost::new(project(d.path()), vec![]);
+    let store = ChatStore::for_bundle(host.project.bundle());
+    let chat = store.create("long", "claude-sonnet-5-5").unwrap();
+    let big = "x".repeat(2_000);
+    for i in 0..200 {
+        let recs = [
+            Record::User { id: format!("u_{i}"), text: format!("step {i}"), time: i },
+            Record::Assistant {
+                message_id: format!("m{i}a"),
+                model: "claude-sonnet-5-5".into(),
+                blocks: vec![
+                    json!({"type": "thinking", "thinking": "", "signature": "sig"}),
+                    json!({"type": "tool_use", "id": format!("t{i}a"), "name": "print_timeline", "input": {}}),
+                    json!({"type": "tool_use", "id": format!("t{i}b"), "name": "list_media", "input": {}}),
+                ],
+            },
+            Record::ToolResult { tool_use_id: format!("t{i}a"), text: big.clone(), is_error: false },
+            Record::ToolResult { tool_use_id: format!("t{i}b"), text: "[]".into(), is_error: false },
+            Record::Assistant {
+                message_id: format!("m{i}b"),
+                model: "claude-sonnet-5-5".into(),
+                blocks: vec![json!({"type": "text", "text": format!("Did step {i}.")})],
+            },
+        ];
+        for r in &recs {
+            store.append(&chat.id, r).unwrap();
+        }
+    }
+    let limit = 20_000;
+    let cfg = TurnConfig { compact_at_tokens: Some(limit), ..TurnConfig::default() };
+    let before = ove_agent::agent::request_body(&cfg, &ove_agent::chat::messages(&store.records(&chat.id)));
+    assert!(estimate_tokens(&before) > 5 * limit, "the synthetic chat is well over the limit");
+    for turn in ["and one more", "and another"] {
+        run_turn(
+            &fast_client(&server.url),
+            &store,
+            &chat.id,
+            turn,
+            &mut host,
+            &cfg,
+            &AtomicBool::new(false),
+            &mut |_| {},
+        )
+        .unwrap();
+    }
+    let reqs = server.requests.lock().unwrap();
+    let summaries = reqs.iter().filter(|r| r.get("tools").is_none()).count();
+    assert_eq!(summaries, 1, "one cheap call; the next turn still fits");
+    let summary_req = reqs.iter().find(|r| r.get("tools").is_none()).unwrap();
+    assert_eq!(summary_req["model"], "claude-haiku-5-5");
+    assert!(summary_req["max_tokens"].as_u64().unwrap() <= 2000);
+    for main in reqs.iter().filter(|r| r.get("tools").is_some()) {
+        assert!(estimate_tokens(main) < limit, "{} tokens", estimate_tokens(main));
+        let msgs = main["messages"].as_array().unwrap();
+        validate_messages(msgs).unwrap();
+        assert!(msgs[0]["content"][0]["text"].as_str().unwrap().starts_with(SUMMARY_PREFIX));
+        assert!(msgs[0]["content"][0]["text"].as_str().unwrap().contains("200-step edit"));
+    }
+    // The log keeps everything for the chat view, plus the summary.
+    let recs = store.records(&chat.id);
+    assert_eq!(recs.iter().filter(|r| matches!(r, Record::User { .. })).count(), 202);
+    assert_eq!(recs.iter().filter(|r| matches!(r, Record::Summary { .. })).count(), 1);
+}
+
 #[test]
 #[ignore = "live API call; needs ANTHROPIC_API_KEY"]
 fn live_turn() {
     let Ok(key) = std::env::var("ANTHROPIC_API_KEY") else { return };
     let d = tempfile::tempdir().unwrap();
-    let mut host = TestHost { project: project(d.path()), answers: vec![] };
+    let mut host = TestHost::new(project(d.path()), vec![]);
     let store = ChatStore::for_bundle(host.project.bundle());
     let chat = store.create("live", "claude-sonnet-5-5").unwrap();
     let out = run_turn(

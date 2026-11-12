@@ -37,6 +37,7 @@ import {
 } from "./Panels";
 import { MotionPanel } from "./Motion";
 import { GeneratePanel } from "./Generate";
+import { HistoryPanel } from "./HistoryPanel";
 import { Shortcuts } from "./Shortcuts";
 import { type SelectMode, Timeline } from "./Timeline";
 
@@ -126,6 +127,15 @@ export function Editor({
   const [fitPps, setFitPps] = useState(50);
   const [snap, setSnap] = useState(true);
   const [help, setHelp] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  /** Items an assistant turn changed, highlighted on the timeline while its "Show" is on (in the project it was
+   * shown for: opening another project drops it). */
+  const [shown, setReview] = useState<{
+    projectId: string | null | undefined;
+    turnId: string;
+    ids: string[];
+  } | null>(null);
+  const review = shown && shown.projectId === project?.id ? shown : null;
   const [closedFor, setClosedFor] = useState<string | null>(null);
   const [scrubTime, setScrubTime] = useState(0);
   const [clipboard, setClipboard] = useState<Record<string, unknown>[]>([]);
@@ -390,6 +400,7 @@ export function Editor({
           snap={snap}
           setSnap={setSnap}
           onHelp={() => setHelp(true)}
+          onHistory={() => setHistoryOpen(true)}
         />
         {layout.timelineOpen ? (
           <ErrorBoundary region="The timeline" className="timeline">
@@ -418,6 +429,7 @@ export function Editor({
               onPaste={paste}
               canPaste={clipboard.length > 0}
               onFitWidth={setFitPps}
+              highlight={review?.ids}
             />
           </ErrorBoundary>
         ) : (
@@ -435,10 +447,24 @@ export function Editor({
             projectId={project?.id}
             onError={onError}
             onSeek={onSeek}
+            shownTurn={review?.turnId ?? null}
+            onShowTurn={(turnId, ids) =>
+              setReview(
+                turnId ? { projectId: project?.id, turnId, ids } : null,
+              )
+            }
           />
         </ErrorBoundary>
       )}
       {help && <Shortcuts onClose={() => setHelp(false)} />}
+      {historyOpen && (
+        <HistoryPanel
+          rev={project?.rev}
+          onClose={() => setHistoryOpen(false)}
+          onEdit={onEdit}
+          onError={onError}
+        />
+      )}
     </div>
   );
 }
@@ -681,6 +707,7 @@ function TransportBar({
   snap,
   setSnap,
   onHelp,
+  onHistory,
 }: {
   playback: PlaybackState;
   onTransport: (c: TransportCommand) => void;
@@ -696,6 +723,7 @@ function TransportBar({
   snap: boolean;
   setSnap: (v: boolean) => void;
   onHelp: () => void;
+  onHistory: () => void;
 }) {
   const pps = zoom ?? fitPps;
   const volume = playback.volume ?? 1;
@@ -731,6 +759,16 @@ function TransportBar({
           onClick={() => onEdit(commands.redo())}
         >
           <Icon name="redo" size={16} />
+        </button>
+        <button
+          className="icon-btn"
+          title="History: every change, and who made it"
+          aria-label="History"
+          disabled={!project}
+          data-testid="history"
+          onClick={onHistory}
+        >
+          <Icon name="history" size={16} />
         </button>
         <button
           className="icon-btn"

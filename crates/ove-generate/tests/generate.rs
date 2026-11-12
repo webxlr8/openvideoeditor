@@ -105,6 +105,7 @@ fn providers_end_to_end() {
             }
             ("GET", "/files/out.png") => (200, "image/png", PNG.to_vec()),
             // OpenAI
+            ("GET", "/v1/models") => (200, "application/json", br#"{"data":[]}"#.to_vec()),
             ("POST", "/v1/images/generations") => (200, "application/json", serde_json::to_vec(&json!({"data": [{"b64_json": b64_encode(PNG)}]})).unwrap()),
             // ElevenLabs
             ("GET", "/v2/voices") => (200, "application/json", br#"{"voices":[{"voice_id":"abcdefghijklmnopqrst","name":"Narrator","category":"premade","labels":{"accent":"british"}}],"has_more":false,"total_count":1}"#.to_vec()),
@@ -247,6 +248,26 @@ fn providers_end_to_end() {
     assert_eq!(cj.status, Status::Cancelled);
     assert!(seen.lock().unwrap().iter().any(|s| s.0 == "PUT" && s.1.ends_with("/stuck/cancel")));
     assert_eq!(ove_generate::job::list(bundle).len(), 7);
+
+    // Key checks: a free listing request where the provider has one; fal.ai has none.
+    use ove_generate::providers::check_key;
+    assert!(check_key(Provider::OpenAi, "sk-openai-test-key-0123").unwrap());
+    assert!(check_key(Provider::ElevenLabs, "eleven-test-key-0123456").unwrap());
+    assert!(!check_key(Provider::Fal, "fal-test-key-0123456789").unwrap());
+    let checks: Vec<String> = seen
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|s| s.0 == "GET" && (s.1 == "/v1/models" || s.1 == "/v2/voices?page_size=1"))
+        .map(|s| s.1.clone())
+        .collect();
+    assert_eq!(checks.len(), 2, "{checks:?}");
+    let (bad, _) =
+        serve(|_, _, _, _| (401, "application/json", br#"{"error":{"message":"Incorrect API key"}}"#.to_vec()));
+    unsafe { std::env::set_var("OVE_OPENAI_URL", &bad) };
+    let e = check_key(Provider::OpenAi, "sk-openai-wrong-key-0").unwrap_err();
+    assert_eq!(e.code, "provider.auth");
+    assert!(e.message.contains("Incorrect API key"), "{}", e.message);
 }
 
 #[test]

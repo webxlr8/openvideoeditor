@@ -32,6 +32,11 @@ pub trait ToolHost: Send {
     fn check_code(&mut self, composition: &Value, duration: f64) -> Result<String, String> {
         Ok(check_code(None, composition, duration))
     }
+    /// Project revisions committed by tool calls since the last call (the turn records them so it can be reviewed
+    /// and undone as a whole).
+    fn take_revisions(&mut self) -> Vec<i64> {
+        Vec::new()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]

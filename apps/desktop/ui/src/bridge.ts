@@ -7,8 +7,12 @@ import * as generated from "./bindings";
 import fxCatalogJson from "./fx-catalog.json?raw";
 import { fire } from "./notify";
 import type {
+  AgentLimits_Deserialize,
+  AgentLimits_Serialize,
   AgentStatus_Serialize,
   AgentUiEvent_Serialize,
+  HistoryRow,
+  SpendView,
   AppError,
   AutoCaptionRequest_Deserialize,
   ChatItem_Serialize,
@@ -59,8 +63,15 @@ export interface MockControl {
   calls: string[];
   /** Simulates the native side routing paths to the window. */
   routePaths(paths: string[]): void;
-  /** The simulated assistant: whether a key is stored and how long each streamed step takes. */
-  agent: { hasKey: boolean; stepMs: number; ask: boolean };
+  /** The simulated assistant: whether a key is stored, how long each streamed step takes, whether the key check
+   * fails, and what each turn costs. */
+  agent: {
+    hasKey: boolean;
+    stepMs: number;
+    ask: boolean;
+    keyWorks?: boolean;
+    turnCost?: number;
+  };
   /** Simulated speech models: which are on disk, and how long each progress step takes. */
   captions: { installed: string[]; stepMs: number };
 }
@@ -648,12 +659,44 @@ function createMock(): {
   });
   const backend: ViewerBackend = "stream";
 
-  // In-memory project store: one revision per edit, snapshot-based undo/redo.
+  // In-memory project store: one revision per edit, snapshot-based undo/redo, and a history of revisions with the
+  // project as it was before each.
   const library: ProjectView_Serialize[] = [];
   let project: ProjectView_Serialize | null = null;
   let undoStack: ProjectView_Serialize[] = [];
   let redoStack: ProjectView_Serialize[] = [];
+  let history: { row: HistoryRow; before: ProjectView_Serialize | null }[] =
+    [];
   let seq = 0;
+  const WHO: Record<string, string> = {
+    gui: "You",
+    agent: "Assistant",
+    cli: "Command line",
+    mcp: "MCP",
+    undo: "You",
+    redo: "You",
+    restore: "You",
+  };
+  const record = (
+    summary: string,
+    source: string,
+    before: ProjectView_Serialize | null,
+  ) =>
+    history.push({
+      row: {
+        rev: project?.rev ?? 0,
+        time: Date.now(),
+        source,
+        who: summary.startsWith("new project from template")
+          ? "Template"
+          : summary.startsWith("generate")
+            ? "Generation"
+            : (WHO[source] ?? "You"),
+        summary,
+        canRestore: before !== null,
+      },
+      before,
+    });
   const clone = (p: ProjectView_Serialize) =>
     JSON.parse(JSON.stringify(p)) as ProjectView_Serialize;
   const withFlags = (p: ProjectView_Serialize): ProjectView_Serialize => ({
@@ -685,13 +728,16 @@ function createMock(): {
   const editProject = (
     summary: string,
     f: (p: ProjectView_Serialize) => void,
+    source = "gui",
   ) => {
     if (!project) return fail("invalid_argument", "No project is open.");
-    undoStack.push(clone(project));
+    const before = clone(project);
+    undoStack.push(before);
     redoStack = [];
     f(project);
     project.rev = (project.rev ?? 0) + 1;
     project.undoSummary = summary;
+    record(summary, source, before);
     return publish();
   };
   const newProject = (name: string): ProjectView_Serialize => ({
@@ -918,6 +964,12 @@ function createMock(): {
     { id: "claude-haiku-5-5", label: "Claude Haiku 5.5" },
   ];
   let agentModel = MODELS[0].id;
+  let agentLimits: AgentLimits_Serialize = {
+    turnCapUsd: 2,
+    projectMonthCapUsd: null,
+    maxRequests: 30,
+    maxMinutes: 15,
+  };
   const chats = new Map<
     string,
     { title: string; updatedAt: number; items: ChatItem_Serialize[] }
@@ -929,6 +981,7 @@ function createMock(): {
     model: agentModel,
     models: MODELS,
     running: turn !== null,
+    limits: agentLimits,
   });
   const agentEvent = (payload: AgentUiEvent_Serialize) =>
     emit("agent-ui-event", payload);
@@ -938,11 +991,39 @@ function createMock(): {
     text: string,
     id: string | null = null,
     ok: boolean | null = null,
-  ): ChatItem_Serialize => ({ role, text, id, ok, options: [] });
-  const runTurn = async (chatId: string) => {
+  ): ChatItem_Serialize => ({
+    role,
+    text,
+    id,
+    ok,
+    options: [],
+    usage: null,
+    review: null,
+  });
+  const spendOf = (items: ChatItem_Serialize[]): SpendView => {
+    const s = {
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      costUsd: 0,
+      turns: 0,
+    };
+    for (const it of items)
+      if (it.usage) {
+        s.inputTokens += it.usage.inputTokens ?? 0;
+        s.outputTokens += it.usage.outputTokens ?? 0;
+        s.cacheReadTokens += it.usage.cacheReadTokens ?? 0;
+        s.costUsd += it.usage.costUsd ?? 0;
+        s.turns += 1;
+      }
+    return s;
+  };
+  const runTurn = async (chatId: string, turnId: string) => {
     const chat = chats.get(chatId)!;
     const t = turn!;
     const started = Date.now();
+    const revs: number[] = [];
+    const changed: string[] = [];
     const say = async (text: string) => {
       const it = item("assistant", "");
       chat.items.push(it);
@@ -993,21 +1074,28 @@ function createMock(): {
       q.ok = true;
     }
     await tool("tu_apply", "apply_timeline", "Edit the timeline", () => {
+      const id = `i${++seq}`;
       fire(
-        editProject("assistant: add opening title", (p) => {
-          p.items.push(
-            fromDetail({
-              id: `i${++seq}`,
-              trackId: "t_text",
-              type: "text",
-              name: "Opening title",
-              startTime: 0,
-              endTime: 3,
-              textContent: "Welcome",
-            }),
-          );
-        }),
+        editProject(
+          "assistant: add opening title",
+          (p) => {
+            p.items.push(
+              fromDetail({
+                id,
+                trackId: "t_text",
+                type: "text",
+                name: "Opening title",
+                startTime: 0,
+                endTime: 3,
+                textContent: "Welcome",
+              }),
+            );
+          },
+          "agent",
+        ),
       );
+      revs.push(project?.rev ?? 0);
+      changed.push(id);
       return "added 1";
     });
     await tool(
@@ -1025,15 +1113,32 @@ function createMock(): {
     );
     chat.updatedAt = Date.now();
     turn = null;
-    agentEvent({
-      kind: "turnDone",
-      chatId,
-      stopped: t.stop,
+    if (revs.length)
+      chat.items.push({
+        ...item("changes", "", turnId),
+        review: {
+          turnId,
+          revs,
+          count: changed.length,
+          changedIds: changed,
+          removed: [],
+          undone: false,
+        },
+      });
+    const costUsd = control.agent.turnCost ?? 0.0148;
+    const usage = {
       durationMs: Date.now() - started,
       inputTokens: 5400,
       outputTokens: 320,
       cacheReadTokens: 4800,
-      costUsd: 0.0148,
+      costUsd,
+    };
+    chat.items.push({ ...item("usage", ""), usage });
+    agentEvent({
+      kind: "turnDone",
+      chatId,
+      stopped: t.stop,
+      ...usage,
       note: null,
     });
   };
@@ -1146,10 +1251,16 @@ function createMock(): {
           thumbnail: null,
         })),
       ),
-    createProject: (name: string) => {
+    createProject: (name: string, template: string | null) => {
       project = newProject(name || "Untitled Project");
       undoStack = [];
       redoStack = [];
+      history = [];
+      record(
+        template ? `new project from template “${template}”` : "new project",
+        "gui",
+        null,
+      );
       library.unshift(project);
       return publish();
     },
@@ -1159,7 +1270,28 @@ function createMock(): {
       project = clone(p);
       undoStack = [];
       redoStack = [];
+      history = [];
       return publish();
+    },
+    projectHistory: () =>
+      project
+        ? ok(history.map((h) => h.row).reverse())
+        : fail("invalid_argument", "No project is open."),
+    restoreBefore: (rev: number | null) => {
+      const h = history.find((x) => x.row.rev === rev);
+      if (!h?.before)
+        return fail("not_found", "That change is too old to go back to.");
+      const before = h.before;
+      return editProject(
+        `restore to before “${h.row.summary}”`,
+        (p) => {
+          p.items = clone(before).items;
+          p.tracks = clone(before).tracks;
+          p.aspectRatio = before.aspectRatio;
+          p.name = before.name;
+        },
+        "restore",
+      );
     },
     closeProject: () => {
       project = null;
@@ -1427,6 +1559,18 @@ function createMock(): {
       genKeys.delete(provider);
       return ok(JSON.stringify(genCatalog()));
     },
+    testProviderKey: (provider: string) =>
+      ok(
+        !genKeys.has(provider)
+          ? { ok: false, message: "No key is saved." }
+          : provider === "fal"
+            ? {
+                ok: false,
+                message:
+                  "fal.ai keys can't be tested in advance; it is checked on your first request.",
+              }
+            : { ok: true, message: "Key works." },
+      ),
     planGeneration: (kind: string, request: string) => {
       if (!project) return fail("invalid_argument", "Open a project first.");
       const r = JSON.parse(request) as {
@@ -1728,6 +1872,65 @@ function createMock(): {
       agentModel = model;
       return ok(agentStatus());
     },
+    agentSetLimits: (limits: AgentLimits_Deserialize) => {
+      const caps = [limits.turnCapUsd, limits.projectMonthCapUsd];
+      if (caps.some((c) => c != null && !(c > 0)))
+        return fail(
+          "invalid_argument",
+          "A spend cap must be more than $0 (leave it empty for no cap).",
+        );
+      if (limits.maxRequests < 1 || limits.maxMinutes < 1)
+        return fail(
+          "invalid_argument",
+          "Max requests and minutes per turn must be at least 1.",
+        );
+      agentLimits = {
+        turnCapUsd: limits.turnCapUsd ?? null,
+        projectMonthCapUsd: limits.projectMonthCapUsd ?? null,
+        maxRequests: limits.maxRequests,
+        maxMinutes: limits.maxMinutes,
+      };
+      return ok(agentStatus());
+    },
+    agentCheckKey: () =>
+      ok(
+        !control.agent.hasKey
+          ? { ok: false, message: "No key is saved." }
+          : control.agent.keyWorks === false
+            ? {
+                ok: false,
+                message:
+                  "The Anthropic API key was rejected. Check the key in the assistant settings.",
+              }
+            : { ok: true, message: "Key works." },
+      ),
+    agentUsage: (chatId: string | null) => {
+      const all = [...chats.values()].flatMap((c) => c.items);
+      const total = spendOf(all);
+      return ok({
+        chat: chatId && chats.has(chatId) ? spendOf(chats.get(chatId)!.items) : null,
+        project: total,
+        month: total,
+        monthCapUsd: agentLimits.projectMonthCapUsd,
+      });
+    },
+    agentUndoTurn: (chatId: string, turnId: string) => {
+      const row = chats
+        .get(chatId)
+        ?.items.find((i) => i.role === "changes" && i.id === turnId);
+      if (!row?.review) return fail("not_found", "That turn made no changes.");
+      if (row.review.undone)
+        return fail("invalid_argument", "This turn is already undone.");
+      const ids = row.review.changedIds;
+      row.review.undone = true;
+      return editProject(
+        "undo the assistant's turn (1 change)",
+        (p) => {
+          p.items = p.items.filter((i) => !ids.includes(i.id));
+        },
+        "undo",
+      );
+    },
     agentChats: () =>
       ok(
         [...chats.entries()]
@@ -1753,15 +1956,24 @@ function createMock(): {
           "The assistant is still working on the last message.",
         );
       const id = chatId ?? `c_${++seq}`;
+      const cap = agentLimits.projectMonthCapUsd;
+      const spent = spendOf([...chats.values()].flatMap((c) => c.items))
+        .costUsd ?? 0;
+      if (cap != null && spent >= cap)
+        return fail(
+          "invalid_argument",
+          `This project reached its monthly assistant spend cap of $${cap.toFixed(2)} (≈$${spent.toFixed(2)} spent this month). Raise "Spend cap per project per month" in Settings → Assistant to continue.`,
+        );
       if (!chats.has(id))
         chats.set(id, {
           title: text.split("\n")[0].slice(0, 60),
           updatedAt: Date.now(),
           items: [],
         });
+      const turnId = `u_${++seq}`;
       chats.get(id)!.items.push(item("user", text));
       turn = { stop: false };
-      setTimeout(() => fire(runTurn(id)), 0);
+      setTimeout(() => fire(runTurn(id, turnId)), 0);
       return ok({ chatId: id });
     },
     agentStop: () => {
