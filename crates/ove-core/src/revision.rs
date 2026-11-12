@@ -236,15 +236,18 @@ impl Session {
                     summary: r.summary.clone(),
                 });
             }
+            // `prepare_undo`/`prepare_redo` only produce these when the stack has an entry.
             StackAction::Undo => {
-                let mut e = self.undo.pop().expect("undo entry");
-                e.rev = r.rev;
-                self.redo.push(e);
+                if let Some(mut e) = self.undo.pop() {
+                    e.rev = r.rev;
+                    self.redo.push(e);
+                }
             }
             StackAction::Redo => {
-                let mut e = self.redo.pop().expect("redo entry");
-                e.rev = r.rev;
-                self.undo.push(e);
+                if let Some(mut e) = self.redo.pop() {
+                    e.rev = r.rev;
+                    self.undo.push(e);
+                }
             }
         }
         self.doc = p.doc;

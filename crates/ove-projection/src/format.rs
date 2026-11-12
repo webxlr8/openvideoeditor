@@ -40,20 +40,25 @@ fn is_ident(k: &str) -> bool {
         && c.all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '$')
 }
 
+/// `s` as a JSON string literal (quoted and escaped).
+fn json_string(s: &str) -> String {
+    Value::from(s).to_string()
+}
+
 /// A JSON value as a JavaScript literal: objects with bare identifier keys, strings as JSON strings.
 pub fn literal(v: &Value) -> String {
     match v {
         Value::Null => "null".into(),
         Value::Bool(b) => b.to_string(),
         Value::Number(n) => number(n),
-        Value::String(s) => serde_json::to_string(s).unwrap(),
+        Value::String(s) => json_string(s),
         Value::Array(a) => format!("[{}]", a.iter().map(literal).collect::<Vec<_>>().join(", ")),
         Value::Object(o) if o.is_empty() => "{}".into(),
         Value::Object(o) => format!(
             "{{{}}}",
             o.iter()
                 .map(|(k, v)| {
-                    let key = if is_ident(k) { k.clone() } else { serde_json::to_string(k).unwrap() };
+                    let key = if is_ident(k) { k.clone() } else { json_string(k) };
                     format!("{key}: {}", literal(v))
                 })
                 .collect::<Vec<_>>()

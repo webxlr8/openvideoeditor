@@ -1,6 +1,7 @@
 //! The timeline as text: a deterministic literal TSX projection of the project document, a parse-only checker,
 //! a three-way merge that applies edited projections onto the live document, text-edit apply, verify lints and the
 //! generated typings.
+#![forbid(unsafe_code)]
 
 pub mod apply;
 pub mod format;

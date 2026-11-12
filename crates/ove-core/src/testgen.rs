@@ -1,4 +1,8 @@
 //! Random documents and batches for property tests (feature `testgen`).
+#![allow(
+    clippy::expect_used,
+    reason = "test support: generators only run inside property tests, where a panic is a failed test"
+)]
 
 use proptest::prelude::*;
 use proptest::sample::select;

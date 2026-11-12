@@ -1,5 +1,6 @@
 //! Project document core: model, field registry, operations, invariants, revisions, undo/redo, migrations.
 //! Pure: no filesystem or platform dependencies (persistence lives in `ove-store`).
+#![forbid(unsafe_code)]
 
 pub mod diff;
 pub mod invariants;

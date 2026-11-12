@@ -24,9 +24,11 @@ fn diff_fields(a: &Fields, b: &Fields) -> (Map<String, Value>, Vec<String>) {
 fn item_ops(a: &Item, b: &Item, out: &mut Vec<Op>) {
     let (mut set, unset) = diff_fields(&a.fields, &b.fields);
     for k in ["trackId", "type", "startTime", "endTime"] {
-        let (va, vb) = (a.get(k), b.get(k));
-        if va != vb {
-            set.insert(k.into(), vb.unwrap());
+        // Head fields always have a value.
+        if let Some(vb) = b.get(k)
+            && a.get(k).as_ref() != Some(&vb)
+        {
+            set.insert(k.into(), vb);
         }
     }
     if !unset.is_empty() {

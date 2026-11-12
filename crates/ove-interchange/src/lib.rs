@@ -2,6 +2,7 @@
 //! Pro 7 XML (Premiere Pro), CMX3600 EDL and OpenTimelineIO. Export reads the project document and reports what the
 //! file can't carry; import produces one batch of document ops that adds the imported tracks, media and clips to a
 //! project.
+#![forbid(unsafe_code)]
 
 pub mod edl;
 pub mod fcpxml;

@@ -28,7 +28,9 @@ pub fn micros_to_json(us: Micros) -> Value {
     if us % MICROS_PER_SECOND == 0 {
         Value::Number(Number::from(us / MICROS_PER_SECOND))
     } else {
-        Value::Number(Number::from_f64(us as f64 / MICROS_PER_SECOND as f64).expect("finite"))
+        // Any i64 divided by 1e6 is finite, so `from_f64` always succeeds; whole seconds are the fallback.
+        let n = Number::from_f64(us as f64 / MICROS_PER_SECOND as f64);
+        Value::Number(n.unwrap_or_else(|| Number::from(us / MICROS_PER_SECOND)))
     }
 }
 
@@ -53,10 +55,7 @@ pub fn normalise_secs(v: &Value) -> Option<Value> {
 
 /// Formats microseconds as seconds for messages, e.g. `2.5s`.
 pub fn fmt_secs(us: Micros) -> String {
-    match micros_to_json(us) {
-        Value::Number(n) => format!("{n}s"),
-        _ => unreachable!(),
-    }
+    format!("{}s", micros_to_json(us))
 }
 
 #[cfg(test)]

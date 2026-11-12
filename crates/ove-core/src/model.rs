@@ -490,9 +490,8 @@ impl Document {
 
     /// Pretty JSON text as written to disk (2-space indent, trailing newline).
     pub fn to_string_pretty(&self) -> String {
-        let mut s = serde_json::to_string_pretty(&self.to_json()).expect("serialisable");
-        s.push('\n');
-        s
+        // `{:#}` is serde_json's pretty printer with a 2-space indent; unlike `to_string_pretty` it cannot fail.
+        format!("{:#}\n", self.to_json())
     }
 
     /// Items on a track, sorted by start then id.
