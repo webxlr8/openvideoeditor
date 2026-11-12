@@ -10,8 +10,11 @@ use serde_json::{Map, Value, json};
 
 /// API version header value.
 pub const API_VERSION: &str = "2026-10-21";
-/// Default API host; `OVE_ANTHROPIC_BASE_URL` overrides it (tests and local mocks).
+/// Default API host. `OVE_ANTHROPIC_BASE_URL` overrides it for tests and local mocks, in debug builds only (or with
+/// `OVE_DEV_ENDPOINTS=1`), and only with an https URL or http to localhost; see [`ove_guard::endpoint`].
 pub const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
+/// Environment variable that overrides [`DEFAULT_BASE_URL`].
+pub const BASE_URL_VAR: &str = "OVE_ANTHROPIC_BASE_URL";
 /// Beta header enabling server-side refusal fallbacks.
 pub const FALLBACK_BETA: &str = "server-side-fallback-2026-07-01";
 
@@ -192,14 +195,17 @@ pub struct Client {
 }
 
 impl Client {
+    /// A client for the real API, or for the override in `OVE_ANTHROPIC_BASE_URL` where the build allows it.
     pub fn new(api_key: impl Into<String>) -> Self {
-        let base = std::env::var("OVE_ANTHROPIC_BASE_URL")
-            .ok()
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| DEFAULT_BASE_URL.into());
-        Self::with_base_url(api_key, base)
+        Self::with_base_url(api_key, ove_guard::endpoint::base_url(BASE_URL_VAR, DEFAULT_BASE_URL))
     }
 
+    /// The API root requests go to.
+    pub fn base_url(&self) -> &str {
+        &self.base_url
+    }
+
+    /// A client for an explicit API root (tests, embedding). Unlike [`Client::new`] this trusts the caller.
     pub fn with_base_url(api_key: impl Into<String>, base_url: impl Into<String>) -> Self {
         let api_key = api_key.into();
         ove_guard::register_secret(&api_key);
@@ -506,6 +512,23 @@ mod tests {
             parse_sse(cut.as_bytes(), &AtomicBool::new(false), &mut |_| {}).unwrap_err().code,
             "net.interrupted"
         );
+    }
+
+    #[test]
+    fn base_url_override_must_be_https_or_local() {
+        // The only test in this crate that touches the variable.
+        let with = |v: &str| {
+            unsafe { std::env::set_var(BASE_URL_VAR, v) };
+            let c = Client::new("sk-ant-test-0123456789abcdef");
+            unsafe { std::env::remove_var(BASE_URL_VAR) };
+            c.base_url().to_string()
+        };
+        // Debug build (tests): local mocks and https hosts are accepted…
+        assert_eq!(with("http://127.0.0.1:8787/"), "http://127.0.0.1:8787");
+        assert_eq!(with("https://proxy.example.com"), "https://proxy.example.com");
+        // …plain http to another machine is not.
+        assert_eq!(with("http://203.0.113.9"), DEFAULT_BASE_URL);
+        assert_eq!(with(""), DEFAULT_BASE_URL);
     }
 
     #[test]

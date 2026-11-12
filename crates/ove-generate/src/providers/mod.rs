@@ -1,6 +1,6 @@
 //! Provider adapters. Each turns a request into output bytes, polling where the provider is asynchronous and
 //! stopping when cancelled. Base URLs can be overridden for tests (`OVE_FAL_QUEUE_URL`, `OVE_OPENAI_URL`,
-//! `OVE_ELEVENLABS_URL`).
+//! `OVE_ELEVENLABS_URL`) in debug builds, or in release builds with `OVE_DEV_ENDPOINTS=1` (see [`base`]).
 
 pub mod elevenlabs;
 pub mod fal;
@@ -51,13 +51,10 @@ pub fn poll_interval() -> Duration {
     Duration::from_millis(std::env::var("OVE_GENERATE_POLL_MS").ok().and_then(|v| v.parse().ok()).unwrap_or(1500))
 }
 
+/// A provider's API root: `default`, or the override in `var` where the build allows it (debug builds, or
+/// `OVE_DEV_ENDPOINTS=1`; https, or http to localhost only). See [`ove_guard::endpoint`].
 pub fn base(var: &str, default: &str) -> String {
-    std::env::var(var)
-        .ok()
-        .filter(|v| !v.is_empty())
-        .unwrap_or_else(|| default.to_string())
-        .trim_end_matches('/')
-        .to_string()
+    ove_guard::endpoint::base_url(var, default)
 }
 
 pub fn agent() -> ureq::Agent {
