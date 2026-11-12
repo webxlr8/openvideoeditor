@@ -29,12 +29,12 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      - name: build prerequisites (Linux audio output for ove-playback)
+      - name: build prerequisites (Linux audio and keyring headers)
         if: runner.os == 'Linux'
         shell: bash
         run: |
           if command -v apt-get >/dev/null && sudo -n true 2>/dev/null; then
-            sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config
+            sudo apt-get update && sudo apt-get install -y libasound2-dev libdbus-1-dev pkg-config
           fi
       - name: fmt
         run: cargo fmt --all -- --check
