@@ -37,6 +37,7 @@ use tauri_specta::{Event, collect_commands, collect_events};
 use crate::error::AppError;
 use crate::transport::PlaybackState;
 use crate::viewer::{NativeLayer, ViewerBackend, ViewerMsg, ViewerStats};
+use crate::worker::relock;
 
 /// Playback state changed (frame, play/pause, speed, loop, volume).
 #[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
@@ -81,9 +82,7 @@ pub struct AppState {
 
 impl AppState {
     pub fn send_viewer(&self, msg: ViewerMsg) {
-        if let Ok(tx) = self.viewer_tx.lock() {
-            let _ = tx.send(msg);
-        }
+        let _ = relock(&self.viewer_tx).send(msg);
     }
 }
 
@@ -272,8 +271,8 @@ fn route_paths(app: &tauri::AppHandle, paths: Vec<String>) {
     focus_main(app);
     if state.ui_ready.load(Ordering::SeqCst) {
         let _ = OpenPathsRequested { paths }.emit(app);
-    } else if let Ok(mut pending) = state.pending_paths.lock() {
-        pending.extend(paths);
+    } else {
+        relock(&state.pending_paths).extend(paths);
     }
 }
 
@@ -362,17 +361,14 @@ fn attach_native_layer(app: &tauri::AppHandle, window: &tauri::WebviewWindow, ba
     let below = backend == ViewerBackend::NativeBelow;
     let state = app.state::<AppState>();
     let layer_slot = state.layer.clone();
-    let tx = state.viewer_tx.lock().map(|t| t.clone());
-    let Ok(tx) = tx else { return };
+    let tx = relock(&state.viewer_tx).clone();
 
     let install = move |layer: Result<Box<dyn NativeLayer>, String>| match layer {
         Ok(layer) => {
             // SAFETY: the layer is kept alive in `layer_slot` for the life of the app.
             let target = viewer::SendTarget(unsafe { layer.surface_target() });
             let backend = layer.backend();
-            if let Ok(mut slot) = layer_slot.lock() {
-                *slot = Some(layer);
-            }
+            *relock(&layer_slot) = Some(layer);
             let _ = tx.send(ViewerMsg::Attach { target, backend });
         }
         Err(e) => tracing::error!("native viewer layer unavailable, using the stream presenter: {e}"),
@@ -415,7 +411,8 @@ pub fn run() {
             route_paths(app, paths);
         }))
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(builder.invoke_handler())
+        // Every command's panic is contained (see `worker`).
+        .invoke_handler(worker::contain_handler(builder.invoke_handler()))
         .register_uri_scheme_protocol("ove-frame", |ctx, _request| {
             ctx.app_handle().state::<Arc<viewer::stream::StreamSink>>().response()
         })
@@ -461,9 +458,7 @@ pub fn run() {
                 std::thread::Builder::new().name("startup-log".into()).spawn(move || {
                     let gpu = gpu_rx.recv().unwrap_or_else(|_| "unknown".into());
                     tracing::info!("{}", logging::startup_line(&gpu, DECODE_CAPABILITIES));
-                    if let Ok(mut g) = gpu_summary.lock() {
-                        *g = Some(gpu);
-                    }
+                    *relock(&gpu_summary) = Some(gpu);
                 })?;
             }
 
@@ -519,7 +514,7 @@ pub fn run() {
             control::stop(handle);
             let state = handle.state::<AppState>();
             // Final snapshot, full flush, prune and lock release for the open project.
-            if let Ok(mut open) = state.projects.open.lock()
+            if let Ok(mut open) = projects::lock(&state.projects.open)
                 && let Some(p) = open.take()
                 && let Err(e) = p.close()
             {
@@ -545,6 +540,71 @@ mod tests {
     fn committed_bindings_are_current() {
         let committed = std::fs::read_to_string(bindings_path()).expect("ui/src/bindings.ts exists");
         check_bindings(&committed).unwrap();
+    }
+
+    mod contained {
+        use crate::error::{AppError, ErrorCode};
+        use crate::worker;
+
+        #[tauri::command]
+        pub fn boom() -> Result<(), AppError> {
+            panic!("injected command panic")
+        }
+
+        #[tauri::command]
+        pub async fn boom_async() -> Result<(), AppError> {
+            worker::guarded("boom_async", async {
+                if true {
+                    panic!("injected async panic");
+                }
+                Ok(())
+            })
+            .await
+        }
+
+        #[tauri::command]
+        pub fn fine() -> Result<u32, AppError> {
+            Ok(7)
+        }
+
+        pub fn code(e: &serde_json::Value) -> ErrorCode {
+            serde_json::from_value::<AppError>(e.clone()).expect("an AppError").code
+        }
+    }
+
+    #[test]
+    fn a_panicking_command_answers_with_an_error_and_the_app_keeps_working() {
+        use tauri::ipc::{CallbackFn, InvokeBody};
+        let app = tauri::test::mock_builder()
+            .invoke_handler(worker::contain_handler(tauri::generate_handler![
+                contained::boom,
+                contained::boom_async,
+                contained::fine
+            ]))
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default()).build().unwrap();
+        let call = |cmd: &str| {
+            tauri::test::get_ipc_response(
+                &webview,
+                tauri::webview::InvokeRequest {
+                    cmd: cmd.into(),
+                    callback: CallbackFn(0),
+                    error: CallbackFn(1),
+                    url: "tauri://localhost".parse().unwrap(),
+                    body: InvokeBody::default(),
+                    headers: Default::default(),
+                    invoke_key: tauri::test::INVOKE_KEY.to_string(),
+                },
+            )
+        };
+        for cmd in ["boom", "boom_async", "boom"] {
+            let e = call(cmd).expect_err("a panic is an error answer");
+            assert_eq!(contained::code(&e), crate::error::ErrorCode::WorkerPanic, "{cmd}: {e}");
+            // The app still answers other commands.
+            let ok = call("fine").expect("still working");
+            assert_eq!(ok.deserialize::<u32>().unwrap(), 7);
+        }
     }
 
     #[test]

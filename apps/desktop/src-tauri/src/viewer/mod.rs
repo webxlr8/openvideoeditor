@@ -14,6 +14,8 @@ use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
+use crate::worker::relock;
+
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
@@ -160,7 +162,8 @@ pub fn spawn(
             Ok(ctx) => {
                 let summary = ctx.summary().to_string();
                 let _ = gpu_ready.send(summary.clone());
-                if let Ok(mut s) = stats.lock() {
+                {
+                    let mut s = relock(&stats);
                     s.gpu_adapter = Some(summary);
                 }
                 Some(ViewerRenderer::new(ctx))
@@ -171,7 +174,8 @@ pub fn spawn(
                 None
             }
         };
-        if let Ok(mut s) = stats.lock() {
+        {
+            let mut s = relock(&stats);
             s.backend = Some(ViewerBackend::Stream);
         }
         let mut t = ViewerThread {
@@ -208,7 +212,8 @@ impl ViewerThread {
                     (self.hooks.on_error)(e.into());
                     return;
                 }
-                if let Ok(mut s) = self.stats.lock() {
+                {
+                    let mut s = relock(&self.stats);
                     s.frame_width = frame.width;
                     s.frame_height = frame.height;
                     s.pixel_format = Some(format!("{:?}", frame.format));
@@ -244,7 +249,8 @@ impl ViewerThread {
         match unsafe { ViewerSurface::from_raw(renderer, target.0) } {
             Ok(surface) => {
                 tracing::info!(?backend, "native viewer surface attached");
-                if let Ok(mut s) = self.stats.lock() {
+                {
+                    let mut s = relock(&self.stats);
                     s.backend = Some(backend);
                 }
                 self.surface = Some(surface);
@@ -262,7 +268,8 @@ impl ViewerThread {
     fn resize_surface(&mut self) {
         let phys = self.rect.physical();
         let (w, h) = if self.rect.is_shown() { (phys.width, phys.height) } else { (0, 0) };
-        if let Ok(mut s) = self.stats.lock() {
+        {
+            let mut s = relock(&self.stats);
             s.physical_width = w;
             s.physical_height = h;
         }
@@ -320,7 +327,8 @@ impl ViewerThread {
                 published = Some((seq, w, h));
             }
         }
-        if let Ok(mut s) = self.stats.lock() {
+        {
+            let mut s = relock(&self.stats);
             if let Some(i) = info {
                 s.presented_frames += 1;
                 s.image_x = i.image.x;
@@ -332,7 +340,7 @@ impl ViewerThread {
                 s.device_recoveries += 1;
             }
             if info.is_some()
-                && let Some(t) = self.seek_started.lock().ok().and_then(|mut g| g.take())
+                && let Some(t) = relock(&self.seek_started).take()
             {
                 s.last_seek_ms = Some(t.elapsed().as_secs_f64() * 1000.0);
             }
@@ -385,10 +393,10 @@ mod tests {
             Arc::new(Mutex::new(None)),
             ViewerHooks {
                 on_stream_frame: Box::new(move |a, b, c| {
-                    let _ = ftx.lock().unwrap().send((a, b, c));
+                    let _ = relock(&ftx).send((a, b, c));
                 }),
                 on_error: Box::new(move |e| {
-                    let _ = etx.lock().unwrap().send(e);
+                    let _ = relock(&etx).send(e);
                 }),
                 on_backend: Box::new(|_| {}),
             },
@@ -420,7 +428,7 @@ mod tests {
         // Still serving after the panic; device loss recovers and keeps the frame.
         tx.send(ViewerMsg::LoseDevice).unwrap();
         frames.recv_timeout(wait).unwrap();
-        let s = stats.lock().unwrap().clone();
+        let s = relock(&stats).clone();
         if s.gpu_adapter.is_some() {
             assert_eq!(s.device_recoveries, 1);
         }

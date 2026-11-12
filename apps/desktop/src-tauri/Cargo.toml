@@ -69,6 +69,8 @@ windows = { version = "0.62", features = [
 
 [dev-dependencies]
 tempfile = "3"
+# Mock runtime: drives the real invoke handler in tests.
+tauri = { version = "2.12", features = ["macos-private-api", "test"] }
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

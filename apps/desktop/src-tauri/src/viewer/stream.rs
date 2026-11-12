@@ -4,6 +4,8 @@
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use crate::worker::relock;
+
 /// Largest streamed frame; larger viewer rectangles are scaled by the canvas.
 pub const MAX_STREAM: (u32, u32) = (1920, 1080);
 
@@ -35,14 +37,12 @@ pub struct StreamSink {
 impl StreamSink {
     pub fn publish(&self, width: u32, height: u32, rgba: Vec<u8>) -> u64 {
         let seq = self.seq.fetch_add(1, Ordering::SeqCst) + 1;
-        if let Ok(mut l) = self.latest.lock() {
-            *l = Some(StreamFrame { seq, width, height, rgba });
-        }
+        *relock(&self.latest) = Some(StreamFrame { seq, width, height, rgba });
         seq
     }
 
     pub fn latest(&self) -> Option<StreamFrame> {
-        self.latest.lock().ok().and_then(|l| l.clone())
+        relock(&self.latest).clone()
     }
 
     /// HTTP response for `ove-frame://localhost/latest`: raw RGBA with size headers.
