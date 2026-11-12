@@ -18,11 +18,12 @@ Safe to run from many test processes at once:
 - every file is written under a temporary name and renamed into place, so a reader never sees a partial file;
 - truncated files are cut only from a complete source whose checksum was verified.
 
-Encoders are not bit-reproducible across ffmpeg builds. A file whose checksum differs from MANIFEST.json is
-regenerated once; if the fresh file still differs and this ffmpeg is not the one the manifest was made with, that is
-a warning (the file is checked for integrity with ffprobe and its checksum recorded in `files/.generated.json`, so the
-next run accepts it without regenerating). With the manifest's own ffmpeg, a mismatch is an error, and so is any file
-that fails the integrity check (short, unreadable).
+Encoders are not bit-reproducible across machines: different ffmpeg builds differ, and even the same build gives
+different bytes with a different CPU or thread count. A file whose checksum differs from MANIFEST.json is regenerated
+once; if the fresh file still differs, that is a warning: the file is checked for integrity with ffprobe and its
+checksum recorded in `files/.generated.json`, so the next run accepts it without regenerating. A file that fails the
+integrity check (short, unreadable) is an error. Set OVE_MEDIA_STRICT=1 on the machine that made the manifest to
+require exact checksums there.
 """
 import fcntl
 import hashlib
@@ -270,6 +271,7 @@ class Checker:
         self.expected = {e["name"]: e["sha256"] for e in manifest["synthetic"]}
         self.manifest_version = manifest["generatedWith"]
         self.version = version
+        self.strict = os.environ.get("OVE_MEDIA_STRICT") == "1"
         self.stamps = load_stamps()
 
     def good(self, name):
@@ -280,8 +282,8 @@ class Checker:
         want = self.expected.get(name)
         if got == want:
             return True
-        if want and self.version == self.manifest_version:
-            return False  # the manifest's own ffmpeg must reproduce it exactly
+        if want and self.strict:
+            return False  # strict mode: the manifest checksum must be reproduced exactly
         s = self.stamps.get(name)
         return bool(s) and s.get("sha256") == got and s.get("ffmpeg") == self.version
 
@@ -296,9 +298,8 @@ class Checker:
         if got == want or self.recording:
             self.stamps.pop(name, None)
             return
-        if want and self.version == self.manifest_version:
-            raise GenerateError(f"{name}: checksum {got} != manifest {want}, with the manifest's own ffmpeg "
-                                f"({self.version})")
+        if want and self.strict:
+            raise GenerateError(f"{name}: checksum {got} != manifest {want} (OVE_MEDIA_STRICT=1, ffmpeg {self.version})")
         if want:
             warn(f"{name}: checksum differs from MANIFEST.json (made with {self.manifest_version}; this is "
                  f"{self.version}); accepted after an integrity check. Run update-manifest to record it.")
