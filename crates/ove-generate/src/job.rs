@@ -97,7 +97,18 @@ pub fn new_id(now_ms: i64) -> String {
     format!("g_{now_ms:x}_{}", b.iter().map(|x| format!("{x:02x}")).collect::<String>())
 }
 
+/// Refuses ids that are not plain names ([`ove_guard::is_safe_id`]): job ids become file names (job file, cancel
+/// marker, output), and they come from job files in the bundle and from the command line.
+pub fn check_id(id: &str) -> std::io::Result<()> {
+    if ove_guard::is_safe_id(id) {
+        Ok(())
+    } else {
+        Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, format!("invalid job id {id:?}")))
+    }
+}
+
 pub fn save(bundle: &Path, job: &Job) -> std::io::Result<()> {
+    check_id(&job.id)?;
     let dir = jobs_dir(bundle);
     std::fs::create_dir_all(&dir)?;
     let tmp = dir.join(format!("{}.json.tmp", job.id));
@@ -105,20 +116,28 @@ pub fn save(bundle: &Path, job: &Job) -> std::io::Result<()> {
     std::fs::rename(tmp, dir.join(format!("{}.json", job.id)))
 }
 
+/// A job by exact id. A file whose recorded id differs from its name is ignored.
 pub fn load(bundle: &Path, id: &str) -> Option<Job> {
-    if id.contains(['/', '\\']) {
-        return None;
-    }
-    serde_json::from_slice(&std::fs::read(jobs_dir(bundle).join(format!("{id}.json"))).ok()?).ok()
+    check_id(id).ok()?;
+    let job: Job = serde_json::from_slice(&std::fs::read(jobs_dir(bundle).join(format!("{id}.json"))).ok()?).ok()?;
+    (job.id == id).then_some(job)
 }
 
-/// All jobs of a project, newest first.
+/// All jobs of a project, newest first. Job files with an unsafe id, or one that differs from the file name, are
+/// skipped.
 pub fn list(bundle: &Path) -> Vec<Job> {
     let mut v: Vec<Job> = std::fs::read_dir(jobs_dir(bundle))
         .map(|rd| {
             rd.flatten()
-                .filter(|e| e.path().extension().is_some_and(|x| x == "json"))
-                .filter_map(|e| serde_json::from_slice(&std::fs::read(e.path()).ok()?).ok())
+                .filter_map(|e| {
+                    let path = e.path();
+                    let stem = path.file_stem()?.to_str()?.to_string();
+                    if path.extension()? != "json" || check_id(&stem).is_err() {
+                        return None;
+                    }
+                    let job: Job = serde_json::from_slice(&std::fs::read(&path).ok()?).ok()?;
+                    (job.id == stem).then_some(job)
+                })
                 .collect()
         })
         .unwrap_or_default();
@@ -135,10 +154,60 @@ pub fn find<'a>(bundles: impl IntoIterator<Item = &'a Path>, q: &str) -> Option<
 
 /// Marks a cancel request: the worker checks for this file between polls.
 pub fn request_cancel(bundle: &Path, id: &str) -> std::io::Result<()> {
+    check_id(id)?;
     std::fs::create_dir_all(jobs_dir(bundle))?;
     std::fs::write(jobs_dir(bundle).join(format!("{id}.cancel")), b"")
 }
 
 pub fn cancel_requested(bundle: &Path, id: &str) -> bool {
-    jobs_dir(bundle).join(format!("{id}.cancel")).exists()
+    check_id(id).is_ok() && jobs_dir(bundle).join(format!("{id}.cancel")).exists()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn job(id: &str) -> Job {
+        Job {
+            id: id.into(),
+            kind: Kind::Image,
+            model: "m".into(),
+            request: Request::default(),
+            status: Status::Queued,
+            progress: None,
+            item_id: None,
+            estimate_usd: None,
+            remote_id: None,
+            output: None,
+            error: None,
+            created_at: 0,
+            updated_at: 0,
+            worker_pid: None,
+            details: Value::Null,
+        }
+    }
+
+    #[test]
+    fn ids_cannot_escape_the_jobs_folder() {
+        let d = tempfile::tempdir().unwrap();
+        let bundle = d.path().join("p.ove");
+        for id in ["../../x", "..", "a/b", "a\\b", "", "x.y"] {
+            assert!(request_cancel(&bundle, id).is_err(), "{id:?}");
+            assert!(!cancel_requested(&bundle, id));
+            assert!(load(&bundle, id).is_none());
+            assert!(save(&bundle, &job(id)).is_err());
+        }
+        assert!(!d.path().join("x.cancel").exists() && !bundle.join("x.cancel").exists());
+
+        save(&bundle, &job("g_1")).unwrap();
+        request_cancel(&bundle, "g_1").unwrap();
+        assert!(cancel_requested(&bundle, "g_1"));
+        assert_eq!(load(&bundle, "g_1").unwrap().id, "g_1");
+
+        // A job file from elsewhere whose recorded id is a path is ignored by load and list.
+        let evil = serde_json::to_vec(&job("../../evil")).unwrap();
+        std::fs::write(jobs_dir(&bundle).join("g_2.json"), &evil).unwrap();
+        assert!(load(&bundle, "g_2").is_none());
+        assert_eq!(list(&bundle).iter().map(|j| j.id.as_str()).collect::<Vec<_>>(), ["g_1"]);
+    }
 }

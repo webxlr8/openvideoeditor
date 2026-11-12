@@ -17,6 +17,7 @@ ove-analyze = { path = "../ove-analyze", optional = true }
 ove-control = { path = "../ove-control" }
 ove-core = { path = "../ove-core" }
 ove-generate = { path = "../ove-generate" }
+ove-guard = { path = "../ove-guard" }
 ove-interchange = { path = "../ove-interchange" }
 ove-projection = { path = "../ove-projection" }
 ove-media = { path = "../ove-media", optional = true }

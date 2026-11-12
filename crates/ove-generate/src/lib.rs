@@ -49,6 +49,8 @@ pub fn execute(
     store: &dyn keys::KeyStore,
     cancelled: &dyn Fn() -> bool,
 ) -> Result<(), GenError> {
+    // The id names the output file.
+    job::check_id(&job.id).map_err(|e| GenError::new("job.invalid", e.to_string()))?;
     let model = catalog::find(Some(&job.model), job.kind).map_err(|e| GenError::new("model.unknown", e))?;
     let res = (|| -> Result<(), GenError> {
         let (key, _) = store.get(model.provider).ok_or_else(|| {

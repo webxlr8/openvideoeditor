@@ -524,6 +524,10 @@ pub fn run(ctx: &Ctx, cmd: &MediaCmd) -> Out {
 /// The thumbnail the app's media panel shows (`cache/thumbs/<media id>.png`, 160×90, letterboxed).
 #[cfg(feature = "media")]
 pub fn thumbnail(bundle: &Path, media_id: &str, file: &Path) {
+    // The id names the file; ids come from the project document.
+    if !ove_guard::is_safe_id(media_id) {
+        return;
+    }
     if let Ok(img) = ove_analyze::grab(file, 0.5, Some(160)) {
         let mut canvas = ove_analyze::Image::filled(160, 90, [0, 0, 0, 255]);
         let scale = (160.0 / img.width as f64).min(90.0 / img.height as f64);
