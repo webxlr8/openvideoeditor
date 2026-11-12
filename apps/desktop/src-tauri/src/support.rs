@@ -8,6 +8,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
+use tauri::{AppHandle, Manager};
 
 use crate::error::{AppError, AppResult, ErrorCode};
 use crate::worker;
@@ -176,6 +177,41 @@ pub async fn check_for_updates() -> AppResult<UpdateInfo> {
     .await
 }
 
+/// What "Send feedback" puts in a report. Nothing is sent from here: the person copies it.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct FeedbackInfo {
+    /// The log's startup line: app version, OS, CPU architecture, GPU and decoder.
+    pub environment: String,
+    /// The page testers send reports to, when the build has one (`OVE_FEEDBACK_URL`).
+    pub feedback_url: Option<String>,
+}
+
+/// The feedback page set for this build, like `OVE_UPDATE_URL`: at run time or when the app was built. https only
+/// (`open_url` opens nothing else).
+pub fn feedback_url() -> Option<String> {
+    pick_feedback_url(std::env::var("OVE_FEEDBACK_URL").ok(), option_env!("OVE_FEEDBACK_URL"))
+}
+
+fn pick_feedback_url(runtime: Option<String>, built: Option<&str>) -> Option<String> {
+    runtime.or_else(|| built.map(str::to_string)).filter(|u| u.starts_with("https://"))
+}
+
+/// The environment block for a feedback report, and where to send it.
+#[tauri::command]
+#[specta::specta]
+pub async fn feedback_info(app: AppHandle) -> AppResult<FeedbackInfo> {
+    worker::blocking("feedback_info", move || {
+        let state = app.state::<crate::AppState>();
+        let gpu = worker::relock(&state.gpu_summary).clone().unwrap_or_else(|| "unknown".into());
+        Ok(FeedbackInfo {
+            environment: crate::logging::startup_line(&gpu, crate::DECODE_CAPABILITIES),
+            feedback_url: feedback_url(),
+        })
+    })
+    .await
+}
+
 /// Opens a web page in the default browser (download page from the update check).
 #[tauri::command]
 #[specta::specta]
@@ -195,7 +231,20 @@ pub fn open_url(url: String) -> AppResult<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::newer;
+    use super::{newer, pick_feedback_url};
+
+    #[test]
+    fn feedback_page_is_https_and_run_time_wins() {
+        assert_eq!(pick_feedback_url(None, None), None);
+        assert_eq!(pick_feedback_url(None, Some("https://a.example/f")).as_deref(), Some("https://a.example/f"));
+        assert_eq!(
+            pick_feedback_url(Some("https://b.example/f".into()), Some("https://a.example/f")).as_deref(),
+            Some("https://b.example/f")
+        );
+        // `open_url` opens https only, so nothing else is offered.
+        assert_eq!(pick_feedback_url(Some("http://a.example/f".into()), None), None);
+        assert_eq!(pick_feedback_url(Some("file:///etc/passwd".into()), None), None);
+    }
 
     #[test]
     fn versions() {

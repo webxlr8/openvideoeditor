@@ -136,6 +136,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             support::read_crash_report,
             support::check_for_updates,
             support::open_url,
+            support::feedback_info,
             // AI generation with the user's provider keys (change 14).
             generation::generation_catalog,
             generation::set_provider_key,
