@@ -91,6 +91,42 @@ async function topmostInside(page, selector, label) {
   check(`${label} overlaps the viewer and is topmost`, result.ok, JSON.stringify(result));
 }
 
+/**
+ * Clicks each visible, enabled button inside `scope` (starting from `reset()` each time) and returns the labels of
+ * those that changed nothing: no DOM change and no bridge call. The current page, tab or option is skipped.
+ */
+async function deadControls(page, scope, reset) {
+  const sel = `${scope} button:not([disabled]):not([aria-current="page"]):not([aria-selected="true"]):not(.on)`;
+  const count = await page.locator(sel).count();
+  const dead = [];
+  for (let i = 0; i < count; i++) {
+    await reset();
+    const el = page.locator(sel).nth(i);
+    if (!(await el.isVisible())) continue;
+    const label = ((await el.getAttribute("aria-label")) ?? (await el.textContent()) ?? "").trim();
+    await page.evaluate(() => {
+      window.__mutations = 0;
+      new MutationObserver((m) => (window.__mutations += m.length)).observe(document.body, {
+        subtree: true,
+        childList: true,
+        attributes: true,
+        characterData: true,
+      });
+      window.__callsBefore = window.__oveMock.calls.length;
+    });
+    await el.click();
+    await frames(page, 4);
+    const changed = await page.evaluate(
+      () =>
+        window.__mutations > 0 ||
+        window.__oveMock.calls.slice(window.__callsBefore).some((c) => !c.startsWith("reportUiState")),
+    );
+    if (!changed) dead.push(label || `button ${i}`);
+  }
+  await reset();
+  return dead;
+}
+
 const vite = await startVite();
 const browser = await chromium.launch();
 try {
@@ -102,6 +138,28 @@ try {
   await page.getByTestId("home").waitFor();
   await page.screenshot({ path: path.join(outDir, "home.png") });
   check("home renders", true);
+
+  // No dead controls on Home: every visible, enabled button does something when clicked.
+  const dead = await deadControls(page, '[data-testid="home"]', async () => {
+    await page.goto(URL);
+    await page.getByTestId("home").waitFor();
+  });
+  check("every Home control responds", dead.length === 0, dead.join(", "));
+
+  // Changelog and Send feedback.
+  await page.getByTestId("nav-changelog").click();
+  await page.getByTestId("whats-new").waitFor();
+  await page.screenshot({ path: path.join(outDir, "home-whats-new.png") });
+  check("what's new lists the known limitations", (await page.getByTestId("whats-new-limitations").textContent()).includes("540p"));
+  await page.keyboard.press("Escape");
+  await page.getByTestId("nav-feedback").click();
+  await page.getByTestId("feedback-text").fill("The export stopped.");
+  await page.getByTestId("feedback-env").getByText("startup: app", { exact: false }).waitFor();
+  await page.getByText("What will be copied").click();
+  await page.screenshot({ path: path.join(outDir, "home-feedback.png") });
+  check("feedback report has the environment", (await page.getByTestId("feedback-preview").textContent()).includes("--- Environment ---"));
+  await page.keyboard.press("Escape");
+  check("feedback dialog closes", (await page.getByTestId("feedback-dialog").count()) === 0);
 
   await page.getByTestId("home-open").click();
   await page.getByTestId("editor").waitFor();
