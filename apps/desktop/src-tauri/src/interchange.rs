@@ -89,7 +89,18 @@ pub async fn export_timeline(
     path: Option<String>,
     preview: bool,
 ) -> AppResult<TimelineExport> {
-    let f = format_of(&format)?;
+    crate::worker::guarded("export_timeline", async move { export_timeline_now(&app, &format, fps, path, preview) })
+        .await
+}
+
+fn export_timeline_now(
+    app: &AppHandle,
+    format: &str,
+    fps: f64,
+    path: Option<String>,
+    preview: bool,
+) -> AppResult<TimelineExport> {
+    let f = format_of(format)?;
     let (out, name) = {
         let state = app.state::<AppState>();
         let g = lock(&state.projects.open)?;
