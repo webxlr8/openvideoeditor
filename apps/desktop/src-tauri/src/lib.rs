@@ -633,8 +633,12 @@ mod tests {
             for chunk in text.split("#[tauri::command]").skip(1) {
                 let Some(sig) = chunk.lines().find(|l| l.starts_with("pub ")) else { continue };
                 let body = chunk.split("\n}\n").next().unwrap_or_default();
+                // `projects::import_paths` (shared with the assistant's import) runs through `worker::blocking` and
+                // `serial` itself.
                 if sig.contains("async fn")
-                    && !["worker::blocking(", "worker::guarded(", "serial("].iter().any(|g| body.contains(g))
+                    && !["worker::blocking(", "worker::guarded(", "serial(", "import_paths("]
+                        .iter()
+                        .any(|g| body.contains(g))
                 {
                     unguarded.push(format!("{name}: {sig}"));
                 }
