@@ -1,38 +1,22 @@
 #![allow(dead_code)]
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
-use std::sync::Once;
 
 use md5::{Digest, Md5};
 use ove_media::VideoFrame;
 
-pub fn repo_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap()
-}
+#[path = "../../../../tests/media/fixtures.rs"]
+mod fixtures;
 
-/// Path of a matrix file, generating the synthetic matrix on first use (needs python3 + ffmpeg on PATH).
-pub fn media(name: &str) -> PathBuf {
-    static GEN: Once = Once::new();
-    let root = repo_root();
-    GEN.call_once(|| {
-        let manifest = root.join("tests/media/MANIFEST.json");
-        let m: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&manifest).unwrap()).unwrap();
-        let missing = m["synthetic"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|e| !root.join("tests/media/files").join(e["name"].as_str().unwrap()).exists());
-        if missing {
-            let st = Command::new("python3")
-                .arg(root.join("tests/media/media.py"))
-                .arg("generate")
-                .status()
-                .expect("python3 needed to generate the media matrix");
-            assert!(st.success(), "media matrix generation failed");
-        }
-    });
-    root.join("tests/media/files").join(name)
+pub use fixtures::{media, repo_root};
+
+/// Every tool these tests use is present: the matrix generator, the reference ffmpeg CLI and ffprobe. False (after
+/// printing "skipped") only with `OVE_ALLOW_MISSING_MEDIA_TOOLS=1`; otherwise a missing tool fails the test.
+pub fn ready() -> bool {
+    fixtures::media_ready()
+        && fixtures::require_tool(&ffmpeg_cli(), "the reference ffmpeg CLI; set OVE_FFMPEG_CLI")
+        && fixtures::require_tool("ffprobe", "probe results are compared with it")
 }
 
 /// Every synthetic matrix entry name.

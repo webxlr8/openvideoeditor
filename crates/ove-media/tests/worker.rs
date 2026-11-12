@@ -36,6 +36,9 @@ impl VideoDecoder for Counting {
 
 #[test]
 fn queue_is_bounded() {
+    if !common::ready() {
+        return;
+    }
     let calls = Arc::new(AtomicU64::new(0));
     let dec = Counting {
         inner: FfmpegVideoDecoder::open(&media("h264_longgop.mp4"), native()).unwrap(),
@@ -61,6 +64,9 @@ fn queue_is_bounded() {
 
 #[test]
 fn seek_flushes_queue_and_delivers_target_frame() {
+    if !common::ready() {
+        return;
+    }
     let path = media("h264_longgop.mp4");
     let reference = reference_framemd5(&path);
     let dec = FfmpegVideoDecoder::open(&path, native()).unwrap();
@@ -109,6 +115,9 @@ fn worker_panic_becomes_an_error() {
 
 #[test]
 fn worker_reports_offline_media() {
+    if !common::ready() {
+        return;
+    }
     let dir = tempfile::tempdir().unwrap();
     let copy = dir.path().join("clip.mov");
     std::fs::copy(media("prores_hq.mov"), &copy).unwrap();

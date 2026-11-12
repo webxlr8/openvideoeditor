@@ -18,4 +18,5 @@ wgpu = "30"
 workspace = true
 
 [dev-dependencies]
+ove-media = { path = "../ove-media" }
 png = "0.18.1"

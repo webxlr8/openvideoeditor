@@ -57,6 +57,18 @@ impl YuvMatrix {
     }
 }
 
+/// Transfer function of a YUV frame. HDR transfers (PQ, HLG; BT.2020 primaries assumed) are
+/// tone-mapped to SDR BT.709 by the conversion pass.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum Transfer {
+    #[default]
+    Sdr,
+    /// SMPTE ST 2084.
+    Pq,
+    /// ARIB STD-B67 hybrid log-gamma.
+    Hlg,
+}
+
 /// One decoded frame in CPU memory (the copy-upload path). Planes are reference counted so a
 /// frame can be retained for device-loss recovery without copying.
 #[derive(Debug, Clone)]

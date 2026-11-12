@@ -4,9 +4,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
-use crate::cpu::{range_params, yuv_matrix};
+use crate::cpu::{range_params, tone_params, yuv_matrix};
 use crate::fit::{PhysicalRect, fit_rect};
-use crate::frame::{FrameError, PixelFormat, VideoFrame};
+use crate::frame::{FrameError, PixelFormat, Transfer, VideoFrame};
 use crate::shaders;
 
 /// Errors from the GPU layer. All are recoverable by the caller (show a message, retry, or fall
@@ -197,6 +197,7 @@ pub struct ViewerRenderer {
     pipelines: Pipelines,
     source: Option<SourceTextures>,
     current: Option<VideoFrame>,
+    current_transfer: Transfer,
     /// Background colour around the image (linear 0..1 RGBA, written as-is).
     pub background: wgpu::Color,
     pub stats: UploadStats,
@@ -296,7 +297,7 @@ impl Pipelines {
         });
         let params = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("convert params"),
-            size: 64,
+            size: 128,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -365,6 +366,7 @@ impl ViewerRenderer {
             pipelines,
             source: None,
             current: None,
+            current_transfer: Transfer::Sdr,
             background: wgpu::Color::BLACK,
             stats: UploadStats::default(),
         }
@@ -379,8 +381,19 @@ impl ViewerRenderer {
         self.current.as_ref()
     }
 
-    /// Uploads `frame` (one CPU→GPU copy per plane) and converts it to the intermediate texture.
+    /// The transfer the current frame was uploaded with.
+    pub fn current_transfer(&self) -> Transfer {
+        self.current_transfer
+    }
+
+    /// Uploads an SDR `frame` (one CPU→GPU copy per plane) and converts it to the intermediate texture.
     pub fn upload(&mut self, frame: &VideoFrame) -> Result<(), GpuError> {
+        self.upload_with_transfer(frame, Transfer::Sdr)
+    }
+
+    /// Like [`ViewerRenderer::upload`], tone-mapping a PQ / HLG YUV frame to SDR BT.709 in the
+    /// conversion pass (the same pipeline as `ove_media::tonemap`). Ignored for RGBA frames.
+    pub fn upload_with_transfer(&mut self, frame: &VideoFrame, transfer: Transfer) -> Result<(), GpuError> {
         frame.validate()?;
         if self.ctx.is_lost() {
             return Err(GpuError::DeviceLost(self.ctx.lost_reason()));
@@ -415,9 +428,12 @@ impl ViewerRenderer {
         };
         let m = yuv_matrix(frame.matrix);
         let r = range_params(bits, full);
-        let params: [f32; 16] = [
+        let transfer = if frame.format == PixelFormat::Rgba8 { Transfer::Sdr } else { transfer };
+        let (tone, g) = tone_params(transfer);
+        let params: [f32; 32] = [
             m[0][0], m[0][1], m[0][2], 0.0, m[1][0], m[1][1], m[1][2], 0.0, m[2][0], m[2][1], m[2][2], 0.0, r[0], r[1],
-            r[2], r[3],
+            r[2], r[3], tone[0], tone[1], tone[2], tone[3], g[0][0], g[0][1], g[0][2], 0.0, g[1][0], g[1][1], g[1][2],
+            0.0, g[2][0], g[2][1], g[2][2], 0.0,
         ];
         self.ctx.queue.write_buffer(&self.pipelines.params, 0, bytemuck::cast_slice(&params));
 
@@ -447,6 +463,7 @@ impl ViewerRenderer {
         self.stats.bytes.fetch_add(bytes, Ordering::Relaxed);
         self.stats.copies_last_frame.store(1, Ordering::Relaxed);
         self.current = Some(frame.clone());
+        self.current_transfer = transfer;
         Ok(())
     }
 
@@ -623,7 +640,7 @@ impl ViewerRenderer {
         self.ctx = ctx;
         self.source = None;
         if let Some(frame) = self.current.take() {
-            self.upload(&frame)?;
+            self.upload_with_transfer(&frame, self.current_transfer)?;
         }
         Ok(true)
     }

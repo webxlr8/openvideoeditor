@@ -7,10 +7,15 @@ use std::collections::BTreeMap;
 
 #[test]
 fn hdr_colour_is_reported() {
-    let mut d = open_video(&media("hevc_hdr_vfr.mov"), DecoderOptions::default()).unwrap();
+    if !common::ready() {
+        return;
+    }
+    let opts = DecoderOptions { output: OutputFormat::DisplayHdr, ..Default::default() };
+    let mut d = open_video(&media("hevc_hdr_vfr.mov"), opts).unwrap();
     let f = d.next_frame().unwrap().unwrap();
     assert_eq!(f.format, PixelFormat::P010);
     assert!(f.color.hdr);
+    assert_eq!(f.color.transfer, ove_media::Transfer::Pq);
     assert_eq!(f.color.matrix, ove_media::ColorMatrix::Bt2020);
     let mut d = open_video(&media("h264_4k60.mp4"), DecoderOptions::default()).unwrap();
     let f = d.next_frame().unwrap().unwrap();
@@ -44,6 +49,9 @@ fn seek_targets() -> usize {
 
 #[test]
 fn linear_decode_matches_framemd5_for_every_video_file() {
+    if !common::ready() {
+        return;
+    }
     for name in VIDEO_FILES {
         let path = media(name);
         let reference = reference_framemd5(&path);
@@ -61,6 +69,9 @@ fn linear_decode_matches_framemd5_for_every_video_file() {
 
 #[test]
 fn random_seeks_are_frame_exact() {
+    if !common::ready() {
+        return;
+    }
     let n = seek_targets();
     let mut timings = BTreeMap::new();
     for name in VIDEO_FILES {
@@ -104,6 +115,9 @@ fn random_seeks_are_frame_exact() {
 
 #[test]
 fn frame_step_advances_exactly() {
+    if !common::ready() {
+        return;
+    }
     // Spec scenario "Frame step": 10 steps forward from a paused position advance exactly 10 frames.
     let path = media("h264_longgop.mp4");
     let mut lin = FfmpegVideoDecoder::open(&path, native()).unwrap();
@@ -119,6 +133,9 @@ fn frame_step_advances_exactly() {
 
 #[test]
 fn display_output_formats() {
+    if !common::ready() {
+        return;
+    }
     let cases = [
         ("h264_longgop.mp4", PixelFormat::Nv12),
         ("hevc_main10_420.mp4", PixelFormat::P010),
@@ -155,6 +172,9 @@ fn display_output_formats() {
 /// 4:2:2 / 4:4:4 sources), shifted to the high bits for P010.
 #[test]
 fn display_repack_matches_native_planes() {
+    if !common::ready() {
+        return;
+    }
     for (name, depth) in
         [("h264_longgop.mp4", 8u32), ("dnxhr_hq.mxf", 8), ("prores_hq.mov", 10), ("hevc_main10_420.mp4", 10)]
     {
@@ -235,6 +255,9 @@ fn fallback_for(name: &str, fail_after: u64, fail_on_seek: bool) -> FallbackDeco
 
 #[test]
 fn hardware_failure_mid_stream_resumes_at_the_same_frame() {
+    if !common::ready() {
+        return;
+    }
     for name in ["h264_longgop.mp4", "hevc_main10_420.mp4", "vfr_phone.mp4"] {
         let reference = reference_framemd5(&media(name));
         let k = 37;
@@ -257,6 +280,9 @@ fn hardware_failure_mid_stream_resumes_at_the_same_frame() {
 
 #[test]
 fn hardware_failure_during_seek_falls_back() {
+    if !common::ready() {
+        return;
+    }
     let name = "h264_longgop.mp4";
     let reference = reference_framemd5(&media(name));
     let mut d = fallback_for(name, u64::MAX, true);
@@ -269,6 +295,9 @@ fn hardware_failure_during_seek_falls_back() {
 
 #[test]
 fn injected_failure_on_real_decoder_option_is_inert_without_hardware() {
+    if !common::ready() {
+        return;
+    }
     // On machines without a hardware decoder the option must not fire (it only applies to the hardware path).
     let opts = DecoderOptions { inject_hw_failure_after: Some(3), output: OutputFormat::Native, ..Default::default() };
     let mut d = open_video(&media("h264_longgop.mp4"), opts).unwrap();
@@ -288,6 +317,9 @@ fn injected_failure_on_real_decoder_option_is_inert_without_hardware() {
 
 #[test]
 fn truncated_file_ends_cleanly() {
+    if !common::ready() {
+        return;
+    }
     let mut d = FfmpegVideoDecoder::open(&media("truncated_faststart.mp4"), native()).unwrap();
     let mut n = 0;
     loop {
@@ -304,12 +336,18 @@ fn truncated_file_ends_cleanly() {
 
 #[test]
 fn audio_only_file_has_no_video_stream() {
+    if !common::ready() {
+        return;
+    }
     let e = open_video(&media("audio_aac.m4a"), DecoderOptions::default()).err().unwrap();
     assert!(matches!(e, MediaError::NoStream("video")), "{e:?}");
 }
 
 #[test]
 fn deleted_file_goes_offline() {
+    if !common::ready() {
+        return;
+    }
     let dir = tempfile::tempdir().unwrap();
     let copy = dir.path().join("clip.mxf");
     std::fs::copy(media("dnxhr_hq.mxf"), &copy).unwrap();

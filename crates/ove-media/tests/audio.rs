@@ -37,6 +37,9 @@ fn decode_s16(path: &std::path::Path, rate: u32) -> Vec<i16> {
 
 #[test]
 fn pcm_matches_ffmpeg_within_one_lsb() {
+    if !common::ready() {
+        return;
+    }
     // Same-version reference: <= 1 LSB (the task's bar). Different versions: lossy decoders may differ slightly.
     let tolerance = if cli_matches_libraries() { 1 } else { 16 };
     for rate in [48_000u32, 44_100] {
@@ -65,6 +68,9 @@ fn pcm_matches_ffmpeg_within_one_lsb() {
 
 #[test]
 fn f32_output_matches_s16() {
+    if !common::ready() {
+        return;
+    }
     let path = media("audio_aac.m4a");
     let mut d = AudioDecoder::open(&path, AudioOutputSpec::default()).unwrap();
     let mut f = Vec::new();
@@ -81,6 +87,9 @@ fn f32_output_matches_s16() {
 
 #[test]
 fn audio_seek_lands_on_the_requested_sample() {
+    if !common::ready() {
+        return;
+    }
     for name in ["audio_pcm.wav", "audio_aac.m4a", "audio_opus.mka", "prores_hq.mov"] {
         let path = media(name);
         let spec = AudioOutputSpec { sample_rate: 48_000, channels: 2, format: SampleFormat::S16 };

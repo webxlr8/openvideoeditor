@@ -27,6 +27,18 @@
       "sha256": "edf05b1ff7e2a669ec2beb1aefaaccd92d9a46cbdfd5436f87540d4496bfce37"
     },
     {
+      "name": "hevc_hlg_patches.mov",
+      "description": "iPhone-like HEVC Main10 HLG (BT.2020, ARIB STD-B67): grey card 38 %, skin tone, reference white 75 %",
+      "format": "MOV / HEVC HLG",
+      "sha256": "f22c4f320e0595f7b9ba006b2b5c7c2a069116edc2fc9731c75b9cea85ef0b30"
+    },
+    {
+      "name": "hevc_pq_patches.mov",
+      "description": "HEVC Main10 PQ (BT.2020, SMPTE ST 2084): grey card 26 cd/m2, skin tone, reference white 203 cd/m2",
+      "format": "MOV / HEVC PQ",
+      "sha256": "8c79526614c4b993345fd0598567fded48921a2a15834fcb9d94e1a227de6d16"
+    },
+    {
       "name": "hevc_main10_420.mp4",
       "description": "HEVC Main10 4:2:0 10-bit, hvc1 tag",
       "format": "MP4 / HEVC 10-bit 4:2:0",
