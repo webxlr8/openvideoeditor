@@ -355,8 +355,6 @@ fn transcript_for(
         return Ok(t);
     }
     let name = clip.path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-    progress(app, "audio", index as f64 / count as f64, format!("Reading the sound of {name}"));
-    let audio = ove_transcribe::load_audio(&clip.path)?;
     if cancel.load(Ordering::SeqCst) {
         return Err(ove_transcribe::TranscribeError::Cancelled);
     }
@@ -373,9 +371,10 @@ fn transcript_for(
     };
     let label2 = label.clone();
     progress(app, "transcribe", index as f64 / count as f64, label);
-    let t = ove_transcribe::transcribe(
+    // Decoded and recognised window by window, so a long recording never needs all of its audio in memory.
+    let t = ove_transcribe::transcribe_file(
         model_path,
-        &audio,
+        &clip.path,
         &opts,
         move |pct| progress(&app2, "transcribe", (index as f64 + pct as f64 / 100.0) / count as f64, label2.clone()),
         cancel.clone(),
