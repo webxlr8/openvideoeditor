@@ -3,6 +3,7 @@
 
 import { useEffect, useState } from "react";
 import { commands } from "./bridge";
+import { fire, logError } from "./notify";
 import type { Fields } from "./edit";
 
 export type ParamKind =
@@ -64,7 +65,11 @@ export function useCatalog(): FxCatalog | null {
   const [c, setC] = useState<FxCatalog | null>(null);
   useEffect(() => {
     let live = true;
-    void loadCatalog().then((x) => live && setC(x));
+    fire(
+      loadCatalog().then((x) => {
+        if (live) setC(x);
+      }),
+    );
     return () => {
       live = false;
     };
@@ -85,7 +90,10 @@ export function usePreview(kind: "effect" | "lut", id: string): string | null {
       p = commands.fxPreview(kind, id).then((r) => (r.status === "ok" ? r.data : ""));
       previews.set(key, p);
     }
-    void p.then((u) => live && setUrl(u || null));
+    // A missing thumbnail is cosmetic: logged, not shown.
+    p.then((u) => {
+      if (live) setUrl(u || null);
+    }).catch(logError);
     return () => {
       live = false;
     };

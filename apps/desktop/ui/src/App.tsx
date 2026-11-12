@@ -19,6 +19,7 @@ import {
   referenceSize,
 } from "./ExportDialog";
 import { Home } from "./Home";
+import { fire, logError, runCommand, setErrorSink, unlisten } from "./notify";
 import { EDIT_ACTIONS, keyToAction } from "./keys";
 import { templateMessage, templateProjectName } from "./templates";
 
@@ -111,10 +112,14 @@ export function App() {
       if (r.status === "error") return showError(r.error);
       setMedia(r.data);
       if (at != null)
-        void commands.transport({
-          kind: "seekFrame",
-          frame: Math.max(0, Math.round(at * (r.data.frameRate || 30))),
-        });
+        runCommand(
+          commands.transport({
+            kind: "seekFrame",
+            frame: Math.max(0, Math.round(at * (r.data.frameRate || 30))),
+          }),
+          undefined,
+          showError,
+        );
     },
     [showError],
   );
@@ -131,7 +136,11 @@ export function App() {
           0,
           Math.round(((item.start ?? 0) + offsetSeconds) * 30),
         );
-        void commands.transport({ kind: "seekFrame", frame });
+        runCommand(
+          commands.transport({ kind: "seekFrame", frame }),
+          undefined,
+          showError,
+        );
         return;
       }
       if (!m) return;
@@ -143,7 +152,11 @@ export function App() {
         0,
         Math.round(((item.trimStart ?? 0) + offsetSeconds) * fps),
       );
-      void commands.transport({ kind: "seekFrame", frame });
+      runCommand(
+        commands.transport({ kind: "seekFrame", frame }),
+        undefined,
+        showError,
+      );
     },
     [showError],
   );
@@ -153,17 +166,17 @@ export function App() {
       setProject(v);
       projectRef.current = v;
       setRoute("editor");
-      if (modeRef.current === "timeline") return void showTimeline(0);
+      if (modeRef.current === "timeline") return fire(showTimeline(0));
       const first =
         v.items.find((i) => i.mediaId && i.trackId === "t_main") ??
         v.items.find((i) => i.mediaId);
-      if (first) void preview(first);
+      if (first) fire(preview(first));
       else {
         setMedia(null);
-        void commands.closeMedia();
+        runCommand(commands.closeMedia(), undefined, showError);
       }
     },
-    [preview, showTimeline],
+    [preview, showError, showTimeline],
   );
 
   /** Adds a timeline file (FCPXML, XML, EDL, OTIO) to the open project. */
@@ -183,7 +196,7 @@ export function App() {
           ? `. Missing media (placeholders): ${missing.slice(0, 3).join(", ")}${missing.length > 3 ? "…" : ""}`
           : "."),
     );
-    if (modeRef.current === "timeline") void showTimeline();
+    if (modeRef.current === "timeline") fire(showTimeline());
   }, [showError, showInfo, showTimeline]);
 
   const importInto = useCallback(
@@ -211,8 +224,8 @@ export function App() {
       const added = r.data.items.find((i) => !before.has(i.id) && i.mediaId);
       if (modeRef.current === "timeline") {
         if (added) setSelection([added.id]);
-        void showTimeline(added?.start ?? 0);
-      } else if (added) void preview(added);
+        fire(showTimeline(added?.start ?? 0));
+      } else if (added) fire(preview(added));
     },
     [preview, showError, showTimeline],
   );
@@ -227,18 +240,18 @@ export function App() {
       const sel = p.items.find(
         (i) => i.id === selectionRef.current[selectionRef.current.length - 1],
       );
-      if (m === "timeline") return void showTimeline(sel?.start ?? 0);
+      if (m === "timeline") return fire(showTimeline(sel?.start ?? 0));
       const clip = sel?.mediaId
         ? sel
         : (p.items.find((i) => i.mediaId && i.trackId === "t_main") ??
           p.items.find((i) => i.mediaId));
-      if (clip) void preview(clip);
+      if (clip) fire(preview(clip));
       else {
         setMedia(null);
-        void commands.closeMedia();
+        runCommand(commands.closeMedia(), undefined, showError);
       }
     },
-    [preview, showTimeline],
+    [preview, showError, showTimeline],
   );
 
   // The engine's timeline follows edits; keep the viewer's frame shape in step with the aspect ratio.
@@ -255,9 +268,7 @@ export function App() {
     (command: TransportCommand) => {
       // The engine applies commands asynchronously and reports every change through `playbackChanged`;
       // replies are only checked for errors so a late reply never overwrites a newer state.
-      void commands.transport(command).then((r) => {
-        if (r.status === "error") showError(r.error);
-      });
+      runCommand(commands.transport(command), undefined, showError);
     },
     [showError],
   );
@@ -288,6 +299,7 @@ export function App() {
     if (aspect && aspect !== view.aspectRatio) {
       const r = await commands.setAspectRatio(aspect);
       if (r.status === "ok") view = r.data;
+      else showError(r.error);
     }
     const status = await commands.agentStatus();
     const ready = status.status === "ok" && status.data.hasKey;
@@ -301,55 +313,68 @@ export function App() {
     }
   };
 
+  // Failures from work nobody awaits (see notify.ts) show as toasts.
+  useEffect(() => setErrorSink(showError), [showError]);
+
   // Bridge wiring: app info, routed paths, playback, project and error events.
   useEffect(() => {
-    const unlisten = [
+    const listeners = [
       events.playbackChanged.listen((e) => setPlayback(e.payload)),
       events.appErrorRaised.listen((e) => showError(e.payload)),
       events.viewerBackendChanged.listen((e) => setBackend(e.payload)),
       events.projectChanged.listen((e) => {
-        if (e.payload) setProject(e.payload as ProjectView_Serialize);
+        if (e.payload) setProject(e.payload);
       }),
       // `ove app open` / `ove project open`: show that project in the editor.
-      events.remoteOpened.listen((e) =>
-        openProjectView(e.payload as ProjectView_Serialize),
-      ),
+      events.remoteOpened.listen((e) => openProjectView(e.payload)),
       events.openPathsRequested.listen((e) => {
-        if (e.payload.paths.length > 0) void importInto(e.payload.paths);
+        if (e.payload.paths.length > 0) fire(importInto(e.payload.paths));
       }),
     ];
-    void commands.appInfo().then((r) => {
-      if (r.status === "ok") {
-        setBackend(r.data.viewerBackend);
+    runCommand(
+      commands.appInfo(),
+      (info) => {
+        setBackend(info.viewerBackend);
         setPlatform(
-          r.data.os.toLowerCase().startsWith("mac")
+          info.os.toLowerCase().startsWith("mac")
             ? "macos"
-            : r.data.os.toLowerCase(),
+            : info.os.toLowerCase(),
         );
-      }
-    });
+      },
+      showError,
+    );
     // A problem recorded last time: say so once (reports stay on this computer).
-    void commands.crashReports().then((reports) => {
-      if (reports.some((r) => !r.seen)) {
-        showInfo(
-          "OpenVideoEditor ran into a problem last time. A report was saved on this computer — see Settings → Privacy.",
-        );
-        void commands.markCrashReportsSeen();
-      }
-    });
-    void commands.listProjects().then((r) => {
-      if (r.status === "ok") setProjects(r.data);
-    });
-    void commands.takePendingOpenPaths().then((r) => {
-      if (r.status === "ok" && r.data.length > 0) void importInto(r.data);
-    });
-    return () => unlisten.forEach((p) => void p.then((f) => f()));
-  }, [importInto, openProjectView, showError]);
+    commands
+      .crashReports()
+      .then((reports) => {
+        if (reports.some((r) => !r.seen)) {
+          showInfo(
+            "OpenVideoEditor ran into a problem last time. A report was saved on this computer — see Settings → Privacy.",
+          );
+          runCommand(commands.markCrashReportsSeen(), undefined, logError);
+        }
+      })
+      .catch(logError);
+    runCommand(commands.listProjects(), setProjects, showError);
+    runCommand(
+      commands.takePendingOpenPaths(),
+      (paths) => {
+        if (paths.length > 0) fire(importInto(paths));
+      },
+      showError,
+    );
+    return () => listeners.forEach(unlisten);
+  }, [importInto, openProjectView, showError, showInfo]);
 
   // The command line asks what is selected and which viewer mode is on (`ove app context`).
   useEffect(() => {
     const t = setTimeout(
-      () => void commands.reportUiState({ selection, viewer: mode }),
+      () =>
+        runCommand(
+          commands.reportUiState({ selection, viewer: mode }),
+          undefined,
+          logError,
+        ),
       150,
     );
     return () => clearTimeout(t);
@@ -363,14 +388,15 @@ export function App() {
   }, [backend, platform]);
 
   const goHome = useCallback(async () => {
-    await commands.closeProject();
+    const closed = await commands.closeProject();
+    if (closed.status === "error") showError(closed.error);
     setProject(null);
     projectRef.current = null;
     setSelection([]);
     setMedia(null);
     setRoute("home");
-    void refreshProjects();
-  }, [refreshProjects]);
+    await refreshProjects();
+  }, [refreshProjects, showError]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -385,8 +411,8 @@ export function App() {
       if (route !== "editor" || EDIT_ACTIONS.has(action.type)) return;
       e.preventDefault();
       if (action.type === "transport") transport(action.command);
-      else if (action.type === "undo") void run(commands.undo());
-      else if (action.type === "redo") void run(commands.redo());
+      else if (action.type === "undo") fire(run(commands.undo()));
+      else if (action.type === "redo") fire(run(commands.redo()));
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -398,28 +424,28 @@ export function App() {
         <Home
           projects={projects}
           onError={showError}
-          onOpenFile={() => void importInto(null)}
+          onOpenFile={() => fire(importInto(null))}
           onBlank={() =>
-            void commands.createProject("Untitled Project").then((r) => {
-              if (r.status === "error") showError(r.error);
-              else openProjectView(r.data);
-            })
+            runCommand(
+              commands.createProject("Untitled Project"),
+              openProjectView,
+              showError,
+            )
           }
           onPrompt={(text) =>
-            void startWithAssistant(text, projectNameFrom(text))
+            fire(startWithAssistant(text, projectNameFrom(text)))
           }
           onTemplate={(t, details) =>
-            void startWithAssistant(
-              templateMessage(t, details),
-              templateProjectName(t, details),
-              t.aspect,
+            fire(
+              startWithAssistant(
+                templateMessage(t, details),
+                templateProjectName(t, details),
+                t.aspect,
+              ),
             )
           }
           onOpenProject={(bundle) =>
-            void commands.openProject(bundle).then((r) => {
-              if (r.status === "error") showError(r.error);
-              else openProjectView(r.data);
-            })
+            runCommand(commands.openProject(bundle), openProjectView, showError)
           }
         />
       ) : (
@@ -433,10 +459,10 @@ export function App() {
           layout={layout}
           setLayout={setLayout}
           onTransport={transport}
-          onImport={() => void importInto(null)}
-          onImportTimeline={() => void importTimelineFile()}
+          onImport={() => fire(importInto(null))}
+          onImportTimeline={() => fire(importTimelineFile())}
           onError={showError}
-          onHome={() => void goHome()}
+          onHome={() => fire(goHome())}
           onSelect={(item, offset, mode) => {
             if (!item) setSelection([]);
             else if (mode === "toggle")
@@ -445,10 +471,10 @@ export function App() {
                   ? s.filter((x) => x !== item.id)
                   : [...s, item.id],
               );
-            else void preview(item, offset);
+            else fire(preview(item, offset));
           }}
           onSelectMany={setSelection}
-          onEdit={(p) => void run(p)}
+          onEdit={(p) => fire(run(p))}
           timelineMode={mode === "timeline"}
           barExtras={
             <>

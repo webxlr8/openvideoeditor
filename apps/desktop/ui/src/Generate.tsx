@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { commands, events } from "./bridge";
 import type { AppError } from "./bindings";
 import { Icon } from "./icons";
+import { fire, reportError, runCommand, unlisten } from "./notify";
 import type { PanelProps } from "./Panels";
 
 export type GenKind = "image" | "video" | "voice" | "music" | "sfx";
@@ -100,7 +101,8 @@ export function priceLabel(m: GenModel) {
 export async function loadCatalog(): Promise<Catalog> {
   try {
     return JSON.parse(await commands.generationCatalog()) as Catalog;
-  } catch {
+  } catch (e) {
+    reportError(e);
     return { models: [], keys: [] };
   }
 }
@@ -154,12 +156,12 @@ export function KeyEntry({
         <button
           className="btn"
           disabled={!key.trim()}
-          onClick={() => void save()}
+          onClick={() => fire(save(), onError)}
         >
           Save
         </button>
         {status.hasKey && status.source !== "environment" && (
-          <button className="btn" onClick={() => void clear()}>
+          <button className="btn" onClick={() => fire(clear(), onError)}>
             Remove
           </button>
         )}
@@ -198,7 +200,7 @@ function JobRow({ job }: { job: GenJob }) {
           className="icon-btn"
           title="Cancel"
           aria-label="Cancel"
-          onClick={() => void commands.cancelGeneration(job.id)}
+          onClick={() => runCommand(commands.cancelGeneration(job.id))}
         >
           <Icon name="close" size={13} />
         </button>
@@ -220,7 +222,7 @@ export function GeneratePanel({ project, playhead, onError }: PanelProps) {
   const [atPlayhead, setAtPlayhead] = useState(true);
   const [jobs, setJobs] = useState<GenJob[]>([]);
 
-  useEffect(() => void loadCatalog().then(setCatalog), []);
+  useEffect(() => fire(loadCatalog().then(setCatalog)), []);
   const models = useMemo(
     () => catalog.models.filter((m) => m.kind === kind),
     [catalog, kind],
@@ -231,30 +233,36 @@ export function GeneratePanel({ project, playhead, onError }: PanelProps) {
     models[0];
   const key = catalog.keys.find((k) => k.provider === model?.provider);
 
-  const refreshJobs = useCallback(async () => {
-    const r = await commands.generationJobs();
-    if (r.status === "ok") setJobs(JSON.parse(r.data) as GenJob[]);
-  }, []);
+  const refreshJobs = useCallback(
+    () =>
+      runCommand(
+        commands.generationJobs(),
+        (json) => setJobs(JSON.parse(json) as GenJob[]),
+        fail,
+      ),
+    [fail],
+  );
   useEffect(() => {
     let live = true;
-    void commands
-      .generationJobs()
-      .then(
-        (r) =>
-          live && r.status === "ok" && setJobs(JSON.parse(r.data) as GenJob[]),
-      );
-    const un = events.generationUpdated.listen(() => void refreshJobs());
+    runCommand(
+      commands.generationJobs(),
+      (json) => {
+        if (live) setJobs(JSON.parse(json) as GenJob[]);
+      },
+      fail,
+    );
+    const un = events.generationUpdated.listen(refreshJobs);
     return () => {
       live = false;
-      void un.then((f) => f());
+      unlisten(un);
     };
-  }, [refreshJobs, project.id]);
+  }, [refreshJobs, fail, project.id]);
   const anyRunning = jobs.some(
     (j) => j.status === "queued" || j.status === "running",
   );
   useEffect(() => {
     if (!anyRunning) return;
-    const t = setInterval(() => void refreshJobs(), 1500);
+    const t = setInterval(refreshJobs, 1500);
     return () => clearInterval(t);
   }, [anyRunning, refreshJobs]);
 
@@ -285,14 +293,20 @@ export function GeneratePanel({ project, playhead, onError }: PanelProps) {
   }>({ key: "", plan: null, error: null });
   useEffect(() => {
     if (!request.prompt || !model) return;
-    const t = setTimeout(async () => {
-      const r = await commands.planGeneration(kind, JSON.stringify(request));
-      setPlanned(
-        r.status === "error"
-          ? { key: reqKey, plan: null, error: r.error.message }
-          : { key: reqKey, plan: JSON.parse(r.data) as Plan, error: null },
-      );
-    }, 250);
+    const t = setTimeout(
+      () =>
+        runCommand(
+          commands.planGeneration(kind, JSON.stringify(request)),
+          (json) =>
+            setPlanned({
+              key: reqKey,
+              plan: JSON.parse(json) as Plan,
+              error: null,
+            }),
+          (e) => setPlanned({ key: reqKey, plan: null, error: e.message }),
+        ),
+      250,
+    );
     return () => clearTimeout(t);
   }, [kind, request, model, reqKey]);
   const fresh = planned.key === reqKey && !!request.prompt;
@@ -308,13 +322,13 @@ export function GeneratePanel({ project, playhead, onError }: PanelProps) {
     const r = await commands.startGeneration(kind, JSON.stringify(request));
     if (r.status === "error") return fail(r.error);
     setPrompt("");
-    void refreshJobs();
+    refreshJobs();
   };
 
   const loadVoices = async () => {
     const r = await commands.listVoices();
     if (r.status === "error") return fail(r.error);
-    setVoices(JSON.parse(r.data));
+    setVoices(JSON.parse(r.data) as { id: string; name: string }[]);
   };
 
   return (
@@ -429,7 +443,7 @@ export function GeneratePanel({ project, playhead, onError }: PanelProps) {
                 <button
                   className="btn"
                   disabled={!key?.hasKey}
-                  onClick={() => void loadVoices()}
+                  onClick={() => fire(loadVoices(), fail)}
                 >
                   List
                 </button>
@@ -465,7 +479,7 @@ export function GeneratePanel({ project, playhead, onError }: PanelProps) {
         <button
           className={`btn primary${confirming ? " warn" : ""}`}
           disabled={!plan || !key?.hasKey}
-          onClick={() => void start()}
+          onClick={() => fire(start(), fail)}
           data-testid="gen-start"
         >
           {confirming ? `Confirm: spend ${usd(plan?.estimateUsd)}` : "Generate"}

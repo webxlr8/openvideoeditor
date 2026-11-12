@@ -19,6 +19,7 @@ import { commands } from "./bridge";
 import { ChatPanel } from "./ChatPanel";
 import { Icon, type IconName } from "./icons";
 import { Dropdown } from "./Menu";
+import { fire, runCommand } from "./notify";
 import { formatShort, formatTimecode, parseTimecode } from "./timecode";
 import { Viewer } from "./Viewer";
 import { type EditResult, itemDetail, snapToFrame } from "./edit";
@@ -194,7 +195,7 @@ export function Editor({
           if (selection.length) onEdit(commands.duplicateItems(selection));
           break;
         case "copy":
-          if (selection.length) void copy(selection);
+          if (selection.length) fire(copy(selection), onError);
           break;
         case "paste":
           paste(playhead);
@@ -235,6 +236,7 @@ export function Editor({
     project,
     onEdit,
     onSelectMany,
+    onError,
     copy,
     paste,
     zoomBy,
@@ -393,7 +395,7 @@ export function Editor({
                 });
             }}
             onEdit={onEdit}
-            onCopy={(ids) => void copy(ids)}
+            onCopy={(ids) => fire(copy(ids), onError)}
             onPaste={paste}
             canPaste={clipboard.length > 0}
             onFitWidth={setFitPps}
@@ -671,7 +673,7 @@ function TransportBar({
   const pps = zoom ?? fitPps;
   const volume = playback.volume ?? 1;
   const setVolume = (v: number, muted: boolean) =>
-    void commands.setVolume(v, muted);
+    runCommand(commands.setVolume(v, muted));
   return (
     <div className="transport" data-testid="transport">
       <div className="transport-left">

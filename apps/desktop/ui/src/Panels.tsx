@@ -33,6 +33,7 @@ import {
   usePreview,
 } from "./fx";
 import { Icon } from "./icons";
+import { fire } from "./notify";
 import { TextAnimationPicker } from "./Motion";
 
 export interface PanelProps {
@@ -72,8 +73,10 @@ export function TextPanel({
   useEffect(() => {
     let live = true;
     if (primaryId)
-      void itemDetail(primaryId).then(
-        (d) => live && setAnimation(d?.textAnimation),
+      fire(
+        itemDetail(primaryId).then((d) => {
+          if (live) setAnimation(d?.textAnimation);
+        }),
       );
     return () => {
       live = false;

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { AppError, ProjectSummary_Serialize } from "./bindings";
+import { reportError } from "./notify";
 import { Settings } from "./Settings";
 import { PROJECT_TEMPLATES, type ProjectTemplate } from "./templates";
 import { Icon, type IconName } from "./icons";
@@ -135,7 +136,7 @@ export function Home({
         </main>
       ) : page === "settings" ? (
         <main className="home-main settings-page">
-          <Settings onError={onError ?? (() => {})} />
+          <Settings onError={onError ?? reportError} />
         </main>
       ) : page === "projects" ? (
         <main className="home-main projects-page" data-testid="projects-page">

@@ -3,6 +3,7 @@ import type { AgentStatus_Serialize, AppError, ChatItem_Serialize, ChatSummaryVi
 import { commands, events } from "./bridge";
 import { Icon } from "./icons";
 import { Dropdown } from "./Menu";
+import { fire, reportError, runCommand, unlisten } from "./notify";
 
 interface Item {
   role: "user" | "assistant" | "tool" | "question" | "note" | "error";
@@ -110,26 +111,28 @@ export function ChatPanel({
   const chatRef = useRef<string | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
 
-  const report = useCallback((e: AppError) => onError?.(e), [onError]);
+  const report = useCallback((e: AppError) => (onError ? onError(e) : reportError(e)), [onError]);
 
-  const loadChats = useCallback(async () => {
-    const r = await commands.agentChats();
-    if (r.status === "ok") setChats(r.data);
-  }, []);
+  const loadChats = useCallback(
+    () => runCommand(commands.agentChats(), setChats, report),
+    [report],
+  );
 
-  const loadChat = useCallback(async (id: string) => {
-    const r = await commands.agentChat(id);
-    if (r.status === "ok") setItems(fromChat(r.data));
-  }, []);
+  const loadChat = useCallback(
+    (id: string) => runCommand(commands.agentChat(id), (c) => setItems(fromChat(c)), report),
+    [report],
+  );
 
   useEffect(() => {
-    void commands.agentStatus().then((r) => {
-      if (r.status === "ok") {
-        setStatus(r.data);
-        setRunning(r.data.running);
-      }
-    });
-  }, []);
+    runCommand(
+      commands.agentStatus(),
+      (s) => {
+        setStatus(s);
+        setRunning(s.running);
+      },
+      report,
+    );
+  }, [report]);
 
   const shownProject = useRef(projectId);
   useEffect(() => {
@@ -137,15 +140,13 @@ export function ChatPanel({
       // Chats live in the project: another project starts with a fresh view.
       shownProject.current = projectId;
       chatRef.current = null;
-      void Promise.resolve().then(() => {
+      queueMicrotask(() => {
         setChatId(null);
         setItems([]);
       });
     }
-    void commands.agentChats().then((r) => {
-      if (r.status === "ok") setChats(r.data);
-    });
-  }, [projectId]);
+    loadChats();
+  }, [projectId, loadChats]);
 
   useEffect(() => {
     const un = events.agentUiEvent.listen((e) => {
@@ -154,9 +155,11 @@ export function ChatPanel({
         case "turnStarted":
           if (chatRef.current !== ev.chatId) {
             // A turn this panel did not start (e.g. the Home prompt): show what led to it.
-            void commands.agentChat(ev.chatId).then((r) => {
-              if (r.status === "ok") setItems((cur) => [...fromChat(r.data), ...cur.filter((x) => x.role !== "user")]);
-            });
+            runCommand(
+              commands.agentChat(ev.chatId),
+              (chat) => setItems((cur) => [...fromChat(chat), ...cur.filter((x) => x.role !== "user")]),
+              report,
+            );
           }
           chatRef.current = ev.chatId;
           setChatId(ev.chatId);
@@ -201,16 +204,16 @@ export function ChatPanel({
             ev.note ??
               (ev.stopped ? "Stopped." : `${secs.toFixed(1)}s · ≈$${cost < 0.01 ? cost.toFixed(4) : cost.toFixed(2)}`),
           );
-          void loadChat(ev.chatId);
-          void loadChats();
+          loadChat(ev.chatId);
+          loadChats();
           break;
         }
         case "seek":
           break;
       }
     });
-    return () => void un.then((f) => f());
-  }, [loadChat, loadChats]);
+    return () => unlisten(un);
+  }, [loadChat, loadChats, report]);
 
   useEffect(() => {
     scroller.current?.scrollTo?.({ top: scroller.current.scrollHeight });
@@ -242,7 +245,7 @@ export function ChatPanel({
   const openChat = (id: string) => {
     chatRef.current = id;
     setChatId(id);
-    void loadChat(id);
+    loadChat(id);
   };
 
   const newChat = () => {
@@ -288,7 +291,7 @@ export function ChatPanel({
       ) : (
         <div className="chat-log" ref={scroller} data-testid="chat-log">
           {items.map((it, i) => (
-            <ChatLine key={i} item={it} onAnswer={answer} />
+            <ChatLine key={i} item={it} onAnswer={(id, value) => fire(answer(id, value), report)} />
           ))}
           {running && thinking && <div className="chat-thinking muted small">Thinking…</div>}
         </div>
@@ -305,7 +308,7 @@ export function ChatPanel({
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
-              void send();
+              fire(send(), report);
             }
           }}
         />
@@ -324,8 +327,7 @@ export function ChatPanel({
                   id: m.id,
                   label: m.label,
                   hint: m.id === status.model ? "✓" : undefined,
-                  onSelect: () =>
-                    void commands.agentSetModel(m.id).then((r) => (r.status === "ok" ? setStatus(r.data) : report(r.error))),
+                  onSelect: () => runCommand(commands.agentSetModel(m.id), setStatus, report),
                 })),
                 ...(status.hasKey && status.keySource === "keychain"
                   ? [
@@ -333,8 +335,7 @@ export function ChatPanel({
                         id: "forget",
                         label: "Remove API key",
                         danger: true,
-                        onSelect: () =>
-                          void commands.agentClearKey().then((r) => (r.status === "ok" ? setStatus(r.data) : report(r.error))),
+                        onSelect: () => runCommand(commands.agentClearKey(), setStatus, report),
                       },
                     ]
                   : []),
@@ -342,7 +343,7 @@ export function ChatPanel({
             />
           )}
           {running ? (
-            <button className="send stop" title="Stop" data-testid="stop" onClick={() => void commands.agentStop()}>
+            <button className="send stop" title="Stop" data-testid="stop" onClick={() => runCommand(commands.agentStop(), undefined, report)}>
               <span className="stop-square" />
             </button>
           ) : (
@@ -351,7 +352,7 @@ export function ChatPanel({
               title="Send (Enter)"
               data-testid="send"
               disabled={!text.trim() || !status?.hasKey}
-              onClick={() => void send()}
+              onClick={() => fire(send(), report)}
             >
               <Icon name="send" size={16} />
             </button>
@@ -447,10 +448,17 @@ function KeyCard({ onSaved }: { onSaved: (s: AgentStatus_Serialize) => void }) {
           setKey(e.target.value);
           setError(null);
         }}
-        onKeyDown={(e) => e.key === "Enter" && void save()}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") fire(save(), (err) => setError(err.message));
+        }}
       />
       {error && <p className="key-error">{error}</p>}
-      <button className="btn primary" disabled={!key.trim()} onClick={() => void save()} data-testid="key-save">
+      <button
+        className="btn primary"
+        disabled={!key.trim()}
+        onClick={() => fire(save(), (err) => setError(err.message))}
+        data-testid="key-save"
+      >
         Save key
       </button>
     </div>

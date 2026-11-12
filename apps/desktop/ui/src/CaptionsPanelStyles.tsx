@@ -3,6 +3,7 @@
 
 import { type CSSProperties, useEffect, useState } from "react";
 import { commands } from "./bridge";
+import { fire, reportError } from "./notify";
 
 export interface CaptionMark {
   kind: "none" | "color" | "box" | "ring" | "underline";
@@ -40,8 +41,9 @@ export function loadCaptionPresets(): Promise<CaptionPreset[]> {
   cached ??= commands
     .captionPresets()
     .then((json) => JSON.parse(json) as CaptionPreset[])
-    .catch(() => {
+    .catch((e: unknown) => {
       cached = null;
+      reportError(e);
       return [];
     });
   return cached;
@@ -51,7 +53,11 @@ export function useCaptionPresets(): CaptionPreset[] {
   const [list, setList] = useState<CaptionPreset[]>([]);
   useEffect(() => {
     let live = true;
-    void loadCaptionPresets().then((l) => live && setList(l));
+    fire(
+      loadCaptionPresets().then((l) => {
+        if (live) setList(l);
+      }),
+    );
     return () => {
       live = false;
     };

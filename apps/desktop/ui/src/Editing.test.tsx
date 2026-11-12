@@ -15,17 +15,17 @@ const clips = () => screen.queryAllByTestId("clip");
 describe("editing", () => {
   it("inspector commits a slider once on release and a field on Enter", async () => {
     await editorWithClip();
-    const opacity = (await screen.findByTestId("insp-opacity")) as HTMLInputElement;
+    const opacity = await screen.findByTestId<HTMLInputElement>("insp-opacity");
     fireEvent.change(opacity, { target: { value: "0.4" } });
     fireEvent.change(opacity, { target: { value: "0.3" } });
     fireEvent.pointerUp(opacity);
     await waitFor(() => expect(screen.getByTestId("undo").hasAttribute("disabled")).toBe(false));
-    const x = screen.getByTestId("insp-x") as HTMLInputElement;
+    const x = screen.getByTestId<HTMLInputElement>("insp-x");
     fireEvent.change(x, { target: { value: "120" } });
     fireEvent.keyDown(x, { key: "Enter" });
     fireEvent.blur(x);
-    await waitFor(() => expect((screen.getByTestId("insp-x") as HTMLInputElement).value).toBe("120"));
-    expect(Number((screen.getByTestId("insp-opacity") as HTMLInputElement).value)).toBeCloseTo(0.3);
+    await waitFor(() => expect(screen.getByTestId<HTMLInputElement>("insp-x").value).toBe("120"));
+    expect(Number(screen.getByTestId<HTMLInputElement>("insp-opacity").value)).toBeCloseTo(0.3);
   });
 
   it("adds a title from the Text panel and edits it in the inspector", async () => {
@@ -38,7 +38,7 @@ describe("editing", () => {
     const title = clips().find((c) => c.textContent?.includes("Big Story"))!;
     fireEvent.pointerDown(title, { button: 0, clientX: 300 });
     fireEvent.pointerUp(window);
-    const text = (await screen.findByTestId("insp-text")) as HTMLTextAreaElement;
+    const text = await screen.findByTestId<HTMLTextAreaElement>("insp-text");
     fireEvent.change(text, { target: { value: "Hello world" } });
     fireEvent.blur(text);
     await waitFor(() => expect(screen.getByTestId("track-Text").textContent).toContain("Hello world"));

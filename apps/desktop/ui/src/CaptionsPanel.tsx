@@ -2,13 +2,14 @@
 // caption style gallery (apply to the selected captions or all of them), and the transcript editor. Every change is
 // one revision.
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CaptionJobProgress, CaptionModel, ItemView_Serialize } from "./bindings";
 import { commands, events } from "./bridge";
 import { CAPTION_LANGUAGES, CaptionSample, type CaptionSegment, DEFAULT_CAPTION_PRESET, animationLabel, retimeSegment, useCaptionPresets } from "./CaptionsPanelStyles";
 import { addItems, firstTrack, itemDetail, snapToFrame, updateItem } from "./edit";
 import type { PanelProps } from "./Panels";
 import { Icon } from "./icons";
+import { fire, runCommand, unlisten } from "./notify";
 import "./CaptionsPanel.css";
 
 type Job = { stage: string; fraction: number; message: string } | null;
@@ -19,7 +20,7 @@ const fmt = (t: number) => {
   return `${m}:${s.toFixed(1).padStart(4, "0")}`;
 };
 
-export function CaptionsPanel({ project, playhead, selection, onEdit, onSelect }: PanelProps) {
+export function CaptionsPanel({ project, playhead, selection, onEdit, onSelect, onError }: PanelProps) {
   const presets = useCaptionPresets();
   const [models, setModels] = useState<CaptionModel[]>([]);
   const [model, setModel] = useState("base");
@@ -31,11 +32,8 @@ export function CaptionsPanel({ project, playhead, selection, onEdit, onSelect }
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
   const [styleScope, setStyleScope] = useState<"auto" | "all">("auto");
 
-  const refreshModels = () =>
-    void commands.captionModels().then((r) => {
-      if (r.status === "ok") setModels(r.data);
-    });
-  useEffect(refreshModels, []);
+  const refreshModels = useCallback(() => runCommand(commands.captionModels(), setModels, onError), [onError]);
+  useEffect(refreshModels, [refreshModels]);
 
   useEffect(() => {
     const off = events.captionJobProgress.listen((e) => {
@@ -55,8 +53,8 @@ export function CaptionsPanel({ project, playhead, selection, onEdit, onSelect }
         });
       else setResult({ ok: true, text: "Speech model ready." });
     });
-    return () => void off.then((f) => f());
-  }, []);
+    return () => unlisten(off);
+  }, [refreshModels]);
 
   const captions = useMemo(
     () => project.items.filter((i) => i.kind === "caption").sort((a, b) => (a.start ?? 0) - (b.start ?? 0)),
@@ -141,7 +139,7 @@ export function CaptionsPanel({ project, playhead, selection, onEdit, onSelect }
         {current && !current.installed && !busy && (
           <p className="muted panel-note cap-model-note" data-testid="caption-model-note">
             The {current.label.toLowerCase()} speech model ({current.sizeMb} MB) downloads the first time.{" "}
-            <button className="link-btn" onClick={() => void download()} data-testid="caption-download">
+            <button className="link-btn" onClick={() => fire(download(), onError)} data-testid="caption-download">
               Download now
             </button>
           </p>
@@ -153,13 +151,13 @@ export function CaptionsPanel({ project, playhead, selection, onEdit, onSelect }
             </div>
             <div className="cap-job-row">
               <span className="small">{job.message}</span>
-              <button className="chip-sm" onClick={() => void commands.cancelCaptions()} data-testid="caption-cancel">
+              <button className="chip-sm" onClick={() => runCommand(commands.cancelCaptions(), undefined, onError)} data-testid="caption-cancel">
                 Cancel
               </button>
             </div>
           </div>
         ) : (
-          <button className="btn wide primary" data-testid="caption-generate" disabled={!hasClips} onClick={() => void generate()}>
+          <button className="btn wide primary" data-testid="caption-generate" disabled={!hasClips} onClick={() => fire(generate(), onError)}>
             <Icon name="captions" size={15} /> Generate captions
           </button>
         )}
@@ -273,13 +271,13 @@ function TranscriptRow({ item, selected, onSelect, onEdit }: { item: ItemView_Se
         rows={1}
         value={text}
         onChange={(e) => setDraft(e.target.value)}
-        onBlur={() => void commit(draft)}
+        onBlur={() => fire(commit(draft))}
         onKeyDown={(e) => {
           if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
             (e.target as HTMLTextAreaElement).blur();
           }
-          if (e.key === "Escape") void commit(null);
+          if (e.key === "Escape") fire(commit(null));
           e.stopPropagation();
         }}
       />

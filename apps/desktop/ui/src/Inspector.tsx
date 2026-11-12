@@ -27,6 +27,7 @@ import {
   TransitionEditor,
 } from "./FxControls";
 import { Icon } from "./icons";
+import { fire } from "./notify";
 import { CodeTab, FontPicker } from "./Motion";
 
 type Tab =
@@ -293,7 +294,11 @@ export function Inspector({
 
   useEffect(() => {
     let live = true;
-    void itemDetail(item.id).then((d) => live && setDetail(d));
+    fire(
+      itemDetail(item.id).then((d) => {
+        if (live) setDetail(d);
+      }),
+    );
     return () => {
       live = false;
     };
@@ -901,7 +906,12 @@ export function Inspector({
                 <label className="select-row compact">
                   <span>Weight</span>
                   <select
-                    value={String(d.fontWeight ?? 400)}
+                    value={
+                      typeof d.fontWeight === "number" ||
+                      typeof d.fontWeight === "string"
+                        ? String(d.fontWeight)
+                        : "400"
+                    }
                     onChange={(e) =>
                       set({ fontWeight: Number(e.target.value) }, "font weight")
                     }

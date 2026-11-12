@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { AppError, ExportProgress_Serialize } from "./bindings";
 import { commands, events } from "./bridge";
 import { Icon } from "./icons";
+import { fire, runCommand, unlisten } from "./notify";
 import "./export.css";
 
 export type PreviewMode = "timeline" | "source";
@@ -113,7 +114,9 @@ function TimelineExport({
         <div className="xp-actions">
           <button
             className="btn"
-            onClick={() => void commands.revealPath(saved)}
+            onClick={() =>
+              runCommand(commands.revealPath(saved), undefined, onError)
+            }
           >
             Show in folder
           </button>
@@ -167,7 +170,7 @@ function TimelineExport({
         </button>
         <button
           className="btn primary"
-          onClick={() => void start()}
+          onClick={() => fire(start(), onError)}
           disabled={busy}
           data-testid="timeline-export-start"
         >
@@ -209,10 +212,10 @@ export function ExportDialog({
 
   useEffect(() => {
     const un = events.exportProgress.listen((e) => {
-      const p = e.payload as ExportProgress_Serialize;
+      const p = e.payload;
       setPhase(p.done ? { kind: "done", p } : { kind: "running", p });
     });
-    return () => void un.then((f) => f());
+    return () => unlisten(un);
   }, []);
 
   const choose = async () => {
@@ -321,9 +324,14 @@ export function ExportDialog({
               <div className="xp-actions">
                 <button
                   className="btn"
-                  onClick={() =>
-                    phase.p.path && void commands.revealPath(phase.p.path)
-                  }
+                  onClick={() => {
+                    if (phase.p.path)
+                      runCommand(
+                        commands.revealPath(phase.p.path),
+                        undefined,
+                        onError,
+                      );
+                  }}
                   data-testid="export-reveal"
                 >
                   Show in folder
@@ -377,7 +385,7 @@ export function ExportDialog({
                 </span>
                 <button
                   className="btn"
-                  onClick={() => void choose()}
+                  onClick={() => fire(choose(), onError)}
                   disabled={running}
                   data-testid="export-choose"
                 >
@@ -406,7 +414,9 @@ export function ExportDialog({
               {running ? (
                 <button
                   className="btn"
-                  onClick={() => void commands.cancelExport()}
+                  onClick={() =>
+                    runCommand(commands.cancelExport(), undefined, onError)
+                  }
                   data-testid="export-cancel"
                 >
                   Cancel
@@ -418,7 +428,7 @@ export function ExportDialog({
                   </button>
                   <button
                     className="btn primary"
-                    onClick={() => void start()}
+                    onClick={() => fire(start(), onError)}
                     data-testid="export-start"
                   >
                     Export

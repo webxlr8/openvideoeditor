@@ -63,7 +63,7 @@ describe("ChatPanel", () => {
     await openBlankProject();
     const input = await screen.findByTestId("key-input");
     expect(screen.getByTestId("key-card").textContent).toContain("your own Anthropic API key");
-    expect((screen.getByTestId("send") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId<HTMLButtonElement>("send").disabled).toBe(true);
     fireEvent.change(input, { target: { value: "not-a-key" } });
     fireEvent.click(screen.getByTestId("key-save"));
     expect(await screen.findByText(/start with sk-ant-/)).toBeTruthy();

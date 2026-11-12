@@ -21,9 +21,11 @@ import {
 } from "./fx";
 import { Icon } from "./icons";
 import { Slider } from "./Inspector";
+import { fire, runCommand } from "./notify";
 
 const obj = (v: unknown): Fields => (v && typeof v === "object" && !Array.isArray(v) ? (v as Fields) : {});
 const num = (v: unknown, d: number) => (typeof v === "number" && Number.isFinite(v) ? v : d);
+const str = (v: unknown, d: string) => (typeof v === "string" ? v : d);
 const pct = (v: number) => `${Math.round(v * 100)}%`;
 const label = (name: string) => name.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase());
 
@@ -204,7 +206,7 @@ export function ShaderEditor({ catalog, fields, set }: { catalog: FxCatalog; fie
     <div data-testid="shader-editor">
       <label className="select-row">
         <span>Effect</span>
-        <select value={String(comp.template ?? "")} data-testid="shader-template" onChange={(e) => put({ template: e.target.value, params: {} }, "shader effect")}>
+        <select value={str(comp.template, "")} data-testid="shader-template" onChange={(e) => put({ template: e.target.value, params: {} }, "shader effect")}>
           {catalog.effects.map((s) => (
             <option key={s.id} value={s.id}>
               {s.label}
@@ -217,7 +219,7 @@ export function ShaderEditor({ catalog, fields, set }: { catalog: FxCatalog; fie
       <Slider label="Fade out" value={num(comp.fadeOut, 0)} min={0} max={5} step={0.1} format={(v) => `${v.toFixed(1)}s`} onCommit={(v) => put({ fadeOut: v }, "shader fade out")} />
       <label className="select-row">
         <span>Region</span>
-        <select value={String(comp.region ?? "all")} onChange={(e) => put({ region: e.target.value }, "shader region")}>
+        <select value={str(comp.region, "all")} onChange={(e) => put({ region: e.target.value }, "shader region")}>
           {REGIONS.map((r) => (
             <option key={r} value={r}>
               {r}
@@ -281,7 +283,7 @@ export function TransitionEditor({
           <Slider label="Duration" value={num(t.duration, 0.5)} min={0.1} max={3} step={0.05} format={(v) => `${v.toFixed(2)}s`} testId={`insp-${field}-duration`} onCommit={(v) => put({ duration: v }, "transition duration")} />
           <label className="select-row">
             <span>Easing</span>
-            <select value={String(t.easing ?? "linear")} data-testid={`insp-${field}-easing`} onChange={(e) => put({ easing: e.target.value }, "transition easing")}>
+            <select value={str(t.easing, "linear")} data-testid={`insp-${field}-easing`} onChange={(e) => put({ easing: e.target.value }, "transition easing")}>
               {catalog.easings.map((x) => (
                 <option key={x}>{x}</option>
               ))}
@@ -450,7 +452,7 @@ export function CurveEditor({ curve, value, onCommit }: { curve: (typeof CURVES)
           fill={curve.color}
           onPointerDown={(e) => {
             e.stopPropagation();
-            (e.currentTarget.ownerSVGElement as SVGSVGElement | null)?.setPointerCapture?.(e.pointerId);
+            e.currentTarget.ownerSVGElement?.setPointerCapture?.(e.pointerId);
             setLive(pts);
             setDrag(i);
           }}
@@ -467,8 +469,7 @@ export function CurveEditor({ curve, value, onCommit }: { curve: (typeof CURVES)
 
 export function Histogram({ time }: { time: number }) {
   const [data, setData] = useState<number[][] | null>(null);
-  const refresh = () =>
-    void commands.colorScopes(time).then((r) => r.status === "ok" && setData(r.data.map((c) => c.map((v) => v ?? 0))));
+  const refresh = () => runCommand(commands.colorScopes(time), (d) => setData(d.map((c) => c.map((v) => v ?? 0))));
   useEffect(refresh, [time]);
   const W = 256;
   const H = 80;
@@ -571,8 +572,8 @@ export function ColorGradeEditor({
           className="chip-sm"
           data-testid="lut-import"
           onClick={() =>
-            void commands.importLut(null).then((r) => {
-              if (r.status === "ok" && r.data) put({ lut: { intensity: 1, stage: "look", ...lut, preset: undefined, file: r.data } }, "import LUT");
+            runCommand(commands.importLut(null), (file) => {
+              if (file) put({ lut: { intensity: 1, stage: "look", ...lut, preset: undefined, file } }, "import LUT");
             })
           }
         >
@@ -584,7 +585,7 @@ export function ColorGradeEditor({
           <Slider label="Intensity" value={num(lut.intensity, 1)} min={0} max={1} step={0.01} format={pct} testId="lut-intensity" onCommit={(v) => put({ lut: { ...lut, intensity: v } }, "LUT intensity")} />
           <label className="select-row">
             <span>Stage</span>
-            <select value={String(lut.stage ?? "look")} data-testid="lut-stage" onChange={(e) => put({ lut: { ...lut, stage: e.target.value } }, "LUT stage")}>
+            <select value={str(lut.stage, "look")} data-testid="lut-stage" onChange={(e) => put({ lut: { ...lut, stage: e.target.value } }, "LUT stage")}>
               <option value="input">Input (before the grade)</option>
               <option value="look">Look (after the grade)</option>
             </select>
@@ -603,7 +604,7 @@ export function ColorGradeEditor({
                 setMatching(true);
                 const r = commands.matchColor(itemId, playhead, 1);
                 onEdit(r);
-                void r.finally(() => setMatching(false));
+                fire(r.finally(() => setMatching(false)));
               }}
             >
               {matching ? "Matching…" : "Match to frame"}
