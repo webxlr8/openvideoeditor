@@ -318,6 +318,7 @@ export function ExportDialog({
                   <span className="muted"> · {phase.p.encoder}</span>
                 )}
               </p>
+              {phase.p.warning && <p className="muted" data-testid="export-warning">{phase.p.warning}</p>}
               <div className="xp-actions">
                 <button
                   className="btn"
