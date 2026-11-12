@@ -16,7 +16,7 @@ To use custom labels, set the variable in Settings → Secrets and variables →
 
 All runners:
 - `git`, `bash`, `python3`.
-- `rustup`; the toolchain itself is installed from `rust-toolchain.toml` on first use.
+- Nothing Rust-specific: each job installs rustup (into the runner user's home) if missing, and the pinned toolchain.
 - Network access to crates.io, npm and GitHub.
 
 The workflow installs Node 22, pnpm 10 and its cached build tools itself.

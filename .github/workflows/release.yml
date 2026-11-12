@@ -23,11 +23,10 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v4
-      - name: Rust toolchain (pinned by rust-toolchain.toml)
-        shell: bash
-        run: |
-          command -v rustup >/dev/null || { echo "::error::rustup is not installed on this runner (see docs/ci-runners.md)"; exit 1; }
-          rustup show active-toolchain
+      # Installs rustup on the runner if it is missing; the version matches rust-toolchain.toml.
+      - uses: dtolnay/rust-toolchain@1.97.0
+        with:
+          components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - uses: pnpm/action-setup@v4
         with:

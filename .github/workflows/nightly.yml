@@ -14,7 +14,7 @@ jobs:
         target: [read_json, apply_batch, parse_projection]
     steps:
       - uses: actions/checkout@v4
-      - run: rustup toolchain install nightly --profile minimal
+      - uses: dtolnay/rust-toolchain@nightly
       - run: cargo +nightly install cargo-fuzz --locked
       - name: fuzz ${{ matrix.target }} for 30 minutes
         working-directory: fuzz
@@ -33,11 +33,10 @@ jobs:
     runs-on: ${{ fromJSON(matrix.os == 'macos' && (vars.OVE_RUNNER_MACOS || '["self-hosted","macOS","ARM64"]') || matrix.os == 'windows' && (vars.OVE_RUNNER_WINDOWS || '["self-hosted","Windows","X64"]') || (vars.OVE_RUNNER_LINUX || '["self-hosted","Linux","X64"]')) }}
     steps:
       - uses: actions/checkout@v4
-      - name: Rust toolchain (pinned by rust-toolchain.toml)
-        shell: bash
-        run: |
-          command -v rustup >/dev/null || { echo "::error::rustup is not installed on this runner (see docs/ci-runners.md)"; exit 1; }
-          rustup show active-toolchain
+      # Installs rustup on the runner if it is missing; the version matches rust-toolchain.toml.
+      - uses: dtolnay/rust-toolchain@1.97.0
+        with:
+          components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - name: crash harness, retention, performance
         shell: bash

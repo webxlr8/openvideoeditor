@@ -24,11 +24,10 @@ jobs:
     runs-on: ${{ fromJSON(matrix.os == 'macos' && (vars.OVE_RUNNER_MACOS || '["self-hosted","macOS","ARM64"]') || matrix.os == 'windows' && (vars.OVE_RUNNER_WINDOWS || '["self-hosted","Windows","X64"]') || (vars.OVE_RUNNER_LINUX || '["self-hosted","Linux","X64"]')) }}
     steps:
       - uses: actions/checkout@v4
-      - name: Rust toolchain (pinned by rust-toolchain.toml)
-        shell: bash
-        run: |
-          command -v rustup >/dev/null || { echo "::error::rustup is not installed on this runner (see docs/ci-runners.md)"; exit 1; }
-          rustup show active-toolchain
+      # Installs rustup on the runner if it is missing; the version matches rust-toolchain.toml.
+      - uses: dtolnay/rust-toolchain@1.97.0
+        with:
+          components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - name: fmt
         run: cargo fmt --all -- --check
@@ -59,11 +58,10 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v4
-      - name: Rust toolchain (pinned by rust-toolchain.toml)
-        shell: bash
-        run: |
-          command -v rustup >/dev/null || { echo "::error::rustup is not installed on this runner (see docs/ci-runners.md)"; exit 1; }
-          rustup show active-toolchain
+      # Installs rustup on the runner if it is missing; the version matches rust-toolchain.toml.
+      - uses: dtolnay/rust-toolchain@1.97.0
+        with:
+          components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - uses: pnpm/action-setup@v4
         with:
@@ -147,6 +145,10 @@ jobs:
     runs-on: ${{ fromJSON(vars.OVE_RUNNER_LINUX || '["self-hosted","Linux","X64"]') }}
     steps:
       - uses: actions/checkout@v4
+      # Installs rustup on the runner if it is missing; the version matches rust-toolchain.toml.
+      - uses: dtolnay/rust-toolchain@1.97.0
+        with:
+          components: rustfmt, clippy
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-deny
