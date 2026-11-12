@@ -62,6 +62,14 @@ lto = "thin"
 codegen-units = 1
 strip = "debuginfo"
 
+# The Windows API binding crates are huge and only declarations: one codegen unit each needs several GB of RAM in a
+# release build (CI runners ran out of memory) and gains nothing at run time.
+[profile.release.package.windows]
+codegen-units = 16
+
+[profile.release.package.windows-sys]
+codegen-units = 16
+
 [profile.dev]
 # Smaller target dirs: line tables for our crates, no debug info for dependencies.
 debug = "line-tables-only"

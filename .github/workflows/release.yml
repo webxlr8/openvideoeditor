@@ -57,6 +57,9 @@ jobs:
   package-windows:
     name: package-windows (cross-built on Linux)
     runs-on: ${{ fromJSON(vars.OVE_RUNNER_LINUX || '["self-hosted","Linux","X64"]') }}
+    env:
+      # Shared runners: two compiles at a time keeps the release build (LTO) within memory.
+      CARGO_BUILD_JOBS: 2
     defaults:
       run:
         shell: bash
