@@ -56,6 +56,8 @@ export function frameUrl(): string {
 export interface MockControl {
   /** Crash reports the native side would list. */
   crashReports?: { path: string; at: number; summary: string; seen: boolean }[];
+  /** The feedback page a build may set (`OVE_FEEDBACK_URL`); none by default. */
+  feedbackUrl?: string | null;
   /** How long a simulated generation job takes (ms). */
   generationMs?: number;
   rects: ViewerRect[];
@@ -1546,6 +1548,12 @@ function createMock(): {
         message: null,
       }),
     openUrl: (url: string) => (track(`openUrl:${url}`), ok(null)),
+    feedbackInfo: () =>
+      ok({
+        environment:
+          "startup: app dev | OS Browser (64-bit) | arch web | GPU mock | decode mock",
+        feedbackUrl: control.feedbackUrl ?? null,
+      }),
     // Generation (change 14): a catalog, keys in memory, jobs that finish after a moment.
     generationCatalog: () => Promise.resolve(JSON.stringify(genCatalog())),
     setProviderKey: (provider: string, key: string) => {

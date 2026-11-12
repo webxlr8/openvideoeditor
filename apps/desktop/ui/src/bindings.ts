@@ -59,6 +59,8 @@ export const commands = {
 	checkForUpdates: () => typedError<UpdateInfo_Serialize, AppError>(__TAURI_INVOKE("check_for_updates")),
 	/**  Opens a web page in the default browser (download page from the update check). */
 	openUrl: (url: string) => typedError<null, AppError>(__TAURI_INVOKE("open_url", { url })),
+	/**  The environment block for a feedback report, and where to send it. */
+	feedbackInfo: () => typedError<FeedbackInfo_Serialize, AppError>(__TAURI_INVOKE("feedback_info")),
 	/**  Models and key status, as JSON `{models, keys}`. */
 	generationCatalog: () => __TAURI_INVOKE<string>("generation_catalog"),
 	setProviderKey: (provider: string, key: string) => typedError<string, AppError>(__TAURI_INVOKE("set_provider_key", { provider, key })),
@@ -510,6 +512,25 @@ export type ExportRequest = {
 	/**  Output height in pixels (720, 1080, 2160, …). */
 	height: number,
 	fps: number,
+};
+
+/**  What "Send feedback" puts in a report. Nothing is sent from here: the person copies it. */
+export type FeedbackInfo = FeedbackInfo_Serialize | FeedbackInfo_Deserialize;
+
+/**  What "Send feedback" puts in a report. Nothing is sent from here: the person copies it. */
+export type FeedbackInfo_Deserialize = {
+	/**  The log's startup line: app version, OS, CPU architecture, GPU and decoder. */
+	environment: string,
+	/**  The page testers send reports to, when the build has one (`OVE_FEEDBACK_URL`). */
+	feedbackUrl?: string | null,
+};
+
+/**  What "Send feedback" puts in a report. Nothing is sent from here: the person copies it. */
+export type FeedbackInfo_Serialize = {
+	/**  The log's startup line: app version, OS, CPU architecture, GPU and decoder. */
+	environment: string,
+	/**  The page testers send reports to, when the build has one (`OVE_FEEDBACK_URL`). */
+	feedbackUrl: string | null,
 };
 
 /**  A font family the text tools can use. */

@@ -1,5 +1,11 @@
 import type { TransportCommand } from "./bindings";
 
+/** The modifier key's name on this computer (⌘ on a Mac, Ctrl elsewhere). */
+export const MOD =
+  typeof navigator !== "undefined" && /mac/i.test(navigator.platform)
+    ? "⌘"
+    : "Ctrl";
+
 export type KeyAction =
   | { type: "transport"; command: TransportCommand }
   | { type: "toggleDiagnostics" }

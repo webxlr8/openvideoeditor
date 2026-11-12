@@ -1,8 +1,10 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { AppError, ProjectSummary_Serialize } from "./bindings";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { reportError } from "./notify";
 import { Settings } from "./Settings";
+import { FeedbackDialog, WhatsNew } from "./Support";
+import { MOD } from "./keys";
 import {
   PROJECT_TEMPLATES,
   type ProjectTemplate,
@@ -26,15 +28,25 @@ const FOOTER: { id: string; label: string; icon: IconName }[] = [
   { id: "feedback", label: "Send feedback", icon: "flag" },
   { id: "settings", label: "Settings", icon: "settings" },
 ];
-const CHIPS = [
-  "Highlight reel",
-  "Travel diary",
-  "Interview",
-  "Tutorial",
-  "Product tour",
-  "Social teaser",
-  "Announcement",
+/** Starting points for the prompt: a chip fills it in for the person to finish (nothing starts until they send). */
+export const CHIPS: { label: string; prompt: string }[] = [
+  { label: "Highlight reel", prompt: "Make a highlight reel of my footage: " },
+  { label: "Travel diary", prompt: "Make a travel diary from my clips: " },
+  { label: "Interview", prompt: "Cut an interview into a short video: " },
+  { label: "Tutorial", prompt: "Make a step-by-step tutorial: " },
+  { label: "Product tour", prompt: "Make a product tour: " },
+  { label: "Social teaser", prompt: "Make a vertical social teaser: " },
+  { label: "Announcement", prompt: "Make a short announcement video: " },
 ];
+
+/** Projects whose name contains the search words. */
+export function matchProjects(
+  projects: ProjectSummary_Serialize[],
+  query: string,
+): ProjectSummary_Serialize[] {
+  const q = query.trim().toLowerCase();
+  return q ? projects.filter((p) => p.name.toLowerCase().includes(q)) : projects;
+}
 
 export function Home({
   projects,
@@ -68,6 +80,26 @@ export function Home({
   const [page, setPage] = useState<
     "home" | "projects" | "settings" | "templates"
   >("home");
+  const [dialog, setDialog] = useState<"changelog" | "feedback" | null>(null);
+  const [query, setQuery] = useState("");
+  const searchRef = useRef<HTMLInputElement>(null);
+  const promptRef = useRef<HTMLTextAreaElement>(null);
+  // ⌘K / Ctrl+K: search projects.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        searchRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+  const search = (q: string) => {
+    setQuery(q);
+    if (q.trim()) setPage("projects");
+  };
+  const found = matchProjects(projects, query);
   return (
     <div className="home" data-testid="home">
       <aside className="sidebar">
@@ -77,16 +109,30 @@ export function Home({
         </div>
         <label className="search sidebar-search">
           <Icon name="search" size={15} />
-          <input placeholder="Search" />
-          <kbd>⌘K</kbd>
+          <input
+            ref={searchRef}
+            placeholder="Search projects"
+            aria-label="Search projects"
+            data-testid="home-search"
+            value={query}
+            onChange={(e) => search(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") search("");
+            }}
+          />
+          <kbd>{MOD === "⌘" ? "⌘K" : "Ctrl K"}</kbd>
         </label>
         <nav>
           {NAV.map((n) => (
             <button
               key={n.id}
               className={`nav-item${n.id === page ? " active" : ""}`}
+              aria-current={n.id === page ? "page" : undefined}
               data-testid={`nav-${n.id}`}
-              onClick={() => setPage(n.id === "projects" ? "projects" : "home")}
+              onClick={() => {
+                setQuery("");
+                setPage(n.id === "projects" ? "projects" : "home");
+              }}
             >
               <Icon name={n.icon} size={16} /> {n.label}
             </button>
@@ -96,6 +142,7 @@ export function Home({
             <button
               key={n.id}
               className={`nav-item${n.id === page ? " active" : ""}`}
+              aria-current={n.id === page ? "page" : undefined}
               data-testid={`nav-${n.id}`}
               onClick={() => setPage("templates")}
             >
@@ -108,17 +155,32 @@ export function Home({
             <button
               key={n.id}
               className={`nav-item${n.id === page ? " active" : ""}`}
+              aria-current={n.id === page ? "page" : undefined}
               data-testid={`nav-${n.id}`}
-              onClick={() => n.id === "settings" && setPage("settings")}
+              onClick={() =>
+                n.id === "settings"
+                  ? setPage("settings")
+                  : setDialog(n.id === "changelog" ? "changelog" : "feedback")
+              }
             >
               <Icon name={n.icon} size={16} /> {n.label}
             </button>
           ))}
-          <div className="profile">
+          <div
+            className="profile"
+            title="No account: your projects, settings and keys stay on this computer."
+          >
             <span className="avatar">L</span> Local profile
           </div>
         </div>
       </aside>
+      {dialog === "changelog" && <WhatsNew onClose={() => setDialog(null)} />}
+      {dialog === "feedback" && (
+        <FeedbackDialog
+          onClose={() => setDialog(null)}
+          onError={onError ?? reportError}
+        />
+      )}
       {chosen && (
         <TemplateDialog
           template={chosen}
@@ -152,7 +214,11 @@ export function Home({
         <main className="home-main projects-page" data-testid="projects-page">
           <header className="projects-head">
             <div>
-              <h2>Your projects</h2>
+              <h2>
+                {query.trim()
+                  ? `Projects matching “${query.trim()}”`
+                  : "Your projects"}
+              </h2>
               <p className="muted">
                 Everything you make is saved here as you work — every change is
                 a revision you can go back to.
@@ -163,10 +229,15 @@ export function Home({
             </button>
           </header>
           <ProjectGrid
-            projects={projects}
+            projects={found}
             onOpen={onOpenProject}
             onBlank={onBlank}
           />
+          {query.trim() && found.length === 0 && (
+            <p className="muted" data-testid="search-empty">
+              No projects match “{query.trim()}”.
+            </p>
+          )}
         </main>
       ) : (
         <main className="home-main">
@@ -187,6 +258,7 @@ export function Home({
               <textarea
                 placeholder="Describe your video, or drop footage…"
                 rows={2}
+                ref={promptRef}
                 value={prompt}
                 data-testid="home-prompt"
                 onChange={(e) => setPrompt(e.target.value)}
@@ -198,9 +270,6 @@ export function Home({
                 }}
               />
               <div className="prompt-row">
-                <button className="icon-btn" title="Ideas (later)" disabled>
-                  <Icon name="spark" size={16} />
-                </button>
                 <span className="grow" />
                 <button
                   className="btn"
@@ -222,8 +291,23 @@ export function Home({
             </div>
             <div className="chips">
               {CHIPS.map((c) => (
-                <button key={c} className="chip">
-                  {c}
+                <button
+                  key={c.label}
+                  className="chip"
+                  title="Start the description; add your details, then send"
+                  data-testid={`chip-${c.label}`}
+                  onClick={() => {
+                    setPrompt(c.prompt);
+                    const el = promptRef.current;
+                    if (!el) return;
+                    el.focus();
+                    // The caret goes after the starter words once React has put them in.
+                    requestAnimationFrame(() =>
+                      el.setSelectionRange(c.prompt.length, c.prompt.length),
+                    );
+                  }}
+                >
+                  {c.label}
                 </button>
               ))}
             </div>

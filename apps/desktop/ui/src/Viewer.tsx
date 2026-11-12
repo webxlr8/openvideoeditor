@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Diagnostics_Serialize, MediaInfo_Serialize, ViewerBackend, ViewerRect } from "./bindings";
 import { commands, events, frameUrl, isTauri, type Result } from "./bridge";
-import { ContextMenu, Dropdown, type MenuItem } from "./Menu";
+import { COMING_LATER, ContextMenu, Dropdown, type MenuItem } from "./Menu";
 import { useViewerRectSync } from "./viewerRect";
 import { fire, logError, runCommand, unlisten } from "./notify";
 import type { AppError } from "./bindings";
@@ -144,7 +144,7 @@ export function Viewer({
   const contextItems: MenuItem[] = [
     { id: "fit", label: "Zoom to fit", onSelect: () => setZoom(ZOOMS[0]) },
     { id: "half", label: "Zoom 50%", onSelect: () => setZoom(ZOOMS[2]) },
-    { id: "snapshot", label: "Copy frame (later)" },
+    { id: "snapshot", label: "Copy frame", title: COMING_LATER },
   ];
 
   if (!visible) return null;

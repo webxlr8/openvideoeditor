@@ -8,6 +8,7 @@ import { commands } from "./bridge";
 import { type EditResult, addItems, firstTrack, trackAccepts, updateItem, updateItems, snapToFrame } from "./edit";
 import { Icon, type IconName } from "./icons";
 import { ContextMenu, type MenuItem } from "./Menu";
+import { MOD } from "./keys";
 
 export const HEADER_W = 188;
 const ROW_H = 41;
@@ -210,8 +211,8 @@ export function Timeline(props: TimelineProps) {
     const list: MenuItem[] = [
       ...(inside ? [{ id: "split", label: "Split at playhead", hint: "S", onSelect: () => onEdit(commands.splitItem(item.id, playhead)) }] : []),
       { id: "duplicate", label: "Duplicate", hint: "D", onSelect: () => onEdit(commands.duplicateItems(ids)) },
-      { id: "copy", label: "Copy", hint: "⌘C", onSelect: () => onCopy(ids) },
-      ...(canPaste ? [{ id: "paste", label: "Paste at playhead", hint: "⌘V", onSelect: () => onPaste(playhead) }] : []),
+      { id: "copy", label: "Copy", hint: `${MOD} C`, onSelect: () => onCopy(ids) },
+      ...(canPaste ? [{ id: "paste", label: "Paste at playhead", hint: `${MOD} V`, onSelect: () => onPaste(playhead) }] : []),
       ...(sound ? [{ id: "mute", label: item.muted ? "Unmute" : "Mute", onSelect: () => onEdit(updateItem(item.id, { muted: !item.muted }, [], item.muted ? "unmute" : "mute")) }] : []),
       { id: "hide", label: item.hidden ? "Show" : "Hide", onSelect: () => onEdit(updateItem(item.id, { hidden: !item.hidden }, [], item.hidden ? "show" : "hide")) },
       { id: "delete", label: ids.length > 1 ? `Delete ${ids.length} items` : "Delete", hint: "⌫", danger: true, onSelect: () => onEdit(commands.removeItems(ids)) },

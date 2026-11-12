@@ -711,7 +711,7 @@ export function AudioPanel({
       <h5 className="panel-sub">Audio clips</h5>
       {music.length === 0 && (
         <Empty>
-          No audio clips. Import music or sound effects with Import.
+          No audio clips. Import music or sound effects in the Media panel.
         </Empty>
       )}
       {music.map((m) => (
