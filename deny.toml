@@ -8,6 +8,15 @@ targets = ["aarch64-apple-darwin", "x86_64-pc-windows-msvc"]
 [advisories]
 version = 2
 yanked = "deny"
+# Reviewed "unmaintained" notices (not vulnerabilities). Re-check when the upstream crates move.
+ignore = [
+    # paste: compile-time macro helper pulled in by specta / tauri-specta (typed IPC bindings); no code at run time.
+    { id = "RUSTSEC-2024-0436", reason = "build-time macro only, via specta; tracked until specta drops it" },
+    # ttf-parser: font parsing inside fontdb, which ove-graphics uses to find system and bundled fonts. No maintained
+    # fontdb release without it exists yet; the advisory names skrifa as the successor. Fonts are parsed from the
+    # bundled set and system font folders only.
+    { id = "RUSTSEC-2026-0192", reason = "via fontdb; no maintained alternative release yet; move to skrifa when fontdb does" },
+]
 
 [licenses]
 version = 2
