@@ -60,9 +60,15 @@ describe("ChatPanel", () => {
     expect(await screen.findByTestId("send")).toBeTruthy();
   });
 
-  it("asks for a key when none is stored, and validates it", async () => {
+  it("stays closed without a key until opened, then asks for a key and validates it", async () => {
     window.__oveMock!.agent.hasKey = false;
-    await openBlankProject();
+    render(<App />);
+    fireEvent.click(screen.getByTestId("home-blank"));
+    await screen.findByTestId("editor");
+    // Not pushed on people who haven't set the assistant up; the toggle stays available.
+    await act(() => new Promise((r) => setTimeout(r, 50)));
+    expect(screen.queryByTestId("chat")).toBeNull();
+    fireEvent.click(screen.getByTestId("toggle-chat"));
     const input = await screen.findByTestId("key-input");
     expect(screen.getByTestId("key-card").textContent).toContain("your own Anthropic API key");
     expect(screen.getByTestId<HTMLButtonElement>("send").disabled).toBe(true);
@@ -72,6 +78,32 @@ describe("ChatPanel", () => {
     fireEvent.change(input, { target: { value: "sk-ant-test-0123456789" } });
     fireEvent.click(screen.getByTestId("key-save"));
     await waitFor(() => expect(screen.queryByTestId("key-card")).toBeNull());
+  });
+
+  it("remembers whether the person opened or closed the assistant", async () => {
+    window.__oveMock!.agent.hasKey = false;
+    const { unmount } = render(<App />);
+    fireEvent.click(screen.getByTestId("home-blank"));
+    await screen.findByTestId("editor");
+    fireEvent.click(screen.getByTestId("toggle-chat"));
+    await screen.findByTestId("key-card");
+    unmount();
+
+    // Next launch: opened last time, so it opens again even without a key.
+    const second = render(<App />);
+    fireEvent.click(screen.getByTestId("home-blank"));
+    await screen.findByTestId("editor");
+    expect(screen.getByTestId("chat")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("close-chat"));
+    second.unmount();
+
+    // Closed by the person: stays closed, even with a key.
+    window.__oveMock!.agent.hasKey = true;
+    render(<App />);
+    fireEvent.click(screen.getByTestId("home-blank"));
+    await screen.findByTestId("editor");
+    await act(() => new Promise((r) => setTimeout(r, 50)));
+    expect(screen.queryByTestId("chat")).toBeNull();
   });
 
   it("shows a question card and continues with the answer", async () => {

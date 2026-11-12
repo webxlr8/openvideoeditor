@@ -45,6 +45,26 @@ interface Toast {
 
 let toastId = 0;
 
+const CHAT_OPEN_KEY = "ove.chatOpen";
+
+/** Whether the person last opened or closed the assistant (null: they never chose). */
+function storedChatOpen(): boolean | null {
+  try {
+    const v = localStorage.getItem(CHAT_OPEN_KEY);
+    return v === "1" ? true : v === "0" ? false : null;
+  } catch {
+    return null;
+  }
+}
+
+function storeChatOpen(open: boolean) {
+  try {
+    localStorage.setItem(CHAT_OPEN_KEY, open ? "1" : "0");
+  } catch {
+    // Private windows and blocked storage: the choice lasts until the window closes.
+  }
+}
+
 /** A project name from the first words of a prompt. */
 function projectNameFrom(text: string): string {
   return (
@@ -69,12 +89,21 @@ export function App() {
   const [platform, setPlatform] = useState("");
   const [diagnostics, setDiagnostics] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
-  const [layout, setLayout] = useState<Layout>({
+  // The assistant opens by default only once a key is set (see the wiring effect) or when the person opened it.
+  const [layout, setLayout] = useState<Layout>(() => ({
     panelOpen: true,
     timelineOpen: true,
-    chatOpen: true,
+    chatOpen: storedChatOpen() ?? false,
     viewerOpen: true,
-  });
+  }));
+  /** Layout changes from the editor; opening or closing the assistant is remembered. */
+  const changeLayout = useCallback(
+    (next: Layout) => {
+      if (next.chatOpen !== layout.chatOpen) storeChatOpen(next.chatOpen);
+      setLayout(next);
+    },
+    [layout.chatOpen],
+  );
   const [mode, setMode] = useState<PreviewMode>("timeline");
   const [exporting, setExporting] = useState(false);
   const modeRef = useRef(mode);
@@ -383,6 +412,13 @@ export function App() {
       })
       .catch(logError);
     runCommand(commands.listProjects(), setProjects, showError);
+    // No choice yet: show the assistant to people who have set it up, not a key prompt to everyone else.
+    if (storedChatOpen() === null)
+      runCommand(
+        commands.agentStatus(),
+        (s) => setLayout((l) => ({ ...l, chatOpen: s.hasKey })),
+        logError,
+      );
     runCommand(
       commands.takePendingOpenPaths(),
       (paths) => {
@@ -490,7 +526,7 @@ export function App() {
           backend={backend}
           diagnosticsOpen={diagnostics}
           layout={layout}
-          setLayout={setLayout}
+          setLayout={changeLayout}
           onTransport={transport}
           onImport={() => fire(importInto(null))}
           onImportTimeline={() => fire(importTimelineFile())}
