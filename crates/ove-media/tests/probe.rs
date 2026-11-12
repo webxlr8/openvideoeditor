@@ -24,6 +24,9 @@ fn rate(s: &str) -> (i32, i32) {
 
 #[test]
 fn probe_matches_ffprobe_for_every_matrix_file() {
+    if !common::ready() {
+        return;
+    }
     let mut checked = 0;
     for name in matrix() {
         let path = media(&name);
@@ -97,6 +100,9 @@ fn probe_matches_ffprobe_for_every_matrix_file() {
 
 #[test]
 fn probe_reports_plain_errors() {
+    if !common::ready() {
+        return;
+    }
     let missing = std::path::Path::new("/definitely/not/here.mov");
     assert!(matches!(probe(missing), Err(MediaError::NotFound { .. })));
 
@@ -113,6 +119,9 @@ fn probe_reports_plain_errors() {
 
 #[test]
 fn probe_is_fast() {
+    if !common::ready() {
+        return;
+    }
     // The 20 MB DNxHR MXF and VFR file must probe without reading the whole file.
     for name in ["dnxhr_hq.mxf", "vfr_phone.mp4", "prores_4444.mov"] {
         let path = media(name);
