@@ -9,6 +9,7 @@
 //! 3. the returned element tree becomes a Takumi node ([`tree`]) and is laid out and painted to RGBA.
 //!
 //! The supported subset is documented in `SUPPORTED.md`.
+#![forbid(unsafe_code)]
 
 pub mod diag;
 pub mod fonts;
@@ -19,7 +20,7 @@ pub mod tree;
 
 use std::collections::{BTreeMap, HashMap};
 use std::hash::{Hash, Hasher};
-use std::sync::{Arc, Mutex, OnceLock, RwLock};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError, RwLock};
 use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
@@ -90,11 +91,11 @@ fn transpile_cached(src: &str) -> Arc<transpile::Transpiled> {
     src.hash(&mut h);
     let key = h.finish();
     let cache = CACHE.get_or_init(Default::default);
-    if let Some(t) = cache.lock().expect("transpile cache").get(&key) {
+    if let Some(t) = cache.lock().unwrap_or_else(PoisonError::into_inner).get(&key) {
         return t.clone();
     }
     let t = Arc::new(transpile::transpile(src));
-    let mut c = cache.lock().expect("transpile cache");
+    let mut c = cache.lock().unwrap_or_else(PoisonError::into_inner);
     if c.len() > 64 {
         c.clear();
     }
@@ -181,13 +182,13 @@ fn font_state() -> &'static RwLock<FontState> {
 /// Registers installed system families the tree names that are not bundled (once per family).
 fn ensure_families(families: &std::collections::BTreeSet<String>) {
     let missing: Vec<&String> = {
-        let s = font_state().read().expect("fonts");
+        let s = font_state().read().unwrap_or_else(PoisonError::into_inner);
         families.iter().filter(|f| !s.registered.contains(&fonts::normalise_family(f))).collect()
     };
     if missing.is_empty() {
         return;
     }
-    let mut s = font_state().write().expect("fonts");
+    let mut s = font_state().write().unwrap_or_else(PoisonError::into_inner);
     for fam in missing {
         let key = fonts::normalise_family(fam);
         if s.registered.contains(&key) {
@@ -206,12 +207,12 @@ fn ensure_families(families: &std::collections::BTreeSet<String>) {
 fn decoded_image(media_id: &str, load: ImageLoader<'_>) -> Option<ImageSource> {
     static CACHE: OnceLock<Mutex<HashMap<String, ImageSource>>> = OnceLock::new();
     let cache = CACHE.get_or_init(Default::default);
-    if let Some(i) = cache.lock().expect("image cache").get(media_id) {
+    if let Some(i) = cache.lock().unwrap_or_else(PoisonError::into_inner).get(media_id) {
         return Some(i.clone());
     }
     let bytes = load(media_id)?;
     let img = ImageSource::from_bytes(&bytes).ok()?;
-    let mut c = cache.lock().expect("image cache");
+    let mut c = cache.lock().unwrap_or_else(PoisonError::into_inner);
     if c.len() > 32 {
         c.clear();
     }
@@ -267,7 +268,7 @@ pub fn render(
     let scale = scale.clamp(0.01, 4.0);
     let ow = ((p.width as f32 * scale).round() as u32).max(1);
     let oh = ((p.height as f32 * scale).round() as u32).max(1);
-    let state = font_state().read().expect("fonts");
+    let state = font_state().read().unwrap_or_else(PoisonError::into_inner);
     let opts = RenderOptions::builder()
         .viewport(Viewport::new((ow, oh)).with_device_pixel_ratio(scale))
         .node(node)

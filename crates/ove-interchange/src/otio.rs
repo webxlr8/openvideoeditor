@@ -60,9 +60,8 @@ pub fn write(t: &Timeline) -> String {
         "metadata": {"ove": {"width": t.width, "height": t.height}},
         "tracks": {"OTIO_SCHEMA": "Stack.1", "name": "tracks", "children": tracks},
     });
-    let mut s = serde_json::to_string_pretty(&v).expect("json");
-    s.push('\n');
-    s
+    // `{:#}` is serde_json's 2-space pretty printer, the same text as `to_string_pretty`.
+    format!("{v:#}\n")
 }
 
 fn time_of(v: &Value) -> Option<(f64, f64)> {

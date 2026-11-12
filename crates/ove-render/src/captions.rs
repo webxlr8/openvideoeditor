@@ -10,7 +10,7 @@ use ove_core::time::{Micros, json_to_micros};
 use serde_json::{Map, Value};
 
 use crate::canvas::{DrawParams, Place, Rgba, draw};
-use crate::captions_presets::{Align, Anim, CaptionPreset, Case, DEFAULT_PRESET, Mark, Position, preset};
+use crate::captions_presets::{Align, Anim, CaptionPreset, Case, DEFAULT_PRESET, Mark, PRESETS, Position, preset};
 use crate::text::{Align as TextAlign, TextStyle, parse_color, render_words};
 
 /// One word with item-relative times. Words without timings get times spread over their segment.
@@ -112,7 +112,8 @@ pub fn item_preset(fields: &Map<String, Value>) -> &'static CaptionPreset {
         .get("captionPresetId")
         .and_then(Value::as_str)
         .and_then(preset)
-        .unwrap_or_else(|| preset(DEFAULT_PRESET).expect("default preset"))
+        // `DEFAULT_PRESET` names a preset (tested); the first preset is only a formal fallback.
+        .unwrap_or_else(|| preset(DEFAULT_PRESET).unwrap_or(&PRESETS[0]))
 }
 
 /// The item's style: the preset with the item's own overrides (size, colours, position).

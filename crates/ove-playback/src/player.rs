@@ -347,14 +347,13 @@ impl<S: FrameSource> Player<S> {
                     }
                 }
             }
-            match &self.next {
-                Some(f) if f.pts_us() <= t => {
-                    let f = self.next.take().unwrap();
+            match self.next.take_if(|f| f.pts_us() <= t) {
+                Some(f) => {
                     if chosen.replace(f).is_some() {
                         self.superseded();
                     }
                 }
-                _ => break,
+                None => break,
             }
         }
         if let Some(f) = chosen {

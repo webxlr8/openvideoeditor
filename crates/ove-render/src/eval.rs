@@ -250,18 +250,16 @@ pub fn keyframe_value(item: &Item, property: &str, rel_us: Micros) -> Option<f64
         .iter()
         .filter_map(|k| Some((k.get("time").and_then(json_to_micros)?, k.get("value")?.as_f64()?)))
         .collect();
-    if kfs.is_empty() {
-        return None;
-    }
     kfs.sort_by_key(|k| k.0);
-    if rel_us <= kfs[0].0 {
-        return Some(kfs[0].1);
+    let (&first, &last) = (kfs.first()?, kfs.last()?);
+    if rel_us <= first.0 {
+        return Some(first.1);
     }
-    let last = *kfs.last().unwrap();
     if rel_us >= last.0 {
         return Some(last.1);
     }
-    let i = kfs.iter().position(|k| k.0 > rel_us).unwrap();
+    // first.0 < rel_us < last.0, so the position is found and is at least 1.
+    let i = kfs.iter().position(|k| k.0 > rel_us)?;
     let (a, b) = (kfs[i - 1], kfs[i]);
     let p = (rel_us - a.0) as f64 / (b.0 - a.0).max(1) as f64;
     Some(a.1 + (b.1 - a.1) * ease(easing, p))

@@ -97,7 +97,8 @@ pub fn write(tl: &Timeline) -> String {
     let mut assets = BTreeMap::new();
     for (n, (key, c)) in distinct_media(tl).into_iter().enumerate() {
         let id = format!("a{}", n + 1);
-        let path = c.path.as_ref().unwrap();
+        // `distinct_media` only returns clips with a path.
+        let Some(path) = c.path.as_ref() else { continue };
         res.push_str(&format!(
             "<asset id=\"{id}\" name=\"{}\" start=\"0s\" duration=\"{}\" hasVideo=\"{}\" hasAudio=\"{}\" format=\"r1\"><media-rep kind=\"original-media\" src=\"{}\"/></asset>",
             esc(&c.stem()),

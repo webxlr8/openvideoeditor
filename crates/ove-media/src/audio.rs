@@ -97,7 +97,7 @@ impl AudioDecoder {
         // files start at their first audible sample (codec delay such as Opus pre-skip shows as a negative start).
         let start = match input.streams().best(MediaType::Video) {
             Some(v) if v.start_time() != NOPTS => {
-                // SAFETY: pure arithmetic.
+                // SAFETY: `av_rescale_q` only does integer arithmetic on its by-value arguments; no pointers.
                 unsafe { ffi::av_rescale_q(v.start_time(), v.time_base().into(), st.time_base().into()) }
             }
             _ if st.start_time() == NOPTS => 0,
@@ -105,7 +105,8 @@ impl AudioDecoder {
         };
         let mut ctx = ffmpeg_the_third::codec::context::Context::from_parameters(st.parameters())
             .map_err(|e| MediaError::from_open(path, e))?;
-        // SAFETY: plain field write on an unopened context.
+        // SAFETY: `ctx` owns a valid, not yet opened AVCodecContext (from_parameters succeeded), so the pointer is
+        // non-null and exclusively ours; `pkt_timebase` is a plain-data field the decoder reads when it is opened.
         unsafe { (*ctx.as_mut_ptr()).pkt_timebase = ffi::AVRational { num: tb.num, den: tb.den } };
         let dec = ctx.decoder().audio().map_err(|e| MediaError::from_open(path, e))?;
         Ok(AudioDecoder {
@@ -200,27 +201,31 @@ impl AudioDecoder {
             };
             let bytes = if got {
                 if self.anchor_us.is_none() {
-                    // SAFETY: field read.
+                    // SAFETY: `f` is a frame the decoder just filled (`got`), so `as_ptr` is a valid AVFrame for the
+                    // duration of this read of a plain-data field.
                     let best = unsafe { (*f.as_ptr()).best_effort_timestamp };
                     let ts = if best != NOPTS { best } else { self.start_ts };
                     self.anchor_us = Some(ts_to_us(ts - self.start_ts, self.tb));
                     self.out_samples = 0;
                 }
-                // SAFETY: the frame is valid for the call.
+                // SAFETY: `f` holds a decoded audio frame and outlives the call (see `Swr::key`).
                 let key = unsafe { Swr::key(f.as_ptr()) };
-                if self.swr.as_ref().map(|s| s.key) != Some(key) {
-                    // SAFETY: as above.
-                    self.swr = Some(unsafe { Swr::new(f.as_ptr(), self.spec)? });
-                }
+                // Keep the resampler while the input format is unchanged; otherwise make one for the new format.
+                let swr = match self.swr.take_if(|s| s.key == key) {
+                    Some(swr) => swr,
+                    // SAFETY: `f` holds a decoded audio frame and outlives the call (see `Swr::new`).
+                    None => unsafe { Swr::new(f.as_ptr(), self.spec)? },
+                };
                 let frame_bytes = self.bytes_per_sample() * self.spec.channels as usize;
-                // SAFETY: as above.
-                unsafe { self.swr.as_mut().unwrap().convert(f.as_ptr(), frame_bytes)? }
+                let swr = self.swr.insert(swr);
+                // SAFETY: `f` holds a decoded frame in the format `swr` was created for (its key matched above).
+                unsafe { swr.convert(f.as_ptr(), frame_bytes)? }
             } else {
                 // End of stream: drain the resampler's delay once.
                 self.flushed = true;
                 let frame_bytes = self.bytes_per_sample() * self.spec.channels as usize;
                 match self.swr.as_mut() {
-                    // SAFETY: a null input frame flushes.
+                    // SAFETY: a null frame is the documented way to flush `Swr::convert`.
                     Some(swr) => unsafe { swr.convert(std::ptr::null(), frame_bytes)? },
                     None => return Ok(None),
                 }
@@ -259,7 +264,8 @@ impl AudioDecoder {
         // Start decoding a little before the target: codecs with pre-roll (AAC, Opus) need it, and some demuxers
         // land after the requested time. Output before `t_us` is trimmed sample-accurately.
         let ts = self.start_ts + us_to_ts((t_us - AUDIO_PREROLL_US).max(0), self.tb);
-        // SAFETY: valid format context.
+        // SAFETY: `self.input` owns an open AVFormatContext for as long as `self` lives, and `stream_index` is
+        // one of its streams.
         let r =
             unsafe { ffi::avformat_seek_file(self.input.as_mut_ptr(), self.stream_index as i32, i64::MIN, ts, ts, 0) };
         if r < 0 {
@@ -284,18 +290,33 @@ struct Swr {
     key: (i32, i32, i32),
 }
 
-// SAFETY: owned by one decoder and used from one thread at a time.
+// SAFETY: a SwrContext has no thread affinity (no thread-locals, no callbacks). `Swr` owns its context
+// exclusively (it is never shared or cloned) and `&mut self` is required to use it, so moving it to another thread
+// cannot cause concurrent access.
 unsafe impl Send for Swr {}
 
 impl Swr {
     /// (format, channels, rate) of a frame; a change re-creates the resampler.
+    ///
+    /// # Safety
+    ///
+    /// `f` must point to a valid, initialised AVFrame for the duration of the call.
     unsafe fn key(f: *const ffi::AVFrame) -> (i32, i32, i32) {
-        // SAFETY: caller passes a valid frame.
+        // SAFETY: the caller guarantees `f` is valid; these are plain-data field reads.
         unsafe { ((*f).format, (*f).ch_layout.nb_channels, (*f).sample_rate) }
     }
 
+    /// A resampler from `f`'s format, layout and rate to `spec`.
+    ///
+    /// # Safety
+    ///
+    /// `f` must point to a valid decoded audio frame (initialised `format`, `ch_layout` and `sample_rate`) for the
+    /// duration of the call.
     unsafe fn new(f: *const ffi::AVFrame, spec: AudioOutputSpec) -> Result<Swr> {
-        // SAFETY: caller passes a valid frame; layouts are initialised before use and freed after.
+        // SAFETY: the caller guarantees `f` is valid. Both layouts are zero-initialised (the state
+        // `av_channel_layout_default`/`_copy` expect), set before `swr_alloc_set_opts2` reads them and uninitialised
+        // once it has copied them. `ctx` is null or a context `swr_alloc_set_opts2` allocated; on failure it is
+        // freed (`swr_free` accepts null) and never escapes.
         unsafe {
             let mut out_layout: ffi::AVChannelLayout = std::mem::zeroed();
             ffi::av_channel_layout_default(&mut out_layout, spec.channels as i32);
@@ -332,8 +353,17 @@ impl Swr {
     }
 
     /// Convert one frame (or flush with a null frame) into packed bytes.
+    ///
+    /// # Safety
+    ///
+    /// `f` must be null or point to a valid decoded audio frame in the format this resampler was created for
+    /// (same [`Swr::key`]), valid for the duration of the call. `frame_bytes` must be the size of one packed output
+    /// sample frame (bytes per sample × output channels).
     unsafe fn convert(&mut self, f: *const ffi::AVFrame, frame_bytes: usize) -> Result<Vec<u8>> {
-        // SAFETY: valid context; output buffer sized by swr_get_out_samples.
+        // SAFETY: `self.ctx` is an initialised context we own. The output buffer holds `cap` sample frames of
+        // `frame_bytes` each, and `swr_convert` writes at most `cap`. The input is null (flush) or, per the
+        // caller's contract, a frame whose `extended_data` holds `nb_samples` samples per plane in the format the
+        // context was configured with.
         unsafe {
             let in_count = if f.is_null() { 0 } else { (*f).nb_samples };
             let cap = ffi::swr_get_out_samples(self.ctx, in_count);
@@ -356,7 +386,8 @@ impl Swr {
 
 impl Drop for Swr {
     fn drop(&mut self) {
-        // SAFETY: we own the context.
+        // SAFETY: `self.ctx` was allocated by `swr_alloc_set_opts2`, is owned only by `self` and is freed exactly
+        // once here (`swr_free` also nulls the pointer).
         unsafe { ffi::swr_free(&mut self.ctx) };
     }
 }

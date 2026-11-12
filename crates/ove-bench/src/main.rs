@@ -170,7 +170,7 @@ fn run(a: &Args) -> Result<Report, String> {
 
     // --- 1× playback on the system clock -------------------------------------------------------------------------
     let decoder = open_video(&a.file, opts.clone()).map_err(|e| e.to_string())?;
-    let source = WorkerSource::new(DecodeWorker::spawn(Box::new(decoder), a.queue));
+    let source = WorkerSource::new(DecodeWorker::spawn(Box::new(decoder), a.queue).map_err(|e| e.to_string())?);
     let time = SystemTime::new();
     let cfg = PlayerConfig { frame_interval_us: interval, last_frame_us: last_frame };
     let mut player = Player::new(source, cfg, None, time.now_us());
@@ -277,7 +277,13 @@ fn main() {
     };
     match run(&args) {
         Ok(report) => {
-            let json = serde_json::to_string_pretty(&report).expect("report serializes");
+            let json = match serde_json::to_string_pretty(&report) {
+                Ok(json) => json,
+                Err(e) => {
+                    eprintln!("cannot serialize the report: {e}");
+                    std::process::exit(1);
+                }
+            };
             match &args.out {
                 Some(p) => {
                     if let Err(e) = std::fs::write(p, json + "\n") {

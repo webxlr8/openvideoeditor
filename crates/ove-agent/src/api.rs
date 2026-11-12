@@ -638,11 +638,15 @@ mod tests {
     }
 
     #[test]
+    #[allow(unsafe_code, reason = "changing the environment is unsafe in edition 2024")]
     fn base_url_override_must_be_https_or_local() {
         // The only test in this crate that touches the variable.
         let with = |v: &str| {
+            // SAFETY: the crate reads the environment only through `std::env`, which serialises reads with this
+            // write, and no C code in the test binary reads it.
             unsafe { std::env::set_var(BASE_URL_VAR, v) };
             let c = Client::new("sk-ant-test-0123456789abcdef");
+            // SAFETY: as above.
             unsafe { std::env::remove_var(BASE_URL_VAR) };
             c.base_url().to_string()
         };

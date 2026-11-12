@@ -1,5 +1,12 @@
 //! Performance suite (task 6.1). Run in release: `cargo test --release -p ove-store --test perf -- --ignored --nocapture`.
 //! Budgets (spec: Document performance) are asserted when `OVE_PERF_ENFORCE=1`.
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    reason = "test code: a failure here is a failed test; clippy.toml only covers #[test] functions, not helpers"
+)]
 
 mod common;
 

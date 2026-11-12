@@ -14,6 +14,7 @@ struct Fonts {
     bold: FontArc,
 }
 
+#[allow(clippy::expect_used, reason = "both fonts are compiled in and parsed by the crate's tests")]
 fn fonts() -> &'static Fonts {
     static F: OnceLock<Fonts> = OnceLock::new();
     F.get_or_init(|| Fonts {

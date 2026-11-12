@@ -70,7 +70,9 @@ fn write_png(img: &ove_analyze::Image, out: &Path) -> Result<(), Fail> {
     if let Some(d) = out.parent().filter(|d| !d.as_os_str().is_empty()) {
         std::fs::create_dir_all(d).map_err(|e| Fail::new("file.unwritable", format!("{}: {e}", d.display())))?;
     }
-    std::fs::write(out, img.png()).map_err(|e| Fail::new("file.unwritable", format!("{}: {e}", out.display())))
+    img.png()
+        .and_then(|png| std::fs::write(out, png))
+        .map_err(|e| Fail::new("file.unwritable", format!("{}: {e}", out.display())))
 }
 
 #[cfg(feature = "media")]

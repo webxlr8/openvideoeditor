@@ -77,9 +77,10 @@ pub enum ExportError {
 
 fn err(what: &str, code: i32) -> ExportError {
     let mut buf = [0 as std::ffi::c_char; 256];
-    // SAFETY: buffer is valid for its length; av_strerror NUL-terminates.
+    // SAFETY: `buf` is writable for `buf.len()` bytes and `av_strerror` writes at most that many, NUL included.
     unsafe { ffi::av_strerror(code, buf.as_mut_ptr(), buf.len()) };
-    // SAFETY: NUL-terminated by av_strerror.
+    // SAFETY: `buf` is zero-initialised and `av_strerror` leaves a NUL inside it, so the string is terminated
+    // within the buffer, which outlives the borrow.
     let msg = unsafe { std::ffi::CStr::from_ptr(buf.as_ptr()) }.to_string_lossy().into_owned();
     ExportError::Ffmpeg(format!("{what}: {msg}"))
 }
@@ -210,7 +211,15 @@ struct Stream {
     st: *mut ffi::AVStream,
 }
 
+/// The FFmpeg output: MP4 muxer, H.264 and AAC encoders, frame buffers and the RGBA → YUV converter.
+///
+/// Invariant: a `Muxer` is only handed out by [`Muxer::open`] after every pointer below was allocated (non-null),
+/// the encoders opened, the header written and the frames given buffers (`frame`: `width`×`height` in the video
+/// encoder's pixel format; `aframe`: `nb_samples` planar float samples per channel). The pointers are owned
+/// exclusively by the muxer and freed once, in `drop`; that is what makes its methods safe to call.
 struct Muxer {
+    width: u32,
+    height: u32,
     oc: *mut ffi::AVFormatContext,
     video: Stream,
     audio: Stream,
@@ -224,7 +233,9 @@ struct Muxer {
 
 impl Drop for Muxer {
     fn drop(&mut self) {
-        // SAFETY: every pointer is owned by this muxer and freed once.
+        // SAFETY: every pointer is null or owned by this muxer (a muxer that failed to open is dropped half-built,
+        // hence the null checks; the `*_free` functions accept null). Each is freed exactly once, here. The I/O
+        // context is closed before the format context that refers to it is freed.
         unsafe {
             ffi::av_packet_free(&mut self.pkt);
             ffi::av_frame_free(&mut self.frame);
@@ -250,12 +261,19 @@ const SWS_CS_ITU601: i32 = 5;
 
 impl Muxer {
     /// Opens the output, the encoders and writes the header.
-    unsafe fn open(path: &Path, w: u32, h: u32, s: &ExportSettings) -> Result<Muxer, ExportError> {
-        // SAFETY: plain FFmpeg C API use; every allocation is checked and owned by the returned muxer.
+    fn open(path: &Path, w: u32, h: u32, s: &ExportSettings) -> Result<Muxer, ExportError> {
+        let cpath =
+            CString::new(path.to_string_lossy().as_bytes()).map_err(|_| ExportError::Refused("bad path".into()))?;
+        let out_of_memory = || ExportError::Ffmpeg("out of memory".into());
+        // SAFETY: plain FFmpeg C API use. Every allocation is checked for null before it is dereferenced and is
+        // stored in `m` as soon as it exists, so an early return drops `m`, which frees whatever was allocated so
+        // far. The C strings outlive the calls they are passed to. Encoder and frame fields are set before
+        // `avcodec_open2`/`av_frame_get_buffer` read them, and the converter is created for exactly the
+        // `w`×`h` RGBA → encoder-format conversion `video_frame` performs.
         unsafe {
-            let cpath =
-                CString::new(path.to_string_lossy().as_bytes()).map_err(|_| ExportError::Refused("bad path".into()))?;
             let mut m = Muxer {
+                width: w,
+                height: h,
                 oc: ptr::null_mut(),
                 video: Stream { ctx: ptr::null_mut(), st: ptr::null_mut() },
                 audio: Stream { ctx: ptr::null_mut(), st: ptr::null_mut() },
@@ -266,8 +284,10 @@ impl Muxer {
                 encoder: String::new(),
                 header_written: false,
             };
-            let mp4 = CString::new("mp4").unwrap();
-            let r = ffi::avformat_alloc_output_context2(&mut m.oc, ptr::null(), mp4.as_ptr(), cpath.as_ptr());
+            if m.frame.is_null() || m.aframe.is_null() || m.pkt.is_null() {
+                return Err(out_of_memory());
+            }
+            let r = ffi::avformat_alloc_output_context2(&mut m.oc, ptr::null(), c"mp4".as_ptr(), cpath.as_ptr());
             if r < 0 || m.oc.is_null() {
                 return Err(err("output", r));
             }
@@ -287,12 +307,15 @@ impl Muxer {
             };
             let mut opened = false;
             for name in &names {
-                let cname = CString::new(name.as_str()).unwrap();
+                let Ok(cname) = CString::new(name.as_str()) else { continue };
                 let codec = ffi::avcodec_find_encoder_by_name(cname.as_ptr());
                 if codec.is_null() {
                     continue;
                 }
                 let mut c = ffi::avcodec_alloc_context3(codec);
+                if c.is_null() {
+                    return Err(out_of_memory());
+                }
                 (*c).width = w as i32;
                 (*c).height = h as i32;
                 (*c).time_base = ffi::AVRational { num: 1, den: s.fps as i32 };
@@ -314,8 +337,7 @@ impl Muxer {
                 }
                 let mut opts: *mut ffi::AVDictionary = ptr::null_mut();
                 if name == "libx264" {
-                    let (k, v) = (CString::new("preset").unwrap(), CString::new("veryfast").unwrap());
-                    ffi::av_dict_set(&mut opts, k.as_ptr(), v.as_ptr(), 0);
+                    ffi::av_dict_set(&mut opts, c"preset".as_ptr(), c"veryfast".as_ptr(), 0);
                 }
                 let r = ffi::avcodec_open2(c, codec, &mut opts);
                 ffi::av_dict_free(&mut opts);
@@ -336,6 +358,9 @@ impl Muxer {
                 )));
             }
             m.video.st = ffi::avformat_new_stream(m.oc, ptr::null());
+            if m.video.st.is_null() {
+                return Err(out_of_memory());
+            }
             ffi::avcodec_parameters_from_context((*m.video.st).codecpar, m.video.ctx);
             (*m.video.st).time_base = (*m.video.ctx).time_base;
 
@@ -345,6 +370,10 @@ impl Muxer {
                 return Err(ExportError::Ffmpeg("no AAC encoder".into()));
             }
             let a = ffi::avcodec_alloc_context3(aac);
+            if a.is_null() {
+                return Err(out_of_memory());
+            }
+            m.audio.ctx = a;
             (*a).sample_fmt = ffi::AVSampleFormat::FLTP;
             (*a).sample_rate = RATE as i32;
             ffi::av_channel_layout_default(&mut (*a).ch_layout, CHANNELS as i32);
@@ -353,12 +382,14 @@ impl Muxer {
             if global {
                 (*a).flags |= ffi::AV_CODEC_FLAG_GLOBAL_HEADER as i32;
             }
-            m.audio.ctx = a;
             let r = ffi::avcodec_open2(a, aac, ptr::null_mut());
             if r < 0 {
                 return Err(err("AAC encoder", r));
             }
             m.audio.st = ffi::avformat_new_stream(m.oc, ptr::null());
+            if m.audio.st.is_null() {
+                return Err(out_of_memory());
+            }
             ffi::avcodec_parameters_from_context((*m.audio.st).codecpar, a);
             (*m.audio.st).time_base = (*a).time_base;
 
@@ -421,8 +452,17 @@ impl Muxer {
         }
     }
 
-    unsafe fn drain(&mut self, video: bool) -> Result<(), ExportError> {
-        // SAFETY: valid open encoder, stream and packet.
+    /// Samples per channel in one audio frame (the AAC encoder's frame size).
+    fn audio_frame_samples(&self) -> usize {
+        // SAFETY: `aframe` is a valid frame owned by the muxer (type invariant); a plain-data read.
+        unsafe { (*self.aframe).nb_samples as usize }
+    }
+
+    /// Writes every packet the encoder has ready.
+    fn drain(&mut self, video: bool) -> Result<(), ExportError> {
+        // SAFETY: by the type invariant the encoder, its stream, the packet and the format context are valid and
+        // the header has been written; `avcodec_receive_packet` fills `pkt` and `av_interleaved_write_frame`
+        // takes its contents, leaving it blank for the next round.
         unsafe {
             let s = if video { &self.video } else { &self.audio };
             loop {
@@ -443,8 +483,15 @@ impl Muxer {
         }
     }
 
-    unsafe fn video_frame(&mut self, rgba: &[u8], w: u32, h: u32, pts: i64) -> Result<(), ExportError> {
-        // SAFETY: frame and converter sized for w×h; the source slice holds w×h×4 bytes.
+    /// Encodes one `width`×`height` RGBA frame (tightly packed rows).
+    fn video_frame(&mut self, rgba: &[u8], pts: i64) -> Result<(), ExportError> {
+        let (w, h) = (self.width, self.height);
+        if rgba.len() < w as usize * h as usize * 4 {
+            return Err(ExportError::Ffmpeg(format!("a rendered frame is not {w}x{h}")));
+        }
+        // SAFETY: by the type invariant `frame` has buffers for `w`×`h` in the encoder's format and `sws` converts
+        // exactly `w`×`h` RGBA into it; `rgba` holds at least `h` rows of `w × 4` bytes (checked above), which is
+        // all `sws_scale` reads with that stride. The encoder takes its own reference to the frame's data.
         unsafe {
             let r = ffi::av_frame_make_writable(self.frame);
             if r < 0 {
@@ -470,9 +517,11 @@ impl Muxer {
         }
     }
 
-    /// One audio frame of exactly `nb_samples` interleaved stereo samples.
-    unsafe fn audio_frame(&mut self, interleaved: &[f32], pts: i64) -> Result<(), ExportError> {
-        // SAFETY: frame buffer has nb_samples per plane; we write exactly that many.
+    /// One audio frame of exactly `nb_samples` interleaved stereo samples (missing samples are silence).
+    fn audio_frame(&mut self, interleaved: &[f32], pts: i64) -> Result<(), ExportError> {
+        // SAFETY: by the type invariant `aframe` is planar float with `CHANNELS` planes of `nb_samples` samples
+        // each, made writable first; exactly `nb_samples` values are written per plane, and the source is read
+        // through bounds-checked `get`.
         unsafe {
             let r = ffi::av_frame_make_writable(self.aframe);
             if r < 0 {
@@ -494,8 +543,10 @@ impl Muxer {
         }
     }
 
-    unsafe fn finish(&mut self) -> Result<(), ExportError> {
-        // SAFETY: flush both encoders, then trailer.
+    /// Flushes both encoders and writes the trailer.
+    fn finish(&mut self) -> Result<(), ExportError> {
+        // SAFETY: by the type invariant both encoders are open and the header has been written; a null frame is
+        // the documented way to flush an encoder.
         unsafe {
             ffi::avcodec_send_frame(self.video.ctx, ptr::null());
             self.drain(true)?;
@@ -533,11 +584,10 @@ pub fn export(
         let _ = std::fs::create_dir_all(parent);
     }
     let mut partial = PartialFile { path: partial_path(out), keep: false };
-    // SAFETY: the muxer owns every FFmpeg object and frees them on drop.
-    let mut mux = unsafe { Muxer::open(&partial.path, w, h, settings)? };
+    let mut mux = Muxer::open(&partial.path, w, h, settings)?;
     let encoder = mux.encoder.clone();
     let result = (|| -> Result<(), ExportError> {
-        let a_n = unsafe { (*mux.aframe).nb_samples } as usize;
+        let a_n = mux.audio_frame_samples();
         let mut audio_pts: i64 = 0;
         for i in 0..total {
             if cancel.load(Ordering::Relaxed) {
@@ -545,15 +595,13 @@ pub fn export(
             }
             let t: Micros = (i as i128 * 1_000_000 / settings.fps as i128) as Micros;
             let frame = renderer.render(doc, t);
-            // SAFETY: frame is w×h RGBA.
-            unsafe { mux.video_frame(&frame.data, w, h, i as i64)? };
+            mux.video_frame(&frame.data, i as i64)?;
             // Audio up to the end of this video frame.
             let video_end_samples = ((i + 1) as i128 * RATE as i128 / settings.fps as i128) as i64;
             while audio_pts + a_n as i64 <= video_end_samples {
                 let t0 = audio_pts * 1_000_000 / RATE as i64;
                 let samples = mixer.mix(doc, t0, a_n);
-                // SAFETY: frame has a_n samples per channel.
-                unsafe { mux.audio_frame(&samples, audio_pts)? };
+                mux.audio_frame(&samples, audio_pts)?;
                 audio_pts += a_n as i64;
             }
             progress(Progress {
@@ -563,8 +611,7 @@ pub fn export(
                 encoder: encoder.clone(),
             });
         }
-        // SAFETY: flush and trailer.
-        unsafe { mux.finish() }
+        mux.finish()
     })();
     // Closes the file before it is flushed, renamed or removed.
     drop(mux);

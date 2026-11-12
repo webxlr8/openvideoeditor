@@ -236,7 +236,13 @@ impl Project {
             bundle: bundle.to_path_buf(),
             session: Session::new(doc),
             mode,
-            projection: (mode == Mode::Write).then(|| ProjectionWriter::spawn(bundle.to_path_buf())),
+            projection: match mode {
+                Mode::Write => Some(
+                    ProjectionWriter::spawn(bundle.to_path_buf())
+                        .map_err(|e| StoreError::io("start the projection writer for", bundle, e))?,
+                ),
+                _ => None,
+            },
             _lock: if mode == Mode::Write { lock } else { None },
             clock,
             snapshot_rev,
@@ -323,8 +329,10 @@ impl Project {
 
     fn commit_prepared(&mut self, prepared: Prepared) -> Result<Committed> {
         let path = record_path(&self.bundle, prepared.record.rev);
-        let bytes = serde_json::to_vec(&prepared.record).expect("serialisable record");
-        fsio::write_atomic(&path, &bytes, RECORD, false).map_err(|e| StoreError::io("save the change to", &path, e))?;
+        serde_json::to_vec(&prepared.record)
+            .map_err(std::io::Error::from)
+            .and_then(|bytes| fsio::write_atomic(&path, &bytes, RECORD, false))
+            .map_err(|e| StoreError::io("save the change to", &path, e))?;
         let warnings = prepared.warnings.clone();
         let record = self.session.commit(prepared);
         self.records.insert(record.rev, record.time);
@@ -374,8 +382,10 @@ impl Project {
     fn write_index(&self) -> Result<()> {
         let path = self.bundle.join("cache/index.json");
         let entry = crate::library::IndexEntry::from_doc(self.session.doc());
-        let bytes = serde_json::to_vec_pretty(&entry).unwrap();
-        fsio::write_atomic(&path, &bytes, INDEX, false).map_err(|e| StoreError::io("write", &path, e))
+        serde_json::to_vec_pretty(&entry)
+            .map_err(std::io::Error::from)
+            .and_then(|bytes| fsio::write_atomic(&path, &bytes, INDEX, false))
+            .map_err(|e| StoreError::io("write", &path, e))
     }
 
     /// Undo the most recent batch of this session. `Ok(None)` when there is nothing to undo.
@@ -476,7 +486,13 @@ impl Project {
                 format!("revision {rev} is not available (it may have been pruned)"),
             ));
         }
-        let base = *self.snaps.iter().rev().find(|s| **s <= rev).expect("retained implies a snapshot");
+        // A retained revision always has a snapshot at or before it.
+        let Some(&base) = self.snaps.iter().rev().find(|s| **s <= rev) else {
+            return Err(StoreError::refused(
+                "revision.missing",
+                format!("revision {rev} is not available (it may have been pruned)"),
+            ));
+        };
         let p = snap_path(&self.bundle, base);
         let mut doc = match read_doc_file(&p)? {
             Opened::Current(d) | Opened::Migrated { doc: d, .. } => d,
@@ -582,7 +598,9 @@ impl Project {
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        fsio::write_atomic(&path, &serde_json::to_vec(&lines).unwrap(), INDEX, false)
+        serde_json::to_vec(&lines)
+            .map_err(std::io::Error::from)
+            .and_then(|bytes| fsio::write_atomic(&path, &bytes, INDEX, false))
             .map_err(|e| StoreError::io("write", &path, e))?;
         self.write_projection();
         Ok(())
@@ -640,37 +658,34 @@ fn write_projection_files(bundle: &Path, doc: &Document) {
 }
 
 impl ProjectionWriter {
-    fn spawn(bundle: PathBuf) -> Self {
+    fn spawn(bundle: PathBuf) -> std::io::Result<Self> {
         let (tx, rx) = std::sync::mpsc::channel::<Job>();
-        let thread = std::thread::Builder::new()
-            .name("projection-writer".into())
-            .spawn(move || {
-                while let Ok(job) = rx.recv() {
-                    let mut latest = None;
-                    let mut acks = Vec::new();
-                    let mut take = |j: Job| match j {
-                        Job::Write(d) => latest = Some(d),
-                        Job::Flush(ack) => acks.push(ack),
-                    };
-                    take(job);
-                    while let Ok(j) = rx.try_recv() {
-                        take(j);
-                    }
-                    if let Some(doc) = latest {
-                        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                            write_projection_files(&bundle, &doc)
-                        }));
-                        if r.is_err() {
-                            tracing::error!("projection writer panicked; the projection may be stale");
-                        }
-                    }
-                    for a in acks {
-                        let _ = a.send(());
+        let thread = std::thread::Builder::new().name("projection-writer".into()).spawn(move || {
+            while let Ok(job) = rx.recv() {
+                let mut latest = None;
+                let mut acks = Vec::new();
+                let mut take = |j: Job| match j {
+                    Job::Write(d) => latest = Some(d),
+                    Job::Flush(ack) => acks.push(ack),
+                };
+                take(job);
+                while let Ok(j) = rx.try_recv() {
+                    take(j);
+                }
+                if let Some(doc) = latest {
+                    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        write_projection_files(&bundle, &doc)
+                    }));
+                    if r.is_err() {
+                        tracing::error!("projection writer panicked; the projection may be stale");
                     }
                 }
-            })
-            .expect("spawn projection writer");
-        ProjectionWriter { tx: Some(tx), thread: Some(thread) }
+                for a in acks {
+                    let _ = a.send(());
+                }
+            }
+        })?;
+        Ok(ProjectionWriter { tx: Some(tx), thread: Some(thread) })
     }
 
     fn submit(&self, doc: Document) {

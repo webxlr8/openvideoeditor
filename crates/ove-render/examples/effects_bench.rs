@@ -1,6 +1,13 @@
 //! Per-effect timings at 540p and 1080p, plus a contact sheet of every effect at its defaults.
 //!
 //!   cargo run --release -p ove-render --example effects_bench -- [out.ppm]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    reason = "developer example, not shipped: failing loudly on a broken setup is the point"
+)]
 
 use std::time::Instant;
 

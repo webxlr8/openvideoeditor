@@ -143,17 +143,18 @@ fn set_path(item: &mut Item, p: &Path, v: Option<Value>) {
                 if !obj.is_object() {
                     *obj = Value::Object(Map::new());
                 }
-                let o = obj.as_object_mut().unwrap();
-                match v {
-                    Some(v) => {
-                        o.insert(k.clone(), v);
+                if let Value::Object(o) = obj {
+                    match v {
+                        Some(v) => {
+                            o.insert(k.clone(), v);
+                        }
+                        None => {
+                            o.shift_remove(k);
+                        }
                     }
-                    None => {
-                        o.shift_remove(k);
+                    if o.is_empty() {
+                        item.fields.shift_remove(field);
                     }
-                }
-                if o.is_empty() {
-                    item.fields.shift_remove(field);
                 }
             }
         },
@@ -238,10 +239,9 @@ impl Ctx {
 
 /// Inserts ids missing from `list` after their predecessor in `order` (or at the front).
 fn insert_after_predecessors(list: &mut Vec<String>, order: &[String], missing: &[String]) {
-    for id in order.iter().filter(|i| missing.contains(i)) {
-        let pos = order.iter().position(|x| x == id).unwrap();
+    for (pos, id) in order.iter().enumerate().filter(|(_, i)| missing.contains(i)) {
         let pred = order[..pos].iter().rev().find(|p| list.contains(p));
-        let at = pred.map(|p| list.iter().position(|x| x == p).unwrap() + 1).unwrap_or(0);
+        let at = pred.and_then(|p| list.iter().position(|x| x == p)).map_or(0, |i| i + 1);
         list.insert(at, id.clone());
     }
 }
@@ -257,8 +257,12 @@ pub fn merge(base: &Document, current: &Document, file: &FileModel, prefer: Pref
     for nm in &file.new_media {
         if !m.project.media.contains_key(&nm.id) {
             let (mj, ej) = new_media_json(nm, now_ms);
-            m.project.media.insert(nm.id.clone(), Arc::new(MediaItem::from_json(&mj, "media").unwrap()));
-            m.registry.insert(nm.id.clone(), RegistryEntry::from_json(&ej, "entry").unwrap());
+            // `new_media_json` builds both from scratch, so they always read back.
+            if let (Ok(media), Ok(entry)) = (MediaItem::from_json(&mj, "media"), RegistryEntry::from_json(&ej, "entry"))
+            {
+                m.project.media.insert(nm.id.clone(), Arc::new(media));
+                m.registry.insert(nm.id.clone(), entry);
+            }
         }
     }
 
@@ -410,12 +414,12 @@ pub fn merge(base: &Document, current: &Document, file: &FileModel, prefer: Pref
             order.push(id.clone());
         }
     }
-    let mut tracks = std::mem::take(&mut m.project.tracks);
-    for (i, id) in order.iter().enumerate() {
-        let at = tracks.iter().position(|t| &t.id == id).unwrap();
-        let mut t = tracks.swap_remove(at);
+    // `order` lists every present track exactly once.
+    let rank: std::collections::HashMap<&str, usize> =
+        order.iter().enumerate().map(|(i, id)| (id.as_str(), i)).collect();
+    m.project.tracks.sort_by_key(|t| rank.get(t.id.as_str()).copied().unwrap_or(usize::MAX));
+    for (i, t) in m.project.tracks.iter_mut().enumerate() {
         t.order = i as u32;
-        m.project.tracks.push(t);
     }
 
     // Items.

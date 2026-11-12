@@ -50,13 +50,14 @@ pub fn unique_bundle_path(library: &Path, name: &str) -> PathBuf {
     if !taken(&base) {
         return library.join(format!("{base}.{BUNDLE_EXT}"));
     }
-    for n in 2.. {
+    let mut n = 2u64;
+    loop {
         let candidate = format!("{base} {n}");
         if !taken(&candidate) {
             return library.join(format!("{candidate}.{BUNDLE_EXT}"));
         }
+        n += 1;
     }
-    unreachable!()
 }
 
 /// True when a path looks like a bundle folder.

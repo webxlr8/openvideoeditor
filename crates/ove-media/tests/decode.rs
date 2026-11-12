@@ -1,5 +1,12 @@
 //! Tasks 2.3 / 2.4: frame-exact software decode and seek, verified by per-frame md5 against `ffmpeg -f framemd5`;
 //! hardware fallback (at open, unsupported stream, mid-stream via fault injection).
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    reason = "test code: a failure here is a failed test; clippy.toml only covers #[test] functions, not helpers"
+)]
 
 mod common;
 

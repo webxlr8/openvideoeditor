@@ -11,7 +11,7 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Mutex, OnceLock, PoisonError};
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -97,7 +97,7 @@ pub fn failpoint(name: &str) -> io::Result<()> {
     if let Some(r) = local {
         return r;
     }
-    let mut reg = registry().lock().unwrap();
+    let mut reg = registry().lock().unwrap_or_else(PoisonError::into_inner);
     match reg.get_mut(name) {
         Some(f) => fire(f),
         None => Ok(()),

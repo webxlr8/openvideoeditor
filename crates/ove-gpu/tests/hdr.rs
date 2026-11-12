@@ -1,6 +1,13 @@
 //! HDR tone mapping in the viewer agrees with the compositor: the WGSL pass, the CPU reference
 //! (`ove_gpu::cpu`) and `ove_media`'s table-driven RGBA output give the same SDR picture for PQ and
 //! HLG footage. GPU checks are skipped with a message when no adapter exists.
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    reason = "test code: a failure here is a failed test; clippy.toml only covers #[test] functions, not helpers"
+)]
 
 #[path = "../../../tests/media/fixtures.rs"]
 mod fixtures;

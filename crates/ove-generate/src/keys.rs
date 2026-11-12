@@ -4,7 +4,7 @@
 //! is registered with [`ove_guard::register_secret`], so log output never shows it.
 
 use std::collections::BTreeMap;
-use std::sync::Mutex;
+use std::sync::{Mutex, PoisonError};
 
 use crate::catalog::Provider;
 
@@ -97,14 +97,22 @@ pub struct MemoryKeyStore(Mutex<BTreeMap<&'static str, String>>);
 
 impl KeyStore for MemoryKeyStore {
     fn get(&self, p: Provider) -> Option<(String, KeySource)> {
-        loaded(self.0.lock().unwrap().get(p.id()).cloned().map(|k| (k, KeySource::Keychain)).or_else(|| env_key(p)))
+        loaded(
+            self.0
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .get(p.id())
+                .cloned()
+                .map(|k| (k, KeySource::Keychain))
+                .or_else(|| env_key(p)),
+        )
     }
     fn set(&self, p: Provider, key: &str) -> Result<(), String> {
-        self.0.lock().unwrap().insert(p.id(), validate(key)?);
+        self.0.lock().unwrap_or_else(PoisonError::into_inner).insert(p.id(), validate(key)?);
         Ok(())
     }
     fn clear(&self, p: Provider) -> Result<(), String> {
-        self.0.lock().unwrap().remove(p.id());
+        self.0.lock().unwrap_or_else(PoisonError::into_inner).remove(p.id());
         Ok(())
     }
 }

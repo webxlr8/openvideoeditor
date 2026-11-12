@@ -6,6 +6,7 @@
 //! - [`endpoint`]: when an endpoint override from the environment (`OVE_ANTHROPIC_BASE_URL`, `OVE_FAL_QUEUE_URL`, …)
 //!   is honoured, so release builds cannot be pointed at another host to collect keys.
 //! - [`id`]: the one check for ids that become file names (chat logs, job files, cancel markers).
+#![forbid(unsafe_code)]
 
 pub mod endpoint;
 pub mod http;

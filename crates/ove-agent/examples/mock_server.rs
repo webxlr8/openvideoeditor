@@ -2,6 +2,13 @@
 //! `cargo run -p ove-agent --example mock_server -- 127.0.0.1:8787 [chunk-delay-ms]`
 //! then start the app with `OVE_ANTHROPIC_BASE_URL=http://127.0.0.1:8787 ANTHROPIC_API_KEY=demo-key-not-real-123456`
 //! (a release build also needs `OVE_DEV_ENDPOINTS=1` to accept the override).
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    reason = "developer example, not shipped: failing loudly on a broken setup is the point"
+)]
 
 use ove_agent::mock::{MockServer, Reply, count_tokens_reply, demo_brain};
 use std::time::Duration;

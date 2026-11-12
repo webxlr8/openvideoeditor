@@ -2,7 +2,7 @@
 //! has a project open, edits go through it (control link) so the editor updates at once. `ove mcp` serves the same
 //! commands as MCP tools. Results go to stdout (one JSON object with `--json`), errors to stderr. Exit codes: 0 ok,
 //! 1 refused, 2 usage, 3 the app is not running (app commands).
-
+#![forbid(unsafe_code)]
 // Without media support some options and helpers are parsed but unused.
 #![cfg_attr(not(feature = "media"), allow(dead_code))]
 
@@ -473,7 +473,10 @@ fn run(cli: &Cli, source: Source) -> Out {
                 Ok((v, text))
             })
         }
-        Cmd::Docs { .. } | Cmd::Doctor | Cmd::Skills { .. } | Cmd::Mcp => unreachable!("handled above"),
+        // Answered before the library is opened.
+        Cmd::Docs { .. } | Cmd::Doctor | Cmd::Skills { .. } | Cmd::Mcp => {
+            Err(Fail::new("internal", "this command does not use a library"))
+        }
     }
 }
 
@@ -514,7 +517,7 @@ fn export(ctx: &Ctx, project: &str, out: &Path, height: u32, fps: u32) -> Out {
         "exported {} ({}x{}, {:.1} s, {}) in {:.1} s",
         res.path, res.width, res.height, res.duration_seconds, res.video_encoder, res.seconds_taken
     );
-    Ok((serde_json::to_value(&res).unwrap(), text))
+    Ok((serde_json::to_value(&res).unwrap_or(Value::Null), text))
 }
 
 #[cfg(not(feature = "media"))]

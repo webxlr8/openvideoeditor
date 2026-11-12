@@ -132,7 +132,7 @@ fn header(doc: &Document, ctx: &PrintContext, names: &BTreeMap<String, String>) 
         for (id, m) in &doc.project.media {
             rows.push(media_row(m, doc, ctx, &names[id]));
         }
-        let widths: Vec<usize> = (0..6).map(|c| rows.iter().map(|r| r[c].chars().count()).max().unwrap()).collect();
+        let widths: Vec<usize> = (0..6).map(|c| rows.iter().map(|r| r[c].chars().count()).max().unwrap_or(0)).collect();
         for r in rows {
             let cells: Vec<String> = r.iter().enumerate().map(|(c, v)| format!("{v:<w$}", w = widths[c])).collect();
             line(&format!("  {}", cells.join("  ").trim_end()));

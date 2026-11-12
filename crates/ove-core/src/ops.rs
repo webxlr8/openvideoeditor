@@ -269,7 +269,7 @@ fn apply_op(doc: &mut Document, op: &Op, i: usize, touch: &mut dyn FnMut(Touch))
                                 format!("{k} must be a string"),
                             )
                         })?;
-                        prev.insert(k.clone(), t.get(k).unwrap());
+                        prev.insert(k.clone(), t.get(k).unwrap_or_default());
                         if k == "name" { t.name = s.into() } else { t.kind = s.into() }
                     }
                     _ => {
@@ -323,13 +323,9 @@ fn apply_op(doc: &mut Document, op: &Op, i: usize, touch: &mut dyn FnMut(Touch))
                     "reorderTracks must list every track id exactly once",
                 ));
             }
-            let mut tracks = std::mem::take(&mut doc.project.tracks);
-            let mut new = Vec::with_capacity(tracks.len());
-            for id in order {
-                let at = tracks.iter().position(|t| &t.id == id).unwrap();
-                new.push(tracks.swap_remove(at));
-            }
-            doc.project.tracks = new;
+            let rank: std::collections::HashMap<&str, usize> =
+                order.iter().enumerate().map(|(n, id)| (id.as_str(), n)).collect();
+            doc.project.tracks.sort_by_key(|t| rank.get(t.id.as_str()).copied().unwrap_or(usize::MAX));
             renumber(&mut doc.project.tracks);
             touch(Touch::Global);
             Ok(vec![Op::ReorderTracks { order: old }])
@@ -376,14 +372,14 @@ fn apply_op(doc: &mut Document, op: &Op, i: usize, touch: &mut dyn FnMut(Touch))
                         let s = v
                             .as_str()
                             .ok_or_else(|| BatchError::op(i, "value.type", path, format!("{k} must be a string")))?;
-                        prev.insert(k.clone(), it.get(k).unwrap());
+                        prev.insert(k.clone(), it.get(k).unwrap_or_default());
                         if k == "trackId" { it.track_id = s.into() } else { it.kind = s.into() }
                     }
                     "startTime" | "endTime" => {
                         let us = json_to_micros(v).ok_or_else(|| {
                             BatchError::op(i, "value.type", path, format!("{k} must be a finite number of seconds"))
                         })?;
-                        prev.insert(k.clone(), it.get(k).unwrap());
+                        prev.insert(k.clone(), it.get(k).unwrap_or_default());
                         if k == "startTime" { it.start = us } else { it.end = us }
                     }
                     _ => match it.fields.insert(k.clone(), v.clone()) {

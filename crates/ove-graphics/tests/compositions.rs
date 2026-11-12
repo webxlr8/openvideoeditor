@@ -1,5 +1,12 @@
 //! Renders the built-in templates and sample compositions: golden frames, determinism, diagnostics and the
 //! frame budget at 1080p. Set `OVE_UPDATE_GOLDEN=1` to rewrite the golden PNGs under `tests/golden/`.
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    reason = "test code: a failure here is a failed test; clippy.toml only covers #[test] functions, not helpers"
+)]
 
 use std::path::PathBuf;
 use std::sync::Arc;

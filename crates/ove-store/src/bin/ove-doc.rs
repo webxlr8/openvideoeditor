@@ -11,6 +11,7 @@
 //! ove-doc [--library <dir>] [--json] show <project>       # print the current project.json
 //! ```
 //! `<project>` is a name, id or bundle path. Exit codes: 0 ok, 1 refused, 2 usage.
+#![forbid(unsafe_code)]
 
 use std::io::Read;
 use std::path::PathBuf;
@@ -91,7 +92,7 @@ fn run(a: Args) -> Result<(Value, String), StoreError> {
                 })
                 .collect::<Vec<_>>()
                 .join("\n");
-            Ok((serde_json::to_value(&rows).unwrap(), text))
+            Ok((serde_json::to_value(&rows).unwrap_or(Value::Null), text))
         }
         "apply" => {
             let src = arg(2)?;
@@ -119,7 +120,7 @@ fn run(a: Args) -> Result<(Value, String), StoreError> {
                 .map(|e| format!("{}\t{}\t{}", e.rev, e.source.as_str(), e.summary))
                 .collect::<Vec<_>>()
                 .join("\n");
-            Ok((serde_json::to_value(&h).unwrap(), text))
+            Ok((serde_json::to_value(&h).unwrap_or(Value::Null), text))
         }
         "undo" | "redo" => {
             let redo = arg(0)? == "redo";

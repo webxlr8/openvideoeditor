@@ -1,4 +1,11 @@
 //! Task 2.5: audio decode + resample, sample-accurate against the ffmpeg CLI (PCM diff ≤ 1 LSB).
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    reason = "test code: a failure here is a failed test; clippy.toml only covers #[test] functions, not helpers"
+)]
 
 mod common;
 

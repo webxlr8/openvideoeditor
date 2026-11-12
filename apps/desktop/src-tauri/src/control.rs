@@ -83,7 +83,11 @@ fn transport(app: &AppHandle, cmd: TransportCommand) -> Result<Value, ove_contro
 }
 
 /// The open project, checked against the bundle and revision the caller computed its change from.
-fn check_open(p: Option<&ove_store::project::Project>, params: &Value) -> Result<(), ove_control::Refusal> {
+/// The open project, when it is the one the request names (and at the revision it expects).
+fn check_open<'a>(
+    p: Option<&'a mut ove_store::project::Project>,
+    params: &Value,
+) -> Result<&'a mut ove_store::project::Project, ove_control::Refusal> {
     let p = p.ok_or_else(|| refusal("app.noProject", "the app has no project open"))?;
     let bundle = params.get("bundle").and_then(Value::as_str).unwrap_or_default();
     if !same_bundle(Path::new(bundle), p.bundle()) {
@@ -94,7 +98,7 @@ fn check_open(p: Option<&ove_store::project::Project>, params: &Value) -> Result
     {
         return Err(refusal("rev.changed", "the project changed in the app; recompute and try again"));
     }
-    Ok(())
+    Ok(p)
 }
 
 /// The revision source of a change sent over the control link. Only the command line and its MCP server use the
@@ -140,8 +144,7 @@ fn handle(app: &AppHandle, method: &str, params: Value) -> Result<Value, ove_con
             let summary = params.get("summary").and_then(Value::as_str).map(str::to_string);
             let state = app.state::<AppState>();
             let mut g = lock(&state.projects.open).map_err(|e| refusal("app.busy", e.message))?;
-            check_open(g.as_ref(), &params)?;
-            let p = g.as_mut().expect("checked");
+            let p = check_open(g.as_mut(), &params)?;
             p.apply(ops, source, summary).map_err(|e| refusal(e.code(), e.to_string()))?;
             emit(app, Some(p));
             Ok(json!({"rev": p.rev()}))
@@ -150,8 +153,7 @@ fn handle(app: &AppHandle, method: &str, params: Value) -> Result<Value, ove_con
             let rev = params.get("rev").and_then(Value::as_i64).ok_or_else(|| refusal("argument.missing", "rev"))?;
             let state = app.state::<AppState>();
             let mut g = lock(&state.projects.open).map_err(|e| refusal("app.busy", e.message))?;
-            check_open(g.as_ref(), &params)?;
-            let p = g.as_mut().expect("checked");
+            let p = check_open(g.as_mut(), &params)?;
             let c = p.restore_as(rev, Source::Undo).map_err(|e| refusal(e.code(), e.to_string()))?;
             emit(app, Some(p));
             Ok(match c {

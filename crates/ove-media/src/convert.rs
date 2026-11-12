@@ -73,8 +73,12 @@ impl ColorMatrix {
 }
 
 /// Colour info of a decoded frame (unspecified matrix: BT.709 for HD and up, BT.601 below).
+///
+/// # Safety
+///
+/// `f` must point to a valid, initialised AVFrame for the duration of the call.
 pub(crate) unsafe fn color_info(f: *const ffi::AVFrame) -> ColorInfo {
-    // SAFETY: caller passes a valid frame.
+    // SAFETY: the caller guarantees `f` is valid; only plain-data fields are read.
     unsafe {
         let matrix = match (*f).colorspace {
             ffi::AVColorSpace::BT709 => ColorMatrix::Bt709,
@@ -103,9 +107,16 @@ pub(crate) unsafe fn color_info(f: *const ffi::AVFrame) -> ColorInfo {
 
 /// The frame's planes as a 10–16-bit Y'CbCr source for the tone-mapper, or `None` for layouts it does not read
 /// (8-bit, RGB, alpha, big-endian, packed, …) — the caller converts those to `yuv444p16le` with swscale first.
+///
+/// # Safety
+///
+/// `f` must point to a valid AVFrame whose planes are in CPU memory (not a hardware frame), and the frame and its
+/// buffers must stay alive and unmodified for `'a`, the lifetime of the returned view.
 pub(crate) unsafe fn yuv_source<'a>(f: *const ffi::AVFrame) -> Option<crate::tonemap::YuvSource<'a>> {
-    // SAFETY: caller passes a valid, CPU-mapped frame that outlives the returned borrow; each slice covers
-    // linesize × rows of its plane.
+    // SAFETY: the caller guarantees `f` is a valid CPU frame that outlives `'a`. The descriptor is a non-null
+    // pointer into FFmpeg's static table (checked). Each plane slice covers `linesize × rows` bytes of a non-null
+    // plane with a positive linesize, which is exactly the memory FFmpeg allocated for that plane of a frame of
+    // this format and height.
     unsafe {
         let fmt = ffi::AVPixelFormat((*f).format);
         let d = ffi::av_pix_fmt_desc_get(fmt);
@@ -169,8 +180,16 @@ pub(crate) unsafe fn yuv_source<'a>(f: *const ffi::AVFrame) -> Option<crate::ton
 
 /// Repack a planar YUV frame into NV12 (8-bit sources) or P010 (9–16-bit). `None` if the layout is not handled
 /// (RGB, alpha, big-endian, packed, semi-planar, palettes) — the caller falls back to swscale.
+///
+/// # Safety
+///
+/// `f` must point to a valid AVFrame whose planes are in CPU memory (not a hardware frame), alive and unmodified
+/// for the duration of the call.
 pub(crate) unsafe fn to_semiplanar(f: *const ffi::AVFrame) -> Option<(PixelFormat, Vec<Plane>)> {
-    // SAFETY: caller passes a valid, CPU-mapped frame; reads stay within each plane's linesize × rows.
+    // SAFETY: the caller guarantees `f` is a valid CPU frame. The descriptor is a non-null pointer into FFmpeg's
+    // static table (checked). The format is checked to be 3-plane planar YUV with 1- or 2-byte samples and at most
+    // 2× chroma subsampling, so row `r` of the luma plane holds `w` samples at `data[0] + r × linesize[0]`, and row
+    // `r << sy` of each chroma plane holds at least `clen` samples; every slice below stays inside its plane.
     unsafe {
         let fmt = ffi::AVPixelFormat((*f).format);
         let d = ffi::av_pix_fmt_desc_get(fmt);

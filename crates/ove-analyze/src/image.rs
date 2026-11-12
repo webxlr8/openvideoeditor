@@ -32,18 +32,18 @@ impl Image {
         self.rgba[i..i + 4].copy_from_slice(&c);
     }
 
-    /// PNG bytes (RGBA, 8-bit).
-    pub fn png(&self) -> Vec<u8> {
+    /// PNG bytes (RGBA, 8-bit). Fails only when `rgba` does not hold `width`×`height` pixels.
+    pub fn png(&self) -> std::io::Result<Vec<u8>> {
         let mut out = Vec::new();
         {
             let mut enc = png::Encoder::new(&mut out, self.width.max(1), self.height.max(1));
             enc.set_color(png::ColorType::Rgba);
             enc.set_depth(png::BitDepth::Eight);
             enc.set_compression(png::Compression::Fast);
-            let mut w = enc.write_header().expect("png header to memory");
-            w.write_image_data(&self.rgba).expect("png data to memory");
+            let mut w = enc.write_header().map_err(std::io::Error::other)?;
+            w.write_image_data(&self.rgba).map_err(std::io::Error::other)?;
         }
-        out
+        Ok(out)
     }
 
     /// Resized to `width`×`height`: area averaging when shrinking, bilinear when enlarging.
@@ -247,7 +247,7 @@ mod tests {
         assert_eq!(s.px(SHEET_GAP + 14 + SHEET_GAP, SHEET_GAP), [50, 0, 0, 255]);
         let st = frame_stats(&Image::filled(4, 4, [255, 255, 255, 255]));
         assert_eq!((st.mean_luma, st.clipped_fraction, st.black_fraction), (1.0, 1.0, 0.0));
-        let png = s.png();
+        let png = s.png().unwrap();
         assert_eq!(&png[1..4], b"PNG");
     }
 }

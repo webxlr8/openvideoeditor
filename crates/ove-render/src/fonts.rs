@@ -2,7 +2,7 @@
 //! (bundled OFL families, then installed system fonts, then Inter), with the variable `wght` axis applied.
 
 use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Mutex, OnceLock, PoisonError};
 
 use ab_glyph::{FontArc, FontVec, VariableFont};
 use serde_json::{Map, Value};
@@ -43,10 +43,14 @@ pub fn spec_of(f: &Map<String, Value>, family_key: &str) -> Option<FontSpec> {
 }
 
 /// The ab_glyph font for a spec (cached).
+#[allow(
+    clippy::expect_used,
+    reason = "the fallback is the bundled default family, compiled in and parsed by the crate's tests"
+)]
 pub fn face(spec: &FontSpec) -> FontArc {
     static CACHE: OnceLock<Mutex<HashMap<FontSpec, FontArc>>> = OnceLock::new();
     let cache = CACHE.get_or_init(Default::default);
-    if let Some(f) = cache.lock().expect("font cache").get(spec) {
+    if let Some(f) = cache.lock().unwrap_or_else(PoisonError::into_inner).get(spec) {
         return f.clone();
     }
     let r = ove_graphics::fonts::resolve(&spec.family, spec.weight, spec.italic);
@@ -62,7 +66,7 @@ pub fn face(spec: &FontSpec) -> FontArc {
             FontArc::new(f)
         })
         .expect("bundled default font parses");
-    let mut c = cache.lock().expect("font cache");
+    let mut c = cache.lock().unwrap_or_else(PoisonError::into_inner);
     if c.len() > 64 {
         c.clear();
     }

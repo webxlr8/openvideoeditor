@@ -26,7 +26,8 @@ pub fn init() {
 
 /// Version string of the linked FFmpeg libraries (e.g. `9.0.2`).
 pub fn ffmpeg_version() -> String {
-    // SAFETY: returns a static string.
+    // SAFETY: `av_version_info` returns a non-null pointer to a NUL-terminated string compiled into libavutil,
+    // valid for the life of the process.
     unsafe { CStr::from_ptr(ffi::av_version_info()).to_string_lossy().into_owned() }
 }
 
@@ -51,7 +52,8 @@ impl From<ffmpeg_the_third::Rational> for Rational {
 
 /// `ts` in `tb` units → microseconds (rounded to nearest, like `av_rescale_q`).
 pub fn ts_to_us(ts: i64, tb: Rational) -> Micros {
-    // SAFETY: pure arithmetic.
+    // SAFETY: `av_rescale_q` only does integer arithmetic on its by-value arguments (no pointers, no global state;
+    // a zero denominator yields a sentinel value, not undefined behaviour).
     unsafe {
         ffi::av_rescale_q(ts, ffi::AVRational { num: tb.num, den: tb.den }, ffi::AVRational { num: 1, den: 1_000_000 })
     }
@@ -59,7 +61,7 @@ pub fn ts_to_us(ts: i64, tb: Rational) -> Micros {
 
 /// Microseconds → `tb` units (rounded to nearest).
 pub fn us_to_ts(us: Micros, tb: Rational) -> i64 {
-    // SAFETY: pure arithmetic.
+    // SAFETY: as in `ts_to_us`: integer arithmetic on by-value arguments only.
     unsafe {
         ffi::av_rescale_q(us, ffi::AVRational { num: 1, den: 1_000_000 }, ffi::AVRational { num: tb.num, den: tb.den })
     }

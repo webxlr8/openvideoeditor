@@ -42,7 +42,8 @@ fn hostname() -> String {
     #[cfg(unix)]
     {
         let mut buf = [0u8; 256];
-        // SAFETY: buf is valid for writes of buf.len() bytes; gethostname NUL-terminates on success.
+        // SAFETY: `buf` is valid for writes of `buf.len()` bytes and `gethostname` writes at most that many; the
+        // result is read back through a bounds-checked search for the NUL.
         if unsafe { libc::gethostname(buf.as_mut_ptr().cast(), buf.len()) } == 0 {
             let end = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
             return String::from_utf8_lossy(&buf[..end]).into_owned();
@@ -90,7 +91,9 @@ impl WriteLock {
             tracing::warn!(bundle = %bundle.display(), previous = %h.describe(), "took over a stale project lock");
         }
         let me = Holder::current();
-        std::fs::write(&holder_path, serde_json::to_vec(&me).unwrap())
+        serde_json::to_vec(&me)
+            .map_err(std::io::Error::from)
+            .and_then(|bytes| std::fs::write(&holder_path, bytes))
             .map_err(|e| StoreError::io("write lock holder", &holder_path, e))?;
         Ok(WriteLock { file, holder_path, took_over_from })
     }

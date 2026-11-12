@@ -1,5 +1,12 @@
 //! The bundle's projection follows every revision (timeline-projection task 2.3) and a concurrency soak where GUI
 //! batches and projection round trips race against one document (task 7.1).
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    reason = "test code: a failure here is a failed test; clippy.toml only covers #[test] functions, not helpers"
+)]
 
 mod common;
 

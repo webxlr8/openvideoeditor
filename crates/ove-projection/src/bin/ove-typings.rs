@@ -1,4 +1,5 @@
 //! Writes (or with `--check`, verifies) the committed copy of the generated typings: `docs/spec/timeline.d.ts`.
+#![forbid(unsafe_code)]
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -15,7 +16,10 @@ fn main() -> ExitCode {
         eprintln!("{} is out of date; run `cargo run -p ove-projection --bin ove-typings`", path.display());
         return ExitCode::FAILURE;
     }
-    std::fs::write(&path, want).expect("write");
+    if let Err(e) = std::fs::write(&path, want) {
+        eprintln!("cannot write {}: {e}", path.display());
+        return ExitCode::FAILURE;
+    }
     println!("wrote {}", path.display());
     ExitCode::SUCCESS
 }

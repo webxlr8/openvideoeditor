@@ -2,7 +2,7 @@
 //! props and style properties. Unsupported things are dropped with a diagnostic; the rest still renders.
 
 use std::collections::{BTreeSet, HashMap};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Mutex, OnceLock, PoisonError};
 
 use serde_json::{Map, Value, json};
 use takumi::prelude::Style;
@@ -234,7 +234,7 @@ fn property(key: &str, value: &Value) -> Property {
             Property::Invalid(msg)
         }
         Ok(style) => {
-            let mut k = known.lock().expect("style cache");
+            let mut k = known.lock().unwrap_or_else(PoisonError::into_inner);
             let is_known = *k.entry(key.to_string()).or_insert_with(|| format!("{style:?}") != *empty);
             if is_known { Property::Ok } else { Property::Unknown }
         }

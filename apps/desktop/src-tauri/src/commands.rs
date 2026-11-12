@@ -203,6 +203,7 @@ pub fn simulate_device_loss(state: State<'_, AppState>) -> AppResult<()> {
 /// Diagnostics hook: panics inside a background worker and returns the contained error.
 #[tauri::command]
 #[specta::specta]
+#[allow(clippy::panic, reason = "deliberate: exercises panic containment in background workers")]
 pub fn debug_panic_worker() -> AppResult<()> {
     let handle =
         crate::worker::spawn_contained("a test worker", || -> () { panic!("forced worker panic (diagnostics)") })

@@ -1,6 +1,13 @@
 //! Mixdown quality: the peak limiter keeps loud sums under -1 dBFS, and speed changes resample without aliasing.
 //! Tones are made with the ffmpeg CLI (`OVE_FIXTURE_FFMPEG` or `ffmpeg`): without it the tests fail, unless
 //! `OVE_ALLOW_MISSING_MEDIA_TOOLS=1` makes them print "skipped".
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    reason = "test code: a failure here is a failed test; clippy.toml only covers #[test] functions, not helpers"
+)]
 
 #[path = "../../../tests/media/fixtures.rs"]
 mod fixtures;

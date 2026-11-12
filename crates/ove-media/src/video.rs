@@ -78,12 +78,15 @@ struct HwDevice {
     api: String,
 }
 
-// SAFETY: the device reference is only touched by the thread that owns the decoder.
+// SAFETY: `device` is a counted reference to an AVHWDeviceContext, which FFmpeg allows to be used and released
+// from any thread. `HwDevice` holds its own reference, is not `Clone`, and only reads the pointer (to hand it to
+// `av_buffer_ref`) or releases it in `drop`, so moving it between threads cannot race.
 unsafe impl Send for HwDevice {}
 
 impl Drop for HwDevice {
     fn drop(&mut self) {
-        // SAFETY: we own one reference.
+        // SAFETY: `self.device` is the one reference `av_hwdevice_ctx_create` gave us; it is released exactly once,
+        // here (`av_buffer_unref` nulls the pointer). Codec contexts that use the device hold their own references.
         unsafe { ffi::av_buffer_unref(&mut self.device) };
     }
 }
@@ -126,7 +129,8 @@ impl FfmpegVideoDecoder {
         let mut ctx = ffmpeg_the_third::codec::context::Context::from_parameters(st.parameters())
             .map_err(|e| MediaError::from_open(path, e))?;
 
-        // SAFETY: plain field writes on an unopened codec context.
+        // SAFETY: `ctx` owns a valid AVCodecContext (from_parameters succeeded) that has not been opened yet, so
+        // the pointer is non-null and exclusively ours; these are plain-data fields read when it is opened.
         unsafe {
             let c = ctx.as_mut_ptr();
             (*c).thread_count = 0;
@@ -139,7 +143,9 @@ impl FfmpegVideoDecoder {
             None => None,
             Some(name) => match create_hw_device(name, codec_id.into()) {
                 Ok(dev) => {
-                    // SAFETY: the context takes its own reference to the device.
+                    // SAFETY: `ctx` is a valid, unopened codec context we own and `dev.device` a live device
+                    // reference; the context gets a new reference of its own (freed with the context) and the
+                    // field was null before, so nothing leaks.
                     unsafe { (*ctx.as_mut_ptr()).hw_device_ctx = ffi::av_buffer_ref(dev.device) };
                     Some(dev)
                 }
@@ -242,7 +248,7 @@ impl FfmpegVideoDecoder {
             let mut f = AvFrame::empty();
             match self.dec.receive_frame(&mut f) {
                 Ok(()) => {
-                    // SAFETY: reading plain fields of a valid frame.
+                    // SAFETY: `receive_frame` succeeded, so `f` owns a valid AVFrame; these are plain-data reads.
                     let (best, dur, fmt) = unsafe {
                         let p = f.as_ptr();
                         ((*p).best_effort_timestamp, (*p).duration, (*p).format)
@@ -278,12 +284,13 @@ impl FfmpegVideoDecoder {
     fn convert(&mut self, raw: RawFrame) -> Result<VideoFrame> {
         let mut copies = 1;
         let mut frame = raw.frame;
-        // SAFETY: format field read.
+        // SAFETY: `frame` owns a valid decoded AVFrame; `format` is a plain-data field.
         let fmt = unsafe { (*frame.as_ptr()).format };
         let is_hw = self.hw.as_ref().is_some_and(|h| fmt == h.pix_fmt.0);
         if is_hw {
             let mut sw = AvFrame::empty();
-            // SAFETY: both frames are valid; transfer allocates `sw`.
+            // SAFETY: `frame` is a valid hardware frame (its format is the device's) and `sw` a valid empty frame
+            // we own; `av_hwframe_transfer_data` allocates `sw`'s buffers, and props are copied only on success.
             let r = unsafe {
                 let r = ffi::av_hwframe_transfer_data(sw.as_mut_ptr(), frame.as_ptr(), 0);
                 if r >= 0 {
@@ -303,9 +310,9 @@ impl FfmpegVideoDecoder {
             DecodePath::Software
         };
         let (w, h) = (frame.width(), frame.height());
-        // SAFETY: format field read.
+        // SAFETY: `frame` owns a valid AVFrame; `format` is a plain-data field.
         let src_fmt = ffi::AVPixelFormat(unsafe { (*frame.as_ptr()).format });
-        // SAFETY: valid frame.
+        // SAFETY: `frame` owns a valid AVFrame for the duration of the call (the contract of `color_info`).
         let mut color = unsafe { crate::convert::color_info(frame.as_ptr()) };
         let hdr = color.transfer != Transfer::Sdr;
         let (format, planes) = match self.opts.output {
@@ -322,8 +329,9 @@ impl FfmpegVideoDecoder {
                     (PixelFormat::Nv12, pack_planes(&frame, src_fmt)?)
                 } else if src_fmt == ffi::AVPixelFormat::P010LE {
                     (PixelFormat::P010, pack_planes(&frame, src_fmt)?)
+                // SAFETY: `frame` is a valid software frame in CPU memory (hardware frames were transferred above)
+                // and outlives the call (the contract of `to_semiplanar`).
                 } else if let Some(out) = unsafe { crate::convert::to_semiplanar(frame.as_ptr()) } {
-                    // SAFETY (above): the frame is a valid CPU frame.
                     out
                 } else {
                     copies += 1;
@@ -369,7 +377,9 @@ impl FfmpegVideoDecoder {
         if color.transfer != Transfer::Sdr {
             let scaled;
             let (w, h) = (frame.width(), frame.height());
-            // SAFETY: valid CPU frames; the source view borrows `frame` / `scaled`, both alive until the call returns.
+            // SAFETY: `frame` (a software frame) and `scaled` (allocated by swscale) are valid CPU frames, and the
+            // returned view borrows one of them; both outlive `src`, which is used only within this function
+            // (the contract of `yuv_source`).
             let src = unsafe {
                 match crate::convert::yuv_source(frame.as_ptr()) {
                     Some(src) if (ow, oh) == (w, h) => Some(src),
@@ -411,12 +421,13 @@ impl FfmpegVideoDecoder {
     }
 
     fn seek_container(&mut self, ts: i64) -> Result<()> {
-        // SAFETY: valid format context; stream-index seek in stream time base, landing at or before `ts`.
+        // SAFETY: `self.input` owns an open AVFormatContext for as long as `self` lives and `stream_index` is one
+        // of its streams; the call only takes plain values besides the context.
         let r =
             unsafe { ffi::avformat_seek_file(self.input.as_mut_ptr(), self.stream_index as i32, i64::MIN, ts, ts, 0) };
         if r < 0 {
             // Some demuxers only support backward seeking by timestamp.
-            // SAFETY: as above.
+            // SAFETY: same context and stream as the `avformat_seek_file` call above.
             let r2 = unsafe {
                 ffi::av_seek_frame(self.input.as_mut_ptr(), self.stream_index as i32, ts, ffi::AVSEEK_FLAG_BACKWARD)
             };
@@ -494,7 +505,10 @@ impl VideoDecoder for FfmpegVideoDecoder {
 
 fn create_hw_device(name: &str, codec: ffi::AVCodecID) -> std::result::Result<HwDevice, String> {
     let cname = std::ffi::CString::new(name).map_err(|e| e.to_string())?;
-    // SAFETY: lookups in static tables and an allocation we own on success.
+    // SAFETY: `cname` is a NUL-terminated string that outlives the lookup. `avcodec_find_decoder` and
+    // `avcodec_get_hw_config` return null or pointers into static tables (null ends the loop before any
+    // dereference). `device` starts null and is either left null on failure or set to a context we then own
+    // (released by `HwDevice::drop`).
     unsafe {
         let ty = ffi::av_hwdevice_find_type_by_name(cname.as_ptr());
         if ty == ffi::AVHWDeviceType::NONE {
@@ -533,7 +547,10 @@ fn create_hw_device(name: &str, codec: ffi::AVCodecID) -> std::result::Result<Hw
 /// Copy a frame's planes into tightly packed buffers, exactly like `av_image_copy_to_buffer(align = 1)`.
 fn pack_planes(frame: &AvFrame, fmt: ffi::AVPixelFormat) -> Result<Vec<Plane>> {
     let (w, h) = (frame.width() as i32, frame.height() as i32);
-    // SAFETY: descriptor and linesize helpers read static tables; plane pointers come from a valid frame.
+    // SAFETY: the descriptor is a non-null pointer into FFmpeg's static table (checked). `frame` is a valid CPU
+    // frame whose format is `fmt` (all callers pass its own format, or the format it was allocated with), so plane
+    // `i` holds at least `ph` rows of `linesize` bytes, each at least `av_image_get_linesize` bytes long: every
+    // slice read stays inside the plane.
     unsafe {
         let desc = ffi::av_pix_fmt_desc_get(fmt);
         if desc.is_null() {
@@ -575,7 +592,8 @@ struct Sws {
     ctx: Option<*mut ffi::SwsContext>,
 }
 
-// SAFETY: owned by one decoder, used from one thread at a time.
+// SAFETY: an SwsContext has no thread affinity. `Sws` owns its context exclusively (not `Clone`, never shared) and
+// only uses it through `&mut self`, so moving it to another thread cannot cause concurrent access.
 unsafe impl Send for Sws {}
 
 impl Sws {
@@ -613,7 +631,10 @@ impl Sws {
     ) -> Result<AvFrame> {
         let (w, h) = (src.width() as i32, src.height() as i32);
         let (ow, oh) = (out_w as i32, out_h as i32);
-        // SAFETY: getCachedContext reuses or frees the previous context; frames are valid.
+        // SAFETY: `sws_getCachedContext` takes ownership of the previous context (reusing or freeing it) and
+        // returns null or a context we own, which replaces it in `self.ctx`. `src` is a valid CPU frame of
+        // `w`×`h` in format `from`, and `out` is allocated by `AvFrame::new` as `ow`×`oh` in `to`, so `sws_scale`
+        // reads and writes only within the planes of the two frames. The coefficient tables are static.
         unsafe {
             let ctx = ffi::sws_getCachedContext(
                 self.ctx.unwrap_or(ptr::null_mut()),
@@ -668,7 +689,8 @@ impl Sws {
 impl Drop for Sws {
     fn drop(&mut self) {
         if let Some(c) = self.ctx.take() {
-            // SAFETY: we own the context.
+            // SAFETY: `c` came from `sws_getCachedContext`, is owned only by `self` and was taken out of `self.ctx`,
+            // so it is freed exactly once.
             unsafe { ffi::sws_freeContext(c) };
         }
     }

@@ -21,28 +21,37 @@ use windows::core::w;
 
 use super::{NativeLayer, ViewerBackend, ViewerRect};
 
+/// Window procedure of the viewer surface class: transparent to hit tests, default handling otherwise.
+///
+/// # Safety
+///
+/// Called by Windows only, with the arguments of a message sent to a window of this class.
 unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if msg == WM_NCHITTEST {
         return LRESULT(HTTRANSPARENT as isize);
     }
-    // SAFETY: default handling for every other message.
+    // SAFETY: the arguments are exactly those Windows passed to this window procedure, forwarded unchanged.
     unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
 }
 
 pub struct ChildSurfaceWindow {
-    hwnd: isize,
+    hwnd: NonZeroIsize,
     hinstance: isize,
     below: bool,
 }
 
-// SAFETY: HWND values are plain handles; window calls are made from the UI thread by the caller.
+// SAFETY: the struct holds only plain handle values (no pointers it dereferences). The window calls that need
+// the UI thread (`apply_rect`) are made there by the caller; the viewer thread only builds a raw window handle for
+// wgpu, which supports creating a D3D12 swap chain for an HWND from another thread.
 unsafe impl Send for ChildSurfaceWindow {}
 
 impl ChildSurfaceWindow {
     /// Creates the child window inside `parent` (the main window's HWND). UI thread only.
     pub fn new(parent: isize, below: bool) -> Result<Self, String> {
         static REGISTER: Once = Once::new();
-        // SAFETY: Win32 calls with valid arguments; the class is registered once.
+        // SAFETY: the class name and window title are static wide strings; `wndproc` matches the WNDPROC
+        // signature; the class is registered once per process before any window of it is created; `parent` is the
+        // main window's live HWND, passed by the caller on the UI thread.
         unsafe {
             let hinstance = GetModuleHandleW(None).map_err(|e| e.to_string())?;
             REGISTER.call_once(|| {
@@ -70,7 +79,8 @@ impl ChildSurfaceWindow {
                 None,
             )
             .map_err(|e| e.to_string())?;
-            Ok(ChildSurfaceWindow { hwnd: hwnd.0 as isize, hinstance: hinstance.0 as isize, below })
+            let hwnd = NonZeroIsize::new(hwnd.0 as isize).ok_or("CreateWindowExW returned a null window")?;
+            Ok(ChildSurfaceWindow { hwnd, hinstance: hinstance.0 as isize, below })
         }
     }
 }
@@ -84,10 +94,11 @@ impl NativeLayer for ChildSurfaceWindow {
         let p = rect.physical();
         let order = if self.below { HWND_BOTTOM } else { HWND_TOP };
         let show = if rect.is_shown() { SWP_SHOWWINDOW } else { SWP_HIDEWINDOW };
-        // SAFETY: valid child HWND owned by this struct.
+        // SAFETY: `self.hwnd` is the child window this struct created, destroyed only with its parent (which
+        // outlives the layer); `SetWindowPos` takes plain values otherwise.
         let _ = unsafe {
             SetWindowPos(
-                HWND(self.hwnd as *mut _),
+                HWND(self.hwnd.get() as *mut _),
                 Some(order),
                 p.x,
                 p.y,
@@ -98,10 +109,9 @@ impl NativeLayer for ChildSurfaceWindow {
         };
     }
 
+    /// See [`NativeLayer::surface_target`].
     unsafe fn surface_target(&self) -> ove_gpu::wgpu::SurfaceTargetUnsafe {
-        let mut handle = raw_window_handle::Win32WindowHandle::new(
-            NonZeroIsize::new(self.hwnd).expect("CreateWindowExW returned a non-null HWND"),
-        );
+        let mut handle = raw_window_handle::Win32WindowHandle::new(self.hwnd);
         handle.hinstance = NonZeroIsize::new(self.hinstance);
         ove_gpu::wgpu::SurfaceTargetUnsafe::RawHandle {
             raw_display_handle: Some(raw_window_handle::RawDisplayHandle::Windows(

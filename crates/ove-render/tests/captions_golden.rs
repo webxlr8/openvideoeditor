@@ -1,6 +1,13 @@
 //! Golden checks for caption styles: a 9:16 frame with a timed caption, rendered through the full renderer for three
 //! styles, compared with stored references (block averages, so tiny anti-aliasing differences do not matter).
 //! Regenerate the references with `OVE_UPDATE_GOLDEN=1`; `OVE_GOLDEN_DUMP=<dir>` also writes full frames (PPM).
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    reason = "test code: a failure here is a failed test; clippy.toml only covers #[test] functions, not helpers"
+)]
 
 use std::path::PathBuf;
 
