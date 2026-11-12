@@ -62,14 +62,14 @@ lto = "thin"
 codegen-units = 1
 strip = "debuginfo"
 
-# The Windows API binding crates are huge and almost all declarations: optimising them fully in one codegen unit
-# needs more RAM than the CI runners have (the release build was killed) and gains nothing at run time.
+# The Windows API binding crates are huge and almost all declarations: optimising them needs more RAM than the CI
+# runners have (the release build was killed) and gains nothing measurable at run time.
 [profile.release.package.windows]
-opt-level = 1
+opt-level = 0
 codegen-units = 16
 
 [profile.release.package.windows-sys]
-opt-level = 1
+opt-level = 0
 codegen-units = 16
 
 [profile.dev]

@@ -58,9 +58,11 @@ jobs:
     name: package-windows (cross-built on Linux)
     runs-on: ${{ fromJSON(vars.OVE_RUNNER_LINUX || '["self-hosted","Linux","X64"]') }}
     env:
-      # The Linux runners have 1 CPU and about 4 GB of RAM; one compile at a time plus extra swap (below) keeps the
-      # release build within memory (the windows crate alone peaks near 2.7 GB).
+      # The Linux runners are containers with 1 CPU and a few GB of memory (swap cannot be added inside them). One
+      # compile at a time, no link-time optimisation and the Windows binding crates unoptimised (Cargo.toml) keep the
+      # release build within that.
       CARGO_BUILD_JOBS: 1
+      CARGO_PROFILE_RELEASE_LTO: "false"
     defaults:
       run:
         shell: bash
@@ -81,14 +83,9 @@ jobs:
         run: |
           nproc
           free -m
+          # The container's own memory limit (what actually kills a build), if cgroups expose it.
+          cat /sys/fs/cgroup/memory.max 2>/dev/null || cat /sys/fs/cgroup/memory/memory.limit_in_bytes 2>/dev/null || true
           df -h . | tail -1
-      - name: extra swap for the release build (temporary)
-        run: |
-          if sudo -n true 2>/dev/null && [ "$(free -m | awk '/^Mem:/ {print $2}')" -lt 12000 ]; then
-            sudo fallocate -l 6G /ove-build.swap && sudo chmod 600 /ove-build.swap && sudo mkswap /ove-build.swap \
-              && sudo swapon /ove-build.swap && echo "added 6 GB swap" || echo "could not add swap; continuing"
-          fi
-          free -m
       - name: prerequisites (MinGW-w64, NSIS, Wine)
         run: |
           pkgs="gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 mingw-w64-tools nasm meson ninja-build pkg-config cmake clang
@@ -116,10 +113,6 @@ jobs:
           7z x -y -o"$RUNNER_TEMP/ove-windows" target/x86_64-pc-windows-gnu/release/bundle/nsis/*-setup.exe > /dev/null
           ls -l "$RUNNER_TEMP/ove-windows"
           tools/cross/wine-smoke.sh "$RUNNER_TEMP/ove-windows"
-      - name: remove the temporary swap
-        if: always()
-        run: |
-          if [ -f /ove-build.swap ]; then sudo swapoff /ove-build.swap || true; sudo rm -f /ove-build.swap; fi
       - uses: actions/upload-artifact@v4
         with:
           name: installers-windows
