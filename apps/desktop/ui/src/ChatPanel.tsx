@@ -11,7 +11,7 @@ import type {
 } from "./bindings";
 import { commands, events } from "./bridge";
 import { Icon } from "./icons";
-import { Dropdown } from "./Menu";
+import { COMING_LATER, Dropdown } from "./Menu";
 import { fire, reportError, runCommand, unlisten } from "./notify";
 
 interface Item {
@@ -314,7 +314,13 @@ export function ChatPanel({
   return (
     <aside className="chat" data-testid="chat">
       <header className="chat-header">
-        <button className="pill" onClick={newChat} data-testid="new-chat" title="Start a new conversation">
+        <button
+          className="pill"
+          onClick={newChat}
+          data-testid="new-chat"
+          title={chatId || items.length ? "Start a new conversation" : "This is a new conversation"}
+          disabled={!chatId && items.length === 0}
+        >
           New conversation
         </button>
         <span className="chat-header-tools">
@@ -403,7 +409,7 @@ export function ChatPanel({
           }}
         />
         <div className="composer-row">
-          <button className="icon-btn" title="Attach (later)" disabled>
+          <button className="icon-btn" title={COMING_LATER} aria-label="Attach files" data-testid="attach" disabled>
             <Icon name="attach" size={16} />
           </button>
           <span className="grow" />

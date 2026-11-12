@@ -2,11 +2,16 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Icon } from "./icons";
 
+/** Tooltip for a control kept visible for a feature that isn't in this version. */
+export const COMING_LATER = "Coming in a later version";
+
 export interface MenuItem {
   id: string;
   label: string;
   hint?: string;
   danger?: boolean;
+  title?: string;
+  /** Without it the item shows disabled: a note ("No conversations yet") or a feature that isn't here yet. */
   onSelect?: () => void;
 }
 
@@ -63,6 +68,8 @@ export function Dropdown({
               role="menuitem"
               className={`menu-item${item.danger ? " danger" : ""}`}
               data-testid={`${testId}-item-${item.id}`}
+              disabled={!item.onSelect}
+              title={item.title}
               onClick={() => {
                 setOpen(false);
                 item.onSelect?.();
@@ -118,6 +125,8 @@ export function ContextMenu({
           role="menuitem"
           className={`menu-item${item.danger ? " danger" : ""}`}
           data-testid={`menu-${item.id}`}
+          disabled={!item.onSelect}
+          title={item.title}
           onClick={() => {
             onClose();
             item.onSelect?.();
