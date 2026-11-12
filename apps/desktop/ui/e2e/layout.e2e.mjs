@@ -172,6 +172,12 @@ try {
   await page.getByTestId("timeline-formats").getByText("XML", { exact: true }).click();
   await page.screenshot({ path: path.join(outDir, "export-timeline.png") });
   await page.getByTestId("timeline-export-start").click();
+  // When something won't carry over, the dialog lists it before writing.
+  await page.locator("[data-testid=timeline-export-done], [data-testid=timeline-report]").first().waitFor();
+  if (await page.getByTestId("timeline-report").isVisible()) {
+    await page.screenshot({ path: path.join(outDir, "export-timeline-report.png") });
+    await page.getByTestId("timeline-export-continue").click();
+  }
   await page.getByTestId("timeline-export-done").waitFor();
   check("timeline export saved", (await page.getByTestId("timeline-export-done").textContent()).includes(".xml"));
   await page.getByText("Done", { exact: true }).click();

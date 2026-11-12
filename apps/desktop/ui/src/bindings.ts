@@ -73,10 +73,10 @@ export const commands = {
 	listVoices: () => typedError<string, AppError>(__TAURI_INVOKE("list_voices")),
 	timelineFormats: () => __TAURI_INVOKE<TimelineFormat[]>("timeline_formats"),
 	/**
-	 *  Writes the open project's timeline. `path: None` asks with a save dialog; returns the written path (`None` when
-	 *  the dialog was cancelled).
+	 *  Writes the open project's timeline. `path: None` asks with a save dialog. `preview: true` writes nothing and only
+	 *  returns the report, so the person sees what won't carry over before choosing to continue.
 	 */
-	exportTimeline: (format: string, fps: number | null, path: string | null) => typedError<string | null, AppError>(__TAURI_INVOKE("export_timeline", { format, fps, path })),
+	exportTimeline: (format: string, fps: number | null, path: string | null, preview: boolean) => typedError<TimelineExport_Serialize, AppError>(__TAURI_INVOKE("export_timeline", { format, fps, path, preview })),
 	/**
 	 *  Adds a timeline file's tracks and clips to the open project as one revision. `path: None` asks with an open
 	 *  dialog (`None` when cancelled).
@@ -568,6 +568,14 @@ export type ModelOption = {
 	label: string,
 };
 
+/**  Items of one kind a timeline file leaves out, and why. */
+export type OmittedItems = {
+	/**  What was left out, in plain words ("captions", "titles"). */
+	kind: string,
+	count: number,
+	reason: string,
+};
+
 /**  Paths routed to the running app (second launch, Open With, Dock/taskbar drop, window drop). */
 export type OpenPathsRequested = {
 	paths: string[],
@@ -682,6 +690,27 @@ export type RemoteOpened_Serialize = ProjectView_Serialize;
 
 export type SendResult = {
 	chatId: string,
+};
+
+/**  The written file (`None` when the dialog was cancelled or for a preview) and what it doesn't carry over. */
+export type TimelineExport = TimelineExport_Serialize | TimelineExport_Deserialize;
+
+/**  What a timeline file won't carry over: items left out, and properties of the written clips it doesn't keep. */
+export type TimelineExportReport = {
+	omitted: OmittedItems[],
+	notCarried: string[],
+};
+
+/**  The written file (`None` when the dialog was cancelled or for a preview) and what it doesn't carry over. */
+export type TimelineExport_Deserialize = {
+	path?: string | null,
+	report: TimelineExportReport,
+};
+
+/**  The written file (`None` when the dialog was cancelled or for a preview) and what it doesn't carry over. */
+export type TimelineExport_Serialize = {
+	path: string | null,
+	report: TimelineExportReport,
 };
 
 /**  The formats, for the UI: `id` is what the commands take. */

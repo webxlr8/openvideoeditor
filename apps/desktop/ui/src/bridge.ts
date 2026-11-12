@@ -1553,16 +1553,64 @@ function createMock(): {
           ["otio", "OpenTimelineIO"],
         ].map(([id, label]) => ({ id, label, extension: id })),
       ),
+    // A rough version of the core's report: item types timeline files can't hold, and what an EDL drops.
     exportTimeline: (
       format: string,
       fps: number | null,
       path: string | null,
+      preview: boolean,
     ) => {
-      track(`exportTimeline:${format}@${fps}`);
+      track(`exportTimeline${preview ? "Report" : ""}:${format}@${fps}`);
       if (!project) return fail("invalid_argument", "Open a project first.");
-      return ok<string | null>(
-        path ?? `/mock/exports/${project.name}.${format}`,
+      const omitted: { kind: string; count: number; reason: string }[] = [];
+      const omit = (kind: string, count: number, reason: string) => {
+        if (count) omitted.push({ kind, count, reason });
+      };
+      const items = project.items;
+      const kinds: [string, string, string][] = [
+        [
+          "caption",
+          "captions",
+          "timeline files have no caption track; captions stay in the project",
+        ],
+        [
+          "code",
+          "motion graphics",
+          "they are drawn by OpenVideoEditor and have no equivalent in other editors",
+        ],
+        [
+          "shader",
+          "shader layers",
+          "they are drawn by OpenVideoEditor and have no equivalent in other editors",
+        ],
+        [
+          "adjustment",
+          "adjustment layers",
+          "adjustment layers are not written to timeline files yet",
+        ],
+      ];
+      for (const [kind, label, reason] of kinds)
+        omit(label, items.filter((i) => i.kind === kind).length, reason);
+      omit(
+        "placeholders",
+        items.filter((i) => i.pending).length,
+        "they have no media yet",
       );
+      if (format === "edl")
+        omit(
+          "titles",
+          items.filter((i) => i.kind === "text").length,
+          "an EDL has no titles",
+        );
+      const notCarried = items.some((i) => i.transitionIn || i.transitionOut)
+        ? ["transitions"]
+        : [];
+      const report = { omitted, notCarried };
+      if (preview) return ok({ path: null, report });
+      return ok({
+        path: path ?? `/mock/exports/${project.name}.${format}`,
+        report,
+      });
     },
     // Like the real import: tracks named "Imported …" above the existing ones, one clip per imported track here.
     importTimeline: (path: string | null, fps: number | null) => {

@@ -88,6 +88,28 @@
 .xp-error {
   color: var(--danger);
 }
+.xp-report {
+  margin: 0 0 16px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-1);
+  user-select: text;
+}
+.xp-report h4 {
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+.xp-report ul {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.xp-report p {
+  margin: 8px 0 0;
+}
 .xp-open {
   height: 28px;
 }
