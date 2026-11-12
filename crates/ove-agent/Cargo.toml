@@ -10,6 +10,7 @@ publish.workspace = true
 [dependencies]
 ove-core = { path = "../ove-core" }
 ove-graphics = { path = "../ove-graphics" }
+ove-guard = { path = "../ove-guard" }
 ove-projection = { path = "../ove-projection" }
 ove-store = { path = "../ove-store" }
 serde = { version = "1", features = ["derive"] }

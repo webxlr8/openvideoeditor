@@ -1,6 +1,7 @@
-//! Provider API keys: in the OS credential store (macOS Keychain, Windows Credential Manager, Linux kernel keyring),
-//! never in project files or logs. Environment variables (`FAL_KEY`, `OPENAI_API_KEY`, `ELEVENLABS_API_KEY`) are used
-//! when nothing is stored.
+//! Provider API keys: in the OS credential store (macOS Keychain, Windows Credential Manager, Linux Secret Service
+//! with the kernel keyring as a cache), never in project files or logs. Environment variables (`FAL_KEY`,
+//! `OPENAI_API_KEY`, `ELEVENLABS_API_KEY`) are used when nothing is stored. Every key this module hands out or stores
+//! is registered with [`ove_guard::register_secret`], so log output never shows it.
 
 use std::collections::BTreeMap;
 use std::sync::Mutex;
@@ -44,7 +45,16 @@ pub fn validate(key: &str) -> Result<String, String> {
     if k.chars().any(char::is_whitespace) || k.len() < 16 {
         return Err("That doesn't look like an API key.".into());
     }
+    ove_guard::register_secret(k);
     Ok(k.to_string())
+}
+
+/// Registers a loaded key for log redaction and passes it on.
+fn loaded(found: Option<(String, KeySource)>) -> Option<(String, KeySource)> {
+    if let Some((k, _)) = &found {
+        ove_guard::register_secret(k);
+    }
+    found
 }
 
 fn env_key(p: Provider) -> Option<(String, KeySource)> {
@@ -60,10 +70,10 @@ pub struct OsKeyStore;
 
 impl KeyStore for OsKeyStore {
     fn get(&self, p: Provider) -> Option<(String, KeySource)> {
-        match keyring::Entry::new(SERVICE, &account(p)).ok().and_then(|e| e.get_password().ok()) {
+        loaded(match keyring::Entry::new(SERVICE, &account(p)).ok().and_then(|e| e.get_password().ok()) {
             Some(k) if !k.is_empty() => Some((k, KeySource::Keychain)),
             _ => env_key(p),
-        }
+        })
     }
 
     fn set(&self, p: Provider, key: &str) -> Result<(), String> {
@@ -87,7 +97,7 @@ pub struct MemoryKeyStore(Mutex<BTreeMap<&'static str, String>>);
 
 impl KeyStore for MemoryKeyStore {
     fn get(&self, p: Provider) -> Option<(String, KeySource)> {
-        self.0.lock().unwrap().get(p.id()).cloned().map(|k| (k, KeySource::Keychain)).or_else(|| env_key(p))
+        loaded(self.0.lock().unwrap().get(p.id()).cloned().map(|k| (k, KeySource::Keychain)).or_else(|| env_key(p)))
     }
     fn set(&self, p: Provider, key: &str) -> Result<(), String> {
         self.0.lock().unwrap().insert(p.id(), validate(key)?);

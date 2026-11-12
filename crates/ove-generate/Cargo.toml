@@ -10,6 +10,7 @@ publish.workspace = true
 [dependencies]
 getrandom = "0.3"
 ove-core = { path = "../ove-core" }
+ove-guard = { path = "../ove-guard" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
 thiserror = "2"

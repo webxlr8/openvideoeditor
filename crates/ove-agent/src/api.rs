@@ -201,6 +201,8 @@ impl Client {
     }
 
     pub fn with_base_url(api_key: impl Into<String>, base_url: impl Into<String>) -> Self {
+        let api_key = api_key.into();
+        ove_guard::register_secret(&api_key);
         let agent = ureq::AgentBuilder::new()
             .timeout_connect(Duration::from_secs(15))
             // SSE sends pings; a long silence means the connection is gone.
@@ -209,7 +211,7 @@ impl Client {
         Client {
             agent,
             base_url: base_url.into().trim_end_matches('/').to_string(),
-            api_key: api_key.into(),
+            api_key,
             backoff: vec![
                 Duration::from_secs(1),
                 Duration::from_secs(3),

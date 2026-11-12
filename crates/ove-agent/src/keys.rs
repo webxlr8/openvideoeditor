@@ -1,5 +1,7 @@
 //! The user's Anthropic API key: kept in the OS credential store (macOS Keychain, Windows Credential Manager, Linux
-//! kernel keyring), never in files or logs. `ANTHROPIC_API_KEY` in the environment is used when nothing is stored.
+//! Secret Service with the kernel keyring as a cache), never in files or logs. `ANTHROPIC_API_KEY` in the environment
+//! is used when nothing is stored. Every key this module hands out or stores is registered with
+//! [`ove_guard::register_secret`], so log output never shows it.
 
 use std::sync::Mutex;
 
@@ -26,7 +28,16 @@ pub fn validate(key: &str) -> Result<String, String> {
     if k.chars().any(char::is_whitespace) || k.len() < 20 {
         return Err("That doesn't look like an API key.".into());
     }
+    ove_guard::register_secret(k);
     Ok(k.to_string())
+}
+
+/// Registers a loaded key for log redaction and passes it on.
+fn loaded(found: Option<(String, KeySource)>) -> Option<(String, KeySource)> {
+    if let Some((k, _)) = &found {
+        ove_guard::register_secret(k);
+    }
+    found
 }
 
 const SERVICE: &str = "OpenVideoEditor";
@@ -46,10 +57,10 @@ fn env_key() -> Option<(String, KeySource)> {
 impl KeyStore for OsKeyStore {
     fn get(&self) -> Option<(String, KeySource)> {
         let stored = keyring::Entry::new(SERVICE, ACCOUNT).ok().and_then(|e| e.get_password().ok());
-        match stored {
+        loaded(match stored {
             Some(k) if !k.is_empty() => Some((k, KeySource::Keychain)),
             _ => env_key(),
-        }
+        })
     }
 
     fn set(&self, key: &str) -> Result<(), String> {
@@ -73,7 +84,7 @@ pub struct MemoryKeyStore(Mutex<Option<String>>);
 
 impl KeyStore for MemoryKeyStore {
     fn get(&self) -> Option<(String, KeySource)> {
-        self.0.lock().unwrap().clone().map(|k| (k, KeySource::Keychain))
+        loaded(self.0.lock().unwrap().clone().map(|k| (k, KeySource::Keychain)))
     }
     fn set(&self, key: &str) -> Result<(), String> {
         *self.0.lock().unwrap() = Some(validate(key)?);
@@ -99,6 +110,8 @@ mod tests {
         assert!(m.get().is_none());
         m.set("sk-ant-api03-abcdefghijklmnop").unwrap();
         assert_eq!(m.get().unwrap().0, "sk-ant-api03-abcdefghijklmnop");
+        // Loaded keys are registered for log redaction.
+        assert_eq!(ove_guard::redact("using sk-ant-api03-abcdefghijklmnop"), "using [redacted]");
         m.clear().unwrap();
         assert!(m.get().is_none());
     }

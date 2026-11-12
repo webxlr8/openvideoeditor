@@ -188,6 +188,7 @@ pub fn data_uri(path: &std::path::Path) -> Result<String> {
 
 /// Runs one request on its provider.
 pub fn run(model: &Model, req: &Request, aspect: &str, r: &mut Run) -> Result<Output> {
+    ove_guard::register_secret(r.key);
     match model.provider {
         Provider::Fal => fal::run(model, req, aspect, r),
         Provider::OpenAi => openai::run(model, req, aspect, r),

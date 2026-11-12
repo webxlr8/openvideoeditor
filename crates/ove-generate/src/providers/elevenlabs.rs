@@ -22,6 +22,7 @@ pub struct Voice {
 
 /// Voices in the account (premade, cloned, …), optionally filtered by `search`.
 pub fn voices(key: &str, search: Option<&str>) -> Result<Vec<Voice>> {
+    ove_guard::register_secret(key);
     let root = base("OVE_ELEVENLABS_URL", "https://api.elevenlabs.io");
     let mut req = agent().get(&format!("{root}/v2/voices")).set("xi-api-key", key).query("page_size", "100");
     if let Some(s) = search.filter(|s| !s.is_empty()) {
