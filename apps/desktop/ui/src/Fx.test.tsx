@@ -79,6 +79,13 @@ describe("effects, transitions, layouts and colour", () => {
     fireEvent.pointerUp(window);
     expect(await screen.findByTestId("shader-editor")).toBeTruthy();
     expect(screen.getByTestId("shader-intensity")).toBeTruthy();
+    // Subject masks don't exist yet: the picker says the regions fall back to the whole frame.
+    const region = screen.getByTestId<HTMLSelectElement>("shader-region");
+    expect([...region.options].map((o) => o.text)).toEqual([
+      "Whole frame",
+      "Subject (whole frame for now)",
+      "Background (whole frame for now)",
+    ]);
   });
 
   it("applies a directional transition with easing and duration", async () => {

@@ -52,6 +52,11 @@ describe("captions panel", () => {
     fireEvent.click(screen.getByTestId("caption-style-neo-brutal"));
     await waitFor(() => expect(window.__oveMock!.calls).toContain("applyCaptionStyle:neo-brutal:0"));
     expect(within(screen.getByTestId("caption-style-neo-brutal")).getByTestId("caption-sample-neo-brutal").textContent).toContain("video");
+    // Behind-subject styles say they draw in front until subject masks arrive; front styles don't.
+    expect(within(screen.getByTestId("caption-style-landmark")).getByTestId("cap-style-caveat").textContent).toBe(
+      "draws in front until subject masks arrive",
+    );
+    expect(within(screen.getByTestId("caption-style-classic")).queryByTestId("cap-style-caveat")).toBeNull();
   });
 
   it("edits a caption's words in the transcript", async () => {

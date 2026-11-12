@@ -5,7 +5,18 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CaptionJobProgress, CaptionModel, ItemView_Serialize } from "./bindings";
 import { commands, events } from "./bridge";
-import { CAPTION_LANGUAGES, CaptionSample, type CaptionSegment, DEFAULT_CAPTION_PRESET, animationLabel, retimeSegment, useCaptionPresets } from "./CaptionsPanelStyles";
+import {
+  BEHIND_SUBJECT_NOTE,
+  CAPTION_LANGUAGES,
+  CaptionSample,
+  type CaptionSegment,
+  DEFAULT_CAPTION_PRESET,
+  animationLabel,
+  behindSubject,
+  presetLabel,
+  retimeSegment,
+  useCaptionPresets,
+} from "./CaptionsPanelStyles";
 import { addItems, firstTrack, itemDetail, snapToFrame, updateItem } from "./edit";
 import type { PanelProps } from "./Panels";
 import { Icon } from "./icons";
@@ -128,7 +139,7 @@ export function CaptionsPanel({ project, playhead, selection, onEdit, onSelect, 
           <select data-testid="caption-new-style" value={style} onChange={(e) => setStyle(e.target.value)} disabled={busy}>
             {presets.map((p) => (
               <option key={p.id} value={p.id}>
-                {p.label}
+                {presetLabel(p)}
               </option>
             ))}
           </select>
@@ -188,7 +199,7 @@ export function CaptionsPanel({ project, playhead, selection, onEdit, onSelect, 
               className="preset-card"
               data-testid={`caption-style-${p.id}`}
               disabled={captions.length === 0}
-              title={`${p.label}: ${animationLabel(p.animation)}, ${p.position}`}
+              title={`${p.label}: ${animationLabel(p.animation)}, ${p.position}${behindSubject(p) ? ` — meant to sit behind the speaker; ${BEHIND_SUBJECT_NOTE}` : ""}`}
               onClick={() => {
                 setStyle(p.id);
                 onEdit(commands.applyCaptionStyle(p.id, styleTargets));
@@ -200,6 +211,11 @@ export function CaptionsPanel({ project, playhead, selection, onEdit, onSelect, 
               <span className="preset-label">
                 {p.label}
                 <em>{animationLabel(p.animation)}</em>
+                {behindSubject(p) && (
+                  <em className="cap-style-caveat" data-testid="cap-style-caveat">
+                    {BEHIND_SUBJECT_NOTE}
+                  </em>
+                )}
               </span>
             </button>
           ))}

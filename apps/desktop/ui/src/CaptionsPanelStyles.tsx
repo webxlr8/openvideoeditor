@@ -76,6 +76,14 @@ const ANIMATION_LABEL: Record<string, string> = {
 
 export const animationLabel = (id: string) => ANIMATION_LABEL[id] ?? id;
 
+/** Behind-subject styles need subject masks, which the renderer doesn't make yet: they draw in front of everything. */
+export const BEHIND_SUBJECT_NOTE = "draws in front until subject masks arrive";
+
+export const behindSubject = (p: CaptionPreset) => p.composition === "behind-subject";
+
+/** A style's name for pickers, with the behind-subject caveat when it applies. */
+export const presetLabel = (p: CaptionPreset) => (behindSubject(p) ? `${p.label} (${BEHIND_SUBJECT_NOTE})` : p.label);
+
 const FAMILY: Record<string, string> = {
   serif: "Georgia, 'Times New Roman', serif",
   script: "'Brush Script MT', 'Segoe Script', cursive",

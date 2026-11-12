@@ -5,10 +5,13 @@ import { useEffect, useState } from "react";
 import type { ItemView_Serialize, ProjectView_Serialize } from "./bindings";
 import { commands } from "./bridge";
 import {
+  BEHIND_SUBJECT_NOTE,
   CaptionSample,
   type CaptionSegment,
   DEFAULT_CAPTION_PRESET,
   animationLabel,
+  behindSubject,
+  presetLabel,
   retimeSegment,
   useCaptionPresets,
 } from "./CaptionsPanelStyles";
@@ -1118,7 +1121,7 @@ function CaptionEditor({
           >
             {presets.map((p) => (
               <option key={p.id} value={p.id}>
-                {p.label} — {animationLabel(p.animation)}
+                {presetLabel(p)} — {animationLabel(p.animation)}
               </option>
             ))}
           </select>
@@ -1127,6 +1130,12 @@ function CaptionEditor({
           <div className="preset-preview insp-caption-preview">
             <CaptionSample preset={preset} />
           </div>
+        )}
+        {preset && behindSubject(preset) && (
+          <p className="muted small" data-testid="insp-caption-caveat">
+            This style is meant to sit behind the speaker; it{" "}
+            {BEHIND_SUBJECT_NOTE}.
+          </p>
         )}
         <ColorField
           label="Text"

@@ -195,7 +195,12 @@ export function EffectStackEditor({ catalog, fields, set }: { catalog: FxCatalog
 // ---------------------------------------------------------------------------------------------------------------
 // Shader items
 
-const REGIONS = ["all", "subject", "background"];
+/** Subject masks don't exist yet: the subject and background regions fall back to the whole frame. */
+const REGIONS = [
+  { id: "all", label: "Whole frame" },
+  { id: "subject", label: "Subject (whole frame for now)" },
+  { id: "background", label: "Background (whole frame for now)" },
+];
 
 export function ShaderEditor({ catalog, fields, set }: { catalog: FxCatalog; fields: Fields; set: (f: Fields, summary?: string) => void }) {
   const comp = obj(fields.shaderComposition);
@@ -219,15 +224,24 @@ export function ShaderEditor({ catalog, fields, set }: { catalog: FxCatalog; fie
       <Slider label="Fade out" value={num(comp.fadeOut, 0)} min={0} max={5} step={0.1} format={(v) => `${v.toFixed(1)}s`} onCommit={(v) => put({ fadeOut: v }, "shader fade out")} />
       <label className="select-row">
         <span>Region</span>
-        <select value={str(comp.region, "all")} onChange={(e) => put({ region: e.target.value }, "shader region")}>
+        <select
+          value={str(comp.region, "all")}
+          data-testid="shader-region"
+          title="Subject and background need subject detection, which isn't available yet; until then they apply to the whole frame."
+          onChange={(e) => put({ region: e.target.value }, "shader region")}
+        >
           {REGIONS.map((r) => (
-            <option key={r} value={r}>
-              {r}
+            <option key={r.id} value={r.id}>
+              {r.label}
             </option>
           ))}
         </select>
       </label>
-      {typeof comp.region === "string" && comp.region !== "all" && <p className="muted small">Subject and background regions apply to the whole frame until subject detection is available.</p>}
+      {typeof comp.region === "string" && comp.region !== "all" && (
+        <p className="muted small" data-testid="shader-region-note">
+          Subject and background regions apply to the whole frame until subject detection is available.
+        </p>
+      )}
       {spec?.params.map((p) => (
         <ParamEditor key={p.name} spec={p} values={params} testPrefix="shader" onCommit={(name, v) => put({ params: { ...params, [name]: v } }, `shader ${label(name).toLowerCase()}`)} />
       ))}
