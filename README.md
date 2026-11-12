@@ -6,7 +6,8 @@ v1 rebuilds a proven reference design feature for feature; later versions add pr
 ## Using the app
 
 Install: `tools/package.sh` builds an unsigned installer for the machine it runs on (macOS `.dmg`, Windows `.msi` /
-setup `.exe`, Linux `.deb`). For development: `cd apps/desktop && pnpm install && pnpm tauri dev`.
+setup `.exe`, Linux `.deb`); on Linux, `tools/package.sh --target windows-x64-gnu` cross-builds the Windows setup
+`.exe` with MinGW-w64 (see `tools/ffmpeg/README.md`). For development: `cd apps/desktop && pnpm install && pnpm tauri dev`.
 
 - **Home / Projects**: your projects with thumbnails (library: `~/Movies/OpenVideoEditor` on macOS,
   `%USERPROFILE%\Videos\OpenVideoEditor` on Windows, `OVE_LIBRARY` to override). Start a blank project, drop footage,
