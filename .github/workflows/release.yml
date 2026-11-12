@@ -1,8 +1,15 @@
 name: Release build
 
-# Unsigned installers for testers (signing/notarisation arrive with change 16). Run manually.
+# Unsigned installers for testers (signing/notarisation arrive with change 16).
+# Run manually for a test build, or push a tag `v<version>` (e.g. v0.1.0-alpha.1) to also publish a draft
+# pre-release whose notes come from docs/releases/<version>.md.
 on:
   workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
 
 jobs:
   package:
@@ -45,7 +52,32 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: installers-${{ matrix.os }}
+          if-no-files-found: error
           path: |
             target/release/bundle/dmg/*.dmg
             target/release/bundle/msi/*.msi
             target/release/bundle/nsis/*.exe
+
+  publish:
+    # Only for tags: a draft pre-release with both platforms' installers and checksums. A person reviews and publishes it.
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: package
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: draft pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          notes="docs/releases/${TAG#v}.md"
+          test -f "$notes" || { echo "missing release notes $notes"; exit 1; }
+          (cd dist && sha256sum * > SHA256SUMS.txt)
+          gh release create "$TAG" dist/* --draft --prerelease --verify-tag \
+            --title "OpenVideoEditor ${TAG#v}" --notes-file "$notes"
