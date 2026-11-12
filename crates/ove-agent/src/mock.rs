@@ -15,9 +15,11 @@ pub enum Reply {
     Stream { chunks: Vec<String>, delay: Duration },
     /// An HTTP error status with a JSON body.
     Status(u16, String),
+    /// A 200 response with a JSON body (non-streaming endpoints such as token counting).
+    Json(String),
 }
 
-type Handler = dyn Fn(usize, &Value) -> Reply + Send + Sync;
+type Handler = dyn Fn(usize, &str, &Value) -> Reply + Send + Sync;
 
 /// A running mock server. Requests it received are kept for inspection.
 pub struct MockServer {
@@ -31,6 +33,19 @@ impl MockServer {
     }
 
     pub fn start_on(addr: &str, handler: impl Fn(usize, &Value) -> Reply + Send + Sync + 'static) -> MockServer {
+        Self::start_routed_on(addr, move |n, _path, req| handler(n, req))
+    }
+
+    /// Like [`MockServer::start`], with the request path (`/v1/messages`, `/v1/messages/count_tokens`, …) passed
+    /// to the handler.
+    pub fn start_routed(handler: impl Fn(usize, &str, &Value) -> Reply + Send + Sync + 'static) -> MockServer {
+        Self::start_routed_on("127.0.0.1:0", handler)
+    }
+
+    pub fn start_routed_on(
+        addr: &str,
+        handler: impl Fn(usize, &str, &Value) -> Reply + Send + Sync + 'static,
+    ) -> MockServer {
         let listener = TcpListener::bind(addr).expect("bind mock server");
         let url = format!("http://{}", listener.local_addr().unwrap());
         let requests = Arc::new(Mutex::new(Vec::new()));
@@ -51,12 +66,18 @@ impl MockServer {
 fn serve(mut stream: TcpStream, reqs: &Mutex<Vec<Value>>, handler: &Handler) -> std::io::Result<()> {
     let mut reader = BufReader::new(stream.try_clone()?);
     let mut len = 0usize;
+    let mut path = String::new();
     loop {
         let mut line = String::new();
         if reader.read_line(&mut line)? == 0 {
             return Ok(());
         }
         let l = line.trim_end();
+        if path.is_empty() {
+            // Request line: `POST /v1/messages HTTP/1.1`.
+            path = l.split_whitespace().nth(1).unwrap_or("/").to_string();
+            continue;
+        }
         if l.is_empty() {
             break;
         }
@@ -72,11 +93,18 @@ fn serve(mut stream: TcpStream, reqs: &Mutex<Vec<Value>>, handler: &Handler) -> 
         r.push(req.clone());
         r.len() - 1
     };
-    match handler(n, &req) {
+    match handler(n, &path, &req) {
         Reply::Status(code, body) => {
             write!(
                 stream,
                 "HTTP/1.1 {code} Error\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            )?;
+        }
+        Reply::Json(body) => {
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
                 body.len()
             )?;
         }
@@ -138,6 +166,11 @@ fn last_tool_result(req: &Value) -> Option<(String, String)> {
     let blocks = last["content"].as_array()?;
     let b = blocks.iter().rev().find(|b| b["type"] == "tool_result")?;
     Some((b["tool_use_id"].as_str()?.to_string(), b["content"].as_str().unwrap_or_default().to_string()))
+}
+
+/// Answers a token-counting request (the key check) with a fixed count; `None` for other paths.
+pub fn count_tokens_reply(path: &str) -> Option<Reply> {
+    path.ends_with("/count_tokens").then(|| Reply::Json(json!({"input_tokens": 8}).to_string()))
 }
 
 /// A deterministic "assistant" for demos and tests: reads the timeline, adds a title on the first track, verifies,

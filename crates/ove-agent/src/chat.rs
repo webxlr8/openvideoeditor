@@ -29,8 +29,64 @@ pub enum Record {
     },
     #[serde(rename_all = "camelCase")]
     Question { id: String, questions: Vec<QuestionItem> },
+    /// The end of a turn: its cost and token usage (`thread_usage` is the turn's own), and the note it stopped
+    /// with (a limit that was reached).
     #[serde(rename_all = "camelCase")]
-    Result { is_error: bool, duration_ms: u64, cost_usd: f64, text: String, thread_usage: Usage },
+    Result {
+        is_error: bool,
+        duration_ms: u64,
+        cost_usd: f64,
+        text: String,
+        thread_usage: Usage,
+        /// When the turn ended, ms since the epoch (0 in logs written before it was recorded).
+        #[serde(default)]
+        time: i64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        note: Option<String>,
+    },
+    /// Project revisions the turn that began with user record `turn` made (one record per tool call that changed
+    /// the project).
+    #[serde(rename_all = "camelCase")]
+    Revisions { turn: String, revs: Vec<i64> },
+    /// "Undo this turn" reverted the revisions of `turn` as project revision `rev`.
+    #[serde(rename_all = "camelCase")]
+    TurnUndone { turn: String, rev: i64 },
+    /// The conversation before the `first_kept`-th user record (0-based) is sent as this summary instead of in
+    /// full. The records stay in the log, so the chat still shows everything.
+    #[serde(rename_all = "camelCase")]
+    Summary { first_kept: usize, text: String, time: i64 },
+}
+
+/// Tokens and estimated cost of some turns.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Spend {
+    pub usage: Usage,
+    pub cost_usd: f64,
+    pub turns: u64,
+}
+
+impl Spend {
+    pub fn add(&mut self, o: &Spend) {
+        self.usage.add(&o.usage);
+        self.cost_usd += o.cost_usd;
+        self.turns += o.turns;
+    }
+}
+
+/// The spend of the turns in `records` that ended at or after `since_ms`.
+pub fn spend_of(records: &[Record], since_ms: i64) -> Spend {
+    let mut s = Spend::default();
+    for r in records {
+        if let Record::Result { cost_usd, thread_usage, time, .. } = r
+            && *time >= since_ms
+        {
+            s.usage.add(thread_usage);
+            s.cost_usd += cost_usd;
+            s.turns += 1;
+        }
+    }
+    s
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -134,6 +190,20 @@ impl ChatStore {
         f.write_all(&line)
     }
 
+    /// The spend of chat `id` since `since_ms` (0: all of it).
+    pub fn spend(&self, id: &str, since_ms: i64) -> Spend {
+        spend_of(&self.records(id), since_ms)
+    }
+
+    /// The spend of every chat of the project since `since_ms`.
+    pub fn project_spend(&self, since_ms: i64) -> Spend {
+        let mut s = Spend::default();
+        for c in self.list() {
+            s.add(&self.spend(&c.id, since_ms));
+        }
+        s
+    }
+
     /// Records of a chat; a torn last line (crash mid-write) is skipped. An invalid id has none.
     pub fn records(&self, id: &str) -> Vec<Record> {
         let Ok(path) = self.log_path(id) else { return Vec::new() };
@@ -141,9 +211,124 @@ impl ChatStore {
     }
 }
 
+/// How a summary of earlier turns opens when it is sent.
+pub const SUMMARY_PREFIX: &str =
+    "[Summary of the earlier part of this conversation, written to keep it within the model's limits]\n";
+
+/// The latest summary in `records` and the index of the first record sent after it (the user record it keeps
+/// from). `(None, 0)` when there is none.
+pub fn summary_cut(records: &[Record]) -> (Option<&str>, usize) {
+    let Some((text, first_kept)) = records.iter().rev().find_map(|r| match r {
+        Record::Summary { text, first_kept, .. } => Some((text.as_str(), *first_kept)),
+        _ => None,
+    }) else {
+        return (None, 0);
+    };
+    match user_indices(records).get(first_kept) {
+        Some(i) => (Some(text), *i),
+        None => (None, 0),
+    }
+}
+
+/// Indices of the user records (the start of each turn).
+pub fn user_indices(records: &[Record]) -> Vec<usize> {
+    records.iter().enumerate().filter(|(_, r)| matches!(r, Record::User { .. })).map(|(i, _)| i).collect()
+}
+
+/// Rough input-token estimate of some JSON (about four bytes per token).
+pub fn estimate_tokens(v: &Value) -> u64 {
+    (v.to_string().len() as u64).div_ceil(4)
+}
+
+fn clip(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        return s.to_string();
+    }
+    let mut out: String = s.chars().take(max).collect();
+    out.push_str(" […]");
+    out
+}
+
+/// A plain-text transcript of records for summarising: messages in full (up to a length), tool calls and results
+/// shortened, thinking left out. When longer than `max_chars`, the oldest part is dropped.
+pub fn transcript(records: &[Record], max_chars: usize) -> String {
+    let mut lines: Vec<String> = Vec::new();
+    for r in records {
+        match r {
+            Record::User { text, .. } => lines.push(format!("User: {}", clip(text, 4000))),
+            Record::Assistant { blocks, .. } => {
+                for b in blocks {
+                    match b["type"].as_str() {
+                        Some("text") => {
+                            let t = b["text"].as_str().unwrap_or_default();
+                            if !t.trim().is_empty() {
+                                lines.push(format!("Assistant: {}", clip(t, 4000)));
+                            }
+                        }
+                        Some("tool_use") => lines.push(format!(
+                            "Assistant used {}: {}",
+                            b["name"].as_str().unwrap_or("a tool"),
+                            clip(&b["input"].to_string(), 300)
+                        )),
+                        _ => {}
+                    }
+                }
+            }
+            Record::ToolResult { text, is_error, .. } => {
+                lines.push(format!("{}: {}", if *is_error { "Tool error" } else { "Tool result" }, clip(text, 300)))
+            }
+            Record::Summary { text, .. } => lines.push(format!("Earlier summary: {text}")),
+            _ => {}
+        }
+    }
+    let mut out = lines.join("\n");
+    if out.len() > max_chars {
+        let mut cut = out.len() - max_chars;
+        while !out.is_char_boundary(cut) {
+            cut += 1;
+        }
+        out = format!("[…the oldest part is left out…]\n{}", &out[cut..]);
+    }
+    out
+}
+
+/// Checks that `msgs` is a valid Messages API history: it starts with the user, roles alternate, every tool call is
+/// answered in the next message and every tool result answers a call in the message before it.
+pub fn validate_messages(msgs: &[Value]) -> Result<(), String> {
+    let mut expected: Vec<String> = Vec::new();
+    for (i, m) in msgs.iter().enumerate() {
+        let role = m["role"].as_str().unwrap_or_default();
+        let want = if i % 2 == 0 { "user" } else { "assistant" };
+        if role != want {
+            return Err(format!("message {i} is from {role:?}, expected {want}"));
+        }
+        let blocks = m["content"].as_array().ok_or(format!("message {i} has no content blocks"))?;
+        let ids = |kind: &str, key: &str| -> Vec<String> {
+            blocks.iter().filter(|b| b["type"] == kind).filter_map(|b| b[key].as_str().map(str::to_string)).collect()
+        };
+        if role == "user" {
+            let mut answered = ids("tool_result", "tool_use_id");
+            answered.sort();
+            let mut want = std::mem::take(&mut expected);
+            want.sort();
+            if answered != want {
+                return Err(format!("message {i} answers tool calls {answered:?}, expected {want:?}"));
+            }
+        } else {
+            expected = ids("tool_use", "id");
+        }
+    }
+    if !expected.is_empty() {
+        return Err(format!("tool calls {expected:?} are never answered"));
+    }
+    Ok(())
+}
+
 /// Rebuilds API `messages` from records. Tool results are grouped into one user message, consecutive user content
-/// is merged, and tool calls left unanswered (a stopped turn) get an error result so the history stays valid.
+/// is merged, and tool calls left unanswered (a stopped turn) get an error result so the history stays valid. When
+/// the log holds a summary, the turns it covers are sent as that summary.
 pub fn messages(records: &[Record]) -> Vec<Value> {
+    let (summary, start) = summary_cut(records);
     let mut msgs: Vec<Value> = Vec::new();
     let mut open_calls: Vec<String> = Vec::new();
     fn push_user(msgs: &mut Vec<Value>, block: Value) {
@@ -163,7 +348,10 @@ pub fn messages(records: &[Record]) -> Vec<Value> {
             );
         }
     };
-    for r in records {
+    if let Some(text) = summary {
+        push_user(&mut msgs, json!({"type": "text", "text": format!("{SUMMARY_PREFIX}{text}")}));
+    }
+    for r in &records[start..] {
         match r {
             Record::User { text, .. } => {
                 close_open(&mut msgs, &mut open_calls);
@@ -249,6 +437,93 @@ mod tests {
         std::fs::write(bundle.join("secret.jsonl"), "{\"type\":\"user\",\"id\":\"u\",\"text\":\"s\",\"time\":0}\n")
             .unwrap();
         assert!(store.records("../../secret").is_empty());
+    }
+
+    #[test]
+    fn a_summary_replaces_the_turns_before_the_one_it_keeps() {
+        let user = |i: i64| Record::User { id: format!("u{i}"), text: format!("turn {i}"), time: i };
+        let call = |id: &str| Record::Assistant {
+            message_id: "m".into(),
+            model: "x".into(),
+            blocks: vec![json!({"type": "tool_use", "id": id, "name": "print_timeline", "input": {}})],
+        };
+        let result = |id: &str| Record::ToolResult { tool_use_id: id.into(), text: "t".into(), is_error: false };
+        let answer = Record::Assistant {
+            message_id: "m".into(),
+            model: "x".into(),
+            blocks: vec![json!({"type": "text", "text": "done"})],
+        };
+        let mut recs = vec![
+            user(0),
+            call("a"),
+            result("a"),
+            answer.clone(),
+            user(1),
+            call("b"),
+            result("b"),
+            answer.clone(),
+            user(2),
+        ];
+        let full = messages(&recs);
+        validate_messages(&full).unwrap();
+        assert_eq!(full.len(), 9);
+        recs.push(Record::Summary { first_kept: 2, text: "Earlier: two turns.".into(), time: 5 });
+        let m = messages(&recs);
+        validate_messages(&m).unwrap();
+        assert_eq!(m.len(), 1);
+        let blocks = m[0]["content"].as_array().unwrap();
+        assert!(blocks[0]["text"].as_str().unwrap().starts_with(SUMMARY_PREFIX));
+        assert_eq!(blocks[1]["text"], "turn 2");
+        // A summary pointing past the end is ignored.
+        recs.push(Record::Summary { first_kept: 9, text: "bad".into(), time: 6 });
+        assert_eq!(messages(&recs).len(), 9);
+        // Transcripts shorten tool output and keep the newest part.
+        let t = transcript(&recs[..4], 10_000);
+        assert!(t.contains("User: turn 0") && t.contains("Assistant used print_timeline"));
+        assert!(transcript(&recs, 40).starts_with("[…the oldest part is left out…]"));
+    }
+
+    #[test]
+    fn validation_catches_split_tool_pairs() {
+        let call = json!({"role": "assistant", "content": [{"type": "tool_use", "id": "a", "name": "x", "input": {}}]});
+        let user = json!({"role": "user", "content": [{"type": "text", "text": "hi"}]});
+        assert!(validate_messages(std::slice::from_ref(&call)).is_err(), "must start with the user");
+        assert!(validate_messages(&[user.clone(), call.clone()]).is_err(), "unanswered call");
+        assert!(validate_messages(&[user.clone(), call, user]).is_err(), "answer missing");
+    }
+
+    #[test]
+    fn spend_adds_up_results_since_a_time() {
+        let d = tempfile::tempdir().unwrap();
+        let store = ChatStore::for_bundle(d.path());
+        let result = |cost: f64, time: i64| Record::Result {
+            is_error: false,
+            duration_ms: 1,
+            cost_usd: cost,
+            text: String::new(),
+            thread_usage: Usage { input_tokens: 10, output_tokens: 2, ..Default::default() },
+            time,
+            note: None,
+        };
+        let a = store.create("a", "m").unwrap();
+        store.append(&a.id, &result(0.5, 100)).unwrap();
+        store.append(&a.id, &result(0.25, 300)).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        let b = store.create("b", "m").unwrap();
+        store.append(&b.id, &result(1.0, 400)).unwrap();
+        assert_eq!(store.spend(&a.id, 0).turns, 2);
+        assert!((store.spend(&a.id, 0).cost_usd - 0.75).abs() < 1e-12);
+        let p = store.project_spend(200);
+        assert_eq!(p.turns, 2);
+        assert!((p.cost_usd - 1.25).abs() < 1e-12);
+        assert_eq!(p.usage.input_tokens, 20);
+        // Results logged before times were recorded count in all-time totals only.
+        let old: Record = serde_json::from_str(
+            r#"{"type":"result","isError":false,"durationMs":1,"costUsd":2.0,"text":"","threadUsage":{"inputTokens":1,"outputTokens":1,"cacheReadInputTokens":0,"cacheCreationInputTokens":0}}"#,
+        )
+        .unwrap();
+        assert_eq!(spend_of(std::slice::from_ref(&old), 1).turns, 0);
+        assert_eq!(spend_of(&[old], 0).turns, 1);
     }
 
     #[test]
