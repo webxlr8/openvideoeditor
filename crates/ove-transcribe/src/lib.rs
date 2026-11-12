@@ -9,5 +9,8 @@ pub mod segment;
 
 pub use error::{Result, TranscribeError};
 pub use models::Model;
-pub use recognize::{Options, Transcript, Word, load_audio, transcribe};
+pub use recognize::{
+    AudioWindow, AudioWindows, OVERLAP_SECONDS, Options, Transcript, WINDOW_SECONDS, Word, audio_windows, load_audio,
+    transcribe, transcribe_file,
+};
 pub use segment::{Segment, SegmentOptions, segment};
