@@ -102,6 +102,7 @@ fn fal_key_stays_on_fal_hosts() {
         std::env::set_var("OVE_FAL_QUEUE_URL", &base);
         std::env::set_var("OVE_GENERATE_POLL_MS", "10");
     }
+    let out_dir = tempfile::tempdir().unwrap();
     // Each case is its own endpoint (`fal:fal-ai/x/<case>` posts to /fal-ai/x/<case>).
     let case = |endpoint: &str, cancel_after: Option<usize>| {
         let model = ove_generate::catalog::find(Some(&format!("fal:fal-ai/x/{endpoint}")), Kind::Image).unwrap();
@@ -112,28 +113,29 @@ fn fal_key_stays_on_fal_hosts() {
             cancel_after.is_some_and(|n| polls.get() > n)
         };
         let mut progress = |_: Option<f64>, _: Option<&str>| {};
-        fal::run(&model, &req, "16:9", &mut Run { key: KEY, cancelled: &cancelled, progress: &mut progress })
+        let mut run = Run { key: KEY, cancelled: &cancelled, progress: &mut progress, out_dir: out_dir.path() };
+        fal::run(&model, &req, "16:9", &mut run)
     };
     let evil_got_key = || evil_seen.lock().unwrap().iter().any(|(_, _, h)| h.values().any(|v| v.contains(KEY)));
 
     // A status or result URL on another host: refused before anything is sent there.
     for (endpoint, what) in [("spoof-status", "status"), ("spoof-response", "result")] {
-        let e = case(endpoint, None).err().expect("refused");
+        let e = case(endpoint, None).expect_err("refused");
         assert_eq!(e.code, "provider.failed");
         assert!(e.message.contains(what) && e.message.contains("not to fal.ai"), "{}", e.message);
     }
-    let e = case("https-lookalike", None).err().expect("refused");
+    let e = case("https-lookalike", None).expect_err("refused");
     assert!(e.message.contains("queue.fal.run.evil.example"), "{}", e.message);
     assert!(evil_seen.lock().unwrap().is_empty(), "nothing reaches the other host");
 
     // A cancel URL on another host is not called (the key stays home); the run still stops.
-    let e = case("spoof-cancel", Some(2)).err().expect("cancelled");
+    let e = case("spoof-cancel", Some(2)).expect_err("cancelled");
     assert_eq!(e.code, "cancelled");
     assert!(evil_seen.lock().unwrap().is_empty(), "the spoofed cancel URL was not called");
 
     // The output is downloaded from wherever it is, without the key.
     let out = case("ok", None).expect("completes");
-    assert_eq!(out.bytes.len(), r#"{"status":"COMPLETED"}"#.len());
+    assert_eq!(out.data.to_vec().unwrap(), br#"{"status":"COMPLETED"}"#);
     assert!(evil_seen.lock().unwrap().iter().any(|(m, p, _)| m == "GET" && p == "/files/out.png"));
     assert!(!evil_got_key(), "the download carried no key");
     let submit = seen.lock().unwrap().iter().find(|s| s.0 == "POST").cloned().unwrap();
@@ -142,7 +144,7 @@ fn fal_key_stays_on_fal_hosts() {
     // A request that never leaves the queue times out and is cancelled at fal.
     unsafe { std::env::set_var("OVE_GENERATE_TIMEOUT_S", "0.2") };
     let started = std::time::Instant::now();
-    let e = case("stuck", None).err().expect("times out");
+    let e = case("stuck", None).expect_err("times out");
     unsafe { std::env::remove_var("OVE_GENERATE_TIMEOUT_S") };
     assert_eq!(e.code, "provider.timeout");
     assert!(started.elapsed() < std::time::Duration::from_secs(5));
@@ -150,6 +152,56 @@ fn fal_key_stays_on_fal_hosts() {
         && p == "/fal-ai/x/requests/r1/cancel"
         && h.get("authorization").is_some_and(|a| a.contains(KEY))));
     assert!(!evil_got_key());
+}
+
+/// Serves `len` bytes once, with or without a Content-Length header.
+fn raw_body_server(len: usize, with_length: bool) -> String {
+    let l = TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}/out.mp4", l.local_addr().unwrap());
+    std::thread::spawn(move || {
+        let (mut c, _) = l.accept().unwrap();
+        let mut r = BufReader::new(c.try_clone().unwrap());
+        loop {
+            let mut h = String::new();
+            if r.read_line(&mut h).unwrap_or(0) == 0 || h.trim().is_empty() {
+                break;
+            }
+        }
+        let head = if with_length {
+            format!("HTTP/1.1 200 OK\r\nContent-Type: video/mp4\r\nContent-Length: {len}\r\nConnection: close\r\n\r\n")
+        } else {
+            "HTTP/1.1 200 OK\r\nContent-Type: video/mp4\r\nConnection: close\r\n\r\n".to_string()
+        };
+        let _ = c.write_all(head.as_bytes());
+        let _ = c.write_all(&vec![7u8; len]);
+    });
+    url
+}
+
+#[test]
+fn downloads_stream_to_disk_with_a_size_cap() {
+    use ove_generate::providers::{Data, download_to};
+    let dir = tempfile::tempdir().unwrap();
+    let entries = || std::fs::read_dir(dir.path()).unwrap().count();
+
+    // Within the cap: a temporary file in the destination folder, saved by renaming.
+    let r = ureq::get(&raw_body_server(10_000, true)).call().unwrap();
+    let data = download_to(r, dir.path(), 20_000).unwrap();
+    let Data::File(tmp) = &data else { panic!("a download is a file") };
+    assert_eq!(tmp.path().parent(), Some(dir.path()));
+    assert_eq!(data.len(), 10_000);
+    let dest = dir.path().join("g_1.mp4");
+    data.save(&dest).unwrap();
+    assert_eq!(std::fs::read(&dest).unwrap().len(), 10_000);
+    assert_eq!(entries(), 1, "only the saved file is left");
+
+    // Over the cap, announced by Content-Length or found while streaming: refused, nothing left behind.
+    for with_length in [true, false] {
+        let r = ureq::get(&raw_body_server(30_000, with_length)).call().unwrap();
+        let e = download_to(r, dir.path(), 20_000).unwrap_err();
+        assert_eq!(e.code, "provider.tooLarge", "{with_length}");
+        assert_eq!(entries(), 1, "the partial download was removed ({with_length})");
+    }
 }
 
 #[test]

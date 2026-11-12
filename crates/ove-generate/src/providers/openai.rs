@@ -3,7 +3,7 @@
 
 use serde_json::{Value, json};
 
-use super::{GenError, Output, Result, Run, agent, b64_decode, base, http_error};
+use super::{Data, GenError, Output, Result, Run, agent, b64_decode, base, http_error};
 use crate::catalog::{Kind, Model};
 use crate::job::Request;
 
@@ -36,7 +36,7 @@ pub fn run(model: &Model, req: &Request, aspect: &str, r: &mut Run) -> Result<Ou
         .and_then(Value::as_str)
         .ok_or_else(|| GenError::new("provider.failed", "OpenAI: no image in the reply"))?;
     Ok(Output {
-        bytes: b64_decode(b64)?,
+        data: Data::Bytes(b64_decode(b64)?),
         ext: "png".into(),
         details: json!({"size": size(aspect), "revisedPrompt": v.pointer("/data/0/revised_prompt")}),
     })

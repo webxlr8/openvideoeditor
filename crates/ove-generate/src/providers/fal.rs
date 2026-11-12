@@ -187,11 +187,11 @@ pub fn run(model: &Model, req: &Request, aspect: &str, r: &mut Run) -> Result<Ou
         .map_err(|e| GenError::new("provider.failed", format!("fal.ai: {e}")))?;
     let url = output_url(&result)
         .ok_or_else(|| GenError::new("provider.failed", format!("fal.ai: no output in {result}")))?;
-    let (bytes, mime) = fetch(url)?;
+    let (data, mime) = fetch(url, r.out_dir)?;
     let fallback = if model.kind == Kind::Video { "mp4" } else { "png" };
     Ok(Output {
         ext: ext_for(&mime, url, fallback),
-        bytes,
+        data,
         details: json!({"endpoint": endpoint, "requestId": request_id, "seed": result.get("seed")}),
     })
 }

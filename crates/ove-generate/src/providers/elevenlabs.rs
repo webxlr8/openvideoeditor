@@ -4,11 +4,13 @@
 use serde::Serialize;
 use serde_json::{Value, json};
 
-use super::{GenError, Output, Result, Run, agent, base, http_error, read_bytes};
+use super::{GenError, Output, Result, Run, agent, base, download_to, http_error};
 use crate::catalog::{Kind, Model};
 use crate::job::Request;
 
 const FORMAT: &str = "mp3_44100_128";
+/// Largest audio accepted (10 minutes of 128 kbit/s MP3 is about 10 MB).
+const MAX_AUDIO: u64 = 512 << 20;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -112,12 +114,12 @@ pub fn run(model: &Model, req: &Request, r: &mut Run) -> Result<Output> {
         .query("output_format", FORMAT)
         .send_json(body)
         .map_err(|e| http_error("ElevenLabs", e))?;
-    let bytes = read_bytes(resp, 512 << 20)?;
+    let data = download_to(resp, r.out_dir, MAX_AUDIO)?;
     if (r.cancelled)() {
         return Err(GenError::new("cancelled", "cancelled"));
     }
-    if bytes.len() < 64 {
+    if data.len() < 64 {
         return Err(GenError::new("provider.failed", "ElevenLabs returned no audio"));
     }
-    Ok(Output { bytes, ext: "mp3".into(), details })
+    Ok(Output { data, ext: "mp3".into(), details })
 }
