@@ -40,8 +40,9 @@ pub struct DecodeWorker {
 }
 
 impl DecodeWorker {
-    /// Start decoding from the decoder's current position with a queue of `capacity` frames.
-    pub fn spawn(decoder: Box<dyn VideoDecoder>, capacity: usize) -> DecodeWorker {
+    /// Start decoding from the decoder's current position with a queue of `capacity` frames. Fails only when the
+    /// system cannot start another thread.
+    pub fn spawn(decoder: Box<dyn VideoDecoder>, capacity: usize) -> Result<DecodeWorker, MediaError> {
         let (cmd_tx, cmd_rx) = mpsc::channel();
         let (ev_tx, ev_rx) = mpsc::sync_channel(capacity.max(1));
         let path = Arc::new(Mutex::new(decoder.decode_path()));
@@ -49,8 +50,8 @@ impl DecodeWorker {
         let handle = std::thread::Builder::new()
             .name("ove-decode".into())
             .spawn(move || run(decoder, cmd_rx, ev_tx, path2))
-            .expect("spawn decode thread");
-        DecodeWorker { cmd: cmd_tx, events: ev_rx, generation: 0, path, handle: Some(handle) }
+            .map_err(|e| MediaError::Decode(format!("cannot start the decode thread: {e}")))?;
+        Ok(DecodeWorker { cmd: cmd_tx, events: ev_rx, generation: 0, path, handle: Some(handle) })
     }
 
     /// Flush queued frames and reposition; the next frame is the one whose interval contains `t_us`.

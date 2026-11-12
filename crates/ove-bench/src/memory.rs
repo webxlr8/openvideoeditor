@@ -17,7 +17,8 @@ pub fn peak_bytes() -> u64 {
 
 #[cfg(all(unix, not(target_os = "linux")))]
 pub fn peak_bytes() -> u64 {
-    // SAFETY: getrusage fills a caller-provided struct.
+    // SAFETY: `rusage` is a plain C struct of integers, valid when zeroed; `getrusage` only writes into the
+    // struct we pass, which lives for the call.
     unsafe {
         let mut ru: libc::rusage = std::mem::zeroed();
         if libc::getrusage(libc::RUSAGE_SELF, &mut ru) != 0 {
@@ -32,7 +33,9 @@ pub fn peak_bytes() -> u64 {
 pub fn peak_bytes() -> u64 {
     use windows_sys::Win32::System::ProcessStatus::{GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS};
     use windows_sys::Win32::System::Threading::GetCurrentProcess;
-    // SAFETY: the counters struct is caller-provided with its size set.
+    // SAFETY: `PROCESS_MEMORY_COUNTERS` is a plain C struct of integers, valid when zeroed; its size is set in `cb`
+    // and `GetProcessMemoryInfo` writes at most that many bytes into it. The pseudo-handle of the current process
+    // needs no closing.
     unsafe {
         let mut c: PROCESS_MEMORY_COUNTERS = std::mem::zeroed();
         c.cb = std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32;

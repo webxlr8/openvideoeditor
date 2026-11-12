@@ -1,4 +1,11 @@
 //! Decode worker: bounded queue, seek flush via generations, panic containment, offline detection.
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    reason = "test code: a failure here is a failed test; clippy.toml only covers #[test] functions, not helpers"
+)]
 
 mod common;
 
@@ -44,7 +51,7 @@ fn queue_is_bounded() {
         inner: FfmpegVideoDecoder::open(&media("h264_longgop.mp4"), native()).unwrap(),
         calls: calls.clone(),
     };
-    let mut w = DecodeWorker::spawn(Box::new(dec), 4);
+    let mut w = DecodeWorker::spawn(Box::new(dec), 4).unwrap();
     std::thread::sleep(Duration::from_millis(300));
     // 4 queued + 1 held by the worker while it waits for space.
     let n = calls.load(Ordering::SeqCst);
@@ -70,7 +77,7 @@ fn seek_flushes_queue_and_delivers_target_frame() {
     let path = media("h264_longgop.mp4");
     let reference = reference_framemd5(&path);
     let dec = FfmpegVideoDecoder::open(&path, native()).unwrap();
-    let mut w = DecodeWorker::spawn(Box::new(dec), 8);
+    let mut w = DecodeWorker::spawn(Box::new(dec), 8).unwrap();
     std::thread::sleep(Duration::from_millis(100)); // let the queue fill with frames from the start
     for (t, k) in [(3_000_000, 90usize), (500_000, 15), (1_016_667, 30), (3_966_667, 119)] {
         w.seek(t);
@@ -103,7 +110,7 @@ impl VideoDecoder for Panicky {
 
 #[test]
 fn worker_panic_becomes_an_error() {
-    let mut w = DecodeWorker::spawn(Box::new(Panicky), 4);
+    let mut w = DecodeWorker::spawn(Box::new(Panicky), 4).unwrap();
     match w.recv_timeout(Duration::from_secs(2)).unwrap() {
         WorkerEvent::Error(MediaError::WorkerPanicked(msg)) => assert!(msg.contains("decoder bug")),
         other => panic!("{other:?}"),
@@ -122,7 +129,7 @@ fn worker_reports_offline_media() {
     let copy = dir.path().join("clip.mov");
     std::fs::copy(media("prores_hq.mov"), &copy).unwrap();
     let dec = FfmpegVideoDecoder::open(&copy, native()).unwrap();
-    let mut w = DecodeWorker::spawn(Box::new(dec), 2);
+    let mut w = DecodeWorker::spawn(Box::new(dec), 2).unwrap();
     assert!(matches!(w.recv_timeout(Duration::from_secs(2)), Some(WorkerEvent::Frame(_))));
     std::fs::remove_file(&copy).unwrap();
     let err = loop {

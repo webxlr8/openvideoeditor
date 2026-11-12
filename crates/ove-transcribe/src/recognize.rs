@@ -387,11 +387,18 @@ fn recognise_window(
     params.set_progress_callback_safe(progress);
     // whisper-rs 0.16's `set_abort_callback_safe` casts its boxed closure to the wrong type (the encoder then reads
     // garbage and aborts), so the abort flag is wired through the raw API.
+    /// whisper.cpp's abort callback.
+    ///
+    /// # Safety
+    ///
+    /// `user` must point to a live `AtomicBool` for the duration of the call.
     unsafe extern "C" fn should_abort(user: *mut std::ffi::c_void) -> bool {
         // SAFETY: `user` is the AtomicBool behind `cancel`, which outlives `state.full` below.
         unsafe { (*(user as *const AtomicBool)).load(Ordering::Relaxed) }
     }
-    // SAFETY: the callback only reads the AtomicBool, kept alive by `cancel` for the whole call.
+    // SAFETY: `should_abort` has the signature whisper.cpp expects and only reads the `AtomicBool` it is given; the
+    // user data is that `AtomicBool`, kept alive by the `cancel` Arc we borrow until after `state.full` returns,
+    // which is the only time whisper.cpp calls back.
     unsafe {
         params.set_abort_callback(Some(should_abort));
         params.set_abort_callback_user_data(Arc::as_ptr(cancel) as *mut std::ffi::c_void);

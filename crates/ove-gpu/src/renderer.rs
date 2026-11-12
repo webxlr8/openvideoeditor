@@ -399,7 +399,9 @@ impl ViewerRenderer {
             return Err(GpuError::DeviceLost(self.ctx.lost_reason()));
         }
         self.ensure_source(frame.format, frame.width, frame.height);
-        let source = self.source.as_ref().expect("source textures created above");
+        let Some(source) = self.source.as_ref() else {
+            return Err(GpuError::Device("the frame textures were not created".into()));
+        };
         let mut bytes = 0u64;
         for (plane, texture) in source.planes.iter().enumerate() {
             let (w, h, _) = frame.format.plane_layout(plane, frame.width, frame.height);

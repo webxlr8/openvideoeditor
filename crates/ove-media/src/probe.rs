@@ -79,8 +79,9 @@ pub fn probe(path: &Path) -> Result<MediaInfo> {
     let best_v = input.streams().best(MediaType::Video).map(|s| s.index());
     let best_a = input.streams().best(MediaType::Audio).map(|s| s.index());
 
-    if let Some(idx) = best_v {
-        let st = input.stream(idx).expect("best stream exists");
+    if let Some(idx) = best_v
+        && let Some(st) = input.stream(idx)
+    {
         let par = st.parameters();
         // SAFETY: parameters pointer is valid for the stream's lifetime; fields are plain data.
         let (codec_id, profile, fmt, w, h) = unsafe {
@@ -114,12 +115,15 @@ pub fn probe(path: &Path) -> Result<MediaInfo> {
         }
     }
 
-    if let Some(idx) = best_a {
-        let st = input.stream(idx).expect("best stream exists");
+    if let Some(idx) = best_a
+        && let Some(st) = input.stream(idx)
+    {
         let par = st.parameters();
         let tb: Rational = st.time_base().into();
         let dur = st.duration();
-        // SAFETY: see above; ch_layout is initialised by the demuxer.
+        // SAFETY: as for the video stream, the parameters outlive this block and are plain data; `ch_layout` is
+        // initialised by the demuxer, and `av_channel_layout_describe` writes at most `buf.len()` bytes including
+        // the terminating NUL, so `CStr::from_ptr` reads a terminated string inside `buf`.
         let (codec_id, profile, fmt, rate, channels, layout) = unsafe {
             let p = &*par.as_ptr();
             let mut buf = [0 as std::ffi::c_char; 128];

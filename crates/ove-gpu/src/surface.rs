@@ -37,7 +37,8 @@ impl ViewerSurface {
     /// # Safety
     /// The target must stay valid until this surface is dropped.
     pub unsafe fn from_raw(renderer: &ViewerRenderer, target: wgpu::SurfaceTargetUnsafe) -> Result<Self, GpuError> {
-        // SAFETY: forwarded to the caller.
+        // SAFETY: wgpu requires the target to outlive the surface, which is exactly this function's contract with
+        // its caller; the surface is created from the renderer's own instance.
         let surface = unsafe { renderer.context().instance.create_surface_unsafe(target) }
             .map_err(|e| GpuError::Surface(e.to_string()))?;
         Ok(ViewerSurface::new(surface))
