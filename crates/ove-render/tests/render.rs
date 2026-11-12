@@ -1,5 +1,9 @@
 //! Compositor, audio and export on real (synthetic) media. Needs the ffmpeg CLI to make the media
-//! (`OVE_FIXTURE_FFMPEG` or `ffmpeg` on PATH); skipped with a message otherwise.
+//! (`OVE_FIXTURE_FFMPEG` or `ffmpeg` on PATH): without it the tests fail, unless
+//! `OVE_ALLOW_MISSING_MEDIA_TOOLS=1` makes them print "skipped".
+
+#[path = "../../../tests/media/fixtures.rs"]
+mod fixtures;
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -12,14 +16,13 @@ use serde_json::{Value, json};
 
 /// The ffmpeg used to *generate* fixtures (needs lavfi sources and encoders): `OVE_FIXTURE_FFMPEG`, else the system
 /// `ffmpeg`. Not `OVE_FFMPEG_CLI`, which is the decode-reference CLI of the LGPL build and has no generators.
-fn ffmpeg() -> Option<String> {
-    let bin = std::env::var("OVE_FIXTURE_FFMPEG").unwrap_or_else(|_| "ffmpeg".into());
-    Command::new(&bin).arg("-version").output().ok().filter(|o| o.status.success()).map(|_| bin)
+fn ffmpeg() -> String {
+    fixtures::fixture_ffmpeg()
 }
 
 fn make(dir: &Path, name: &str, args: &[&str]) -> PathBuf {
     let out = dir.join(name);
-    let st = Command::new(ffmpeg().unwrap()).args(["-loglevel", "error", "-y"]).args(args).arg(&out).status().unwrap();
+    let st = Command::new(ffmpeg()).args(["-loglevel", "error", "-y"]).args(args).arg(&out).status().unwrap();
     assert!(st.success(), "ffmpeg failed for {name}");
     out
 }
@@ -32,7 +35,9 @@ struct Fixture {
 /// Main track: red [0,1) then blue [1,2) with a 0.5 s crossfade; a text item on top [0,2); an adjustment
 /// (fully desaturated) over [2,3) on a green still.
 fn fixture() -> Option<Fixture> {
-    ffmpeg()?;
+    if !fixtures::require_tool(&ffmpeg(), "it makes the render fixtures; set OVE_FIXTURE_FFMPEG") {
+        return None;
+    }
     let d = tempfile::tempdir().unwrap();
     let red = make(
         d.path(),
@@ -115,7 +120,7 @@ fn near(a: [u8; 4], b: [u8; 3], tol: i32) -> bool {
 
 #[test]
 fn composites_cuts_crossfades_text_and_adjustments() {
-    let Some(f) = fixture() else { return eprintln!("skipped: no ffmpeg CLI") };
+    let Some(f) = fixture() else { return };
     let mut r = Renderer::new(None, 180);
     let frame = r.render(&f.doc, 900_000);
     assert_eq!((frame.w, frame.h), (320, 180));
@@ -189,8 +194,16 @@ fn audio_mix_levels_and_mutes() {
     assert!(diff < 0.02, "block joins differ by {diff}");
 }
 
+fn ffprobe() -> String {
+    let ff = ffmpeg();
+    match ff.rsplit_once("ffmpeg") {
+        Some((dir, rest)) => format!("{dir}ffprobe{rest}"),
+        None => "ffprobe".into(),
+    }
+}
+
 fn probe(path: &Path) -> Value {
-    let bin = ffmpeg().unwrap().replace("ffmpeg", "ffprobe");
+    let bin = ffprobe();
     let out = Command::new(bin)
         .args(["-v", "error", "-show_entries", "format=duration:stream=codec_type,width,height", "-of", "json"])
         .arg(path)
@@ -202,6 +215,9 @@ fn probe(path: &Path) -> Value {
 #[test]
 fn export_round_trip() {
     let Some(f) = fixture() else { return };
+    if !fixtures::require_tool(&ffprobe(), "it checks exported files") {
+        return;
+    }
     let d = tempfile::tempdir().unwrap();
     let out = d.path().join("out.mp4");
     let mut last = 0.0;
@@ -230,7 +246,7 @@ fn export_round_trip() {
     let v = streams.iter().find(|s| s["codec_type"] == "video").unwrap();
     assert_eq!((v["width"].as_u64(), v["height"].as_u64()), (Some(320), Some(180)));
     // Frame at 1.7 s is blue.
-    let raw = Command::new(ffmpeg().unwrap())
+    let raw = Command::new(ffmpeg())
         .args(["-v", "error", "-ss", "1.7", "-i"])
         .arg(&out)
         .args(["-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"])
@@ -276,7 +292,7 @@ fn set(id: &str, v: Value) -> Op {
 
 #[test]
 fn transitions_effects_layouts_shaders_and_grades() {
-    let Some(f) = fixture() else { return eprintln!("skipped: no ffmpeg CLI") };
+    let Some(f) = fixture() else { return };
     let mut r = Renderer::new(None, 180);
     // Wipe left half way: the right side already shows the incoming blue, the left still the outgoing red.
     let wipe = with(&f.doc, vec![set("b", json!({"transitionIn": {"type": "wipe-left", "duration": 0.5}}))]);

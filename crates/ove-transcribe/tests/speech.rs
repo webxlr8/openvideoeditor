@@ -1,5 +1,9 @@
 //! End-to-end recognition on synthetic speech (espeak-ng + system ffmpeg generate the clip). Needs the base model:
 //! set `OVE_WHISPER_MODEL_DIR` to a folder holding `ggml-base.bin` (downloaded if missing) — run with `--ignored`.
+//! Without espeak-ng or ffmpeg the test fails, unless `OVE_ALLOW_MISSING_MEDIA_TOOLS=1` makes it print "skipped".
+
+#[path = "../../../tests/media/fixtures.rs"]
+mod fixtures;
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -11,14 +15,17 @@ use ove_transcribe::{Model, Options, SegmentOptions, load_audio, models, segment
 const SCRIPT: &str = "The quick brown fox jumps over the lazy dog. Captions make every video easier to follow.";
 
 fn speech_clip(dir: &Path) -> Option<PathBuf> {
-    let wav = dir.join("speech.wav");
-    let ok = Command::new("espeak-ng").args(["-s", "150", "-w"]).arg(&wav).arg(SCRIPT).status().ok()?.success();
-    if !ok {
+    let ffmpeg = fixtures::fixture_ffmpeg();
+    if !fixtures::require_tool("espeak-ng", "it synthesises the test speech")
+        || !fixtures::require_tool(&ffmpeg, "it muxes the test clip; set OVE_FIXTURE_FFMPEG")
+    {
         return None;
     }
+    let wav = dir.join("speech.wav");
+    let ok = Command::new("espeak-ng").args(["-s", "150", "-w"]).arg(&wav).arg(SCRIPT).status().unwrap().success();
+    assert!(ok, "espeak-ng failed");
     // Put the speech 1 s into a video file, as it would be in real footage.
     let mp4 = dir.join("speech.mp4");
-    let ffmpeg = std::env::var("OVE_FIXTURE_FFMPEG").unwrap_or_else(|_| "ffmpeg".into());
     let st = Command::new(ffmpeg)
         .args(["-loglevel", "error", "-y", "-f", "lavfi", "-i", "color=c=gray:s=320x180:r=25:d=9", "-i"])
         .arg(&wav)
@@ -38,8 +45,9 @@ fn speech_clip(dir: &Path) -> Option<PathBuf> {
         ])
         .arg(&mp4)
         .status()
-        .ok()?;
-    st.success().then_some(mp4)
+        .unwrap();
+    assert!(st.success(), "ffmpeg failed to make the speech clip");
+    Some(mp4)
 }
 
 fn norm(s: &str) -> Vec<String> {
@@ -72,10 +80,7 @@ fn wer(reference: &[String], hyp: &[String]) -> f64 {
 #[ignore = "needs the speech model (~148 MB download) and espeak-ng"]
 fn recognises_synthetic_speech_with_word_timings() {
     let tmp = tempfile::tempdir().unwrap();
-    let Some(clip) = speech_clip(tmp.path()) else {
-        eprintln!("espeak-ng or ffmpeg missing; skipped");
-        return;
-    };
+    let Some(clip) = speech_clip(tmp.path()) else { return };
     let dir = models::model_dir(tmp.path());
     let path = models::ensure_model(&dir, Model::Base, &mut |_, _| {}, &AtomicBool::new(false)).unwrap();
     let audio = load_audio(&clip).unwrap();
