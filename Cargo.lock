@@ -4009,6 +4009,7 @@ name = "ove-gpu"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
+ "ove-media",
  "png",
  "pollster",
  "thiserror 2.0.21",
