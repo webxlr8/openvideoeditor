@@ -8,7 +8,10 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+rustls = { version = "0.23", default-features = false, features = ["std", "ring"] }
+rustls-platform-verifier = "0.7.1"
 tracing = "0.1"
+ureq = { version = "2.12", default-features = false, features = ["tls"] }
 
 [lints]
 workspace = true

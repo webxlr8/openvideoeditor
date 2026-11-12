@@ -8,6 +8,7 @@
 //! - [`id`]: the one check for ids that become file names (chat logs, job files, cancel markers).
 
 pub mod endpoint;
+pub mod http;
 pub mod id;
 pub mod redact;
 

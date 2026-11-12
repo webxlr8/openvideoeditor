@@ -99,10 +99,10 @@ pub fn ensure_model(dir: &Path, m: Model, progress: &mut dyn FnMut(u64, u64), ca
     std::fs::create_dir_all(dir).map_err(|e| TranscribeError::Io(format!("create {}: {e}", dir.display())))?;
     let part = dir.join(format!("{}.part", m.file_name()));
     let result = (|| {
-        let resp = ureq::get(&m.url())
-            .timeout(std::time::Duration::from_secs(600))
-            .call()
-            .map_err(|e| TranscribeError::Download(format!("could not download the {} speech model: {e}", m.id())))?;
+        let resp =
+            ove_guard::http::agent().get(&m.url()).timeout(std::time::Duration::from_secs(600)).call().map_err(
+                |e| TranscribeError::Download(format!("could not download the {} speech model: {e}", m.id())),
+            )?;
         let total = resp.header("content-length").and_then(|v| v.parse().ok()).unwrap_or(m.size_bytes());
         let mut reader = resp.into_reader();
         let mut file =

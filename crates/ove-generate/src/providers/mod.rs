@@ -109,7 +109,7 @@ pub fn base(var: &str, default: &str) -> String {
 /// The HTTP agent for calls that carry a key. Redirects are not followed: ureq drops `Authorization` on a redirect to
 /// another host but forwards custom key headers (`xi-api-key`), and no provider API redirects.
 pub fn agent() -> ureq::Agent {
-    ureq::AgentBuilder::new()
+    ove_guard::http::agent_builder()
         .timeout_connect(Duration::from_secs(15))
         .timeout_read(Duration::from_secs(300))
         .redirects(0)
@@ -118,7 +118,10 @@ pub fn agent() -> ureq::Agent {
 
 /// The HTTP agent for downloading outputs (no key is ever set on it; CDNs redirect).
 fn download_agent() -> ureq::Agent {
-    ureq::AgentBuilder::new().timeout_connect(Duration::from_secs(15)).timeout_read(Duration::from_secs(300)).build()
+    ove_guard::http::agent_builder()
+        .timeout_connect(Duration::from_secs(15))
+        .timeout_read(Duration::from_secs(300))
+        .build()
 }
 
 /// Maps an HTTP error to a refusal with the provider's message.

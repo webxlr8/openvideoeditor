@@ -139,7 +139,7 @@ pub async fn check_for_updates() -> AppResult<UpdateInfo> {
             });
         };
         {
-            let agent = ureq::AgentBuilder::new().timeout(std::time::Duration::from_secs(10)).build();
+            let agent = ove_guard::http::agent_builder().timeout(std::time::Duration::from_secs(10)).build();
             let res = agent
                 .get(&url)
                 .call()

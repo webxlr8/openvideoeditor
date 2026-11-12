@@ -66,5 +66,6 @@
 - [x] 6.3 CI lints and tests the whole workspace on macOS, Windows and Ubuntu.
 - [x] 6.4 `cargo deny check` passes: targets scoped to macOS and Windows; two reviewed unmaintained notices recorded.
 - [ ] 6.5 One green CI run on all three OSes (blocked: GitHub Actions jobs do not start on this account).
-- [ ] 6.6 TLS through the operating system's trust store (`rustls-platform-verifier`) so downloads work behind
-      corporate TLS proxies.
+- [x] 6.6 TLS through the operating system's verifier (`rustls-platform-verifier`, `ove_guard::http`) for every
+      outgoing request, so downloads work behind corporate TLS proxies. Verified: the network test passes behind a
+      TLS-inspecting proxy that the bundled root list rejects.

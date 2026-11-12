@@ -238,7 +238,7 @@ impl Client {
     pub fn with_base_url(api_key: impl Into<String>, base_url: impl Into<String>) -> Self {
         let api_key = api_key.into();
         ove_guard::register_secret(&api_key);
-        let agent = ureq::AgentBuilder::new()
+        let agent = ove_guard::http::agent_builder()
             .timeout_connect(Duration::from_secs(15))
             // SSE sends pings; a long silence means the connection is gone.
             .timeout_read(Duration::from_secs(120))
