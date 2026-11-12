@@ -16,6 +16,12 @@
 - **Windows** (optional): in an elevated PowerShell on Windows 11 x64, run
   `tools\runners\windows-runner.ps1 -Repo webxlr8/openvideoeditor -Token <token>`.
 
+## Which OSes CI runs on
+
+The repository variable `OVE_CI_OSES` (a JSON array) picks the CI matrix. It defaults to `["linux"]`, so runs finish
+even with no Mac or Windows runner. After adding a Mac runner set it to `["linux","macos"]`, and with a Windows runner
+too `["linux","macos","windows"]`.
+
 ## Labels
 
 CI, Release and Nightly run on the project's **self-hosted** GitHub Actions runners. By default a job asks for the
@@ -51,7 +57,7 @@ Windows 11 x64:
 
 Linux x64 (Ubuntu 24.04), development only:
 - These packages, or passwordless `sudo apt-get` so the workflow installs them: `nasm libdav1d-dev pkg-config
-  ffmpeg libasound2-dev libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libayatana-appindicator3-dev libssl-dev
+  ffmpeg clang libclang-dev cmake libasound2-dev libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libayatana-appindicator3-dev libssl-dev
   libdbus-1-dev`.
 - The release `publish` job also needs the `gh` CLI and `sha256sum`.
 
