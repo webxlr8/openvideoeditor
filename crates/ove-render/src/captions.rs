@@ -239,6 +239,21 @@ fn group_at(words: &[TimedWord], n: usize, rel_us: Micros) -> std::ops::Range<us
     groups.iter().rev().find(|g| words[g.start].start <= rel_us).or(groups.first()).cloned().unwrap_or(0..0)
 }
 
+/// Whether a caption is composited behind the subject: `captionComposition.mode` when set, else its preset's style.
+pub fn behind_subject(fields: &Map<String, Value>, preset: &CaptionPreset) -> bool {
+    match fields.get("captionComposition").and_then(|c| c.get("mode")).and_then(Value::as_str) {
+        Some(mode) => mode == "behind-subject",
+        None => preset.behind_subject,
+    }
+}
+
+/// There is no subject matte yet, so a behind-the-subject caption follows `captionComposition.fallback`: `front`
+/// (the default) draws it in front of everything, `hide` leaves it out.
+fn hidden_without_matte(fields: &Map<String, Value>, preset: &CaptionPreset) -> bool {
+    behind_subject(fields, preset)
+        && fields.get("captionComposition").and_then(|c| c.get("fallback")).and_then(Value::as_str) == Some("hide")
+}
+
 /// Draws an item's caption onto the canvas. `fallback` is the untimed text when the item has no timed segment.
 pub fn draw_caption(
     canvas: &mut Rgba,
@@ -249,6 +264,9 @@ pub fn draw_caption(
     at: CaptionPlacement,
 ) {
     let p = resolve(fields);
+    if hidden_without_matte(fields, &p) {
+        return;
+    }
     let (fw, fh) = (canvas.w as f32, canvas.h as f32);
     let orient = if fw > fh { p.landscape_scale } else { 1.0 };
     let size = p.size * at.k * orient;
@@ -516,6 +534,33 @@ mod tests {
             let changed = count(&c, |px| px != [40, 40, 40, 255]);
             assert!(changed > 400, "{}: {changed} px", p.id);
         }
+    }
+
+    #[test]
+    fn behind_subject_captions_follow_their_fallback() {
+        let mut cache = CaptionCache::default();
+        let ink = |cache: &mut CaptionCache, f: &Map<String, Value>| {
+            let mut c = Rgba::filled(540, 960, [40, 40, 40, 255]);
+            draw_caption(&mut c, cache, f, &[], 1_000_000, at());
+            count(&c, |px| px != [40, 40, 40, 255])
+        };
+        let with = |preset: &str, comp: Value| {
+            let mut f = fields(preset);
+            f.insert("captionComposition".into(), comp);
+            f
+        };
+        // A behind-the-subject preset: no matte, so `hide` leaves it out and `front` (the default) draws it.
+        assert!(preset("poster-stack").unwrap().behind_subject);
+        assert_eq!(ink(&mut cache, &with("poster-stack", json!({"fallback": "hide"}))), 0);
+        assert!(ink(&mut cache, &with("poster-stack", json!({"fallback": "front"}))) > 400);
+        assert!(ink(&mut cache, &fields("poster-stack")) > 400);
+        // The item's mode overrides the preset's either way.
+        assert_eq!(ink(&mut cache, &with("bold", json!({"mode": "behind-subject", "fallback": "hide"}))), 0);
+        assert!(ink(&mut cache, &with("poster-stack", json!({"mode": "front", "fallback": "hide"}))) > 400);
+        assert!(
+            ink(&mut cache, &with("bold", json!({"fallback": "hide"}))) > 400,
+            "front captions ignore the fallback"
+        );
     }
 
     #[test]
