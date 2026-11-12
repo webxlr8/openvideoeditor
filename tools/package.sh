@@ -71,7 +71,8 @@ case "$TARGET" in
     python3 - "$GEN" <<PY
 import json, sys
 libs = """$(shipped)""".split()
-json.dump({"bundle": {"macOS": {"frameworks": libs, "minimumSystemVersion": "14.0"}, "targets": ["app", "dmg"]}},
+json.dump({"bundle": {"macOS": {"frameworks": libs, "minimumSystemVersion": "14.0"}, "targets": ["app", "dmg"],
+                     "resources": {"licenses/": "licenses/"}}},
           open(sys.argv[1], "w"), indent=2)
 PY
     ;;
@@ -81,7 +82,9 @@ PY
 import json, sys
 libs = """$(shipped)""".split()
 targets = ["nsis"] if sys.argv[2] == "windows-x64-gnu" else ["msi", "nsis"]
-json.dump({"bundle": {"resources": {l: "./" for l in libs}, "targets": targets}}, open(sys.argv[1], "w"), indent=2)
+resources = {l: "./" for l in libs}
+resources["licenses/"] = "licenses/"
+json.dump({"bundle": {"resources": resources, "targets": targets}}, open(sys.argv[1], "w"), indent=2)
 PY
     ;;
   linux-x64)
@@ -112,6 +115,8 @@ PY
 
 cd "$ROOT/apps/desktop"
 pnpm install --frozen-lockfile
+# Third-party notices (FFmpeg LGPL, dav1d, zlib, Rust crates, UI packages) ship in the app's licenses/ folder.
+[ "$TARGET" = linux-x64 ] || "$ROOT/tools/notices.sh" "$TARGET"
 pnpm tauri build --config "$GEN" ${TARGET_ARGS[@]+"${TARGET_ARGS[@]}"} "${PROFILE[@]}"
 
 if [ "$TARGET" = windows-x64-gnu ]; then

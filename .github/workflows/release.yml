@@ -39,6 +39,9 @@ jobs:
           node-version: 22
       - name: prerequisites
         run: brew install dav1d nasm pkg-config
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-about
       - name: package
         run: tools/package.sh
       - uses: actions/upload-artifact@v4
@@ -79,6 +82,9 @@ jobs:
         with:
           path: tools/ffmpeg/out/windows-x64-gnu
           key: ffmpeg-windows-x64-gnu-${{ hashFiles('tools/ffmpeg/*.sh') }}
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-about
       - name: package (FFmpeg, ove sidecar, app, NSIS installer)
         run: tools/package.sh --target windows-x64-gnu
       - name: test media (generated with the runner's ffmpeg CLI; test-only)
@@ -126,6 +132,11 @@ jobs:
             printf '\n## Not in this build\n\nNo installer for: %s. It follows in a later build.\n' "${missing[*]}" \
               >> "$RUNNER_TEMP/notes.md"
           fi
+          # LGPL: the exact FFmpeg source and the scripts that build it travel with every release.
+          curl -fsSL -o dist/ffmpeg-9.0.2.tar.xz https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz
+          echo "8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e  dist/ffmpeg-9.0.2.tar.xz" | sha256sum -c -
+          tar -czf dist/ffmpeg-build-scripts.tar.gz tools/ffmpeg/build.sh tools/ffmpeg/env.sh tools/ffmpeg/check-license.sh \
+            tools/ffmpeg/README.md tools/cross
           (cd dist && sha256sum * > SHA256SUMS.txt)
           gh release create "$TAG" dist/* --draft --prerelease --verify-tag \
             --title "OpenVideoEditor ${TAG#v}" --notes-file "$RUNNER_TEMP/notes.md"

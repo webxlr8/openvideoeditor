@@ -1,0 +1,14 @@
+# Rust crates
+
+The app and the `ove` command line include these Rust crates. Each licence below is reproduced with the crates that use it.
+
+{{#each licenses}}
+## {{name}}
+
+Used by: {{#each used_by}}{{crate.name}} {{crate.version}}{{#unless @last}}, {{/unless}}{{/each}}
+
+```
+{{text}}
+```
+
+{{/each}}
