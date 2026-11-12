@@ -196,7 +196,8 @@ impl Drop for PartialFile {
 
 /// Flushes the finished temporary file to disk and renames it over the destination.
 fn finish_file(tmp: &Path, out: &Path) -> std::io::Result<()> {
-    std::fs::File::open(tmp)?.sync_all()?;
+    // Opened for writing (nothing is written): Windows' FlushFileBuffers refuses a read-only handle.
+    std::fs::OpenOptions::new().write(true).open(tmp)?.sync_all()?;
     std::fs::rename(tmp, out)?;
     // The rename itself is durable once the directory is flushed (not possible on Windows; rename is enough there).
     #[cfg(unix)]

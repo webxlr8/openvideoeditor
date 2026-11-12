@@ -553,7 +553,10 @@ impl Project {
     pub fn close(mut self) -> Result<()> {
         if self.mode == Mode::Write {
             self.snapshot_now()?;
-            let f = std::fs::File::open(self.bundle.join("project.json"))
+            // Opened for writing (nothing is written): Windows' FlushFileBuffers refuses a read-only handle.
+            let f = std::fs::OpenOptions::new()
+                .write(true)
+                .open(self.bundle.join("project.json"))
                 .map_err(|e| StoreError::io("open", &self.bundle, e))?;
             fsio::flush_full(&f).map_err(|e| StoreError::io("flush", &self.bundle, e))?;
             self.prune()?;
