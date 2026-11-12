@@ -78,6 +78,8 @@ export function App() {
   const [mode, setMode] = useState<PreviewMode>("timeline");
   const [exporting, setExporting] = useState(false);
   const modeRef = useRef(mode);
+  /** Frame rate of what the viewer plays (the timeline's while in timeline mode). */
+  const fpsRef = useRef(30);
   const projectRef = useRef(project);
   const selectionRef = useRef(selection);
   useEffect(() => {
@@ -317,10 +319,34 @@ export function App() {
   // Failures from work nobody awaits (see notify.ts) show as toasts.
   useEffect(() => setErrorSink(showError), [showError]);
 
+  /** The assistant's `seek_viewer`: timeline seconds, so the viewer switches to the timeline if it shows a source. */
+  const seekTimeline = useCallback(
+    (seconds: number) => {
+      if (modeRef.current !== "timeline") {
+        setMode("timeline");
+        modeRef.current = "timeline";
+        fire(showTimeline(seconds));
+        return;
+      }
+      runCommand(
+        commands.transport({
+          kind: "seekFrame",
+          frame: Math.max(0, Math.round(seconds * fpsRef.current)),
+        }),
+        undefined,
+        showError,
+      );
+    },
+    [showError, showTimeline],
+  );
+
   // Bridge wiring: app info, routed paths, playback, project and error events.
   useEffect(() => {
     const listeners = [
-      events.playbackChanged.listen((e) => setPlayback(e.payload)),
+      events.playbackChanged.listen((e) => {
+        fpsRef.current = e.payload.frameRate || 30;
+        setPlayback(e.payload);
+      }),
       events.appErrorRaised.listen((e) => showError(e.payload)),
       events.viewerBackendChanged.listen((e) => setBackend(e.payload)),
       events.projectChanged.listen((e) => {
@@ -470,6 +496,7 @@ export function App() {
           onImportTimeline={() => fire(importTimelineFile())}
           onError={showError}
           onHome={() => fire(goHome())}
+          onSeek={seekTimeline}
           onSelect={(item, offset, mode) => {
             if (!item) setSelection([]);
             else if (mode === "toggle")

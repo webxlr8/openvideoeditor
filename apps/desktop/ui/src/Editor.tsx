@@ -88,6 +88,7 @@ export function Editor({
   onImportTimeline,
   onError,
   onHome,
+  onSeek,
   timelineMode = false,
   barExtras,
 }: {
@@ -103,6 +104,8 @@ export function Editor({
   onImportTimeline?: () => void;
   onError: (e: AppError) => void;
   onHome: () => void;
+  /** Shows the composited timeline at a time in seconds (the assistant's `seek_viewer`). */
+  onSeek?: (seconds: number) => void;
   project: ProjectView_Serialize | null;
   /** Selected item ids, primary last. */
   selection: string[];
@@ -431,6 +434,7 @@ export function Editor({
             onClose={() => toggle("chatOpen")}
             projectId={project?.id}
             onError={onError}
+            onSeek={onSeek}
           />
         </ErrorBoundary>
       )}

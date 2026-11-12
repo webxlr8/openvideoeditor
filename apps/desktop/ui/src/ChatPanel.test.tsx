@@ -28,12 +28,14 @@ describe("ChatPanel", () => {
     type(composer, "Add an opening title");
     expect(screen.getByTestId("msg-user").textContent).toBe("Add an opening title");
     expect(await screen.findByTestId("stop")).toBeTruthy();
-    await waitFor(() => expect(screen.getAllByTestId("tool-chip").length).toBe(3), { timeout: 3000 });
+    await waitFor(() => expect(screen.getAllByTestId("tool-chip").length).toBe(4), { timeout: 3000 });
     const footer = await screen.findByTestId("chat-footer", {}, { timeout: 3000 });
     expect(footer.textContent).toMatch(/≈\$0\.01/);
     const reply = screen.getAllByTestId("msg-assistant").map((m) => m.textContent).join(" ");
     expect(reply).toContain("Done: I added a 3-second Welcome title");
     expect(screen.getByTestId("lane-Text").textContent).toContain("Welcome");
+    // seek_viewer moved the viewer to 1.5 s.
+    await waitFor(() => expect(screen.getByTestId("timecode").textContent).toBe("00:00:01:15"));
     expect(screen.queryByTestId("stop")).toBeNull();
     // The conversation is in the history menu.
     fireEvent.click(screen.getByTestId("chat-history-button"));

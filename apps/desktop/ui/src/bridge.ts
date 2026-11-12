@@ -1016,6 +1016,10 @@ function createMock(): {
       "Check the timeline",
       () => "no problems",
     );
+    await tool("tu_seek", "seek_viewer", "Show the title", () => {
+      agentEvent({ kind: "seek", seconds: 1.5 });
+      return "Showing 1.50s.";
+    });
     await say(
       "Done: I added a 3-second **Welcome** title at the start. Undo removes it in one step.",
     );

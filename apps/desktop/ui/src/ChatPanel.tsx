@@ -92,6 +92,7 @@ export function ChatPanel({
   projectId,
   draft,
   onError,
+  onSeek,
 }: {
   onClose: () => void;
   /** Changes when another project opens (the chat list is per project). */
@@ -99,6 +100,8 @@ export function ChatPanel({
   /** Text to prefill the composer with (e.g. a prompt typed on Home before a key was set). */
   draft?: string;
   onError?: (e: AppError) => void;
+  /** The assistant's `seek_viewer` tool: show the timeline at this time (seconds). */
+  onSeek?: (seconds: number) => void;
 }) {
   const [status, setStatus] = useState<AgentStatus_Serialize | null>(null);
   const [chats, setChats] = useState<ChatSummaryView[]>([]);
@@ -209,11 +212,12 @@ export function ChatPanel({
           break;
         }
         case "seek":
+          if (ev.seconds != null && Number.isFinite(ev.seconds)) onSeek?.(Math.max(0, ev.seconds));
           break;
       }
     });
     return () => unlisten(un);
-  }, [loadChat, loadChats, report]);
+  }, [loadChat, loadChats, report, onSeek]);
 
   useEffect(() => {
     scroller.current?.scrollTo?.({ top: scroller.current.scrollHeight });
