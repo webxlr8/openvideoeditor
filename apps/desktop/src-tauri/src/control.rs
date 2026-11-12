@@ -97,6 +97,17 @@ fn check_open(p: Option<&ove_store::project::Project>, params: &Value) -> Result
     Ok(())
 }
 
+/// The revision source of a change sent over the control link. Only the command line and its MCP server use the
+/// link, so only `cli` and `mcp` are accepted (`cli` when absent): a caller cannot pass its change off as the
+/// editor's (`gui`), the in-app assistant's (`agent`, which the assistant's own undo acts on) or a history step.
+fn socket_source(params: &Value) -> Result<Source, ove_control::Refusal> {
+    let Some(v) = params.get("source").filter(|v| !v.is_null()) else { return Ok(Source::Cli) };
+    match serde_json::from_value::<Source>(v.clone()) {
+        Ok(s @ (Source::Cli | Source::Mcp)) => Ok(s),
+        _ => Err(refusal("source.invalid", format!("changes over the control link come from cli or mcp, not {v}"))),
+    }
+}
+
 fn handle(app: &AppHandle, method: &str, params: Value) -> Result<Value, ove_control::Refusal> {
     match method {
         "context" => Ok(context(app)),
@@ -125,12 +136,7 @@ fn handle(app: &AppHandle, method: &str, params: Value) -> Result<Value, ove_con
         "apply" => {
             let ops: Vec<Op> = serde_json::from_value(params.get("ops").cloned().unwrap_or(Value::Null))
                 .map_err(|e| refusal("ops.invalid", e.to_string()))?;
-            let source: Source = params
-                .get("source")
-                .cloned()
-                .and_then(|s| serde_json::from_value(s).ok())
-                .filter(|s| matches!(s, Source::Cli | Source::Mcp | Source::Agent))
-                .unwrap_or(Source::Cli);
+            let source = socket_source(&params)?;
             let summary = params.get("summary").and_then(Value::as_str).map(str::to_string);
             let state = app.state::<AppState>();
             let mut g = lock(&state.projects.open).map_err(|e| refusal("app.busy", e.message))?;
@@ -183,3 +189,20 @@ pub fn stop(app: &AppHandle) {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn socket_changes_are_cli_or_mcp_only() {
+        assert_eq!(socket_source(&json!({})).unwrap(), Source::Cli);
+        assert_eq!(socket_source(&json!({"source": null})).unwrap(), Source::Cli);
+        assert_eq!(socket_source(&json!({"source": "cli"})).unwrap(), Source::Cli);
+        assert_eq!(socket_source(&json!({"source": "mcp"})).unwrap(), Source::Mcp);
+        for spoofed in ["gui", "agent", "undo", "redo", "restore", "migration", "nonsense"] {
+            let e = socket_source(&json!({"source": spoofed})).unwrap_err();
+            assert_eq!(e.code, "source.invalid", "{spoofed}");
+        }
+        assert!(socket_source(&json!({"source": 3})).is_err());
+    }
+}
