@@ -245,7 +245,8 @@ export function ChatPanel({
           setThinking(false);
           const cost = ev.costUsd ?? 0;
           const secs = (ev.durationMs ?? 0) / 1000;
-          setFooter(ev.note ?? (ev.stopped ? "Stopped." : `${secs.toFixed(1)}s · ≈${usd(cost)}`));
+          // A limit the turn stopped at shows in the log (it is kept there), not twice.
+          setFooter(ev.stopped ? "Stopped." : ev.note ? null : `${secs.toFixed(1)}s · ≈${usd(cost)}`);
           loadChat(ev.chatId);
           loadChats();
           loadTotals(ev.chatId);

@@ -128,10 +128,14 @@ export function Editor({
   const [snap, setSnap] = useState(true);
   const [help, setHelp] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
-  /** Items an assistant turn changed, highlighted on the timeline while its "Show" is on. */
-  const [review, setReview] = useState<{ turnId: string; ids: string[] } | null>(
-    null,
-  );
+  /** Items an assistant turn changed, highlighted on the timeline while its "Show" is on (in the project it was
+   * shown for: opening another project drops it). */
+  const [shown, setReview] = useState<{
+    projectId: string | null | undefined;
+    turnId: string;
+    ids: string[];
+  } | null>(null);
+  const review = shown && shown.projectId === project?.id ? shown : null;
   const [closedFor, setClosedFor] = useState<string | null>(null);
   const [scrubTime, setScrubTime] = useState(0);
   const [clipboard, setClipboard] = useState<Record<string, unknown>[]>([]);
@@ -445,7 +449,9 @@ export function Editor({
             onSeek={onSeek}
             shownTurn={review?.turnId ?? null}
             onShowTurn={(turnId, ids) =>
-              setReview(turnId ? { turnId, ids } : null)
+              setReview(
+                turnId ? { projectId: project?.id, turnId, ids } : null,
+              )
             }
           />
         </ErrorBoundary>
