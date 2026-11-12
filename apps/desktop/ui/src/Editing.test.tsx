@@ -113,4 +113,15 @@ describe("editing", () => {
     fireEvent.keyDown(window, { key: "Delete" });
     await waitFor(() => expect(clips().length).toBe(0));
   });
+
+  it("audio mix buttons say exactly what they do", async () => {
+    await editorWithClip();
+    fireEvent.click(screen.getByTestId("rail-audio"));
+    const reset = await screen.findByTestId("audio-normalize");
+    expect(reset.textContent).toBe("Reset volumes to 100 %");
+    expect(reset.title).toContain("does not measure or even out loudness");
+    const lower = screen.getByTestId("audio-duck");
+    expect(lower.textContent).toBe("Lower music to 30 %");
+    expect(lower.title).toContain("does not follow the dialogue");
+  });
 });
