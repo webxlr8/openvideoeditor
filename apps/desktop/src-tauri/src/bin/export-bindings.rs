@@ -1,6 +1,7 @@
 //! Regenerates `apps/desktop/ui/src/bindings.ts` from the Rust command/event definitions, and the effects catalogue
 //! (`fx-catalog.json`) the browser mock serves.
 //! `--check` exits 1 if the committed file is stale (used by CI).
+#![forbid(unsafe_code)]
 
 fn main() {
     let path = ove_desktop_lib::bindings_path();

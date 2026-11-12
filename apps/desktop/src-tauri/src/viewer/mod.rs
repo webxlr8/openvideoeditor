@@ -234,6 +234,7 @@ impl ViewerThread {
                 }
                 self.present();
             }
+            #[allow(clippy::panic, reason = "deliberate: diagnostics hook that exercises viewer panic recovery")]
             ViewerMsg::Panic => panic!("forced viewer panic (diagnostics)"),
             ViewerMsg::Quit => {}
         }

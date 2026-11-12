@@ -33,9 +33,11 @@ impl MetalLayerView {
     /// `webview` must be a valid WKWebView pointer; must be called on the main thread.
     pub unsafe fn new(webview: *mut c_void, below: bool) -> Result<Self, String> {
         let mtm = MainThreadMarker::new().ok_or("not on the main thread")?;
-        // SAFETY: caller guarantees a valid NSView subclass (WKWebView) pointer.
+        // SAFETY: the caller guarantees `webview` is a valid WKWebView, an NSView subclass; `retain` takes a
+        // reference of our own (null gives `None`).
         let webview: Retained<NSView> = unsafe { Retained::retain(webview.cast::<NSView>()) }.ok_or("null web view")?;
-        // SAFETY: plain property read on the main thread.
+        // SAFETY: `webview` is a live NSView and we are on the main thread (checked via `mtm` above), where AppKit
+        // view properties may be read.
         let parent = unsafe { webview.superview() }.ok_or("web view has no parent view")?;
         let view =
             NSView::initWithFrame(NSView::alloc(mtm), NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(1.0, 1.0)));
@@ -74,6 +76,7 @@ impl NativeLayer for MetalLayerView {
         self.view.setHidden(false);
     }
 
+    /// See [`NativeLayer::surface_target`].
     unsafe fn surface_target(&self) -> ove_gpu::wgpu::SurfaceTargetUnsafe {
         ove_gpu::wgpu::SurfaceTargetUnsafe::CoreAnimationLayer(Retained::as_ptr(&self.layer) as *mut c_void)
     }

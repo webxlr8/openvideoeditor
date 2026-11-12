@@ -202,13 +202,14 @@ fn secs(us: i64) -> f64 {
     us as f64 / 1e6
 }
 
-fn library<'a>(p: &'a Projects) -> AppResult<MutexGuard<'a, Option<Library>>> {
+/// Runs `f` with the library (opened on first use), holding its lock.
+fn with_library<T>(p: &Projects, f: impl FnOnce(&Library) -> AppResult<T>) -> AppResult<T> {
     let mut g = lock(&p.library)?;
-    if g.is_none() {
-        let root = ove_store::library::resolve_library(None)?;
-        *g = Some(Library::open(root, clock())?);
-    }
-    Ok(g)
+    let lib = match g.take() {
+        Some(lib) => lib,
+        None => Library::open(ove_store::library::resolve_library(None)?, clock())?,
+    };
+    f(g.insert(lib))
 }
 
 pub(crate) fn thumbs_dir(bundle: &Path) -> PathBuf {
@@ -566,8 +567,7 @@ fn summaries(lib: &Library) -> AppResult<Vec<ProjectSummary>> {
 pub async fn list_projects(app: AppHandle) -> AppResult<Vec<ProjectSummary>> {
     worker::blocking("list_projects", move || {
         let state = app.state::<AppState>();
-        let lib = library(&state.projects)?;
-        summaries(lib.as_ref().unwrap())
+        with_library(&state.projects, summaries)
     })
     .await
 }
@@ -591,11 +591,8 @@ fn install(app: &AppHandle, state: &AppState, p: Project) -> AppResult<ProjectVi
 pub async fn create_project(app: AppHandle, name: String, template: Option<String>) -> AppResult<ProjectView> {
     serial(&app, "create_project", move |app, state| {
         close_open(state)?;
-        let mut p = {
-            let lib = library(&state.projects)?;
-            let name = if name.trim().is_empty() { "Untitled Project".to_string() } else { name };
-            lib.as_ref().unwrap().create(&name)?
-        };
+        let name = if name.trim().is_empty() { "Untitled Project".to_string() } else { name };
+        let mut p = with_library(&state.projects, |lib| Ok(lib.create(&name)?))?;
         // The history panel attributes a project started from a template to it.
         let summary = match template.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
             Some(t) => format!("{TEMPLATE_SUMMARY}“{t}”"),

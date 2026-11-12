@@ -619,8 +619,7 @@ fn run(app: AppHandle, viewer: Sender<ViewerMsg>, rx: Receiver<EngineMsg>, share
             }
             Ok(EngineMsg::UpdateDoc(doc, bundle)) => {
                 // Only a session playing this project's timeline follows edits.
-                if session.as_ref().and_then(|s| s.timeline.as_ref()) == Some(&bundle) {
-                    let old = session.take().unwrap();
+                if let Some(old) = session.take_if(|s| s.timeline.as_ref() == Some(&bundle)) {
                     let at = old.player.transport().position;
                     let playing = old.player.transport().is_playing();
                     let looping = old.player.transport().looping;

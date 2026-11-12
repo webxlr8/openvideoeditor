@@ -24,6 +24,7 @@ pub mod window_state;
 pub mod worker;
 
 use std::path::{Path, PathBuf};
+use std::process::ExitCode;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
@@ -404,7 +405,7 @@ fn attach_native_layer(app: &tauri::AppHandle, window: &tauri::WebviewWindow, ba
 }
 
 /// Builds and runs the app.
-pub fn run() {
+pub fn run() -> ExitCode {
     let started = Instant::now();
     let builder = specta_builder();
     let startup_paths =
@@ -510,8 +511,15 @@ pub fn run() {
             }
             _ => {}
         })
-        .build(tauri::generate_context!())
-        .expect("failed to build the app");
+        .build(tauri::generate_context!());
+    let app = match app {
+        Ok(app) => app,
+        Err(e) => {
+            tracing::error!(error = %e, "the app could not start");
+            eprintln!("the app could not start: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
 
     app.run(|handle, event| {
         #[cfg(any(target_os = "macos", target_os = "ios"))]
@@ -532,6 +540,7 @@ pub fn run() {
             state.send_viewer(ViewerMsg::Quit);
         }
     });
+    ExitCode::SUCCESS
 }
 
 #[cfg(test)]
