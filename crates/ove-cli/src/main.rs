@@ -513,10 +513,13 @@ fn export(ctx: &Ctx, project: &str, out: &Path, height: u32, fps: u32) -> Out {
     if !ctx.json && show {
         eprintln!();
     }
-    let text = format!(
+    let mut text = format!(
         "exported {} ({}x{}, {:.1} s, {}) in {:.1} s",
         res.path, res.width, res.height, res.duration_seconds, res.video_encoder, res.seconds_taken
     );
+    if let Some(w) = &res.encoder_warning {
+        text.push_str(&format!("\nwarning: {w}"));
+    }
     Ok((serde_json::to_value(&res).unwrap_or(Value::Null), text))
 }
 
