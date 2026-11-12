@@ -1,4 +1,11 @@
 //! Model round trip, migrations, op rules, invariants, revisions and undo/redo.
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    reason = "test code: a failure here is a failed test; clippy.toml only covers #[test] functions, not helpers"
+)]
 
 use ove_core::invariants::check_document;
 use ove_core::migrate::{Opened, open_json};

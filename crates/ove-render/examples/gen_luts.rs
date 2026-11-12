@@ -2,6 +2,13 @@
 //! The renderer itself evaluates the same looks procedurally (see `ove_render::color::preset_fn`).
 //!
 //!   cargo run -p ove-render --example gen_luts
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    reason = "developer example, not shipped: failing loudly on a broken setup is the point"
+)]
 
 use std::path::PathBuf;
 

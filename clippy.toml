@@ -1,0 +1,6 @@
+# Unit-test modules, integration tests, benches and examples may unwrap, expect and panic: a
+# failure there is a failed test, not a crash in front of a user.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+allow-dbg-in-tests = true

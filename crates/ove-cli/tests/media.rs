@@ -1,5 +1,12 @@
 //! Media commands on synthetic files (needs `--features media` and the ffmpeg CLI for fixtures:
 //! `OVE_FIXTURE_FFMPEG` or `ffmpeg` on PATH; skipped with a message otherwise).
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    reason = "test code: a failure here is a failed test; clippy.toml only covers #[test] functions, not helpers"
+)]
 #![cfg(feature = "media")]
 
 use std::path::{Path, PathBuf};

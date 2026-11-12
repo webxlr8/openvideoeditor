@@ -1,4 +1,11 @@
 //! Property tests (tasks 3.3 and 4.3): round trip, and merge properties 2–7 from design D5.
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    reason = "test code: a failure here is a failed test; clippy.toml only covers #[test] functions, not helpers"
+)]
 
 use std::collections::{BTreeMap, BTreeSet};
 

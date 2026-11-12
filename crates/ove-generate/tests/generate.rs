@@ -1,5 +1,12 @@
 //! Generation against local stand-ins for fal.ai, OpenAI and ElevenLabs: plan → placeholder → run → finish, cancel,
 //! auth errors. Environment variables point the providers at the stand-in, so the tests run serially.
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    reason = "test code: a failure here is a failed test; clippy.toml only covers #[test] functions, not helpers"
+)]
 
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -79,6 +86,8 @@ fn doc() -> Document {
 
 #[test]
 fn providers_end_to_end() {
+    // SAFETY: the environment is only read through `std::env` in this test binary (std serialises those reads with
+    // writes); no C code reads it concurrently, so changing it while other tests run cannot race.
     unsafe { std::env::set_var("OVE_GENERATE_POLL_MS", "10") };
     let polls = Arc::new(Mutex::new(0));
     let p2 = polls.clone();
@@ -116,6 +125,7 @@ fn providers_end_to_end() {
             _ => (404, "application/json", br#"{"detail":"not found"}"#.to_vec()),
         }
     });
+    // SAFETY: as above.
     unsafe {
         std::env::set_var("OVE_FAL_QUEUE_URL", &base);
         std::env::set_var("OVE_OPENAI_URL", &base);
@@ -264,6 +274,8 @@ fn providers_end_to_end() {
     assert_eq!(checks.len(), 2, "{checks:?}");
     let (bad, _) =
         serve(|_, _, _, _| (401, "application/json", br#"{"error":{"message":"Incorrect API key"}}"#.to_vec()));
+    // SAFETY: the environment is only read through `std::env` in this test binary (std serialises those reads with
+    // writes); no C code reads it concurrently, so changing it while other tests run cannot race.
     unsafe { std::env::set_var("OVE_OPENAI_URL", &bad) };
     let e = check_key(Provider::OpenAi, "sk-openai-wrong-key-0").unwrap_err();
     assert_eq!(e.code, "provider.auth");

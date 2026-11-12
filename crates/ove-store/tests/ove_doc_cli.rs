@@ -1,4 +1,11 @@
 //! End-to-end script over every `ove-doc` command (task 6.2).
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    reason = "test code: a failure here is a failed test; clippy.toml only covers #[test] functions, not helpers"
+)]
 
 use std::process::{Command, Output};
 

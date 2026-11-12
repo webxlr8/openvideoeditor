@@ -1,4 +1,11 @@
 //! Bundles, persistence, replay, faults, locking, library and media registry (project-document task groups 4–5).
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    reason = "test code: a failure here is a failed test; clippy.toml only covers #[test] functions, not helpers"
+)]
 
 mod common;
 

@@ -1,5 +1,12 @@
 //! Executes the examples in docs/cli/timeline.md and checks each command's documented exit code, then runs the
 //! success and refusal paths of every command (task 6.1 / 6.2).
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    reason = "test code: a failure here is a failed test; clippy.toml only covers #[test] functions, not helpers"
+)]
 
 use std::path::Path;
 use std::process::{Command, Output};

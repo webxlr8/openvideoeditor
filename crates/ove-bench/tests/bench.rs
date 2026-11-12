@@ -1,4 +1,11 @@
 //! The benchmark exits 0 and writes JSON valid against `schema.json`; bad input exits 1 with a message.
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    reason = "test code: a failure here is a failed test; clippy.toml only covers #[test] functions, not helpers"
+)]
 
 use std::process::Command;
 

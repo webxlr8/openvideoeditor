@@ -1,5 +1,12 @@
 //! Audio is read for recognition in bounded, overlapping windows that cover the file exactly like a whole-file
 //! decode. Uses the test-media matrix (no speech model needed).
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    reason = "test code: a failure here is a failed test; clippy.toml only covers #[test] functions, not helpers"
+)]
 
 #[path = "../../../tests/media/fixtures.rs"]
 mod fixtures;

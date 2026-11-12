@@ -1,4 +1,11 @@
 //! Tone-mapping throughput: `cargo run --release -p ove-media --example tonemap_bench [width height frames]`.
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    reason = "developer example, not shipped: failing loudly on a broken setup is the point"
+)]
 
 use ove_media::Transfer;
 use ove_media::tonemap::{YuvParams, YuvSource, tone_map_yuv};

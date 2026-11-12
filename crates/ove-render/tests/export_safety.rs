@@ -1,6 +1,13 @@
 //! Export never damages what is already on disk: it writes `name.partial.ext`, renames over the destination only
 //! when complete, and removes only its temporary file on failure or cancel. Export is refused while media is
 //! offline. Uses a text-only timeline, so no media fixtures (or ffmpeg CLI) are needed.
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    reason = "test code: a failure here is a failed test; clippy.toml only covers #[test] functions, not helpers"
+)]
 
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};

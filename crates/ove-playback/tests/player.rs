@@ -1,4 +1,11 @@
 //! Task 3.1: scheduler, A/V sync and every transport transition on a simulated clock.
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    reason = "test code: a failure here is a failed test; clippy.toml only covers #[test] functions, not helpers"
+)]
 
 use ove_playback::{
     AudioRing, ClockSource, Command, FrameSource, Micros, PlayState, Player, PlayerConfig, PresentableFrame, SimTime,

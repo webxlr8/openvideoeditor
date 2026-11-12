@@ -2,6 +2,13 @@
 //! such as lavapipe or WARP is fine). Skipped with a message when no adapter exists.
 //!
 //! Regenerate goldens with `OVE_UPDATE_GOLDEN=1 cargo test -p ove-gpu --test golden`.
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    reason = "test code: a failure here is a failed test; clippy.toml only covers #[test] functions, not helpers"
+)]
 
 use std::path::PathBuf;
 

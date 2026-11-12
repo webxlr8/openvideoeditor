@@ -1,5 +1,12 @@
 //! Property tests for batch apply (task 2.3): every random batch is either rejected with the document unchanged,
 //! or applied with all invariants holding and `apply(inverse(batch))` restoring the original exactly.
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    reason = "test code: a failure here is a failed test; clippy.toml only covers #[test] functions, not helpers"
+)]
 
 use ove_core::diff::diff_documents;
 use ove_core::invariants::check_document;

@@ -46,9 +46,16 @@ missing_debug_implementations = "allow"
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
-dbg_macro = "warn"
-todo = "warn"
-unwrap_used = "allow"
+# No panics in shipped code: failures surface as errors. Tests, benches and examples may still
+# unwrap (see clippy.toml).
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+unreachable = "deny"
+dbg_macro = "deny"
+undocumented_unsafe_blocks = "deny"
 
 [profile.release]
 lto = "thin"

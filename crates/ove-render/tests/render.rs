@@ -1,6 +1,13 @@
 //! Compositor, audio and export on real (synthetic) media. Needs the ffmpeg CLI to make the media
 //! (`OVE_FIXTURE_FFMPEG` or `ffmpeg` on PATH): without it the tests fail, unless
 //! `OVE_ALLOW_MISSING_MEDIA_TOOLS=1` makes them print "skipped".
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    reason = "test code: a failure here is a failed test; clippy.toml only covers #[test] functions, not helpers"
+)]
 
 #[path = "../../../tests/media/fixtures.rs"]
 mod fixtures;

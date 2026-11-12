@@ -1,6 +1,13 @@
 //! The fal key goes only to fal's own API hosts: status, result and cancel URLs taken from a reply are checked, and
 //! output downloads never carry it. A queued request that never finishes times out. One test, run serially, because
 //! environment variables point the provider at the stand-ins.
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    reason = "test code: a failure here is a failed test; clippy.toml only covers #[test] functions, not helpers"
+)]
 
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -98,6 +105,8 @@ fn fal_key_stays_on_fal_hosts() {
         (200, urls.to_string())
     }));
     *host.lock().unwrap() = base.clone();
+    // SAFETY: the environment is only read through `std::env` in this test binary (std serialises those reads with
+    // writes); no C code reads it concurrently, so changing it while other tests run cannot race.
     unsafe {
         std::env::set_var("OVE_FAL_QUEUE_URL", &base);
         std::env::set_var("OVE_GENERATE_POLL_MS", "10");
@@ -142,9 +151,12 @@ fn fal_key_stays_on_fal_hosts() {
     assert_eq!(submit.2.get("authorization").map(String::as_str), Some(&*format!("Key {KEY}")));
 
     // A request that never leaves the queue times out and is cancelled at fal.
+    // SAFETY: the environment is only read through `std::env` in this test binary (std serialises those reads with
+    // writes); no C code reads it concurrently, so changing it while other tests run cannot race.
     unsafe { std::env::set_var("OVE_GENERATE_TIMEOUT_S", "0.2") };
     let started = std::time::Instant::now();
     let e = case("stuck", None).expect_err("times out");
+    // SAFETY: as above.
     unsafe { std::env::remove_var("OVE_GENERATE_TIMEOUT_S") };
     assert_eq!(e.code, "provider.timeout");
     assert!(started.elapsed() < std::time::Duration::from_secs(5));
