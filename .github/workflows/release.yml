@@ -76,6 +76,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: runner resources
+        run: |
+          nproc
+          free -m
+          df -h . | tail -1
       - name: prerequisites (MinGW-w64, NSIS, Wine)
         run: |
           pkgs="gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 mingw-w64-tools nasm meson ninja-build pkg-config cmake clang
