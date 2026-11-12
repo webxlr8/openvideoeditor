@@ -1,6 +1,7 @@
 //! Runs the scripted demo assistant on a local port:
 //! `cargo run -p ove-agent --example mock_server -- 127.0.0.1:8787 [chunk-delay-ms]`
-//! then start the app with `OVE_ANTHROPIC_BASE_URL=http://127.0.0.1:8787 ANTHROPIC_API_KEY=demo-key-not-real-123456`.
+//! then start the app with `OVE_ANTHROPIC_BASE_URL=http://127.0.0.1:8787 ANTHROPIC_API_KEY=demo-key-not-real-123456`
+//! (a release build also needs `OVE_DEV_ENDPOINTS=1` to accept the override).
 
 use ove_agent::mock::{MockServer, Reply, demo_brain};
 use std::time::Duration;

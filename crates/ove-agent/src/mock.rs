@@ -1,5 +1,6 @@
 //! A local stand-in for the Messages API, for tests and for demonstrating the assistant without an API key
-//! (`OVE_ANTHROPIC_BASE_URL=http://127.0.0.1:<port>`). It serves scripted Server-Sent Event responses.
+//! (`OVE_ANTHROPIC_BASE_URL=http://127.0.0.1:<port>`, plus `OVE_DEV_ENDPOINTS=1` in a release build). It serves
+//! scripted Server-Sent Event responses.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
