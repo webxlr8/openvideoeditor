@@ -11,12 +11,13 @@ use ove_core::time::secs_to_micros;
 use ove_render::color::{self, LUT_PRESETS, Lut, apply_lut, preset_lut};
 use ove_render::{Renderer, Rgba, effects, layouts, transitions};
 use serde_json::{Map, Value, json};
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager};
 use tauri_plugin_dialog::DialogExt;
 
 use crate::AppState;
 use crate::error::{AppError, AppResult, ErrorCode};
-use crate::projects::{ProjectView, edit, lock};
+use crate::projects::{ProjectView, edit, lock, serial};
+use crate::worker;
 
 fn bad(msg: impl Into<String>) -> AppError {
     AppError::new(ErrorCode::InvalidArgument, msg)
@@ -88,23 +89,27 @@ const THUMB: (u32, u32) = (160, 90);
 #[tauri::command]
 #[specta::specta]
 pub async fn fx_preview(kind: String, id: String) -> AppResult<String> {
-    let key = format!("{kind}:{id}");
-    if let Some(u) = lock(thumb_cache())?.get(&key) {
-        return Ok(u.clone());
-    }
-    let img = match kind.as_str() {
-        "effect" => effects::preview(&id, THUMB.0, THUMB.1).ok_or_else(|| bad(format!("Unknown effect {id}.")))?,
-        "lut" => {
-            let lut = preset_lut(&id).ok_or_else(|| bad(format!("Unknown look {id}.")))?;
-            let mut img = effects::sample_image(THUMB.0, THUMB.1);
-            apply_lut(&mut img, &lut, 1.0);
-            img
+    worker::blocking("fx_preview", move || {
+        let key = format!("{kind}:{id}");
+        if let Some(u) = lock(thumb_cache())?.get(&key) {
+            return Ok(u.clone());
         }
-        _ => return Err(bad("Previews exist for effects and looks.")),
-    };
-    let url = png_data_url(&img).ok_or_else(|| AppError::new(ErrorCode::Internal, "Could not encode the preview."))?;
-    lock(thumb_cache())?.insert(key, url.clone());
-    Ok(url)
+        let img = match kind.as_str() {
+            "effect" => effects::preview(&id, THUMB.0, THUMB.1).ok_or_else(|| bad(format!("Unknown effect {id}.")))?,
+            "lut" => {
+                let lut = preset_lut(&id).ok_or_else(|| bad(format!("Unknown look {id}.")))?;
+                let mut img = effects::sample_image(THUMB.0, THUMB.1);
+                apply_lut(&mut img, &lut, 1.0);
+                img
+            }
+            _ => return Err(bad("Previews exist for effects and looks.")),
+        };
+        let url =
+            png_data_url(&img).ok_or_else(|| AppError::new(ErrorCode::Internal, "Could not encode the preview."))?;
+        lock(thumb_cache())?.insert(key, url.clone());
+        Ok(url)
+    })
+    .await
 }
 
 fn bundle(state: &AppState) -> AppResult<PathBuf> {
@@ -116,17 +121,22 @@ fn bundle(state: &AppState) -> AppResult<PathBuf> {
 /// path to store in `colorGrade.lut.file`. With no path, asks with a file dialog (None when cancelled).
 #[tauri::command]
 #[specta::specta]
-pub async fn import_lut(app: AppHandle, state: State<'_, AppState>, path: Option<String>) -> AppResult<Option<String>> {
-    let src = match path {
-        Some(p) => PathBuf::from(p),
-        None => {
-            let Some(f) = app.dialog().file().add_filter("Cube LUT", &["cube"]).blocking_pick_file() else {
-                return Ok(None);
-            };
-            f.into_path().map_err(|_| bad("That file cannot be opened."))?
-        }
-    };
-    Ok(Some(copy_lut(&bundle(&state)?, &src)?))
+pub async fn import_lut(app: AppHandle, path: Option<String>) -> AppResult<Option<String>> {
+    worker::blocking("import_lut", move || {
+        let state = app.state::<AppState>();
+        let state = &*state;
+        let src = match path {
+            Some(p) => PathBuf::from(p),
+            None => {
+                let Some(f) = app.dialog().file().add_filter("Cube LUT", &["cube"]).blocking_pick_file() else {
+                    return Ok(None);
+                };
+                f.into_path().map_err(|_| bad("That file cannot be opened."))?
+            }
+        };
+        Ok(Some(copy_lut(&bundle(state)?, &src)?))
+    })
+    .await
 }
 
 fn copy_lut(bundle: &Path, src: &Path) -> AppResult<String> {
@@ -159,56 +169,64 @@ const MATCH_HEIGHT: u32 = 270;
 #[specta::specta]
 pub async fn match_color(
     app: AppHandle,
-    state: State<'_, AppState>,
     item_id: String,
     reference_time: f64,
     strength: Option<f64>,
 ) -> AppResult<ProjectView> {
-    let (doc, bundle) = {
-        let g = lock(&state.projects.open)?;
-        let p = g.as_ref().ok_or_else(|| bad("No project is open."))?;
-        (p.doc().clone(), p.bundle().to_path_buf())
-    };
-    let item = doc.item(&item_id).cloned().ok_or_else(|| AppError::new(ErrorCode::NotFound, "That item is gone."))?;
-    if !matches!(item.kind.as_str(), "video" | "image") {
-        return Err(bad("Colour match works on video and image items."));
-    }
-    let mut r = Renderer::new(Some(&bundle), MATCH_HEIGHT);
-    let reference = r.render(&doc, secs_to_micros(reference_time.max(0.0)).unwrap_or(0));
-    // The item alone, ungraded, at its middle.
-    let mut ops: Vec<Op> = doc
-        .project
-        .items
-        .keys()
-        .filter(|id| **id != item_id)
-        .map(|id| Op::UpdateItem {
-            id: id.clone(),
-            set: json!({"hidden": true}).as_object().cloned().unwrap_or_default(),
-        })
-        .collect();
-    ops.push(Op::UnsetItemFields { id: item_id.clone(), fields: vec!["colorGrade".into(), "effects".into()] });
-    let alone = apply_batch(&doc, &ops).map_err(|e| AppError::new(ErrorCode::Internal, e.to_string()))?.doc;
-    let target = r.render(&alone, (item.start + item.end) / 2);
-    let wheels = color::fit_match(&reference, &target, strength.unwrap_or(1.0) as f32);
-    let mut grade: Map<String, Value> =
-        item.fields.get("colorGrade").and_then(Value::as_object).cloned().unwrap_or_default();
-    grade.remove("match");
-    grade.insert("wheels".into(), wheels);
-    let set = json!({ "colorGrade": grade }).as_object().cloned().unwrap_or_default();
-    edit(&app, &state, vec![Op::UpdateItem { id: item_id, set }], "match colour")
+    serial(&app, "match_color", move |app, state| {
+        let (doc, bundle) = {
+            let g = lock(&state.projects.open)?;
+            let p = g.as_ref().ok_or_else(|| bad("No project is open."))?;
+            (p.doc().clone(), p.bundle().to_path_buf())
+        };
+        let item =
+            doc.item(&item_id).cloned().ok_or_else(|| AppError::new(ErrorCode::NotFound, "That item is gone."))?;
+        if !matches!(item.kind.as_str(), "video" | "image") {
+            return Err(bad("Colour match works on video and image items."));
+        }
+        let mut r = Renderer::new(Some(&bundle), MATCH_HEIGHT);
+        let reference = r.render(&doc, secs_to_micros(reference_time.max(0.0)).unwrap_or(0));
+        // The item alone, ungraded, at its middle.
+        let mut ops: Vec<Op> = doc
+            .project
+            .items
+            .keys()
+            .filter(|id| **id != item_id)
+            .map(|id| Op::UpdateItem {
+                id: id.clone(),
+                set: json!({"hidden": true}).as_object().cloned().unwrap_or_default(),
+            })
+            .collect();
+        ops.push(Op::UnsetItemFields { id: item_id.clone(), fields: vec!["colorGrade".into(), "effects".into()] });
+        let alone = apply_batch(&doc, &ops).map_err(|e| AppError::new(ErrorCode::Internal, e.to_string()))?.doc;
+        let target = r.render(&alone, (item.start + item.end) / 2);
+        let wheels = color::fit_match(&reference, &target, strength.unwrap_or(1.0) as f32);
+        let mut grade: Map<String, Value> =
+            item.fields.get("colorGrade").and_then(Value::as_object).cloned().unwrap_or_default();
+        grade.remove("match");
+        grade.insert("wheels".into(), wheels);
+        let set = json!({ "colorGrade": grade }).as_object().cloned().unwrap_or_default();
+        edit(app, state, vec![Op::UpdateItem { id: item_id, set }], "match colour")
+    })
+    .await
 }
 
 /// Histograms (red, green, blue, luma; 64 bins, 0..1) of the timeline frame at `time` seconds.
 #[tauri::command]
 #[specta::specta]
-pub async fn color_scopes(state: State<'_, AppState>, time: f64) -> AppResult<Vec<Vec<f32>>> {
-    let (doc, bundle) = {
-        let g = lock(&state.projects.open)?;
-        let p = g.as_ref().ok_or_else(|| bad("No project is open."))?;
-        (p.doc().clone(), p.bundle().to_path_buf())
-    };
-    let frame = Renderer::new(Some(&bundle), 180).render(&doc, secs_to_micros(time.max(0.0)).unwrap_or(0));
-    Ok(color::histogram(&frame).into_iter().collect())
+pub async fn color_scopes(app: AppHandle, time: f64) -> AppResult<Vec<Vec<f32>>> {
+    worker::blocking("color_scopes", move || {
+        let state = app.state::<AppState>();
+        let state = &*state;
+        let (doc, bundle) = {
+            let g = lock(&state.projects.open)?;
+            let p = g.as_ref().ok_or_else(|| bad("No project is open."))?;
+            (p.doc().clone(), p.bundle().to_path_buf())
+        };
+        let frame = Renderer::new(Some(&bundle), 180).render(&doc, secs_to_micros(time.max(0.0)).unwrap_or(0));
+        Ok(color::histogram(&frame).into_iter().collect())
+    })
+    .await
 }
 
 #[cfg(test)]

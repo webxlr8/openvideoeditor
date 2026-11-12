@@ -1,32 +1,51 @@
 //! Projects in the app: the library (Home), the open project (editor) and every edit the editor makes. All edits go
 //! through the document pipeline (`ove-store` → `ove-core` ops), so they are durable, undoable revisions and the
 //! bundle's `timeline.tsx` follows them for agents and the CLI.
+//!
+//! Commands that read or change the open project run off the main thread, one at a time and in the order they
+//! arrive ([`serial`]), so a slow disk never freezes the window and quick edits (a slider drag) never reorder.
+//! Building the editor's view never touches the disk: media status and thumbnails come from [`MediaCache`], which a
+//! background check ([`refresh_media`]) fills when the project opens, its media change, or the window regains focus.
 
-use std::collections::BTreeSet;
+use std::any::Any;
+use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use base64::Engine as _;
 use ove_core::ops::Op;
 use ove_core::revision::Source;
-use ove_store::media::{MediaState, media_status};
+use ove_store::media::{MediaState, media_status, resolve_media_path};
 use ove_store::project::{Mode, Project};
 use ove_store::{Library, Listing, StoreError};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use specta::Type;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Manager};
 use tauri_plugin_dialog::DialogExt;
 use tauri_specta::Event;
 
 use crate::AppState;
 use crate::error::{AppError, AppResult, ErrorCode};
+use crate::worker::{self, relock};
 
 /// Holder of the library and the project open in the editor (write lock held while open).
 #[derive(Default)]
 pub struct Projects {
     pub library: Mutex<Option<Library>>,
     pub open: Mutex<Option<Project>>,
+    /// Media status and thumbnails of the open project.
+    pub media: Mutex<MediaCache>,
+    /// Project commands take turns here, first come first served.
+    turn: tokio::sync::Mutex<()>,
+    refresh: RefreshState,
+}
+
+#[derive(Default)]
+struct RefreshState {
+    running: AtomicBool,
+    again: AtomicBool,
 }
 
 impl From<StoreError> for AppError {
@@ -138,8 +157,41 @@ pub struct ProjectView {
 #[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
 pub struct ProjectChanged(pub Option<ProjectView>);
 
-pub(crate) fn lock<'a, T>(m: &'a Mutex<T>) -> AppResult<std::sync::MutexGuard<'a, T>> {
-    m.lock().map_err(|_| AppError::new(ErrorCode::Internal, "internal state is unavailable"))
+/// Locks shared state. A lock that a panicking thread left poisoned is recovered instead of failing every later
+/// command: the poison is cleared, and the open project is re-validated (see [`heal_project`]).
+pub(crate) fn lock<T: 'static>(m: &Mutex<T>) -> AppResult<MutexGuard<'_, T>> {
+    match m.lock() {
+        Ok(g) => Ok(g),
+        Err(poisoned) => {
+            m.clear_poison();
+            let mut g = poisoned.into_inner();
+            tracing::warn!(state = std::any::type_name::<T>(), "recovering state left locked by a failed command");
+            if let Some(open) = (&mut *g as &mut dyn Any).downcast_mut::<Option<Project>>() {
+                heal_project(open);
+            }
+            Ok(g)
+        }
+    }
+}
+
+/// Re-validates the open project after a command panicked while holding it. The revision log on disk is the
+/// source of truth: a document that fails its invariants is reloaded from it (undo history before the failure is
+/// lost); one that cannot be reloaded is closed.
+fn heal_project(open: &mut Option<Project>) {
+    let Some(p) = open.as_ref() else { return };
+    match ove_core::migrate::validate(p.doc()) {
+        Ok(()) => tracing::info!(rev = p.rev(), "the open project is consistent after the failure; keeping it"),
+        Err(e) => {
+            let bundle = p.bundle().to_path_buf();
+            tracing::error!(error = %e, "the open project is inconsistent after the failure; reloading it from disk");
+            // Dropping it releases the write lock so it can be taken again.
+            *open = None;
+            match Project::open(&bundle, Mode::Write, clock()) {
+                Ok(p) => *open = Some(p),
+                Err(e) => tracing::error!(error = %e, "reloading failed; the project was closed"),
+            }
+        }
+    }
 }
 
 pub(crate) fn clock() -> Arc<dyn ove_core::Clock> {
@@ -150,7 +202,7 @@ fn secs(us: i64) -> f64 {
     us as f64 / 1e6
 }
 
-fn library<'a>(p: &'a Projects) -> AppResult<std::sync::MutexGuard<'a, Option<Library>>> {
+fn library<'a>(p: &'a Projects) -> AppResult<MutexGuard<'a, Option<Library>>> {
     let mut g = lock(&p.library)?;
     if g.is_none() {
         let root = ove_store::library::resolve_library(None)?;
@@ -172,10 +224,43 @@ fn transition_secs(i: &ove_core::Item, key: &str) -> f64 {
     i.fields.get(key).and_then(|t| t.get("duration")).and_then(ove_core::time::json_to_micros).map(secs).unwrap_or(0.0)
 }
 
-/// Builds the editor's view of a project.
+/// What the view shows about one media file's link to disk.
+#[derive(Debug, Clone, PartialEq)]
+struct LinkView {
+    path: String,
+    state: MediaState,
+}
+
+fn status_name(s: MediaState) -> &'static str {
+    match s {
+        MediaState::Offline => "offline",
+        MediaState::Changed => "changed",
+        MediaState::Online => "online",
+    }
+}
+
+/// Builds the editor's view of a project, checking every media file and reading every thumbnail now. Commands use
+/// the cached view instead ([`MediaCache::view`]); this is for one-off use and tests.
 pub fn view(p: &Project) -> ProjectView {
+    let status = media_status(p.bundle(), p.doc());
+    view_from(
+        p,
+        |id| {
+            status
+                .iter()
+                .find(|s| s.media_id == id)
+                .map(|s| LinkView { path: s.path.display().to_string(), state: s.state })
+        },
+        |id| thumbnail_data_url(p.bundle(), id),
+    )
+}
+
+fn view_from(
+    p: &Project,
+    link: impl Fn(&str) -> Option<LinkView>,
+    thumbnail: impl Fn(&str) -> Option<String>,
+) -> ProjectView {
     let d = p.doc();
-    let status = media_status(p.bundle(), d);
     let track_bool = |t: &ove_core::Track, k: &str, def: bool| t.fields.get(k).and_then(Value::as_bool).unwrap_or(def);
     let media = d
         .project
@@ -184,22 +269,17 @@ pub fn view(p: &Project) -> ProjectView {
         .map(|m| {
             let data = m.data();
             let get = |k: &str| data.and_then(|x| x.get(k));
-            let st = status.iter().find(|s| s.media_id == m.id);
+            let st = link(&m.id);
             MediaView {
                 id: m.id.clone(),
                 name: m.file_name().map(str::to_string).unwrap_or_else(|| m.id.clone()),
-                path: st.map(|s| s.path.display().to_string()).unwrap_or_default(),
+                path: st.as_ref().map(|s| s.path.clone()).unwrap_or_default(),
                 kind: get("type").and_then(Value::as_str).unwrap_or("video").to_string(),
                 duration_seconds: get("duration").and_then(Value::as_f64),
                 width: get("width").and_then(Value::as_u64).map(|v| v as u32),
                 height: get("height").and_then(Value::as_u64).map(|v| v as u32),
-                status: match st.map(|s| s.state) {
-                    Some(MediaState::Offline) => "offline",
-                    Some(MediaState::Changed) => "changed",
-                    _ => "online",
-                }
-                .into(),
-                thumbnail: thumbnail_data_url(p.bundle(), &m.id),
+                status: status_name(st.map(|s| s.state).unwrap_or(MediaState::Online)).into(),
+                thumbnail: thumbnail(&m.id),
             }
         })
         .collect();
@@ -262,17 +342,190 @@ pub fn view(p: &Project) -> ProjectView {
     }
 }
 
+/// The registry fields a status check depends on: when they change (import, relink), the file is checked again.
+fn link_key(e: &ove_core::RegistryEntry) -> String {
+    format!("{}\u{1}{:?}\u{1}{:?}", e.native_path, e.fields.get("size"), e.fields.get("modifiedAt"))
+}
+
+/// Media status and thumbnails of the open project as last checked, so building a view (on every edit) does no
+/// file-system access: no `stat` of each media file, no read and base64 of each thumbnail.
+#[derive(Default)]
+pub struct MediaCache {
+    bundle: PathBuf,
+    /// media id → (link key it was checked for, result).
+    links: HashMap<String, (String, LinkView)>,
+    /// media id → thumbnail data URL (`None`: there was no thumbnail file when last looked).
+    thumbs: HashMap<String, Option<String>>,
+}
+
+impl MediaCache {
+    fn select(&mut self, bundle: &Path) {
+        if self.bundle != bundle {
+            *self = MediaCache { bundle: bundle.to_path_buf(), ..Default::default() };
+        }
+    }
+
+    /// The view of `p` from the cache, and whether some media still needs checking (see [`refresh_media`]).
+    /// Unchecked media shows as online at its registered path until the check reports otherwise.
+    pub fn view(&mut self, p: &Project) -> (ProjectView, bool) {
+        self.select(p.bundle());
+        let d = p.doc();
+        let stale = d.registry.values().any(|e| self.links.get(&e.media_id).is_none_or(|(k, _)| *k != link_key(e)))
+            || d.project.media.keys().any(|id| !self.thumbs.contains_key(id));
+        let v = view_from(
+            p,
+            |id| {
+                let e = d.registry.get(id)?;
+                Some(match self.links.get(id) {
+                    Some((k, l)) if *k == link_key(e) => l.clone(),
+                    _ => LinkView {
+                        path: resolve_media_path(p.bundle(), &e.native_path).display().to_string(),
+                        state: MediaState::Online,
+                    },
+                })
+            },
+            |id| self.thumbs.get(id).cloned().flatten(),
+        );
+        (v, stale)
+    }
+
+    /// Records a thumbnail just made for `media_id`.
+    pub fn put_thumbnail(&mut self, bundle: &Path, media_id: &str, data_url: Option<String>) {
+        self.select(bundle);
+        self.thumbs.insert(media_id.to_string(), data_url);
+    }
+
+    /// Stores checked links and thumbnails; true when something the view shows changed.
+    fn store(
+        &mut self,
+        bundle: &Path,
+        links: Vec<(String, String, LinkView)>,
+        thumbs: Vec<(String, Option<String>)>,
+    ) -> bool {
+        self.select(bundle);
+        let mut changed = false;
+        for (id, key, l) in links {
+            let shown = match self.links.get(&id) {
+                Some((k, old)) if *k == key => old.clone(),
+                // Shown as online at its path until now.
+                _ => LinkView { path: l.path.clone(), state: MediaState::Online },
+            };
+            changed |= shown != l;
+            self.links.insert(id, (key, l));
+        }
+        for (id, t) in thumbs {
+            changed |= self.thumbs.get(&id).cloned().flatten() != t;
+            self.thumbs.insert(id, t);
+        }
+        changed
+    }
+}
+
+/// Checks the open project's media files and loads missing thumbnails on a background thread, then broadcasts the
+/// view if anything shown changed. Runs at most one check at a time (a request during a check runs it again after).
+/// No lock is held while the disk is accessed, so an offline network volume only delays this thread.
+pub fn refresh_media(app: &AppHandle) {
+    let Some(state) = app.try_state::<AppState>() else { return };
+    let r = &state.projects.refresh;
+    r.again.store(true, Ordering::SeqCst);
+    if r.running.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let app = app.clone();
+    let spawned = worker::spawn_contained("media check", move || {
+        let state = app.state::<AppState>();
+        let r = &state.projects.refresh;
+        loop {
+            while r.again.swap(false, Ordering::SeqCst) {
+                let _ = worker::contain("the media check", || refresh_once(&app, &state));
+            }
+            r.running.store(false, Ordering::SeqCst);
+            // A request that arrived after the last pass and before `running` cleared is ours to run.
+            if !r.again.load(Ordering::SeqCst) || r.running.swap(true, Ordering::SeqCst) {
+                break;
+            }
+        }
+    });
+    if let Err(e) = spawned {
+        tracing::warn!(error = %e, "could not start the media check");
+        state.projects.refresh.running.store(false, Ordering::SeqCst);
+    }
+}
+
+fn refresh_once(app: &AppHandle, state: &AppState) {
+    let snapshot =
+        lock(&state.projects.open).ok().and_then(|g| g.as_ref().map(|p| (p.bundle().to_path_buf(), p.doc().clone())));
+    let Some((bundle, doc)) = snapshot else { return };
+    let have_thumb: BTreeSet<String> = {
+        let mut c = relock(&state.projects.media);
+        c.select(&bundle);
+        c.thumbs.iter().filter(|(_, t)| t.is_some()).map(|(id, _)| id.clone()).collect()
+    };
+    let links = media_status(&bundle, &doc)
+        .into_iter()
+        .filter_map(|s| {
+            let key = link_key(doc.registry.get(&s.media_id)?);
+            Some((s.media_id, key, LinkView { path: s.path.display().to_string(), state: s.state }))
+        })
+        .collect();
+    let thumbs = doc
+        .project
+        .media
+        .keys()
+        .filter(|id| !have_thumb.contains(*id))
+        .map(|id| (id.clone(), thumbnail_data_url(&bundle, id)))
+        .collect();
+    // Released before the project is locked: the lock order is project, then media cache.
+    let changed = relock(&state.projects.media).store(&bundle, links, thumbs);
+    if changed
+        && let Ok(g) = lock(&state.projects.open)
+        && let Some(p) = g.as_ref().filter(|p| p.bundle() == bundle)
+    {
+        let _ = ProjectChanged(Some(cached_view(app, state, p))).emit(app);
+    }
+}
+
+/// The view of the open project from the media cache; schedules a media check when the cache is behind.
+pub(crate) fn cached_view(app: &AppHandle, state: &AppState, p: &Project) -> ProjectView {
+    let (v, stale) = relock(&state.projects.media).view(p);
+    if stale {
+        refresh_media(app);
+    }
+    v
+}
+
 /// Default tracks of a new project, top layer first.
 pub(crate) fn default_tracks() -> Vec<Op> {
     ove_store::library::starter_tracks()
 }
 
-pub(crate) fn emit(app: &AppHandle, p: Option<&Project>) {
-    let _ = ProjectChanged(p.map(view)).emit(app);
+/// Broadcasts the open project's view and returns it.
+pub(crate) fn emit_view(app: &AppHandle, p: Option<&Project>) -> Option<ProjectView> {
+    let state = app.state::<AppState>();
+    let v = p.map(|p| cached_view(app, &state, p));
+    let _ = ProjectChanged(v.clone()).emit(app);
     // The timeline preview follows every change.
     if let Some(p) = p {
-        crate::exporting::notify_doc(&app.state::<AppState>(), p.doc(), p.bundle());
+        crate::exporting::notify_doc(&state, p.doc(), p.bundle());
     }
+    v
+}
+
+pub(crate) fn emit(app: &AppHandle, p: Option<&Project>) {
+    emit_view(app, p);
+}
+
+/// Runs a project command off the main thread, after every project command that arrived before it (one at a time,
+/// in order), with panics contained. `f` gets the app and its state.
+pub(crate) async fn serial<T: Send + 'static>(
+    app: &AppHandle,
+    name: &'static str,
+    f: impl FnOnce(&AppHandle, &AppState) -> AppResult<T> + Send + 'static,
+) -> AppResult<T> {
+    let state = app.state::<AppState>();
+    let _turn = state.projects.turn.lock().await;
+    let a = app.clone();
+    worker::blocking(name, move || f(&a, &a.state::<AppState>())).await
 }
 
 fn summaries(lib: &Library) -> AppResult<Vec<ProjectSummary>> {
@@ -310,9 +563,13 @@ fn summaries(lib: &Library) -> AppResult<Vec<ProjectSummary>> {
 
 #[tauri::command]
 #[specta::specta]
-pub fn list_projects(state: State<'_, AppState>) -> AppResult<Vec<ProjectSummary>> {
-    let lib = library(&state.projects)?;
-    summaries(lib.as_ref().unwrap())
+pub async fn list_projects(app: AppHandle) -> AppResult<Vec<ProjectSummary>> {
+    worker::blocking("list_projects", move || {
+        let state = app.state::<AppState>();
+        let lib = library(&state.projects)?;
+        summaries(lib.as_ref().unwrap())
+    })
+    .await
 }
 
 fn close_open(state: &AppState) -> AppResult<()> {
@@ -322,62 +579,81 @@ fn close_open(state: &AppState) -> AppResult<()> {
     Ok(())
 }
 
-#[tauri::command]
-#[specta::specta]
-pub fn create_project(app: AppHandle, state: State<'_, AppState>, name: String) -> AppResult<ProjectView> {
-    close_open(&state)?;
-    let mut p = {
-        let lib = library(&state.projects)?;
-        let name = if name.trim().is_empty() { "Untitled Project".to_string() } else { name };
-        lib.as_ref().unwrap().create(&name)?
-    };
-    p.apply(default_tracks(), Source::Gui, Some("new project".into()))?;
-    let v = view(&p);
-    tracing::info!(bundle = %p.bundle().display(), "project created");
-    *lock(&state.projects.open)? = Some(p);
-    emit(&app, lock(&state.projects.open)?.as_ref());
-    Ok(v)
+/// Makes `p` the open project and broadcasts it.
+fn install(app: &AppHandle, state: &AppState, p: Project) -> AppResult<ProjectView> {
+    let mut g = lock(&state.projects.open)?;
+    *g = Some(p);
+    emit_view(app, g.as_ref()).ok_or_else(|| AppError::new(ErrorCode::Internal, "The project did not open."))
 }
 
 #[tauri::command]
 #[specta::specta]
-pub fn open_project(app: AppHandle, state: State<'_, AppState>, bundle: String) -> AppResult<ProjectView> {
-    close_open(&state)?;
-    let p = Project::open(Path::new(&bundle), Mode::Write, clock())?;
+pub async fn create_project(app: AppHandle, name: String) -> AppResult<ProjectView> {
+    serial(&app, "create_project", move |app, state| {
+        close_open(state)?;
+        let mut p = {
+            let lib = library(&state.projects)?;
+            let name = if name.trim().is_empty() { "Untitled Project".to_string() } else { name };
+            lib.as_ref().unwrap().create(&name)?
+        };
+        p.apply(default_tracks(), Source::Gui, Some("new project".into()))?;
+        tracing::info!(bundle = %p.bundle().display(), "project created");
+        install(app, state, p)
+    })
+    .await
+}
+
+/// Opens a project bundle for editing (closing the one open). Used by the command and the control link.
+pub(crate) fn open_bundle(app: &AppHandle, state: &AppState, bundle: &str) -> AppResult<ProjectView> {
+    close_open(state)?;
+    let p = Project::open(Path::new(bundle), Mode::Write, clock())?;
     if let Some(prev) = &p.took_over_from {
         tracing::warn!(previous = %prev.describe(), "recovered a project left open by a process that stopped");
     }
-    let v = view(&p);
-    *lock(&state.projects.open)? = Some(p);
-    emit(&app, lock(&state.projects.open)?.as_ref());
-    Ok(v)
+    install(app, state, p)
 }
 
 #[tauri::command]
 #[specta::specta]
-pub fn close_project(app: AppHandle, state: State<'_, AppState>) -> AppResult<()> {
-    close_open(&state)?;
-    let _ = state.engine.tx.send(crate::engine::EngineMsg::Close);
-    emit(&app, None);
-    Ok(())
+pub async fn open_project(app: AppHandle, bundle: String) -> AppResult<ProjectView> {
+    serial(&app, "open_project", move |app, state| open_bundle(app, state, &bundle)).await
 }
 
 #[tauri::command]
 #[specta::specta]
-pub fn project_view(state: State<'_, AppState>) -> AppResult<Option<ProjectView>> {
-    Ok(lock(&state.projects.open)?.as_ref().map(view))
+pub async fn close_project(app: AppHandle) -> AppResult<()> {
+    serial(&app, "close_project", |app, state| {
+        close_open(state)?;
+        let _ = state.engine.send(crate::engine::EngineMsg::Close);
+        emit(app, None);
+        Ok(())
+    })
+    .await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn project_view(app: AppHandle) -> AppResult<Option<ProjectView>> {
+    serial(&app, "project_view", |app, state| {
+        Ok(lock(&state.projects.open)?.as_ref().map(|p| cached_view(app, state, p)))
+    })
+    .await
+}
+
+/// Applies ops to the open project as one revision (nothing to apply: no revision).
+fn commit<'a>(open: &'a mut Option<Project>, ops: Vec<Op>, summary: &str) -> AppResult<&'a mut Project> {
+    let p = open.as_mut().ok_or_else(|| AppError::new(ErrorCode::InvalidArgument, "No project is open."))?;
+    if !ops.is_empty() {
+        p.apply(ops, Source::Gui, Some(summary.to_string()))?;
+    }
+    Ok(p)
 }
 
 /// Applies ops to the open project as one revision and broadcasts the new view.
 pub(crate) fn edit(app: &AppHandle, state: &AppState, ops: Vec<Op>, summary: &str) -> AppResult<ProjectView> {
     let mut g = lock(&state.projects.open)?;
-    let p = g.as_mut().ok_or_else(|| AppError::new(ErrorCode::InvalidArgument, "No project is open."))?;
-    if !ops.is_empty() {
-        p.apply(ops, Source::Gui, Some(summary.to_string()))?;
-    }
-    let v = view(p);
-    emit(app, Some(p));
-    Ok(v)
+    let p = commit(&mut g, ops, summary)?;
+    emit_view(app, Some(p)).ok_or_else(|| AppError::new(ErrorCode::Internal, "No project is open."))
 }
 
 /// Makes a 160×90 PNG thumbnail from the frame at 1 s (or the first frame).
@@ -462,21 +738,26 @@ pub(crate) fn media_records(canonical: &Path, info: &ove_media::MediaInfo, id: &
     (json!({"id": id, "createdAt": now, "addedAt": now, "data": Value::Object(data)}), entry, duration_us)
 }
 
-/// Probes files, registers them as media, makes thumbnails and appends each to the Main track (audio-only files to
-/// the Audio track) — one revision.
-fn import_paths(app: &AppHandle, state: &AppState, paths: Vec<String>) -> AppResult<ProjectView> {
-    let (bundle, doc) = {
+/// One file ready to add: its records and where it goes.
+struct Probed {
+    media: Value,
+    entry: Value,
+    id: String,
+    name: String,
+    duration_us: i64,
+    video: bool,
+}
+
+/// Probes files, registers their records and makes thumbnails. Slow (decoding), so it runs outside the project's
+/// turn: edits made meanwhile are not held up.
+fn probe_paths(state: &AppState, paths: &[String], now: i64) -> AppResult<(PathBuf, Vec<Probed>, Vec<String>)> {
+    let bundle = {
         let g = lock(&state.projects.open)?;
         let p =
             g.as_ref().ok_or_else(|| AppError::new(ErrorCode::InvalidArgument, "Open or create a project first."))?;
-        (p.bundle().to_path_buf(), p.doc().clone())
+        p.bundle().to_path_buf()
     };
-    let known: BTreeSet<String> = doc.registry.values().map(|e| e.native_path.clone()).collect();
-    let track_end =
-        |track: &str, extra: i64| doc.items_on_track(track).iter().map(|i| i.end).max().unwrap_or(0).max(extra);
-    let (mut main_end, mut audio_end) = (track_end("t_main", 0), track_end("t_audio", 0));
-    let now = ove_core::Clock::now_ms(&ove_core::SystemClock);
-    let mut ops = Vec::new();
+    let mut probed = Vec::new();
     let mut errors = Vec::new();
     for (n, path) in paths.iter().enumerate() {
         let pb = PathBuf::from(path);
@@ -495,46 +776,74 @@ fn import_paths(app: &AppHandle, state: &AppState, paths: Vec<String>) -> AppRes
         };
         let id = format!("m_{:x}_{n}", now);
         let (media, entry, duration_us) = media_records(&canonical, &info, &id, now);
-        if known.contains(&canonical.display().to_string()) {
-            tracing::info!(path, "media already in the project; adding another clip");
-        }
-        ops.push(Op::AddMedia { media, entry: Some(entry) });
-        let (track, kind, at) = if info.video.is_some() {
-            let at = main_end;
-            main_end += duration_us;
-            ("t_main", "video", at)
-        } else {
-            let at = audio_end;
-            audio_end += duration_us;
-            ("t_audio", "audio", at)
-        };
-        ops.push(Op::AddItem {
-            item: json!({"id": format!("i_{:x}_{n}", now), "trackId": track, "type": kind,
-                "startTime": ove_core::time::micros_to_json(at), "endTime": ove_core::time::micros_to_json(at + duration_us),
-                "name": name, "mediaItemId": id}),
-        });
         if info.video.is_some() {
             let out = thumbs_dir(&bundle).join(format!("{id}.png"));
             if make_thumbnail(&canonical, &out, duration_us).is_none() {
                 tracing::warn!(path, "no thumbnail");
             }
+            // Read once here; views reuse it.
+            relock(&state.projects.media).put_thumbnail(&bundle, &id, thumbnail_data_url(&bundle, &id));
+        } else {
+            relock(&state.projects.media).put_thumbnail(&bundle, &id, None);
         }
+        probed.push(Probed { media, entry, id, name, duration_us, video: info.video.is_some() });
+    }
+    Ok((bundle, probed, errors))
+}
+
+/// Appends probed files to the Main track (audio-only files to the Audio track) as one revision.
+fn add_probed(
+    app: &AppHandle,
+    state: &AppState,
+    bundle: &Path,
+    probed: Vec<Probed>,
+    now: i64,
+) -> AppResult<ProjectView> {
+    let mut g = lock(&state.projects.open)?;
+    let p = g.as_ref().ok_or_else(|| AppError::new(ErrorCode::InvalidArgument, "Open or create a project first."))?;
+    if p.bundle() != bundle {
+        return Err(AppError::new(ErrorCode::InvalidArgument, "The project changed while the files were read."));
+    }
+    let doc = p.doc();
+    let known: BTreeSet<&str> = doc.registry.values().map(|e| e.native_path.as_str()).collect();
+    let track_end = |track: &str| doc.items_on_track(track).iter().map(|i| i.end).max().unwrap_or(0);
+    let (mut main_end, mut audio_end) = (track_end("t_main"), track_end("t_audio"));
+    let mut ops = Vec::new();
+    for (n, f) in probed.into_iter().enumerate() {
+        if f.entry.get("nativePath").and_then(Value::as_str).is_some_and(|p| known.contains(p)) {
+            tracing::info!(name = f.name, "media already in the project; adding another clip");
+        }
+        ops.push(Op::AddMedia { media: f.media, entry: Some(f.entry) });
+        let (track, kind, at) = if f.video {
+            main_end += f.duration_us;
+            ("t_main", "video", main_end - f.duration_us)
+        } else {
+            audio_end += f.duration_us;
+            ("t_audio", "audio", audio_end - f.duration_us)
+        };
+        ops.push(Op::AddItem {
+            item: json!({"id": format!("i_{:x}_{n}", now), "trackId": track, "type": kind,
+                "startTime": ove_core::time::micros_to_json(at), "endTime": ove_core::time::micros_to_json(at + f.duration_us),
+                "name": f.name, "mediaItemId": f.id}),
+        });
     }
     let count = ops.len() / 2;
-    let v = edit(app, state, ops, &format!("import {count} file{}", if count == 1 { "" } else { "s" }))?;
-    if !errors.is_empty() {
-        let _ = crate::AppErrorRaised(AppError::new(ErrorCode::Unsupported, errors.join(" "))).emit(app);
-    }
-    Ok(v)
+    let p = commit(&mut g, ops, &format!("import {count} file{}", if count == 1 { "" } else { "s" }))?;
+    emit_view(app, Some(p)).ok_or_else(|| AppError::new(ErrorCode::Internal, "No project is open."))
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn import_media(app: AppHandle, paths: Vec<String>) -> AppResult<ProjectView> {
+    let now = ove_core::Clock::now_ms(&ove_core::SystemClock);
     let a = app.clone();
-    tauri::async_runtime::spawn_blocking(move || import_paths(&a, &a.state::<AppState>(), paths))
-        .await
-        .map_err(|e| AppError::new(ErrorCode::Internal, e.to_string()))?
+    let (bundle, probed, errors) =
+        worker::blocking("import_media", move || probe_paths(&a.state::<AppState>(), &paths, now)).await?;
+    let v = serial(&app, "import_media", move |app, state| add_probed(app, state, &bundle, probed, now)).await?;
+    if !errors.is_empty() {
+        let _ = crate::AppErrorRaised(AppError::new(ErrorCode::Unsupported, errors.join(" "))).emit(&app);
+    }
+    Ok(v)
 }
 
 #[tauri::command]
@@ -542,7 +851,12 @@ pub async fn import_media(app: AppHandle, paths: Vec<String>) -> AppResult<Proje
 pub async fn import_media_dialog(app: AppHandle) -> AppResult<Option<ProjectView>> {
     let mut exts: Vec<&str> = crate::media::VIDEO_EXTENSIONS.to_vec();
     exts.extend_from_slice(crate::media::AUDIO_EXTENSIONS);
-    let Some(files) = app.dialog().file().add_filter("Media", &exts).blocking_pick_files() else { return Ok(None) };
+    let a = app.clone();
+    let files = worker::blocking("import_media_dialog", move || {
+        Ok(a.dialog().file().add_filter("Media", &exts).blocking_pick_files())
+    })
+    .await?;
+    let Some(files) = files else { return Ok(None) };
     let paths: Vec<String> =
         files.into_iter().filter_map(|f| f.into_path().ok()).map(|p| p.display().to_string()).collect();
     import_media(app, paths).await.map(Some)
@@ -551,112 +865,140 @@ pub async fn import_media_dialog(app: AppHandle) -> AppResult<Option<ProjectView
 /// Moves an item to a new start time (and optionally another track), keeping its duration.
 #[tauri::command]
 #[specta::specta]
-pub fn move_item(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    id: String,
-    start: f64,
-    track_id: Option<String>,
-) -> AppResult<ProjectView> {
-    let (old_start, old_end) = {
-        let g = lock(&state.projects.open)?;
-        let p = g.as_ref().ok_or_else(|| AppError::new(ErrorCode::InvalidArgument, "No project is open."))?;
-        let i = p.doc().item(&id).ok_or_else(|| AppError::new(ErrorCode::NotFound, "That clip no longer exists."))?;
-        (i.start, i.end)
-    };
-    let new_start = ove_core::time::secs_to_micros(start.max(0.0)).unwrap_or(old_start);
-    let mut set = Map::new();
-    set.insert("startTime".into(), ove_core::time::micros_to_json(new_start));
-    set.insert("endTime".into(), ove_core::time::micros_to_json(new_start + (old_end - old_start)));
-    if let Some(t) = track_id {
-        set.insert("trackId".into(), t.into());
-    }
-    edit(&app, &state, vec![Op::UpdateItem { id, set }], "move clip")
+pub async fn move_item(app: AppHandle, id: String, start: f64, track_id: Option<String>) -> AppResult<ProjectView> {
+    serial(&app, "move_item", move |app, state| {
+        let (old_start, old_end) = {
+            let g = lock(&state.projects.open)?;
+            let p = g.as_ref().ok_or_else(|| AppError::new(ErrorCode::InvalidArgument, "No project is open."))?;
+            let i =
+                p.doc().item(&id).ok_or_else(|| AppError::new(ErrorCode::NotFound, "That clip no longer exists."))?;
+            (i.start, i.end)
+        };
+        let new_start = ove_core::time::secs_to_micros(start.max(0.0)).unwrap_or(old_start);
+        let mut set = Map::new();
+        set.insert("startTime".into(), ove_core::time::micros_to_json(new_start));
+        set.insert("endTime".into(), ove_core::time::micros_to_json(new_start + (old_end - old_start)));
+        if let Some(t) = track_id {
+            set.insert("trackId".into(), t.into());
+        }
+        edit(app, state, vec![Op::UpdateItem { id, set }], "move clip")
+    })
+    .await
 }
 
 #[tauri::command]
 #[specta::specta]
-pub fn remove_items(app: AppHandle, state: State<'_, AppState>, ids: Vec<String>) -> AppResult<ProjectView> {
-    let n = ids.len();
-    edit(&app, &state, vec![Op::RemoveItems { ids }], &format!("delete {n} item{}", if n == 1 { "" } else { "s" }))
+pub async fn remove_items(app: AppHandle, ids: Vec<String>) -> AppResult<ProjectView> {
+    serial(&app, "remove_items", move |app, state| {
+        let n = ids.len();
+        edit(app, state, vec![Op::RemoveItems { ids }], &format!("delete {n} item{}", if n == 1 { "" } else { "s" }))
+    })
+    .await
 }
 
 /// Splits a clip at a timeline time (seconds): the left part keeps the id, the right part is a new item.
 #[tauri::command]
 #[specta::specta]
-pub fn split_item(app: AppHandle, state: State<'_, AppState>, id: String, at: f64) -> AppResult<ProjectView> {
-    let item = {
-        let g = lock(&state.projects.open)?;
-        let p = g.as_ref().ok_or_else(|| AppError::new(ErrorCode::InvalidArgument, "No project is open."))?;
-        p.doc().item(&id).cloned().ok_or_else(|| AppError::new(ErrorCode::NotFound, "That clip no longer exists."))?
-    };
-    let cut = ove_core::time::secs_to_micros(at).unwrap_or(0);
-    if cut <= item.start || cut >= item.end {
-        return Err(AppError::new(ErrorCode::InvalidArgument, "Move the playhead inside the clip to split it."));
-    }
-    let mut right = item.to_json();
-    right["id"] = format!("{}_b{}", item.id, ove_core::Clock::now_ms(&ove_core::SystemClock) % 100_000).into();
-    right["startTime"] = ove_core::time::micros_to_json(cut);
-    right["trimStart"] = ove_core::time::micros_to_json(item.time_field("trimStart") + (cut - item.start));
-    let mut set = Map::new();
-    set.insert("endTime".into(), ove_core::time::micros_to_json(cut));
-    edit(&app, &state, vec![Op::UpdateItem { id, set }, Op::AddItem { item: right }], "split clip")
+pub async fn split_item(app: AppHandle, id: String, at: f64) -> AppResult<ProjectView> {
+    serial(&app, "split_item", move |app, state| {
+        let item = {
+            let g = lock(&state.projects.open)?;
+            let p = g.as_ref().ok_or_else(|| AppError::new(ErrorCode::InvalidArgument, "No project is open."))?;
+            p.doc()
+                .item(&id)
+                .cloned()
+                .ok_or_else(|| AppError::new(ErrorCode::NotFound, "That clip no longer exists."))?
+        };
+        let cut = ove_core::time::secs_to_micros(at).unwrap_or(0);
+        if cut <= item.start || cut >= item.end {
+            return Err(AppError::new(ErrorCode::InvalidArgument, "Move the playhead inside the clip to split it."));
+        }
+        let mut right = item.to_json();
+        right["id"] = format!("{}_b{}", item.id, ove_core::Clock::now_ms(&ove_core::SystemClock) % 100_000).into();
+        right["startTime"] = ove_core::time::micros_to_json(cut);
+        right["trimStart"] = ove_core::time::micros_to_json(item.time_field("trimStart") + (cut - item.start));
+        let mut set = Map::new();
+        set.insert("endTime".into(), ove_core::time::micros_to_json(cut));
+        edit(app, state, vec![Op::UpdateItem { id, set }, Op::AddItem { item: right }], "split clip")
+    })
+    .await
 }
 
 #[tauri::command]
 #[specta::specta]
-pub fn set_aspect_ratio(app: AppHandle, state: State<'_, AppState>, aspect: String) -> AppResult<ProjectView> {
-    edit(&app, &state, vec![Op::SetAspectRatio { aspect_ratio: aspect }], "change aspect ratio")
+pub async fn set_aspect_ratio(app: AppHandle, aspect: String) -> AppResult<ProjectView> {
+    serial(&app, "set_aspect_ratio", move |app, state| {
+        edit(app, state, vec![Op::SetAspectRatio { aspect_ratio: aspect }], "change aspect ratio")
+    })
+    .await
 }
 
 #[tauri::command]
 #[specta::specta]
-pub fn rename_project(app: AppHandle, state: State<'_, AppState>, name: String) -> AppResult<ProjectView> {
-    let mut set = Map::new();
-    set.insert("name".into(), name.into());
-    edit(&app, &state, vec![Op::UpdateProject { set, unset: vec![] }], "rename project")
+pub async fn rename_project(app: AppHandle, name: String) -> AppResult<ProjectView> {
+    serial(&app, "rename_project", move |app, state| {
+        let mut set = Map::new();
+        set.insert("name".into(), name.into());
+        edit(app, state, vec![Op::UpdateProject { set, unset: vec![] }], "rename project")
+    })
+    .await
 }
 
 #[tauri::command]
 #[specta::specta]
-pub fn set_track_flag(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    id: String,
-    flag: String,
-    value: bool,
-) -> AppResult<ProjectView> {
+pub async fn set_track_flag(app: AppHandle, id: String, flag: String, value: bool) -> AppResult<ProjectView> {
     if !matches!(flag.as_str(), "muted" | "visible" | "locked") {
         return Err(AppError::new(ErrorCode::InvalidArgument, "Unknown track setting."));
     }
-    let mut set = Map::new();
-    set.insert(flag, value.into());
-    edit(&app, &state, vec![Op::UpdateTrack { id, set }], "track setting")
+    serial(&app, "set_track_flag", move |app, state| {
+        let mut set = Map::new();
+        set.insert(flag, value.into());
+        edit(app, state, vec![Op::UpdateTrack { id, set }], "track setting")
+    })
+    .await
 }
 
 #[tauri::command]
 #[specta::specta]
-pub fn undo(app: AppHandle, state: State<'_, AppState>) -> AppResult<ProjectView> {
-    let mut g = lock(&state.projects.open)?;
-    let p = g.as_mut().ok_or_else(|| AppError::new(ErrorCode::InvalidArgument, "No project is open."))?;
-    p.undo()?;
-    emit(&app, Some(p));
-    Ok(view(p))
+pub async fn undo(app: AppHandle) -> AppResult<ProjectView> {
+    serial(&app, "undo", |app, state| {
+        let mut g = lock(&state.projects.open)?;
+        let p = g.as_mut().ok_or_else(|| AppError::new(ErrorCode::InvalidArgument, "No project is open."))?;
+        p.undo()?;
+        emit_view(app, Some(p)).ok_or_else(|| AppError::new(ErrorCode::Internal, "No project is open."))
+    })
+    .await
 }
 
 #[tauri::command]
 #[specta::specta]
-pub fn redo(app: AppHandle, state: State<'_, AppState>) -> AppResult<ProjectView> {
-    let mut g = lock(&state.projects.open)?;
-    let p = g.as_mut().ok_or_else(|| AppError::new(ErrorCode::InvalidArgument, "No project is open."))?;
-    p.redo()?;
-    emit(&app, Some(p));
-    Ok(view(p))
+pub async fn redo(app: AppHandle) -> AppResult<ProjectView> {
+    serial(&app, "redo", |app, state| {
+        let mut g = lock(&state.projects.open)?;
+        let p = g.as_mut().ok_or_else(|| AppError::new(ErrorCode::InvalidArgument, "No project is open."))?;
+        p.redo()?;
+        emit_view(app, Some(p)).ok_or_else(|| AppError::new(ErrorCode::Internal, "No project is open."))
+    })
+    .await
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn open_project(lib: &Library) -> Projects {
+        let mut p = lib.create("Trip").unwrap();
+        p.apply(default_tracks(), Source::Gui, None).unwrap();
+        let projects = Projects::default();
+        *relock(&projects.open) = Some(p);
+        projects
+    }
+
+    fn rename(name: &str) -> Vec<Op> {
+        let mut set = Map::new();
+        set.insert("name".into(), name.into());
+        vec![Op::UpdateProject { set, unset: vec![] }]
+    }
 
     #[test]
     fn new_project_has_default_tracks_and_view() {
@@ -673,5 +1015,79 @@ mod tests {
         let rows = summaries(&lib).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].name, "Trip");
+    }
+
+    #[test]
+    fn edit_after_a_panicking_lock_holder_succeeds() {
+        let d = tempfile::tempdir().unwrap();
+        let lib = Library::open(d.path(), clock()).unwrap();
+        let projects = Arc::new(open_project(&lib));
+        let rev = relock(&projects.open).as_ref().unwrap().rev();
+
+        // A command panics while holding the open project (as a bug in an edit would).
+        let p2 = projects.clone();
+        let err = worker::command("move_item", move || -> AppResult<()> {
+            let _g = lock(&p2.open)?;
+            panic!("injected failure");
+        })
+        .unwrap_err();
+        assert_eq!(err.code, ErrorCode::WorkerPanic);
+        assert!(projects.open.is_poisoned());
+
+        // The next edit works, and the lock is clean again.
+        let mut g = lock(&projects.open).unwrap();
+        let p = commit(&mut g, rename("After"), "rename").unwrap();
+        assert!(p.rev() > rev);
+        let rev = p.rev();
+        assert_eq!(p.doc().project.name, "After");
+        drop(g);
+        assert!(!projects.open.is_poisoned());
+        let mut g = lock(&projects.open).unwrap();
+        assert!(commit(&mut g, rename("Again"), "rename").unwrap().rev() > rev);
+    }
+
+    #[test]
+    fn media_cache_view_does_not_touch_the_disk_until_refreshed() {
+        let d = tempfile::tempdir().unwrap();
+        let lib = Library::open(d.path(), clock()).unwrap();
+        let projects = open_project(&lib);
+        let mut g = lock(&projects.open).unwrap();
+        let p = g.as_mut().unwrap();
+        let missing = d.path().join("gone.mp4");
+        let (media, entry, _) = media_records(
+            &missing,
+            &ove_media::MediaInfo {
+                path: missing.clone(),
+                container: "mp4".into(),
+                duration_us: Some(1_000_000),
+                bit_rate: None,
+                video: None,
+                audio: None,
+                stream_count: 1,
+            },
+            "m1",
+            0,
+        );
+        p.apply(vec![Op::AddMedia { media, entry: Some(entry) }], Source::Gui, None).unwrap();
+
+        let mut cache = MediaCache::default();
+        // Unchecked: shown online, flagged for a check.
+        let (v, stale) = cache.view(p);
+        assert!(stale);
+        assert_eq!(v.media[0].status, "online");
+        // The background check finds it offline.
+        let links = media_status(p.bundle(), p.doc())
+            .into_iter()
+            .map(|s| {
+                let key = link_key(&p.doc().registry[&s.media_id]);
+                (s.media_id, key, LinkView { path: s.path.display().to_string(), state: s.state })
+            })
+            .collect();
+        assert!(cache.store(p.bundle(), links, vec![("m1".into(), None)]));
+        let (v, stale) = cache.view(p);
+        assert!(!stale);
+        assert_eq!(v.media[0].status, "offline");
+        // The full (uncached) view agrees.
+        assert_eq!(view(p).media[0].status, "offline");
     }
 }

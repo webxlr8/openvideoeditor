@@ -18,6 +18,7 @@ use crate::AppState;
 use crate::error::AppResult;
 use crate::projects::{ProjectView, emit, lock};
 use crate::transport::TransportCommand;
+use crate::worker::relock;
 
 /// What the UI shows that only it knows: the selection and the viewer mode.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, Type)]
@@ -42,7 +43,7 @@ pub struct RemoteOpened(pub ProjectView);
 #[tauri::command]
 #[specta::specta]
 pub fn report_ui_state(control: State<'_, Control>, ui: UiState) -> AppResult<()> {
-    *lock(&control.ui)? = ui;
+    *relock(&control.ui) = ui;
     Ok(())
 }
 
@@ -57,15 +58,15 @@ fn same_bundle(a: &Path, b: &Path) -> bool {
 
 fn context(app: &AppHandle) -> Value {
     let state = app.state::<AppState>();
-    let project = state.projects.open.lock().ok().and_then(|g| {
+    let project = lock(&state.projects.open).ok().and_then(|g| {
         g.as_ref().map(|p| {
             json!({"id": p.doc().project.id, "name": p.doc().project.name, "bundle": p.bundle(), "rev": p.rev(),
                    "aspectRatio": p.doc().project.aspect_ratio, "durationSeconds": p.doc().duration() as f64 / 1e6})
         })
     });
-    let pb = state.engine.shared.state.lock().map(|s| s.clone()).unwrap_or_default();
+    let pb = relock(&state.engine.shared.state).clone();
     let fps = if pb.frame_rate > 0.0 { pb.frame_rate } else { 30.0 };
-    let ui = app.state::<Control>().ui.lock().map(|u| u.clone()).unwrap_or_default();
+    let ui = relock(&app.state::<Control>().ui).clone();
     json!({
         "app": {"version": env!("CARGO_PKG_VERSION")},
         "project": project,
@@ -77,11 +78,7 @@ fn context(app: &AppHandle) -> Value {
 
 fn transport(app: &AppHandle, cmd: TransportCommand) -> Result<Value, ove_control::Refusal> {
     let state = app.state::<AppState>();
-    state
-        .engine
-        .tx
-        .send(crate::engine::EngineMsg::Transport(cmd))
-        .map_err(|_| refusal("app.engine", "the playback engine is not running"))?;
+    state.engine.send(crate::engine::EngineMsg::Transport(cmd)).map_err(|e| refusal("app.engine", e.message))?;
     Ok(json!({}))
 }
 
@@ -106,8 +103,8 @@ fn handle(app: &AppHandle, method: &str, params: Value) -> Result<Value, ove_con
         "open" => {
             let bundle =
                 params.get("bundle").and_then(Value::as_str).ok_or_else(|| refusal("argument.missing", "bundle"))?;
-            let state = app.state::<AppState>();
-            let v = crate::projects::open_project(app.clone(), state, bundle.to_string())
+            // Takes its turn with the editor's own project commands.
+            let v = tauri::async_runtime::block_on(crate::projects::open_project(app.clone(), bundle.to_string()))
                 .map_err(|e| refusal("project.open", e.message))?;
             let _ = RemoteOpened(v).emit(app);
             if let Some(w) = app.get_webview_window("main") {
@@ -119,7 +116,7 @@ fn handle(app: &AppHandle, method: &str, params: Value) -> Result<Value, ove_con
         "seek" => {
             let s = params.get("seconds").and_then(Value::as_f64).filter(|s| s.is_finite() && *s >= 0.0);
             let s = s.ok_or_else(|| refusal("argument.invalid", "seconds"))?;
-            let fps = app.state::<AppState>().engine.shared.state.lock().map(|p| p.frame_rate).unwrap_or(30.0);
+            let fps = relock(&app.state::<AppState>().engine.shared.state).frame_rate;
             let frame = (s * if fps > 0.0 { fps } else { 30.0 }).round() as u32;
             transport(app, TransportCommand::SeekFrame { frame })
         }
@@ -136,7 +133,7 @@ fn handle(app: &AppHandle, method: &str, params: Value) -> Result<Value, ove_con
                 .unwrap_or(Source::Cli);
             let summary = params.get("summary").and_then(Value::as_str).map(str::to_string);
             let state = app.state::<AppState>();
-            let mut g = state.projects.open.lock().map_err(|_| refusal("app.busy", "project lock poisoned"))?;
+            let mut g = lock(&state.projects.open).map_err(|e| refusal("app.busy", e.message))?;
             check_open(g.as_ref(), &params)?;
             let p = g.as_mut().expect("checked");
             p.apply(ops, source, summary).map_err(|e| refusal(e.code(), e.to_string()))?;
@@ -146,7 +143,7 @@ fn handle(app: &AppHandle, method: &str, params: Value) -> Result<Value, ove_con
         "restore" => {
             let rev = params.get("rev").and_then(Value::as_i64).ok_or_else(|| refusal("argument.missing", "rev"))?;
             let state = app.state::<AppState>();
-            let mut g = state.projects.open.lock().map_err(|_| refusal("app.busy", "project lock poisoned"))?;
+            let mut g = lock(&state.projects.open).map_err(|e| refusal("app.busy", e.message))?;
             check_open(g.as_ref(), &params)?;
             let p = g.as_mut().expect("checked");
             let c = p.restore_as(rev, Source::Undo).map_err(|e| refusal(e.code(), e.to_string()))?;
@@ -173,9 +170,7 @@ pub fn start(app: &AppHandle) {
     let h = app.clone();
     match ove_control::serve(&root, env!("CARGO_PKG_VERSION"), std::sync::Arc::new(move |m, p| handle(&h, m, p))) {
         Ok(s) => {
-            if let Ok(mut g) = app.state::<Control>().server.lock() {
-                *g = Some(s);
-            }
+            *relock(&app.state::<Control>().server) = Some(s);
         }
         Err(e) => tracing::warn!(error = %e, "control link could not start"),
     }
@@ -183,9 +178,8 @@ pub fn start(app: &AppHandle) {
 
 /// Stops the link and removes the endpoint file.
 pub fn stop(app: &AppHandle) {
-    if let Some(c) = app.try_state::<Control>()
-        && let Ok(mut g) = c.server.lock()
-    {
-        g.take();
+    if let Some(c) = app.try_state::<Control>() {
+        relock(&c.server).take();
     }
 }
+

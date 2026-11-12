@@ -13,13 +13,14 @@ use ove_transcribe::{Model, SegmentOptions, Transcript, Word, models};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use specta::Type;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
 
 use crate::AppState;
 use crate::edits::new_item_id;
 use crate::error::{AppError, AppResult, ErrorCode};
-use crate::projects::{ProjectView, edit, lock};
+use crate::projects::{ProjectView, edit, lock, serial};
+use crate::worker::{self, relock};
 
 fn bad(msg: impl Into<String>) -> AppError {
     AppError::new(ErrorCode::InvalidArgument, msg)
@@ -80,7 +81,7 @@ fn job() -> &'static Mutex<Option<Arc<AtomicBool>>> {
 
 /// Claims the single captions job slot.
 fn start_job() -> AppResult<Arc<AtomicBool>> {
-    let mut slot = job().lock().map_err(|_| AppError::new(ErrorCode::Internal, "captions state unavailable"))?;
+    let mut slot = relock(job());
     if slot.is_some() {
         return Err(bad("Captions are already being made. Wait for them to finish or cancel."));
     }
@@ -90,26 +91,27 @@ fn start_job() -> AppResult<Arc<AtomicBool>> {
 }
 
 fn end_job() {
-    if let Ok(mut s) = job().lock() {
-        *s = None;
-    }
+    *relock(job()) = None;
 }
 
 /// The speech models (none ship with the app; each downloads on first use).
 #[tauri::command]
 #[specta::specta]
-pub fn caption_models(app: AppHandle) -> AppResult<Vec<CaptionModel>> {
-    let dir = models::model_dir(&data_dir(&app));
-    Ok(Model::ALL
-        .iter()
-        .map(|m| CaptionModel {
-            id: m.id().into(),
-            label: m.label().into(),
-            size_mb: (m.size_bytes() / 1_000_000) as u32,
-            installed: models::is_installed(&dir, *m),
-            default: *m == Model::Base,
-        })
-        .collect())
+pub async fn caption_models(app: AppHandle) -> AppResult<Vec<CaptionModel>> {
+    worker::blocking("caption_models", move || {
+        let dir = models::model_dir(&data_dir(&app));
+        Ok(Model::ALL
+            .iter()
+            .map(|m| CaptionModel {
+                id: m.id().into(),
+                label: m.label().into(),
+                size_mb: (m.size_bytes() / 1_000_000) as u32,
+                installed: models::is_installed(&dir, *m),
+                default: *m == Model::Base,
+            })
+            .collect())
+    })
+    .await
 }
 
 /// The caption styles as JSON (`[{id, label, fontSize, textColor, highlightColor, animation, …}]`).
@@ -123,9 +125,7 @@ pub fn caption_presets() -> String {
 #[tauri::command]
 #[specta::specta]
 pub fn cancel_captions() -> AppResult<()> {
-    if let Ok(g) = job().lock()
-        && let Some(c) = g.as_ref()
-    {
+    if let Some(c) = relock(job()).as_ref() {
         c.store(true, Ordering::SeqCst);
     }
     Ok(())
@@ -388,115 +388,119 @@ fn transcript_for(
 /// and adds the caption items as one revision. Progress and the result arrive as `captionJobProgress` events.
 #[tauri::command]
 #[specta::specta]
-pub fn auto_caption(app: AppHandle, state: State<'_, AppState>, request: AutoCaptionRequest) -> AppResult<()> {
-    let model =
-        Model::parse(&request.model).ok_or_else(|| bad(format!("Unknown speech model {:?}.", request.model)))?;
-    let (doc, bundle) = {
-        let g = lock(&state.projects.open)?;
-        let p = g.as_ref().ok_or_else(|| bad("Open a project first."))?;
-        (p.doc().clone(), p.bundle().to_path_buf())
-    };
-    let clips = source_clips(&doc, &bundle, &request.item_ids)?;
-    let cancel = start_job()?;
-    let language = request.language.clone().filter(|l| !l.is_empty() && l != "auto");
-    crate::worker::spawn_contained("captions", move || {
-        let started = std::time::Instant::now();
-        let run = || -> Result<(usize, String), ove_transcribe::TranscribeError> {
-            let model_path = ensure(&app, model, &cancel)?;
-            let mut words = Vec::new();
-            let mut detected = String::new();
-            for (i, clip) in clips.iter().enumerate() {
-                match transcript_for(
-                    &app,
-                    &bundle,
-                    (&model_path, model),
-                    clip,
-                    language.as_deref(),
-                    &cancel,
-                    (i, clips.len()),
-                ) {
-                    Ok(t) => {
-                        if detected.is_empty() {
-                            detected = t.language.clone();
+pub async fn auto_caption(app: AppHandle, request: AutoCaptionRequest) -> AppResult<()> {
+    worker::blocking("auto_caption", move || {
+        let state = app.state::<AppState>();
+        let state = &*state;
+        let model =
+            Model::parse(&request.model).ok_or_else(|| bad(format!("Unknown speech model {:?}.", request.model)))?;
+        let (doc, bundle) = {
+            let g = lock(&state.projects.open)?;
+            let p = g.as_ref().ok_or_else(|| bad("Open a project first."))?;
+            (p.doc().clone(), p.bundle().to_path_buf())
+        };
+        let clips = source_clips(&doc, &bundle, &request.item_ids)?;
+        let cancel = start_job()?;
+        let language = request.language.clone().filter(|l| !l.is_empty() && l != "auto");
+        crate::worker::spawn_contained("captions", move || {
+            let started = std::time::Instant::now();
+            let run = || -> Result<(usize, String), ove_transcribe::TranscribeError> {
+                let model_path = ensure(&app, model, &cancel)?;
+                let mut words = Vec::new();
+                let mut detected = String::new();
+                for (i, clip) in clips.iter().enumerate() {
+                    match transcript_for(
+                        &app,
+                        &bundle,
+                        (&model_path, model),
+                        clip,
+                        language.as_deref(),
+                        &cancel,
+                        (i, clips.len()),
+                    ) {
+                        Ok(t) => {
+                            if detected.is_empty() {
+                                detected = t.language.clone();
+                            }
+                            words.extend(timeline_words(clip, &t));
                         }
-                        words.extend(timeline_words(clip, &t));
+                        // A clip without sound is skipped; the others still get captions.
+                        Err(ove_transcribe::TranscribeError::NoAudio) => continue,
+                        Err(e) => return Err(e),
                     }
-                    // A clip without sound is skipped; the others still get captions.
-                    Err(ove_transcribe::TranscribeError::NoAudio) => continue,
-                    Err(e) => return Err(e),
                 }
-            }
-            words.sort_by_key(|w| w.start_us);
-            progress(&app, "apply", 1.0, "Adding captions");
-            let state = app.state::<AppState>();
-            // The project may have changed while transcribing: build the ops on the current document.
-            let doc = {
-                let g = lock(&state.projects.open).map_err(|e| ove_transcribe::TranscribeError::Io(e.message))?;
-                match g.as_ref() {
-                    Some(p) if p.bundle() == bundle => p.doc().clone(),
-                    _ => return Err(ove_transcribe::TranscribeError::Io("The project was closed.".into())),
+                words.sort_by_key(|w| w.start_us);
+                progress(&app, "apply", 1.0, "Adding captions");
+                let state = app.state::<AppState>();
+                // The project may have changed while transcribing: build the ops on the current document.
+                let doc = {
+                    let g = lock(&state.projects.open).map_err(|e| ove_transcribe::TranscribeError::Io(e.message))?;
+                    match g.as_ref() {
+                        Some(p) if p.bundle() == bundle => p.doc().clone(),
+                        _ => return Err(ove_transcribe::TranscribeError::Io("The project was closed.".into())),
+                    }
+                };
+                let (ops, n) = caption_ops(&doc, &words, request.preset_id.as_deref(), request.replace);
+                if n > 0 {
+                    edit(&app, &state, ops, "auto captions")
+                        .map_err(|e| ove_transcribe::TranscribeError::Io(e.message))?;
+                }
+                Ok((n, detected))
+            };
+            let end = match run() {
+                Ok((n, language)) => {
+                    tracing::info!(captions = n, seconds = started.elapsed().as_secs_f64(), "auto captions finished");
+                    CaptionJobProgress {
+                        stage: "done".into(),
+                        fraction: 1.0,
+                        done: true,
+                        captions: Some(n as u32),
+                        language: (!language.is_empty()).then_some(language),
+                        seconds_taken: Some(started.elapsed().as_secs_f64()),
+                        message: if n == 0 { "No speech was found.".into() } else { String::new() },
+                        ..Default::default()
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "auto captions did not finish");
+                    finished_with(e)
                 }
             };
-            let (ops, n) = caption_ops(&doc, &words, request.preset_id.as_deref(), request.replace);
-            if n > 0 {
-                edit(&app, &state, ops, "auto captions").map_err(|e| ove_transcribe::TranscribeError::Io(e.message))?;
-            }
-            Ok((n, detected))
-        };
-        let end = match run() {
-            Ok((n, language)) => {
-                tracing::info!(captions = n, seconds = started.elapsed().as_secs_f64(), "auto captions finished");
-                CaptionJobProgress {
-                    stage: "done".into(),
-                    fraction: 1.0,
-                    done: true,
-                    captions: Some(n as u32),
-                    language: (!language.is_empty()).then_some(language),
-                    seconds_taken: Some(started.elapsed().as_secs_f64()),
-                    message: if n == 0 { "No speech was found.".into() } else { String::new() },
-                    ..Default::default()
-                }
-            }
-            Err(e) => {
-                tracing::warn!(error = %e, "auto captions did not finish");
-                finished_with(e)
-            }
-        };
-        end_job();
-        let _ = end.emit(&app);
+            end_job();
+            let _ = end.emit(&app);
+        })
+        .map_err(|e| AppError::new(ErrorCode::Internal, e.to_string()))?;
+        Ok(())
     })
-    .map_err(|e| AppError::new(ErrorCode::Internal, e.to_string()))?;
-    Ok(())
+    .await
 }
 
 /// Applies a caption style to caption items (all of them when `item_ids` is empty), clearing per-item overrides of
 /// size and colours so the style shows as designed. One revision.
 #[tauri::command]
 #[specta::specta]
-pub fn apply_caption_style(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    preset_id: String,
-    item_ids: Vec<String>,
-) -> AppResult<ProjectView> {
-    let preset = ove_render::captions_presets::preset(&preset_id)
-        .ok_or_else(|| bad(format!("Unknown caption style {preset_id:?}.")))?;
-    let ids: Vec<String> = {
-        let g = lock(&state.projects.open)?;
-        let p = g.as_ref().ok_or_else(|| bad("Open a project first."))?;
-        let doc = p.doc();
-        doc.project
-            .items
-            .values()
-            .filter(|i| i.kind == "caption" && (item_ids.is_empty() || item_ids.contains(&i.id)))
-            .map(|i| i.id.clone())
-            .collect()
-    };
-    if ids.is_empty() {
-        return Err(bad("There are no captions to style yet."));
-    }
-    let ops = style_ops(&ids, preset.id);
-    edit(&app, &state, ops, &format!("caption style {}", preset.label.to_lowercase()))
+pub async fn apply_caption_style(app: AppHandle, preset_id: String, item_ids: Vec<String>) -> AppResult<ProjectView> {
+    serial(&app, "apply_caption_style", move |app, state| {
+        let preset = ove_render::captions_presets::preset(&preset_id)
+            .ok_or_else(|| bad(format!("Unknown caption style {preset_id:?}.")))?;
+        let ids: Vec<String> = {
+            let g = lock(&state.projects.open)?;
+            let p = g.as_ref().ok_or_else(|| bad("Open a project first."))?;
+            let doc = p.doc();
+            doc.project
+                .items
+                .values()
+                .filter(|i| i.kind == "caption" && (item_ids.is_empty() || item_ids.contains(&i.id)))
+                .map(|i| i.id.clone())
+                .collect()
+        };
+        if ids.is_empty() {
+            return Err(bad("There are no captions to style yet."));
+        }
+        let ops = style_ops(&ids, preset.id);
+        edit(app, state, ops, &format!("caption style {}", preset.label.to_lowercase()))
+    })
+    .await
 }
 
 pub fn style_ops(ids: &[String], preset_id: &str) -> Vec<Op> {

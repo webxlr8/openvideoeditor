@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::error::{AppError, AppResult, ErrorCode};
+use crate::worker;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -33,7 +34,12 @@ fn seen_marker() -> Option<PathBuf> {
 /// Reports on this computer, newest first.
 #[tauri::command]
 #[specta::specta]
-pub fn crash_reports() -> Vec<CrashReport> {
+pub async fn crash_reports() -> Vec<CrashReport> {
+    // An unreadable folder (or an internal error) just shows no reports.
+    worker::blocking("crash_reports", || Ok(reports())).await.unwrap_or_default()
+}
+
+fn reports() -> Vec<CrashReport> {
     let Some(dir) = crash_dir() else { return vec![] };
     let seen_until: f64 =
         seen_marker().and_then(|p| std::fs::read_to_string(p).ok()).and_then(|s| s.trim().parse().ok()).unwrap_or(0.0);
@@ -62,24 +68,30 @@ pub fn crash_reports() -> Vec<CrashReport> {
 
 #[tauri::command]
 #[specta::specta]
-pub fn mark_crash_reports_seen() -> AppResult<()> {
-    let newest = crash_reports().first().map(|r| r.at).unwrap_or(0.0);
-    if let Some(p) = seen_marker() {
-        std::fs::write(p, format!("{newest}")).map_err(|e| AppError::new(ErrorCode::Io, e.to_string()))?;
-    }
-    Ok(())
+pub async fn mark_crash_reports_seen() -> AppResult<()> {
+    worker::blocking("mark_crash_reports_seen", move || {
+        let newest = reports().first().map(|r| r.at).unwrap_or(0.0);
+        if let Some(p) = seen_marker() {
+            std::fs::write(p, format!("{newest}")).map_err(|e| AppError::new(ErrorCode::Io, e.to_string()))?;
+        }
+        Ok(())
+    })
+    .await
 }
 
 /// The text of one report (to copy into feedback).
 #[tauri::command]
 #[specta::specta]
-pub fn read_crash_report(path: String) -> AppResult<String> {
-    let dir = crash_dir().ok_or_else(|| AppError::new(ErrorCode::NotFound, "No crash reports."))?;
-    let p = PathBuf::from(&path);
-    if p.parent() != Some(dir.as_path()) {
-        return Err(AppError::new(ErrorCode::InvalidArgument, "Not a crash report."));
-    }
-    std::fs::read_to_string(p).map_err(|e| AppError::new(ErrorCode::Io, e.to_string()))
+pub async fn read_crash_report(path: String) -> AppResult<String> {
+    worker::blocking("read_crash_report", move || {
+        let dir = crash_dir().ok_or_else(|| AppError::new(ErrorCode::NotFound, "No crash reports."))?;
+        let p = PathBuf::from(&path);
+        if p.parent() != Some(dir.as_path()) {
+            return Err(AppError::new(ErrorCode::InvalidArgument, "Not a crash report."));
+        }
+        std::fs::read_to_string(p).map_err(|e| AppError::new(ErrorCode::Io, e.to_string()))
+    })
+    .await
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -112,52 +124,56 @@ pub fn update_url() -> Option<String> {
 #[tauri::command]
 #[specta::specta]
 pub async fn check_for_updates() -> AppResult<UpdateInfo> {
-    let current = env!("CARGO_PKG_VERSION").to_string();
-    let Some(url) = update_url() else {
-        return Ok(UpdateInfo {
-            current,
-            latest: None,
-            available: false,
-            notes: None,
-            url: None,
-            message: Some(
-                "This build has no update channel; download new versions from where you got this one.".into(),
-            ),
-        });
-    };
-    tauri::async_runtime::spawn_blocking(move || {
-        let agent = ureq::AgentBuilder::new().timeout(std::time::Duration::from_secs(10)).build();
-        let res =
-            agent.get(&url).call().map_err(|e| e.to_string()).and_then(|r| r.into_string().map_err(|e| e.to_string()));
-        Ok(match res.and_then(|t| serde_json::from_str::<serde_json::Value>(&t).map_err(|e| e.to_string())) {
-            Ok(v) => {
-                let latest = v.get("version").and_then(|x| x.as_str()).map(str::to_string);
-                let available = latest.as_deref().is_some_and(|l| newer(l, &current));
-                UpdateInfo {
-                    current,
-                    available,
-                    notes: v.get("notes").and_then(|x| x.as_str()).map(str::to_string),
-                    url: v
-                        .get("url")
-                        .and_then(|x| x.as_str())
-                        .filter(|u| u.starts_with("https://"))
-                        .map(str::to_string),
-                    latest,
-                    message: None,
-                }
-            }
-            Err(e) => UpdateInfo {
+    worker::blocking("check_for_updates", move || {
+        let current = env!("CARGO_PKG_VERSION").to_string();
+        let Some(url) = update_url() else {
+            return Ok(UpdateInfo {
                 current,
                 latest: None,
                 available: false,
                 notes: None,
                 url: None,
-                message: Some(format!("Couldn't check for updates: {e}")),
-            },
-        })
+                message: Some(
+                    "This build has no update channel; download new versions from where you got this one.".into(),
+                ),
+            });
+        };
+        {
+            let agent = ureq::AgentBuilder::new().timeout(std::time::Duration::from_secs(10)).build();
+            let res = agent
+                .get(&url)
+                .call()
+                .map_err(|e| e.to_string())
+                .and_then(|r| r.into_string().map_err(|e| e.to_string()));
+            Ok(match res.and_then(|t| serde_json::from_str::<serde_json::Value>(&t).map_err(|e| e.to_string())) {
+                Ok(v) => {
+                    let latest = v.get("version").and_then(|x| x.as_str()).map(str::to_string);
+                    let available = latest.as_deref().is_some_and(|l| newer(l, &current));
+                    UpdateInfo {
+                        current,
+                        available,
+                        notes: v.get("notes").and_then(|x| x.as_str()).map(str::to_string),
+                        url: v
+                            .get("url")
+                            .and_then(|x| x.as_str())
+                            .filter(|u| u.starts_with("https://"))
+                            .map(str::to_string),
+                        latest,
+                        message: None,
+                    }
+                }
+                Err(e) => UpdateInfo {
+                    current,
+                    latest: None,
+                    available: false,
+                    notes: None,
+                    url: None,
+                    message: Some(format!("Couldn't check for updates: {e}")),
+                },
+            })
+        }
     })
     .await
-    .map_err(|e| AppError::new(ErrorCode::Internal, e.to_string()))?
 }
 
 /// Opens a web page in the default browser (download page from the update check).

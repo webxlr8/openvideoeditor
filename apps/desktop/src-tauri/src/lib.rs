@@ -496,6 +496,8 @@ pub fn run() {
                 route_paths(window.app_handle(), paths.iter().map(|p| p.display().to_string()).collect());
             }
             WindowEvent::CloseRequested { .. } => save_window(window.app_handle(), window),
+            // Media may have come back (drive reconnected) or gone: check again, in the background.
+            WindowEvent::Focused(true) => projects::refresh_media(window.app_handle()),
             WindowEvent::ScaleFactorChanged { .. } | WindowEvent::Resized(_) => {
                 // The UI re-measures and sends the viewer rectangle; nothing to do natively.
             }
@@ -605,6 +607,33 @@ mod tests {
             let ok = call("fine").expect("still working");
             assert_eq!(ok.deserialize::<u32>().unwrap(), 7);
         }
+    }
+
+    /// Async commands run on the async runtime, outside the invoke handler's panic containment, so each must run its
+    /// body through `worker::blocking`, `worker::guarded` or `projects::serial`.
+    #[test]
+    fn every_async_command_contains_panics() {
+        // Owned by other modules' maintainers; their async commands do their work in `spawn_blocking`.
+        const EXEMPT: [&str; 2] = ["generation.rs", "interchange.rs"];
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut unguarded = Vec::new();
+        for entry in std::fs::read_dir(&dir).unwrap().flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if !name.ends_with(".rs") || EXEMPT.contains(&name.as_str()) {
+                continue;
+            }
+            let text = std::fs::read_to_string(entry.path()).unwrap();
+            for chunk in text.split("#[tauri::command]").skip(1) {
+                let Some(sig) = chunk.lines().find(|l| l.starts_with("pub ")) else { continue };
+                let body = chunk.split("\n}\n").next().unwrap_or_default();
+                if sig.contains("async fn")
+                    && !["worker::blocking(", "worker::guarded(", "serial("].iter().any(|g| body.contains(g))
+                {
+                    unguarded.push(format!("{name}: {sig}"));
+                }
+            }
+        }
+        assert!(unguarded.is_empty(), "async commands without panic containment: {unguarded:#?}");
     }
 
     #[test]
