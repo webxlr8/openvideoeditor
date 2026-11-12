@@ -12,6 +12,7 @@ import type {
 import { commands } from "./bridge";
 import { type Catalog, KeyEntry, loadCatalog } from "./Generate";
 import { Icon } from "./icons";
+import { fire, logError, runCommand } from "./notify";
 import {
   REBINDABLE,
   RESERVED,
@@ -32,6 +33,14 @@ const SECTIONS = [
 ] as const;
 type Section = (typeof SECTIONS)[number]["id"];
 
+/** Copies text; `navigator.clipboard` is missing outside secure contexts (and in tests). */
+function copyText(text: string): Promise<void> {
+  const clip = (navigator as Partial<Navigator>).clipboard;
+  return clip
+    ? clip.writeText(text)
+    : Promise.reject(new Error("the clipboard is not available"));
+}
+
 function Copyable({ text }: { text: string }) {
   const [done, setDone] = useState(false);
   return (
@@ -40,10 +49,12 @@ function Copyable({ text }: { text: string }) {
       <button
         className="btn"
         onClick={() => {
-          void navigator.clipboard?.writeText(text).then(() => {
-            setDone(true);
-            setTimeout(() => setDone(false), 1500);
-          });
+          fire(
+            copyText(text).then(() => {
+              setDone(true);
+              setTimeout(() => setDone(false), 1500);
+            }),
+          );
         }}
       >
         {done ? "Copied" : "Copy"}
@@ -149,16 +160,18 @@ export function Settings({ onError }: { onError: (e: AppError) => void }) {
   });
 
   useEffect(() => {
-    void commands.appInfo().then((r) => r.status === "ok" && setInfo(r.data));
-    void loadCatalog().then(setCatalog);
-    void commands
-      .agentStatus()
-      .then((r) => r.status === "ok" && setAgent(r.data));
-    void commands.crashReports().then((r) => {
-      setReports(r);
-      if (r.some((x) => !x.seen)) void commands.markCrashReportsSeen();
-    });
-  }, []);
+    runCommand(commands.appInfo(), setInfo, onError);
+    fire(loadCatalog().then(setCatalog), onError);
+    runCommand(commands.agentStatus(), setAgent, onError);
+    fire(
+      commands.crashReports().then((r) => {
+        setReports(r);
+        if (r.some((x) => !x.seen))
+          runCommand(commands.markCrashReportsSeen(), undefined, logError);
+      }),
+      onError,
+    );
+  }, [onError]);
 
   const saveAgentKey = async () => {
     const r = await commands.agentSetKey(agentKey);
@@ -194,7 +207,13 @@ export function Settings({ onError }: { onError: (e: AppError) => void }) {
               {info?.libraryDir && (
                 <button
                   className="btn"
-                  onClick={() => void commands.revealPath(info.libraryDir!)}
+                  onClick={() =>
+                    runCommand(
+                      commands.revealPath(info.libraryDir!),
+                      undefined,
+                      onError,
+                    )
+                  }
                 >
                   Show in folder
                 </button>
@@ -250,18 +269,16 @@ export function Settings({ onError }: { onError: (e: AppError) => void }) {
                 <button
                   className="btn"
                   disabled={!agentKey.trim()}
-                  onClick={() => void saveAgentKey()}
+                  onClick={() => fire(saveAgentKey(), onError)}
                 >
                   Save
                 </button>
                 {agent?.hasKey && (
                   <button
                     className="btn"
-                    onClick={async () => {
-                      const r = await commands.agentClearKey();
-                      if (r.status === "error") onError(r.error);
-                      else setAgent(r.data);
-                    }}
+                    onClick={() =>
+                      runCommand(commands.agentClearKey(), setAgent, onError)
+                    }
                   >
                     Remove
                   </button>
@@ -338,7 +355,13 @@ export function Settings({ onError }: { onError: (e: AppError) => void }) {
               {info?.logDir && (
                 <button
                   className="btn"
-                  onClick={() => void commands.revealPath(info.logDir!)}
+                  onClick={() =>
+                    runCommand(
+                      commands.revealPath(info.logDir!),
+                      undefined,
+                      onError,
+                    )
+                  }
                 >
                   <Icon name="media" size={14} /> Show logs
                 </button>
@@ -359,11 +382,13 @@ export function Settings({ onError }: { onError: (e: AppError) => void }) {
                     {crash && (
                       <button
                         className="btn"
-                        onClick={async () => {
-                          const t = await commands.readCrashReport(r.path);
-                          if (t.status === "error") return onError(t.error);
-                          void navigator.clipboard?.writeText(t.data);
-                        }}
+                        onClick={() =>
+                          runCommand(
+                            commands.readCrashReport(r.path),
+                            (text) => fire(copyText(text), onError),
+                            onError,
+                          )
+                        }
                       >
                         Copy
                       </button>
@@ -385,12 +410,18 @@ export function Settings({ onError }: { onError: (e: AppError) => void }) {
               <button
                 className="btn"
                 disabled={checking}
-                onClick={async () => {
+                onClick={() => {
                   setChecking(true);
-                  const r = await commands.checkForUpdates();
-                  setChecking(false);
-                  if (r.status === "error") onError(r.error);
-                  else setUpdate(r.data);
+                  fire(
+                    commands
+                      .checkForUpdates()
+                      .then((r) => {
+                        if (r.status === "error") onError(r.error);
+                        else setUpdate(r.data);
+                      })
+                      .finally(() => setChecking(false)),
+                    onError,
+                  );
                 }}
                 data-testid="check-updates"
               >
@@ -399,7 +430,13 @@ export function Settings({ onError }: { onError: (e: AppError) => void }) {
               {update?.available && update.url && (
                 <button
                   className="btn primary"
-                  onClick={() => void commands.openUrl(update.url!)}
+                  onClick={() =>
+                    runCommand(
+                      commands.openUrl(update.url!),
+                      undefined,
+                      onError,
+                    )
+                  }
                 >
                   Download {update.latest}
                 </button>

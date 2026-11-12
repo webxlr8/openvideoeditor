@@ -21,9 +21,9 @@ describe("generate panel", () => {
     });
     await screen.findByTestId("gen-estimate");
     expect(screen.getByTestId("gen-estimate").textContent).toContain("$0.025");
-    expect(
-      (screen.getByTestId("gen-start") as HTMLButtonElement).disabled,
-    ).toBe(true);
+    expect(screen.getByTestId<HTMLButtonElement>("gen-start").disabled).toBe(
+      true,
+    );
     fireEvent.change(keyBox.querySelector("input")!, {
       target: { value: "fal-key-0123456789abcdef" },
     });

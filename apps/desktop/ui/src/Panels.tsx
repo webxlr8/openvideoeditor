@@ -33,6 +33,7 @@ import {
   usePreview,
 } from "./fx";
 import { Icon } from "./icons";
+import { fire } from "./notify";
 import { TextAnimationPicker } from "./Motion";
 
 export interface PanelProps {
@@ -72,8 +73,10 @@ export function TextPanel({
   useEffect(() => {
     let live = true;
     if (primaryId)
-      void itemDetail(primaryId).then(
-        (d) => live && setAnimation(d?.textAnimation),
+      fire(
+        itemDetail(primaryId).then((d) => {
+          if (live) setAnimation(d?.textAnimation);
+        }),
       );
     return () => {
       live = false;
@@ -672,6 +675,7 @@ export function AudioPanel({
           className="chip-sm"
           disabled={!all.length}
           data-testid="audio-normalize"
+          title="Sets every clip's volume to 100 % and unmutes it. It does not measure or even out loudness."
           onClick={() =>
             onEdit(
               updateItems(
@@ -685,22 +689,23 @@ export function AudioPanel({
             )
           }
         >
-          Reset all to 100%
+          Reset volumes to 100 %
         </button>
         <button
           className="chip-sm"
           disabled={!music.length}
           data-testid="audio-duck"
+          title="Sets every audio clip (music and sound effects) to 30 % for its whole length. It does not follow the dialogue."
           onClick={() =>
             onEdit(
               updateItems(
                 music.map((s) => ({ id: s.id, set: { volume: 30 } })),
-                "duck music",
+                "lower music to 30%",
               ),
             )
           }
         >
-          Music under dialogue (30%)
+          Lower music to 30 %
         </button>
       </div>
       <h5 className="panel-sub">Audio clips</h5>

@@ -37,7 +37,7 @@ describe("motion graphics", () => {
     select("Lower third");
     expect(await screen.findByTestId("template-props")).toBeTruthy();
     expect(screen.getByTestId("insp-tab-code").getAttribute("aria-selected")).toBe("true");
-    const name = screen.getByTestId("prop-name") as HTMLInputElement;
+    const name = screen.getByTestId<HTMLInputElement>("prop-name");
     expect(name.value).toBe("Alex Morgan");
     fireEvent.change(name, { target: { value: "Sam Lee" } });
     fireEvent.blur(name);
@@ -52,7 +52,7 @@ describe("motion graphics", () => {
     await waitFor(() => expect(clips().length).toBe(2));
     select("Counter");
     fireEvent.click(await screen.findByTestId("code-edit-source"));
-    const src = (await screen.findByTestId("code-source")) as HTMLTextAreaElement;
+    const src = await screen.findByTestId<HTMLTextAreaElement>("code-source");
     fireEvent.change(src, { target: { value: "import x from 'y';\n" + src.value } });
     fireEvent.click(screen.getByTestId("code-check-draft"));
     await waitFor(() => expect(screen.getByTestId("code-status").textContent).toContain("1 error"));
@@ -67,7 +67,7 @@ describe("motion graphics", () => {
     fireEvent.click(await screen.findByTestId("motion-blank"));
     await waitFor(() => expect(clips().length).toBe(2));
     select("Composition");
-    expect(((await screen.findByTestId("code-source")) as HTMLTextAreaElement).value).toContain("export default function");
+    expect((await screen.findByTestId<HTMLTextAreaElement>("code-source")).value).toContain("export default function");
   });
 });
 
@@ -84,7 +84,7 @@ describe("text animation and fonts", () => {
     fireEvent.click(screen.getByTestId("anim-phase-out"));
     fireEvent.click(screen.getByTestId("anim-fade"));
     await waitFor(async () => expect((await detailOf("Big Story")).textAnimation).toMatchObject({ preset: "rise", out: { preset: "fade", easing: "ease-in" } }));
-    const duration = screen.getByTestId("anim-duration") as HTMLInputElement;
+    const duration = screen.getByTestId<HTMLInputElement>("anim-duration");
     fireEvent.change(duration, { target: { value: "1.5" } });
     fireEvent.pointerUp(duration);
     await waitFor(async () => expect((await detailOf("Big Story")).textAnimation).toMatchObject({ preset: "rise", out: { preset: "fade", duration: 1.5 } }));

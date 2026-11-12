@@ -39,8 +39,47 @@ fn format_of(id: &str) -> AppResult<Format> {
     Format::parse(id).map_err(|e| AppError::new(ErrorCode::InvalidArgument, e.to_string()))
 }
 
-/// Writes the open project's timeline. `path: None` asks with a save dialog; returns the written path (`None` when
-/// the dialog was cancelled).
+/// Items of one kind a timeline file leaves out, and why.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct OmittedItems {
+    /// What was left out, in plain words ("captions", "titles").
+    pub kind: String,
+    pub count: u32,
+    pub reason: String,
+}
+
+/// What a timeline file won't carry over: items left out, and properties of the written clips it doesn't keep.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TimelineExportReport {
+    pub omitted: Vec<OmittedItems>,
+    pub not_carried: Vec<String>,
+}
+
+impl From<ove_interchange::ExportReport> for TimelineExportReport {
+    fn from(r: ove_interchange::ExportReport) -> Self {
+        TimelineExportReport {
+            omitted: r
+                .omitted
+                .into_iter()
+                .map(|o| OmittedItems { kind: o.kind, count: o.count as u32, reason: o.reason })
+                .collect(),
+            not_carried: r.not_carried,
+        }
+    }
+}
+
+/// The written file (`None` when the dialog was cancelled or for a preview) and what it doesn't carry over.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TimelineExport {
+    pub path: Option<String>,
+    pub report: TimelineExportReport,
+}
+
+/// Writes the open project's timeline. `path: None` asks with a save dialog. `preview: true` writes nothing and only
+/// returns the report, so the person sees what won't carry over before choosing to continue.
 #[tauri::command]
 #[specta::specta]
 pub async fn export_timeline(
@@ -48,15 +87,21 @@ pub async fn export_timeline(
     format: String,
     fps: f64,
     path: Option<String>,
-) -> AppResult<Option<String>> {
+    preview: bool,
+) -> AppResult<TimelineExport> {
     let f = format_of(&format)?;
-    let (text, name) = {
+    let (out, name) = {
         let state = app.state::<AppState>();
         let g = lock(&state.projects.open)?;
         let p = g.as_ref().ok_or_else(|| AppError::new(ErrorCode::InvalidArgument, "Open a project first."))?;
         let rate = Rate::from_fps(if fps > 0.0 { fps } else { 30.0 });
-        (ove_interchange::export(p.doc(), Some(p.bundle()), f, rate), p.doc().project.name.clone())
+        if preview {
+            let report = ove_interchange::export_report(p.doc(), Some(p.bundle()), f, rate);
+            return Ok(TimelineExport { path: None, report: report.into() });
+        }
+        (ove_interchange::export_with_report(p.doc(), Some(p.bundle()), f, rate), p.doc().project.name.clone())
     };
+    let report: TimelineExportReport = out.report.into();
     let path = match path {
         Some(p) => PathBuf::from(p),
         None => {
@@ -68,13 +113,13 @@ pub async fn export_timeline(
                 .blocking_save_file();
             match picked.and_then(|p| p.into_path().ok()) {
                 Some(p) => p,
-                None => return Ok(None),
+                None => return Ok(TimelineExport { path: None, report }),
             }
         }
     };
-    std::fs::write(&path, text)
+    std::fs::write(&path, out.text)
         .map_err(|e| AppError::new(ErrorCode::Io, format!("Could not write {}: {e}", path.display())))?;
-    Ok(Some(path.display().to_string()))
+    Ok(TimelineExport { path: Some(path.display().to_string()), report })
 }
 
 /// What an import did.

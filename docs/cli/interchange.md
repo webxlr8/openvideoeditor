@@ -20,7 +20,9 @@ sets the frame rate of an exported file and of an imported EDL (the other format
 **Export** writes the visible video, image, audio and text items. Overlapping items on one track are spread over
 extra lanes. Trims and constant speed changes are kept; titles become FCPXML Basic Title / FCP7 Text generators
 (EDLs carry only the main video track and the first audio track, with media paths in `* SOURCE FILE:` comments).
-Captions, code/shader items, adjustment layers, effects and keyframes are not exported.
+Captions, code/shader items, adjustment layers, effects and keyframes are not exported. Every export reports what it
+left out (with how many and why) and which properties of the written clips the file does not carry; the text output
+lists them under the `wrote …` line.
 
 **Import** adds the file's tracks and clips to the project as one revision: video tracks above the existing tracks,
 audio tracks at the bottom, all named "Imported …". Media already in the project is reused by path; other files are
@@ -40,6 +42,7 @@ ove timeline import Demo cut.otio --json # exit 0
 ove timeline import Demo missing.edl # exit 1
 ```
 
-JSON output: export `{"path", "format", "bytes"}`; import `{"rev", "tracks", "clips", "mediaAdded", "missing"}`.
+JSON output: export `{"path", "format", "bytes", "report": {"omitted": [{"kind", "count", "reason"}], "notCarried"}}`;
+import `{"rev", "tracks", "clips", "mediaAdded", "missing"}`.
 Errors: `format.unknown`, `file.unreadable`, `file.unwritable`, `import.invalid` (the file does not parse),
 `import.empty` (no clips), `project.locked`.

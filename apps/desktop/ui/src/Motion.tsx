@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { FontFamily, ItemView_Serialize, ProjectView_Serialize } from "./bindings";
 import { type EditResult, type Fields, addItems, firstTrack, snapToFrame, updateItems } from "./edit";
 import { Icon } from "./icons";
+import { fire } from "./notify";
 import {
   type AnimPhase,
   type CheckReport,
@@ -32,7 +33,11 @@ function usePromise<T>(make: () => Promise<T>, deps: unknown[]): T | undefined {
   const [value, setValue] = useState<T | undefined>(undefined);
   useEffect(() => {
     let live = true;
-    void make().then((v) => live && setValue(v));
+    fire(
+      make().then((v) => {
+        if (live) setValue(v);
+      }),
+    );
     return () => {
       live = false;
     };
@@ -302,7 +307,14 @@ export function MotionPanel({ project, playhead, onEdit, onSelect }: MotionPanel
 
 function PropField({ spec, value, images, onCommit }: { spec: PropSpec; value: unknown; images: { id: string; name: string }[]; onCommit: (v: unknown) => void }) {
   const [draft, setDraft] = useState<string | null>(null);
-  const text = typeof value === "string" ? value : value == null ? "" : String(value);
+  const text =
+    typeof value === "string"
+      ? value
+      : typeof value === "number" || typeof value === "boolean"
+        ? String(value)
+        : value == null
+          ? ""
+          : JSON.stringify(value);
   const id = `prop-${spec.name}`;
   switch (spec.kind) {
     case "color":
@@ -463,10 +475,11 @@ export function CodeTab({ project, item, detail, set }: { project: ProjectView_S
 
   const run = (c: Fields) => {
     setChecking(true);
-    void checkCode(c, duration).then((r) => {
-      setReport(r);
-      setChecking(false);
-    });
+    fire(
+      checkCode(c, duration)
+        .then(setReport)
+        .finally(() => setChecking(false)),
+    );
   };
   useEffect(() => {
     if (!key || key === "{}") return;

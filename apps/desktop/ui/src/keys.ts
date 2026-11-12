@@ -153,7 +153,7 @@ function rebindableAction(id: string): KeyAction | null {
     case "zoomIn":
     case "zoomOut":
     case "help":
-      return { type: id } as KeyAction;
+      return { type: id };
     default:
       return null;
   }

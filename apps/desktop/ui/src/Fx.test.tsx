@@ -59,7 +59,7 @@ describe("effects, transitions, layouts and colour", () => {
     expect(entry[0].shadows).toEqual([0.09, 0.11, 0.36]);
     await inspectClip();
     fireEvent.click(screen.getByTestId("insp-tab-effects"));
-    const balance = (await screen.findByTestId("fx-duotone-balance")) as HTMLInputElement;
+    const balance = await screen.findByTestId<HTMLInputElement>("fx-duotone-balance");
     fireEvent.change(balance, { target: { value: "0.8" } });
     fireEvent.pointerUp(balance);
     await waitFor(async () => expect(((await clipDetail()).effects as Fields[])[0].balance).toBe(0.8));
@@ -79,6 +79,13 @@ describe("effects, transitions, layouts and colour", () => {
     fireEvent.pointerUp(window);
     expect(await screen.findByTestId("shader-editor")).toBeTruthy();
     expect(screen.getByTestId("shader-intensity")).toBeTruthy();
+    // Subject masks don't exist yet: the picker says the regions fall back to the whole frame.
+    const region = screen.getByTestId<HTMLSelectElement>("shader-region");
+    expect([...region.options].map((o) => o.text)).toEqual([
+      "Whole frame",
+      "Subject (whole frame for now)",
+      "Background (whole frame for now)",
+    ]);
   });
 
   it("applies a directional transition with easing and duration", async () => {
@@ -117,7 +124,7 @@ describe("effects, transitions, layouts and colour", () => {
     fireEvent.click(screen.getByTestId("insp-tab-color"));
     fireEvent.click(await screen.findByTestId("lut-cinematic"));
     await waitFor(async () => expect(((await clipDetail()).colorGrade as Fields).lut).toEqual({ intensity: 1, stage: "look", preset: "cinematic" }));
-    const y = (await screen.findByTestId("wheel-gain-y")) as HTMLInputElement;
+    const y = await screen.findByTestId<HTMLInputElement>("wheel-gain-y");
     fireEvent.change(y, { target: { value: "0.2" } });
     fireEvent.pointerUp(y);
     await waitFor(async () => expect((((await clipDetail()).colorGrade as Fields).wheels as Fields).gain).toEqual({ r: 0, g: 0, b: 0, y: 0.2 }));

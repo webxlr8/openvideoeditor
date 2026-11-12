@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Diagnostics_Serialize, MediaInfo_Serialize, ViewerBackend, ViewerRect } from "./bindings";
-import { commands, events, frameUrl, isTauri } from "./bridge";
+import { commands, events, frameUrl, isTauri, type Result } from "./bridge";
 import { ContextMenu, Dropdown, type MenuItem } from "./Menu";
 import { useViewerRectSync } from "./viewerRect";
+import { fire, logError, runCommand, unlisten } from "./notify";
 import type { AppError } from "./bindings";
 
 const PADDING = 24;
@@ -86,9 +87,7 @@ export function Viewer({
 
   const send = useCallback(
     (rect: ViewerRect) => {
-      void commands.setViewerRect(rect).then((r) => {
-        if (r.status === "error") onError(r.error);
-      });
+      runCommand(commands.setViewerRect(rect), undefined, onError);
     },
     [onError],
   );
@@ -126,9 +125,10 @@ export function Viewer({
         busy = false;
       }
     };
-    const un = events.viewerFrameReady.listen(() => void pull());
-    void pull();
-    return () => void un.then((f) => f());
+    // `pull` catches its own failures (a dropped frame is replaced by the next one).
+    const un = events.viewerFrameReady.listen(() => fire(pull()));
+    fire(pull());
+    return () => unlisten(un);
   }, [stream]);
 
   // Browser development: draw a local pattern instead of streamed frames.
@@ -190,20 +190,24 @@ export function DiagnosticsOverlay({ onError }: { onError: (e: AppError) => void
   const [d, setD] = useState<Diagnostics_Serialize | null>(null);
   useEffect(() => {
     let live = true;
-    const poll = async () => {
-      const r = await commands.diagnostics();
-      if (live && r.status === "ok") setD(r.data);
-    };
-    void poll();
-    const t = setInterval(() => void poll(), 500);
+    // Polled twice a second: a failure is logged, not shown (the overlay would keep raising it).
+    const poll = () =>
+      runCommand(
+        commands.diagnostics(),
+        (data) => {
+          if (live) setD(data);
+        },
+        logError,
+      );
+    poll();
+    const t = setInterval(poll, 500);
     return () => {
       live = false;
       clearInterval(t);
     };
   }, []);
   const v = d?.viewer;
-  const run = (p: Promise<{ status: "ok" } | { status: "error"; error: AppError }>) =>
-    void p.then((r) => r.status === "error" && onError(r.error));
+  const run = (p: Promise<Result<null>>) => runCommand(p, undefined, onError);
   return (
     <div className="diagnostics" data-testid="diagnostics">
       <div>decode: {d?.decodePath ?? "…"}</div>

@@ -1,11 +1,13 @@
 //! Timeline interchange with other editors (roadmap change 15): FCPXML (Final Cut Pro, DaVinci Resolve), Final Cut
-//! Pro 7 XML (Premiere Pro), CMX3600 EDL and OpenTimelineIO. Export reads the project document; import produces one
-//! batch of document ops that adds the imported tracks, media and clips to a project.
+//! Pro 7 XML (Premiere Pro), CMX3600 EDL and OpenTimelineIO. Export reads the project document and reports what the
+//! file can't carry; import produces one batch of document ops that adds the imported tracks, media and clips to a
+//! project.
 
 pub mod edl;
 pub mod fcpxml;
 pub mod model;
 pub mod otio;
+pub mod report;
 pub mod xmeml;
 
 use std::collections::BTreeMap;
@@ -18,6 +20,7 @@ use ove_core::ops::Op;
 use ove_core::time::micros_to_json;
 
 pub use model::{Clip, ClipKind, Rate, Timeline, Track};
+pub use report::{ExportReport, Omitted};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -76,15 +79,39 @@ impl Format {
     }
 }
 
+/// A written timeline file and what it leaves out.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Exported {
+    pub text: String,
+    pub report: ExportReport,
+}
+
 /// Writes a project's timeline in a format. `bundle` resolves media owned by the bundle.
 pub fn export(doc: &Document, bundle: Option<&Path>, format: Format, rate: Rate) -> String {
-    let t = model::from_document(doc, bundle, rate);
-    match format {
+    export_with_report(doc, bundle, format, rate).text
+}
+
+/// Writes a project's timeline in a format, with the report of what the file leaves out.
+pub fn export_with_report(doc: &Document, bundle: Option<&Path>, format: Format, rate: Rate) -> Exported {
+    let (t, report) = prepare(doc, bundle, format, rate);
+    let text = match format {
         Format::Fcpxml => fcpxml::write(&t),
         Format::Xml => xmeml::write(&t),
         Format::Edl => edl::write(&t),
         Format::Otio => otio::write(&t),
-    }
+    };
+    Exported { text, report }
+}
+
+/// What an export in `format` would leave out, without writing anything.
+pub fn export_report(doc: &Document, bundle: Option<&Path>, format: Format, rate: Rate) -> ExportReport {
+    prepare(doc, bundle, format, rate).1
+}
+
+fn prepare(doc: &Document, bundle: Option<&Path>, format: Format, rate: Rate) -> (Timeline, ExportReport) {
+    let (t, mut report) = model::build(doc, bundle, rate);
+    report::note_format(&mut report, &t, format);
+    (t, report)
 }
 
 /// Reads a timeline file.

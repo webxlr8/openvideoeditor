@@ -5,6 +5,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import * as generated from "./bindings";
 // The effects/transitions/layouts catalogue, written from the core by `export-bindings`.
 import fxCatalogJson from "./fx-catalog.json?raw";
+import { fire } from "./notify";
 import type {
   AgentStatus_Serialize,
   AgentUiEvent_Serialize,
@@ -818,7 +819,7 @@ function createMock(): {
     for (const [k, v] of Object.entries(d))
       if (!HEAD.includes(k)) fields[k] = v;
     return refresh({
-      id: String(d.id ?? `i${++seq}`),
+      id: typeof d.id === "string" ? d.id : `i${++seq}`,
       trackId: String(d.trackId),
       kind: String(d.type),
       name: String(d.name ?? d.textContent ?? d.type),
@@ -992,19 +993,21 @@ function createMock(): {
       q.ok = true;
     }
     await tool("tu_apply", "apply_timeline", "Edit the timeline", () => {
-      void editProject("assistant: add opening title", (p) => {
-        p.items.push(
-          fromDetail({
-            id: `i${++seq}`,
-            trackId: "t_text",
-            type: "text",
-            name: "Opening title",
-            startTime: 0,
-            endTime: 3,
-            textContent: "Welcome",
-          }),
-        );
-      });
+      fire(
+        editProject("assistant: add opening title", (p) => {
+          p.items.push(
+            fromDetail({
+              id: `i${++seq}`,
+              trackId: "t_text",
+              type: "text",
+              name: "Opening title",
+              startTime: 0,
+              endTime: 3,
+              textContent: "Welcome",
+            }),
+          );
+        }),
+      );
       return "added 1";
     });
     await tool(
@@ -1013,6 +1016,10 @@ function createMock(): {
       "Check the timeline",
       () => "no problems",
     );
+    await tool("tu_seek", "seek_viewer", "Show the title", () => {
+      agentEvent({ kind: "seek", seconds: 1.5 });
+      return "Showing 1.50s.";
+    });
     await say(
       "Done: I added a 3-second **Welcome** title at the start. Undo removes it in one step.",
     );
@@ -1066,10 +1073,7 @@ function createMock(): {
       changed();
       return ok(info);
     },
-    openMediaDialog: () =>
-      commands.openMedia("/mock/Sample clip.mov") as ReturnType<
-        Commands["openMediaDialog"]
-      >,
+    openMediaDialog: () => commands.openMedia("/mock/Sample clip.mov"),
     closeMedia: () => {
       timelineOpen = false;
       setSpeed(0);
@@ -1165,10 +1169,7 @@ function createMock(): {
     },
     projectView: () => ok(project ? clone(project) : null),
     importMedia: (paths: string[]) => importPaths(paths),
-    importMediaDialog: () =>
-      importPaths(["/mock/Sample clip.mov"]) as ReturnType<
-        Commands["importMediaDialog"]
-      >,
+    importMediaDialog: () => importPaths(["/mock/Sample clip.mov"]),
     moveItem: (id: string, start: number | null, trackId: string | null) =>
       editProject("move clip", () => {
         const i = findItem(id);
@@ -1480,20 +1481,22 @@ function createMock(): {
       const id = `g_${++seq}`;
       const itemId = `i_gen_${seq}`;
       const start = r.start ?? 0;
-      void editProject(`generate ${kind}: placeholder`, (p) => {
-        p.items.push(
-          fromDetail({
-            id: itemId,
-            trackId: audio ? "t_audio" : "t_overlay",
-            type: audio ? "audio" : kind === "video" ? "video" : "image",
-            startTime: start,
-            endTime: start + (r.duration ?? 5),
-            name: r.prompt.slice(0, 40),
-            pending: true,
-            pendingDescription: r.prompt,
-          }),
-        );
-      });
+      fire(
+        editProject(`generate ${kind}: placeholder`, (p) => {
+          p.items.push(
+            fromDetail({
+              id: itemId,
+              trackId: audio ? "t_audio" : "t_overlay",
+              type: audio ? "audio" : kind === "video" ? "video" : "image",
+              startTime: start,
+              endTime: start + (r.duration ?? 5),
+              name: r.prompt.slice(0, 40),
+              pending: true,
+              pendingDescription: r.prompt,
+            }),
+          );
+        }),
+      );
       const job = {
         id,
         kind,
@@ -1509,10 +1512,12 @@ function createMock(): {
       setTimeout(() => {
         job.status = "succeeded";
         job.progress = 1;
-        void editProject(`generate ${kind}: ${r.prompt.slice(0, 40)}`, () => {
-          const it = findItem(itemId);
-          if (it) it.pending = false;
-        });
+        fire(
+          editProject(`generate ${kind}: ${r.prompt.slice(0, 40)}`, () => {
+            const it = findItem(itemId);
+            if (it) it.pending = false;
+          }),
+        );
         emit("generation-updated", JSON.stringify(job));
       }, control.generationMs ?? 400);
       return ok(JSON.stringify(job));
@@ -1548,49 +1553,99 @@ function createMock(): {
           ["otio", "OpenTimelineIO"],
         ].map(([id, label]) => ({ id, label, extension: id })),
       ),
+    // A rough version of the core's report: item types timeline files can't hold, and what an EDL drops.
     exportTimeline: (
       format: string,
       fps: number | null,
       path: string | null,
+      preview: boolean,
     ) => {
-      track(`exportTimeline:${format}@${fps}`);
+      track(`exportTimeline${preview ? "Report" : ""}:${format}@${fps}`);
       if (!project) return fail("invalid_argument", "Open a project first.");
-      return ok<string | null>(
-        path ?? `/mock/exports/${project.name}.${format}`,
+      const omitted: { kind: string; count: number; reason: string }[] = [];
+      const omit = (kind: string, count: number, reason: string) => {
+        if (count) omitted.push({ kind, count, reason });
+      };
+      const items = project.items;
+      const kinds: [string, string, string][] = [
+        [
+          "caption",
+          "captions",
+          "timeline files have no caption track; captions stay in the project",
+        ],
+        [
+          "code",
+          "motion graphics",
+          "they are drawn by OpenVideoEditor and have no equivalent in other editors",
+        ],
+        [
+          "shader",
+          "shader layers",
+          "they are drawn by OpenVideoEditor and have no equivalent in other editors",
+        ],
+        [
+          "adjustment",
+          "adjustment layers",
+          "adjustment layers are not written to timeline files yet",
+        ],
+      ];
+      for (const [kind, label, reason] of kinds)
+        omit(label, items.filter((i) => i.kind === kind).length, reason);
+      omit(
+        "placeholders",
+        items.filter((i) => i.pending).length,
+        "they have no media yet",
       );
+      if (format === "edl")
+        omit(
+          "titles",
+          items.filter((i) => i.kind === "text").length,
+          "an EDL has no titles",
+        );
+      const notCarried = items.some((i) => i.transitionIn || i.transitionOut)
+        ? ["transitions"]
+        : [];
+      const report = { omitted, notCarried };
+      if (preview) return ok({ path: null, report });
+      return ok({
+        path: path ?? `/mock/exports/${project.name}.${format}`,
+        report,
+      });
     },
     // Like the real import: tracks named "Imported …" above the existing ones, one clip per imported track here.
     importTimeline: (path: string | null, fps: number | null) => {
       track(`importTimeline:${path ?? "dialog"}@${fps}`);
       if (!project) return fail("invalid_argument", "Open a project first.");
-      void editProject("import timeline", (p) => {
-        const id = `t_imp_${++seq}`;
-        p.tracks.unshift({
-          id,
-          name: "Imported V1",
-          kind: "video",
-          locked: false,
-          visible: true,
-          muted: false,
-        });
-        p.items.push({
-          id: `i_imp_${seq}`,
-          trackId: id,
-          kind: "video",
-          name: "Imported clip",
-          start: 0,
-          end: 4,
-          trimStart: 0,
-          mediaId: null,
-          pending: true,
-          hidden: false,
-          muted: false,
-          text: null,
-          transitionIn: 0,
-          transitionOut: 0,
-          speed: 1,
-        });
-      });
+      fire(
+        editProject("import timeline", (p) => {
+          const id = `t_imp_${++seq}`;
+          p.tracks.unshift({
+            id,
+            name: "Imported V1",
+            kind: "video",
+            locked: false,
+            visible: true,
+            muted: false,
+          });
+          p.items.push({
+            id: `i_imp_${seq}`,
+            trackId: id,
+            kind: "video",
+            name: "Imported clip",
+            start: 0,
+            end: 4,
+            trimStart: 0,
+            mediaId: null,
+            pending: true,
+            hidden: false,
+            muted: false,
+            text: null,
+            transitionIn: 0,
+            transitionOut: 0,
+            speed: 1,
+          });
+        }),
+      );
       return ok({
         project: clone(project),
         tracks: 1,
@@ -1706,7 +1761,7 @@ function createMock(): {
         });
       chats.get(id)!.items.push(item("user", text));
       turn = { stop: false };
-      setTimeout(() => void runTurn(id), 0);
+      setTimeout(() => fire(runTurn(id)), 0);
       return ok({ chatId: id });
     },
     agentStop: () => {
@@ -1782,43 +1837,45 @@ function createMock(): {
         );
       runCaptionJob(request.model, () => {
         let n = 0;
-        void editProject("auto captions", (p) => {
-          const at = sources[0].start ?? 0;
-          const track =
-            p.tracks.find((t) => t.kind === "caption")?.id ?? "t_captions";
-          if (request.replace)
-            p.items = p.items.filter((i) => i.trackId !== track);
-          for (const [k, line] of MOCK_TRANSCRIPT.entries()) {
-            const words = line.split(" ");
-            const start = at + k * 2;
-            p.items.push(
-              fromDetail({
-                id: `i${++seq}`,
-                trackId: track,
-                type: "caption",
-                name: "Caption",
-                startTime: start,
-                endTime: start + 1.9,
-                captionText: line,
-                captionPresetId: request.presetId ?? "butter-serif",
-                captionSegments: [
-                  {
-                    id: "s1",
-                    text: line,
-                    startTime: 0,
-                    endTime: 1.9,
-                    wordTimings: words.map((word, j) => ({
-                      word,
-                      start: j * 0.4,
-                      end: j * 0.4 + 0.38,
-                    })),
-                  },
-                ],
-              }),
-            );
-            n++;
-          }
-        });
+        fire(
+          editProject("auto captions", (p) => {
+            const at = sources[0].start ?? 0;
+            const track =
+              p.tracks.find((t) => t.kind === "caption")?.id ?? "t_captions";
+            if (request.replace)
+              p.items = p.items.filter((i) => i.trackId !== track);
+            for (const [k, line] of MOCK_TRANSCRIPT.entries()) {
+              const words = line.split(" ");
+              const start = at + k * 2;
+              p.items.push(
+                fromDetail({
+                  id: `i${++seq}`,
+                  trackId: track,
+                  type: "caption",
+                  name: "Caption",
+                  startTime: start,
+                  endTime: start + 1.9,
+                  captionText: line,
+                  captionPresetId: request.presetId ?? "butter-serif",
+                  captionSegments: [
+                    {
+                      id: "s1",
+                      text: line,
+                      startTime: 0,
+                      endTime: 1.9,
+                      wordTimings: words.map((word, j) => ({
+                        word,
+                        start: j * 0.4,
+                        end: j * 0.4 + 0.38,
+                      })),
+                    },
+                  ],
+                }),
+              );
+              n++;
+            }
+          }),
+        );
         emit("caption-job-progress", {
           stage: "done",
           fraction: 1,

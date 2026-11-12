@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { App } from "./App";
 import { referenceSize } from "./ExportDialog";
@@ -50,6 +50,49 @@ describe("export dialog", () => {
     expect(screen.getByTestId("export-done").textContent).toContain(".mp4");
     fireEvent.click(screen.getByTestId("export-reveal"));
     expect(window.__oveMock!.calls.some((c) => c.startsWith("revealPath:"))).toBe(true);
+  });
+
+  it("writes a timeline file straight away when nothing is lost", async () => {
+    await openEditor();
+    fireEvent.click(screen.getByTestId("open-export"));
+    fireEvent.click(await screen.findByTestId("export-kind-timeline"));
+    fireEvent.click(screen.getByTestId("timeline-export-start"));
+    const done = await screen.findByTestId("timeline-export-done");
+    expect(done.textContent).toContain(".fcpxml");
+    expect(window.__oveMock!.calls).toEqual(
+      expect.arrayContaining(["exportTimelineReport:fcpxml@30", "exportTimeline:fcpxml@30"]),
+    );
+  });
+
+  it("shows what won't carry over before writing, and continues on request", async () => {
+    await openEditor();
+    // A title and a caption: an EDL has neither.
+    fireEvent.click(screen.getByTestId("rail-text"));
+    fireEvent.click(await screen.findByTestId("text-preset-headline"));
+    fireEvent.click(screen.getByTestId("rail-captions"));
+    fireEvent.click(await screen.findByTestId("caption-add"));
+    await waitFor(() => expect(screen.getAllByTestId("clip").length).toBe(3));
+
+    fireEvent.click(screen.getByTestId("open-export"));
+    fireEvent.click(await screen.findByTestId("export-kind-timeline"));
+    fireEvent.click(within(screen.getByTestId("timeline-formats")).getByText("EDL"));
+    fireEvent.click(screen.getByTestId("timeline-export-start"));
+    const report = await screen.findByTestId("timeline-report");
+    expect(report.textContent).toContain("What won't carry over");
+    const lines = screen.getAllByTestId("timeline-omitted").map((l) => l.textContent);
+    expect(lines).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("Captions (1) — timeline files have no caption track"),
+        expect.stringContaining("Titles (1) — an EDL has no titles"),
+      ]),
+    );
+    // Nothing written yet.
+    expect(window.__oveMock!.calls).not.toContain("exportTimeline:edl@30");
+    expect(screen.queryByTestId("timeline-export-done")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("timeline-export-continue"));
+    expect((await screen.findByTestId("timeline-export-done")).textContent).toContain(".edl");
+    expect(window.__oveMock!.calls).toContain("exportTimeline:edl@30");
   });
 
   it("cancels a running export", async () => {

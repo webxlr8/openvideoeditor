@@ -1,7 +1,12 @@
 import { useEffect, useState } from "react";
-import type { AppError, ExportProgress_Serialize } from "./bindings";
+import type {
+  AppError,
+  ExportProgress_Serialize,
+  TimelineExportReport,
+} from "./bindings";
 import { commands, events } from "./bridge";
 import { Icon } from "./icons";
+import { fire, runCommand, unlisten } from "./notify";
 import "./export.css";
 
 export type PreviewMode = "timeline" | "source";
@@ -85,6 +90,37 @@ const TIMELINE_RATES = [
   { label: "60", fps: 60 },
 ];
 
+/** "What won't carry over": the items a format leaves out and the properties it doesn't keep. */
+export function CarryOverList({ report }: { report: TimelineExportReport }) {
+  return (
+    <div className="xp-report" data-testid="timeline-report">
+      <h4>What won't carry over</h4>
+      <ul>
+        {report.omitted.map((o) => (
+          <li key={`${o.kind}|${o.reason}`} data-testid="timeline-omitted">
+            <strong>
+              {o.kind.charAt(0).toUpperCase() + o.kind.slice(1)} ({o.count})
+            </strong>{" "}
+            <span className="muted">— {o.reason}</span>
+          </li>
+        ))}
+        {report.notCarried.length > 0 && (
+          <li data-testid="timeline-not-carried">
+            <strong>Not kept on the clips that are written:</strong>{" "}
+            {report.notCarried.join(", ")}
+          </li>
+        )}
+      </ul>
+      <p className="muted small">
+        Your project keeps all of it; only the exported file goes without.
+      </p>
+    </div>
+  );
+}
+
+const lossless = (r: TimelineExportReport) =>
+  r.omitted.length === 0 && r.notCarried.length === 0;
+
 /** Export of the edit as a timeline file for another editor. */
 function TimelineExport({
   onClose,
@@ -97,12 +133,30 @@ function TimelineExport({
   const [fps, setFps] = useState(30);
   const [saved, setSaved] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /** The report for the chosen format, shown before writing when something won't carry over. */
+  const [check, setCheck] = useState<TimelineExportReport | null>(null);
+  const write = async () => {
+    setBusy(true);
+    try {
+      const r = await commands.exportTimeline(format, fps, null, false);
+      if (r.status === "error") onError(r.error);
+      else if (r.data.path) setSaved(r.data.path);
+    } finally {
+      setBusy(false);
+    }
+  };
   const start = async () => {
     setBusy(true);
-    const r = await commands.exportTimeline(format, fps, null);
-    setBusy(false);
-    if (r.status === "error") onError(r.error);
-    else if (r.data) setSaved(r.data);
+    let report: TimelineExportReport;
+    try {
+      const r = await commands.exportTimeline(format, fps, null, true);
+      if (r.status === "error") return onError(r.error);
+      report = r.data.report;
+    } finally {
+      setBusy(false);
+    }
+    if (lossless(report)) await write();
+    else setCheck(report);
   };
   if (saved)
     return (
@@ -113,7 +167,9 @@ function TimelineExport({
         <div className="xp-actions">
           <button
             className="btn"
-            onClick={() => void commands.revealPath(saved)}
+            onClick={() =>
+              runCommand(commands.revealPath(saved), undefined, onError)
+            }
           >
             Show in folder
           </button>
@@ -122,6 +178,29 @@ function TimelineExport({
           </button>
         </div>
       </div>
+    );
+  const label = TIMELINE_FORMATS.find((f) => f.id === format)?.label;
+  if (check)
+    return (
+      <>
+        <p className="small">
+          The {label} file will leave some of this project behind:
+        </p>
+        <CarryOverList report={check} />
+        <div className="xp-actions">
+          <button className="btn" onClick={() => setCheck(null)}>
+            Back
+          </button>
+          <button
+            className="btn primary"
+            onClick={() => fire(write(), onError)}
+            disabled={busy}
+            data-testid="timeline-export-continue"
+          >
+            Continue…
+          </button>
+        </div>
+      </>
     );
   const note = TIMELINE_FORMATS.find((f) => f.id === format)?.note;
   return (
@@ -157,9 +236,9 @@ function TimelineExport({
         </div>
       </div>
       <p className="muted small">
-        Clips keep their trims, speed changes and tracks; titles become text
-        generators. Media stays where it is — the file links to it. Effects,
-        captions and keyframes are not carried over.
+        Clips keep their trims, speed changes and tracks; media stays where it
+        is and the file links to it. Before anything is saved you'll see what
+        this format can't carry over.
       </p>
       <div className="xp-actions">
         <button className="btn" onClick={onClose}>
@@ -167,7 +246,7 @@ function TimelineExport({
         </button>
         <button
           className="btn primary"
-          onClick={() => void start()}
+          onClick={() => fire(start(), onError)}
           disabled={busy}
           data-testid="timeline-export-start"
         >
@@ -209,10 +288,10 @@ export function ExportDialog({
 
   useEffect(() => {
     const un = events.exportProgress.listen((e) => {
-      const p = e.payload as ExportProgress_Serialize;
+      const p = e.payload;
       setPhase(p.done ? { kind: "done", p } : { kind: "running", p });
     });
-    return () => void un.then((f) => f());
+    return () => unlisten(un);
   }, []);
 
   const choose = async () => {
@@ -322,9 +401,14 @@ export function ExportDialog({
               <div className="xp-actions">
                 <button
                   className="btn"
-                  onClick={() =>
-                    phase.p.path && void commands.revealPath(phase.p.path)
-                  }
+                  onClick={() => {
+                    if (phase.p.path)
+                      runCommand(
+                        commands.revealPath(phase.p.path),
+                        undefined,
+                        onError,
+                      );
+                  }}
                   data-testid="export-reveal"
                 >
                   Show in folder
@@ -378,7 +462,7 @@ export function ExportDialog({
                 </span>
                 <button
                   className="btn"
-                  onClick={() => void choose()}
+                  onClick={() => fire(choose(), onError)}
                   disabled={running}
                   data-testid="export-choose"
                 >
@@ -407,7 +491,9 @@ export function ExportDialog({
               {running ? (
                 <button
                   className="btn"
-                  onClick={() => void commands.cancelExport()}
+                  onClick={() =>
+                    runCommand(commands.cancelExport(), undefined, onError)
+                  }
                   data-testid="export-cancel"
                 >
                   Cancel
@@ -419,7 +505,7 @@ export function ExportDialog({
                   </button>
                   <button
                     className="btn primary"
-                    onClick={() => void start()}
+                    onClick={() => fire(start(), onError)}
                     data-testid="export-start"
                   >
                     Export
