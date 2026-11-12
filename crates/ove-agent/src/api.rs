@@ -59,7 +59,24 @@ pub struct ModelInfo {
 }
 
 pub fn model_info(id: &str) -> ModelInfo {
-    MODELS.iter().copied().find(|m| m.id == id).unwrap_or(MODELS[0])
+    known_model(id).unwrap_or(MODELS[0])
+}
+
+/// The listed model `id` names: exact, or a dated / suffixed variant of a listed id (`claude-opus-5-5-20261101`).
+pub fn known_model(id: &str) -> Option<ModelInfo> {
+    MODELS.iter().copied().find(|m| m.id == id).or_else(|| {
+        MODELS
+            .iter()
+            .copied()
+            .filter(|m| id.starts_with(m.id) && id[m.id.len()..].starts_with('-'))
+            .max_by_key(|m| m.id.len())
+    })
+}
+
+/// The model to price a response by: the one the API reports it was served by (a server-side fallback can differ
+/// from the one asked for), or `requested` when the reported one is missing or not in [`MODELS`].
+pub fn pricing_model<'a>(reported: &'a str, requested: &'a str) -> &'a str {
+    if known_model(reported).is_some() { reported } else { requested }
 }
 
 /// Token usage of one or more requests.
@@ -169,6 +186,13 @@ pub enum StreamEvent {
     ThinkingDelta(String),
     /// A tool call began (id, name).
     ToolUseStart(String, String),
+    /// Tokens billed for one response (attempt), with the model the API reports serving it. Sent once per attempt
+    /// that got as far as `message_start`, also when the stream then fails or is stopped, so partial responses are
+    /// counted. Not output: it does not stop a retry.
+    Usage {
+        model: String,
+        usage: Usage,
+    },
 }
 
 /// One complete model response.
@@ -245,7 +269,9 @@ impl Client {
             }
             let mut produced = false;
             let result = self.stream_once(body, cancel, &mut |e| {
-                produced = true;
+                if !matches!(e, StreamEvent::Usage { .. }) {
+                    produced = true;
+                }
                 on_event(e)
             });
             match result {
@@ -297,7 +323,8 @@ impl Client {
     }
 }
 
-/// Parses a Messages SSE stream into a complete response.
+/// Parses a Messages SSE stream into a complete response. Once the stream has started (`message_start`), its usage
+/// is reported with [`StreamEvent::Usage`] whether it then completes, fails or is cancelled.
 pub fn parse_sse(
     reader: impl BufRead,
     cancel: &AtomicBool,
@@ -311,6 +338,23 @@ pub fn parse_sse(
         usage: Usage::default(),
         invalid_tool_inputs: Vec::new(),
     };
+    let mut started = false;
+    let res = read_sse(reader, cancel, on_event, &mut out, &mut started);
+    if started {
+        on_event(StreamEvent::Usage { model: out.model.clone(), usage: out.usage });
+    }
+    res?;
+    out.content.retain(|b| !b.is_null());
+    Ok(out)
+}
+
+fn read_sse(
+    reader: impl BufRead,
+    cancel: &AtomicBool,
+    on_event: &mut dyn FnMut(StreamEvent),
+    out: &mut Response,
+    started: &mut bool,
+) -> Result<(), ApiError> {
     let mut partial_json: Vec<String> = Vec::new();
     let mut data = String::new();
     let mut done = false;
@@ -334,6 +378,7 @@ pub fn parse_sse(
         data.clear();
         match ev["type"].as_str().unwrap_or("") {
             "message_start" => {
+                *started = true;
                 let m = &ev["message"];
                 out.id = m["id"].as_str().unwrap_or_default().to_string();
                 out.model = m["model"].as_str().unwrap_or_default().to_string();
@@ -435,8 +480,7 @@ pub fn parse_sse(
             retry_after: None,
         });
     }
-    out.content.retain(|b| !b.is_null());
-    Ok(out)
+    Ok(())
 }
 
 fn append(block: &mut Value, key: &str, text: &str) {
@@ -515,6 +559,43 @@ mod tests {
             parse_sse(cut.as_bytes(), &AtomicBool::new(false), &mut |_| {}).unwrap_err().code,
             "net.interrupted"
         );
+    }
+
+    #[test]
+    fn usage_is_reported_even_when_the_stream_fails() {
+        let usage_of = |body: String| {
+            let mut got = vec![];
+            let r = parse_sse(body.as_bytes(), &AtomicBool::new(false), &mut |e| {
+                if let StreamEvent::Usage { model, usage } = e {
+                    got.push((model, usage));
+                }
+            });
+            (r.is_ok(), got)
+        };
+        let start =
+            json!({"type":"message_start","message":{"id":"m","model":"claude-opus-5-5","usage":{"input_tokens":50}}});
+        let delta = json!({"type":"message_delta","delta":{},"usage":{"output_tokens":7}});
+        let err = json!({"type":"error","error":{"type":"api_error","message":"boom"}});
+        let (ok, got) = usage_of(sse(&[start.clone(), delta.clone(), err.clone()]));
+        assert!(!ok);
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].0, "claude-opus-5-5");
+        assert_eq!((got[0].1.input_tokens, got[0].1.output_tokens), (50, 7));
+        // Cut off, and complete: one report each.
+        assert_eq!(usage_of(sse(std::slice::from_ref(&start))).1.len(), 1);
+        assert_eq!(usage_of(sse(&[start, delta, json!({"type":"message_stop"})])).1.len(), 1);
+        // Failed before the response started: nothing was billed.
+        assert!(usage_of(sse(&[err])).1.is_empty());
+    }
+
+    #[test]
+    fn pricing_follows_the_served_model() {
+        assert_eq!(known_model("claude-haiku-5-5-20261001").unwrap().id, "claude-haiku-5-5");
+        assert!(known_model("claude-haiku-5-50").is_none());
+        assert!(known_model("mock").is_none());
+        assert_eq!(pricing_model("claude-opus-5-5", "claude-sonnet-5-5"), "claude-opus-5-5");
+        assert_eq!(pricing_model("", "claude-sonnet-5-5"), "claude-sonnet-5-5");
+        assert_eq!(pricing_model("mock", "claude-haiku-5-5"), "claude-haiku-5-5");
     }
 
     #[test]
