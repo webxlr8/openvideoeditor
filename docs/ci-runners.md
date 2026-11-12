@@ -66,8 +66,11 @@ Linux x64 (Ubuntu 24.04), development only:
   p7zip-full ffmpeg`. The rustup target `x86_64-pc-windows-gnu` is added by the workflow.
 
 Releases do not need a Windows runner: the NSIS `-setup.exe` comes from the Linux cross build (no `.msi`, which needs
-WiX on Windows) and its `ove.exe` is smoke-tested under Wine. The macOS installer needs a Mac runner; without one, set
-the repository variable `OVE_RELEASE_MACOS` to `false` so the release does not wait for it in the queue. The draft
-release then lists macOS as missing.
+WiX on Windows) and its `ove.exe` is smoke-tested under Wine. The macOS installer needs a Mac runner: once one is
+registered, set the repository variable `OVE_RELEASE_MACOS` to `true`. Until then the macOS job is skipped and the
+draft release lists macOS as missing.
+
+Pushes to `claude/**` branches that change packaging (the release workflow, `tools/package.sh`, the FFmpeg or cross
+scripts, notices) run the release workflow as a dry run: installers are built and smoke-tested, nothing is published.
 
 Runners should keep their work folder between runs (the default), so the FFmpeg build and Rust caches are reused.
