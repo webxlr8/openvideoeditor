@@ -124,7 +124,7 @@ pub fn find_media(doc: &Document, bundle: &Path, q: &str) -> Result<String, Fail
     if by_name.len() > 1 {
         return Err(Fail::new("media.ambiguous", format!("{} media items are named {q}; use the id", by_name.len())));
     }
-    let as_path = std::fs::canonicalize(q).unwrap_or_else(|_| PathBuf::from(q));
+    let as_path = dunce::canonicalize(q).unwrap_or_else(|_| PathBuf::from(q));
     if let Some(e) = doc.registry.values().find(|e| resolve_media_path(bundle, &e.native_path) == as_path) {
         return Ok(e.media_id.clone());
     }
@@ -276,8 +276,8 @@ pub fn run(ctx: &Ctx, cmd: &MediaCmd) -> Out {
         MediaCmd::Add { project, paths, track, at, no_timeline, image_duration } => {
             let mut files = Vec::new();
             for p in paths {
-                let c = std::fs::canonicalize(p)
-                    .map_err(|e| Fail::new("file.notFound", format!("{}: {e}", p.display())))?;
+                let c =
+                    dunce::canonicalize(p).map_err(|e| Fail::new("file.notFound", format!("{}: {e}", p.display())))?;
                 if !c.is_file() {
                     return Err(Fail::new("file.notFound", format!("{} is not a file", p.display())));
                 }
@@ -406,7 +406,7 @@ pub fn run(ctx: &Ctx, cmd: &MediaCmd) -> Out {
                 match (media, path, folder) {
                     (Some(m), Some(p), None) => {
                         let id = find_media(d, w.bundle(), m)?;
-                        let c = std::fs::canonicalize(p)
+                        let c = dunce::canonicalize(p)
                             .map_err(|e| Fail::new("file.notFound", format!("{}: {e}", p.display())))?;
                         pairs.push((id, c));
                     }

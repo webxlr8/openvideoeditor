@@ -118,7 +118,7 @@ mod imp {
     const DRIVE_REMOTE: u32 = 4;
 
     pub fn is_network(path: &Path) -> bool {
-        let abs = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        let abs = dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
         match abs.components().next() {
             Some(Component::Prefix(p)) => match p.kind() {
                 Prefix::UNC(..) | Prefix::VerbatimUNC(..) => true,

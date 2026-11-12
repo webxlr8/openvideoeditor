@@ -8,6 +8,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+dunce = "1.0"
 ove-core = { path = "../ove-core" }
 oxc_allocator = "=0.158.0"
 oxc_ast = "=0.158.0"

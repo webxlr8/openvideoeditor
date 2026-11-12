@@ -773,7 +773,7 @@ fn probe_paths(state: &AppState, paths: &[String], now: i64) -> AppResult<(PathB
     let mut errors = Vec::new();
     for (n, path) in paths.iter().enumerate() {
         let pb = PathBuf::from(path);
-        let canonical = std::fs::canonicalize(&pb).unwrap_or(pb.clone());
+        let canonical = dunce::canonicalize(&pb).unwrap_or(pb.clone());
         let name = canonical.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
         if let Err(e) = crate::engine::precheck(&canonical) {
             errors.push(e.message);

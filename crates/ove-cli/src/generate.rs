@@ -133,7 +133,7 @@ fn request(a: &GenArgs) -> Request {
         model: a.model.clone(),
         duration: a.duration,
         aspect: a.aspect.clone(),
-        image: a.image.as_ref().map(|p| std::fs::canonicalize(p).unwrap_or_else(|_| p.clone())),
+        image: a.image.as_ref().map(|p| dunce::canonicalize(p).unwrap_or_else(|_| p.clone())),
         voice: a.voice.clone(),
         speed: a.speed,
         stability: a.stability,

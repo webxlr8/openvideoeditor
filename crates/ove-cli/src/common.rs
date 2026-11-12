@@ -113,7 +113,7 @@ impl Ctx {
 }
 
 fn same_bundle(a: &Path, b: &Path) -> bool {
-    let c = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    let c = |p: &Path| dunce::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
     c(a) == c(b)
 }
 
