@@ -17,6 +17,7 @@ import type {
 } from "./bindings";
 import { commands } from "./bridge";
 import { ChatPanel } from "./ChatPanel";
+import { ErrorBoundary } from "./ErrorBoundary";
 import { Icon, type IconName } from "./icons";
 import { Dropdown } from "./Menu";
 import { fire, runCommand } from "./notify";
@@ -320,40 +321,54 @@ export function Editor({
             ))}
           </nav>
           {inspecting && item && project ? (
-            <Inspector
-              key={item.id}
-              project={project}
-              item={item}
-              onEdit={onEdit}
-              onClose={() => setClosedFor(selected)}
-              onCollapse={() => toggle("panelOpen")}
-              playhead={playhead}
-            />
+            <ErrorBoundary
+              region="The inspector"
+              className="side-panel"
+              resetKeys={[item.id]}
+            >
+              <Inspector
+                key={item.id}
+                project={project}
+                item={item}
+                onEdit={onEdit}
+                onClose={() => setClosedFor(selected)}
+                onCollapse={() => toggle("panelOpen")}
+                playhead={playhead}
+              />
+            </ErrorBoundary>
           ) : (
             layout.panelOpen && (
-              <SidePanel
-                id={panel}
-                project={project}
-                panelProps={panelProps}
-                onImport={onImport}
-                onImportTimeline={onImportTimeline}
-                onCollapse={() => toggle("panelOpen")}
-                onPick={(m) => {
-                  const it = project?.items.find((i) => i.mediaId === m.id);
-                  if (it) onSelect(it);
-                }}
-              />
+              <ErrorBoundary
+                region={`The ${RAIL.find((r) => r.id === panel)?.label ?? ""} panel`}
+                className="side-panel"
+                resetKeys={[panel]}
+              >
+                <SidePanel
+                  id={panel}
+                  project={project}
+                  panelProps={panelProps}
+                  onImport={onImport}
+                  onImportTimeline={onImportTimeline}
+                  onCollapse={() => toggle("panelOpen")}
+                  onPick={(m) => {
+                    const it = project?.items.find((i) => i.mediaId === m.id);
+                    if (it) onSelect(it);
+                  }}
+                />
+              </ErrorBoundary>
             )
           )}
-          <Viewer
-            media={media}
-            frame={playback.frame}
-            backend={backend}
-            visible={layout.viewerOpen}
-            diagnosticsOpen={diagnosticsOpen}
-            onError={onError}
-            toolbarLeft={projectBar}
-          />
+          <ErrorBoundary region="The viewer" className="viewer-area">
+            <Viewer
+              media={media}
+              frame={playback.frame}
+              backend={backend}
+              visible={layout.viewerOpen}
+              diagnosticsOpen={diagnosticsOpen}
+              onError={onError}
+              toolbarLeft={projectBar}
+            />
+          </ErrorBoundary>
         </div>
         <TransportBar
           playback={playback}
@@ -374,42 +389,50 @@ export function Editor({
           onHelp={() => setHelp(true)}
         />
         {layout.timelineOpen ? (
-          <Timeline
-            project={project}
-            selection={selection}
-            playhead={playhead}
-            zoom={zoom}
-            snap={snap}
-            onSelect={(i, offset, mode) => {
-              // Clicking a clip brings its properties back after a tool panel was opened.
-              setClosedFor(null);
-              onSelect(i, offset, mode);
-            }}
-            onScrub={(t) => {
-              setScrubTime(t);
-              onSelectMany([]);
-              if (timelineMode)
-                onTransport({
-                  kind: "seekFrame",
-                  frame: Math.round(t * (playback.frameRate || 30)),
-                });
-            }}
-            onEdit={onEdit}
-            onCopy={(ids) => fire(copy(ids), onError)}
-            onPaste={paste}
-            canPaste={clipboard.length > 0}
-            onFitWidth={setFitPps}
-          />
+          <ErrorBoundary region="The timeline" className="timeline">
+            <Timeline
+              project={project}
+              selection={selection}
+              playhead={playhead}
+              zoom={zoom}
+              snap={snap}
+              onSelect={(i, offset, mode) => {
+                // Clicking a clip brings its properties back after a tool panel was opened.
+                setClosedFor(null);
+                onSelect(i, offset, mode);
+              }}
+              onScrub={(t) => {
+                setScrubTime(t);
+                onSelectMany([]);
+                if (timelineMode)
+                  onTransport({
+                    kind: "seekFrame",
+                    frame: Math.round(t * (playback.frameRate || 30)),
+                  });
+              }}
+              onEdit={onEdit}
+              onCopy={(ids) => fire(copy(ids), onError)}
+              onPaste={paste}
+              canPaste={clipboard.length > 0}
+              onFitWidth={setFitPps}
+            />
+          </ErrorBoundary>
         ) : (
           <ScrubRow playback={playback} onTransport={onTransport} />
         )}
       </div>
       {layout.chatOpen && (
-        <ChatPanel
+        <ErrorBoundary
+          region="The assistant"
+          className="chat"
           onClose={() => toggle("chatOpen")}
-          projectId={project?.id}
-          onError={onError}
-        />
+        >
+          <ChatPanel
+            onClose={() => toggle("chatOpen")}
+            projectId={project?.id}
+            onError={onError}
+          />
+        </ErrorBoundary>
       )}
       {help && <Shortcuts onClose={() => setHelp(false)} />}
     </div>

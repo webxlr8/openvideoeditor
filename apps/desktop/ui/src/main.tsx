@@ -1,6 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
+import { ErrorBoundary, logRenderError } from "./ErrorBoundary";
 import { reportError } from "./notify";
 import "./styles.css";
 
@@ -10,8 +11,18 @@ window.addEventListener("unhandledrejection", (e) => {
   reportError(e.reason);
 });
 
-createRoot(document.getElementById("root")!).render(
+createRoot(document.getElementById("root")!, {
+  onCaughtError: (error, info) => logRenderError("caught", error, info),
+  onUncaughtError: (error, info) => logRenderError("uncaught", error, info),
+}).render(
   <StrictMode>
-    <App />
+    {/* Regions have their own boundaries; this one keeps a blank window from ever being the result. */}
+    <ErrorBoundary
+      region="OpenVideoEditor"
+      className="app"
+      reloadLabel="Reload the window"
+    >
+      <App />
+    </ErrorBoundary>
   </StrictMode>,
 );

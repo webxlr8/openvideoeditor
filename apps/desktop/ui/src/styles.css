@@ -1101,6 +1101,46 @@ kbd {
   border-color: #33445e;
 }
 
+/* ---------------------------------------------------------------- Region errors */
+/* A region that failed to render: the card takes the region's place (it carries the region's class too). */
+div.region-error {
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  min-height: 0;
+  padding: 16px;
+  background: var(--bg-1);
+  overflow: auto;
+}
+.region-error.viewer-area,
+.region-error.app {
+  background: var(--viewer-bg);
+}
+.region-error-card {
+  max-width: 340px;
+  padding: 14px 16px;
+  border: 1px solid #5a2e33;
+  border-radius: var(--radius);
+  background: var(--bg-2);
+  user-select: text;
+}
+.region-error-card p {
+  margin: 6px 0 0;
+}
+.region-error-detail {
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.region-error-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
 /* ---------------------------------------------------------------- Projects */
 .project-grid {
   display: grid;

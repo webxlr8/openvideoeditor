@@ -12,6 +12,7 @@ import type {
 import { commands, events } from "./bridge";
 import { setPendingDraft } from "./ChatPanel";
 import { Editor, type Layout } from "./Editor";
+import { ErrorBoundary } from "./ErrorBoundary";
 import {
   ExportDialog,
   type PreviewMode,
@@ -421,33 +422,39 @@ export function App() {
   return (
     <div className="app">
       {route === "home" ? (
-        <Home
-          projects={projects}
-          onError={showError}
-          onOpenFile={() => fire(importInto(null))}
-          onBlank={() =>
-            runCommand(
-              commands.createProject("Untitled Project"),
-              openProjectView,
-              showError,
-            )
-          }
-          onPrompt={(text) =>
-            fire(startWithAssistant(text, projectNameFrom(text)))
-          }
-          onTemplate={(t, details) =>
-            fire(
-              startWithAssistant(
-                templateMessage(t, details),
-                templateProjectName(t, details),
-                t.aspect,
-              ),
-            )
-          }
-          onOpenProject={(bundle) =>
-            runCommand(commands.openProject(bundle), openProjectView, showError)
-          }
-        />
+        <ErrorBoundary region="Home" className="home">
+          <Home
+            projects={projects}
+            onError={showError}
+            onOpenFile={() => fire(importInto(null))}
+            onBlank={() =>
+              runCommand(
+                commands.createProject("Untitled Project"),
+                openProjectView,
+                showError,
+              )
+            }
+            onPrompt={(text) =>
+              fire(startWithAssistant(text, projectNameFrom(text)))
+            }
+            onTemplate={(t, details) =>
+              fire(
+                startWithAssistant(
+                  templateMessage(t, details),
+                  templateProjectName(t, details),
+                  t.aspect,
+                ),
+              )
+            }
+            onOpenProject={(bundle) =>
+              runCommand(
+                commands.openProject(bundle),
+                openProjectView,
+                showError,
+              )
+            }
+          />
+        </ErrorBoundary>
       ) : (
         <Editor
           project={project}
@@ -491,12 +498,18 @@ export function App() {
         />
       )}
       {exporting && project && (
-        <ExportDialog
-          projectName={project.name}
-          aspect={project.aspectRatio}
+        <ErrorBoundary
+          region="Export"
+          className="modal-backdrop"
           onClose={() => setExporting(false)}
-          onError={showError}
-        />
+        >
+          <ExportDialog
+            projectName={project.name}
+            aspect={project.aspectRatio}
+            onClose={() => setExporting(false)}
+            onError={showError}
+          />
+        </ErrorBoundary>
       )}
       <div className="toasts" role="status" aria-live="polite">
         {toasts.map((t) => (
