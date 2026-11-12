@@ -350,3 +350,40 @@ fn transitions_effects_layouts_shaders_and_grades() {
     assert!(quiet < full * 0.2, "audio fade {quiet} vs {full}");
     assert!(near(r.render(&af, 100_000).px(10, 170), [255, 0, 0], 30));
 }
+
+/// A timeline holding one HDR clip from the test-media matrix.
+fn hdr_doc(name: &str) -> Option<Document> {
+    if !fixtures::media_ready() {
+        return None;
+    }
+    let path = fixtures::media(name);
+    let ops = vec![
+        Op::SetAspectRatio { aspect_ratio: "16:9".into() },
+        Op::AddTrack { track: json!({"id": "main", "name": "Main", "order": 0, "type": "video"}) },
+        Op::AddMedia {
+            media: json!({"id": "m", "data": {"type": "video", "fileName": name, "duration": 1, "hasAudio": false}}),
+            entry: Some(json!({"mediaId": "m", "nativePath": path.display().to_string(), "ownedByBundle": false})),
+        },
+        Op::AddItem {
+            item: json!({"id": "v", "trackId": "main", "type": "video", "startTime": 0, "endTime": 1, "mediaItemId": "m"}),
+        },
+    ];
+    Some(apply_batch(&Document::new("p", "HDR", 1), &ops).unwrap().doc)
+}
+
+#[test]
+fn hdr_clips_are_tone_mapped_in_preview_and_export_frames() {
+    // The compositor (preview, `look`, export) decodes through ove-media's RGBA output, which tone-maps PQ and HLG.
+    for name in ["hevc_hlg_patches.mov", "hevc_pq_patches.mov"] {
+        let Some(doc) = hdr_doc(name) else { return };
+        let frame = Renderer::new(None, 360).render(&doc, 100_000);
+        assert_eq!((frame.w, frame.h), (640, 360));
+        let (grey, white) = (frame.px(106, 180), frame.px(533, 180));
+        eprintln!("{name}: grey card {grey:?}, reference white {white:?}");
+        // Shown as plain BT.2020 video (no tone mapping) reference white came out dull grey: code ~148 (PQ), ~191 (HLG).
+        assert!(grey[..3].iter().all(|v| (96..=112).contains(v)), "{name}: grey {grey:?}");
+        assert!(white[..3].iter().all(|v| (215..=240).contains(v)), "{name}: white {white:?}");
+        let skin = frame.px(320, 180);
+        assert!(skin[0] > skin[1] && skin[1] > skin[2], "{name}: skin {skin:?}");
+    }
+}
