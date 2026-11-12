@@ -31,7 +31,7 @@ export const PROJECT_TEMPLATES: ProjectTemplate[] = [
     bring: "Footage from the day (and music if you have it).",
     ask: "Event name, date, place, and anything that must be in it…",
     brief:
-      "Make an event recap. Open on the strongest wide shot with a title card naming the event, the date and the place. Cut the footage to a steady rhythm (2–4 s per shot), favour faces, reactions and motion, skip shaky or out-of-focus moments, and end on a calm wide shot with a closing line. Keep music under any speech. Use the media already in the project; tell me if something is missing.",
+      "Make an event recap. You can't see the footage, so first ask me which shot opens, which closes and which to leave out. Open with a title card naming the event, the date and the place over the opening shot, cut the rest to a steady rhythm (2–4 s per shot), and end on the closing shot with a short closing line. Lower the music under clips with speech. Use the media already in the project; tell me if something is missing.",
   },
   {
     id: "founder-story",
@@ -44,7 +44,7 @@ export const PROJECT_TEMPLATES: ProjectTemplate[] = [
     bring: "An interview recording and some b-roll.",
     ask: "Who is speaking, their role, and the story in a sentence…",
     brief:
-      "Cut an interview into a founder story. Transcribe it, pick the lines that tell problem → turning point → what we do now → why it matters, and drop filler and false starts. Add a lower third with the speaker's name and role on their first appearance, cover jump cuts with b-roll, add captions, and finish on one strong line.",
+      "Cut an interview into a founder story. Read the interview from its captions (if there are none yet, ask me to make them with Captions → Generate captions first). Pick the lines that tell problem → turning point → what we do now → why it matters, and cut out false starts and repeated lines. Add a lower third with the speaker's name and role on their first appearance, cover jump cuts with b-roll, and finish on one strong line. When the cut is final, remove the old captions and remind me to generate fresh ones so they match.",
   },
   {
     id: "product-launch",
@@ -57,7 +57,7 @@ export const PROJECT_TEMPLATES: ProjectTemplate[] = [
     bring: "Product shots or screen recordings, your logo.",
     ask: "Product name, the three benefits, launch date or link…",
     brief:
-      "Make a product launch teaser. Hook in the first two seconds, show the product early, then three short benefit beats with bold on-screen text, and end with the product name, the date or link and the logo. Pace it fast with clean cuts on the beat of the music.",
+      "Make a product launch teaser. Hook in the first two seconds, show the product early, then three short benefit beats with bold on-screen text, and end with the product name, the date or link and the logo. Pace it fast with clean cuts (1–2 s per shot) under the music.",
   },
   {
     id: "podcast-clip",
@@ -70,7 +70,7 @@ export const PROJECT_TEMPLATES: ProjectTemplate[] = [
     bring: "The episode (video or audio).",
     ask: "Show name, guest, and roughly where the moment is…",
     brief:
-      "Make a vertical podcast clip. Transcribe the episode and find one self-contained moment of 30–60 seconds with a clear hook in its first sentence. Frame the speaker for 9:16, add bold word-by-word captions, a small title with the show and guest at the top, and remove silences longer than half a second.",
+      "Make a vertical podcast clip. Read the episode from its captions (if there are none yet, ask me to make them with Captions → Generate captions first) and suggest one self-contained moment of 30–60 seconds with a clear hook in its first sentence; check it with me. Trim the episode to that moment and keep only its captions, in a bold word-by-word style. The footage fills the 9:16 frame with a centred crop: tell me to move it in the inspector if the speaker sits off-centre. Add a small title with the show and guest at the top.",
   },
   {
     id: "talking-head-tips",
@@ -82,7 +82,7 @@ export const PROJECT_TEMPLATES: ProjectTemplate[] = [
     bring: "A recording of you talking to camera.",
     ask: "The topic and your tips, in order…",
     brief:
-      "Edit a to-camera tips video. Remove pauses, retakes and filler, keep a brisk pace, add captions, and show each tip's number and short title as text when it starts. Punch in slightly on every other cut to keep it moving.",
+      "Edit a to-camera tips video. Read it from its captions (if there are none yet, ask me to make them with Captions → Generate captions first), cut out retakes and repeated lines (ask me which take to keep when unsure), and show each tip's number and short title as text when it starts. Punch in slightly (a little more scale) on every other cut to keep it moving. When the cut is final, remove the old captions and remind me to generate fresh ones so they match.",
   },
   {
     id: "tutorial",
@@ -95,7 +95,7 @@ export const PROJECT_TEMPLATES: ProjectTemplate[] = [
     bring: "A screen recording, with or without voice.",
     ask: "What the tutorial teaches and its steps…",
     brief:
-      "Edit a screen tutorial. Cut dead time and mistakes, split it into steps with a short chapter title at each, zoom in on the area being clicked when text is small, add captions for the narration, and end with a one-line summary of what was learned.",
+      "Edit a screen tutorial. You can't see the recording, so use the narration's captions (if there are any) and ask me where each step starts and which stretches are dead time or mistakes. Cut those, put a short chapter title at each step, zoom in (scale and position) where I say the text is small, and end with a one-line summary of what was learned. When the cut is final, remind me to generate captions for the narration in the Captions panel.",
   },
   {
     id: "travel-diary",
@@ -108,7 +108,7 @@ export const PROJECT_TEMPLATES: ProjectTemplate[] = [
     bring: "Clips and photos from the trip.",
     ask: "Where you went, and anything that should open or close the video…",
     brief:
-      "Make a travel diary. Order the media by when it was shot, group it by place with a small place-name title at each change, let photos hold 2–3 seconds with a gentle move, apply one consistent warm colour look, and cut to relaxed music. Open with the best landscape and end with a quiet moment.",
+      "Make a travel diary. Put the media in the order I give (or by file name, which usually follows shooting order), group it by the places I name with a small place-name title at each change, let photos hold 2–3 seconds with a gentle move, apply one consistent warm colour look, and cut to relaxed music. Ask me which shot opens and which closes.",
   },
   {
     id: "highlight-reel",
@@ -120,7 +120,7 @@ export const PROJECT_TEMPLATES: ProjectTemplate[] = [
     bring: "Clips (sports, a show, a day out…) and a track.",
     ask: "What it's about and the mood…",
     brief:
-      "Make a vertical highlight reel. Pick the most energetic moments, reframe them for 9:16, cut on the beat of the music, use a couple of fast transitions at drops, and put one short title on the opening shot. Keep it under 30 seconds.",
+      "Make a vertical highlight reel from the moments I describe (you can't see the footage, so ask me which clips and where in them). The clips fill the 9:16 frame with a centred crop; tell me which ones I should move in the inspector. Cut short and fast (about 1 s per shot) to the music, use a couple of quick transitions, and put one short title on the opening shot. Keep it under 30 seconds.",
   },
   {
     id: "announcement",
@@ -145,7 +145,7 @@ export const PROJECT_TEMPLATES: ProjectTemplate[] = [
     bring: "Photos (and a song).",
     ask: "Who or what it celebrates, and any words to include…",
     brief:
-      "Make a photo montage. Give each photo 3–4 seconds with a slow push or pan, crossfade between them, keep faces in frame, open with a title and close with a short dedication. Time the photo changes to the music phrases.",
+      "Make a photo montage. Give each photo 3–4 seconds with a slow push or pan, crossfade between them, open with a title and close with a short dedication. Fit the photos to the length of the music, and tell me to adjust any photo whose move crops out a face.",
   },
   {
     id: "explainer",
@@ -154,12 +154,12 @@ export const PROJECT_TEMPLATES: ProjectTemplate[] = [
     aspect: "16:9",
     length: "60–90 s",
     description:
-      "A script turned into narration, visuals and titles. Uses AI voice and images.",
+      "A script laid out as titles and visuals; you make the voice and images in the Generate panel.",
     bring:
       "A script or the points to cover. Provider keys for voice and images.",
     ask: "The topic and the points, or paste your script…",
     brief:
-      "Make an explainer. Tighten the script to about 150 words per minute, generate the voice-over, and plan one visual per sentence: use my media where it fits and generated images for the rest (tell me the cost before generating). Add key words as on-screen text and captions, and music under the voice.",
+      "Make an explainer. Tighten the script to about 150 words per minute and give it back to me to record or to make in the Generate panel (Voice); you can't generate media yourself. Plan one visual per sentence: use my media where it fits, and for the rest add a placeholder that describes the image to make in the Generate panel. Add key words as on-screen text and leave room for music under the voice. When the voice-over is in, remind me to generate captions in the Captions panel.",
     generation: true,
   },
   {
