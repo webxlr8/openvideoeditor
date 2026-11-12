@@ -30,6 +30,8 @@ export interface TimelineProps {
   onPaste: (at: number) => void;
   canPaste: boolean;
   onFitWidth?: (pxPerSecond: number) => void;
+  /** Items to mark (what an assistant turn changed, while the chat's "Show" is on). */
+  highlight?: string[];
 }
 
 type Drag =
@@ -47,7 +49,7 @@ function fmtTick(s: number) {
 }
 
 export function Timeline(props: TimelineProps) {
-  const { project, selection, playhead, zoom, snap, onSelect, onScrub, onEdit, onCopy, onPaste, canPaste, onFitWidth } = props;
+  const { project, selection, playhead, zoom, snap, onSelect, onScrub, onEdit, onCopy, onPaste, canPaste, onFitWidth, highlight } = props;
   const scroller = useRef<HTMLDivElement>(null);
   const rows = useRef<HTMLDivElement>(null);
   const [viewW, setViewW] = useState(1000);
@@ -316,7 +318,7 @@ export function Timeline(props: TimelineProps) {
                       return (
                         <div
                           key={i.id}
-                          className={`clip kind-${i.kind}${sel ? " selected" : ""}${i.pending ? " pending" : ""}${i.hidden ? " is-hidden" : ""}${
+                          className={`clip kind-${i.kind}${sel ? " selected" : ""}${highlight?.includes(i.id) ? " reviewed" : ""}${i.pending ? " pending" : ""}${i.hidden ? " is-hidden" : ""}${
                             drag && "id" in drag && drag.id === i.id ? " dragging" : ""
                           }`}
                           style={{ left: g.left, width: g.width, transform: g.top ? `translateY(${g.top}px)` : undefined, backgroundImage: thumb ? `url(${thumb})` : undefined }}

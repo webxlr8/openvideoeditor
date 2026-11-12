@@ -20,6 +20,8 @@ beforeEach(() => {
   agent.hasKey = true;
   agent.stepMs = 5;
   agent.ask = false;
+  agent.keyWorks = true;
+  agent.turnCost = undefined;
 });
 
 describe("ChatPanel", () => {
@@ -40,6 +42,49 @@ describe("ChatPanel", () => {
     // The conversation is in the history menu.
     fireEvent.click(screen.getByTestId("chat-history-button"));
     expect(screen.getByTestId("chat-history-menu").textContent).toContain("Add an opening title");
+  });
+
+  it("reviews a finished turn: what changed, highlighted on the timeline, undone in one step", async () => {
+    const composer = await openBlankProject();
+    type(composer, "Add an opening title");
+    const review = await screen.findByTestId("turn-review", {}, { timeout: 3000 });
+    expect(review.textContent).toContain("Changed 1 item");
+    // Cost and tokens of the turn, and running totals in the header.
+    expect((await screen.findByTestId("turn-usage")).textContent).toMatch(/5\.4k in · 320 out · ≈\$0\.01/);
+    await waitFor(() => expect(screen.getByTestId("chat-usage").textContent).toMatch(/This chat: 5\.4k in · 320 out · ≈\$0\.01/));
+    const reviewed = () => screen.queryAllByTestId("clip").filter((c) => c.classList.contains("reviewed"));
+    expect(reviewed().length).toBe(0);
+    fireEvent.click(screen.getByTestId("turn-show"));
+    await waitFor(() => expect(reviewed().length).toBe(1));
+    expect(reviewed()[0].textContent).toContain("Welcome");
+    fireEvent.click(screen.getByTestId("turn-show"));
+    await waitFor(() => expect(reviewed().length).toBe(0));
+    fireEvent.click(screen.getByTestId("turn-undo"));
+    await waitFor(() => expect(screen.getByTestId("lane-Text").textContent).not.toContain("Welcome"));
+    await waitFor(() => expect(screen.getByTestId("turn-review").textContent).toContain("Undone"));
+    expect(screen.queryByTestId("turn-undo")).toBeNull();
+    // Undoing the turn is itself one undo step.
+    expect(screen.getByTestId("undo").hasAttribute("disabled")).toBe(false);
+  });
+
+  it("checks a new key with a real request and says why it failed", async () => {
+    window.__oveMock!.agent.hasKey = false;
+    window.__oveMock!.agent.keyWorks = false;
+    render(<App />);
+    fireEvent.click(screen.getByTestId("home-blank"));
+    await screen.findByTestId("editor");
+    fireEvent.click(screen.getByTestId("toggle-chat"));
+    const card = await screen.findByTestId("key-card");
+    expect(screen.getByTestId("assistant-data").textContent).toContain("Never sent: your media files or video frames");
+    fireEvent.change(screen.getByTestId("key-input"), { target: { value: "sk-ant-test-0123456789" } });
+    fireEvent.click(screen.getByTestId("key-save"));
+    expect((await screen.findByTestId("key-error")).textContent).toContain("rejected");
+    expect(card.isConnected).toBe(true);
+    // A working key gets a plain confirmation before the first message.
+    window.__oveMock!.agent.keyWorks = true;
+    fireEvent.change(screen.getByTestId("key-input"), { target: { value: "sk-ant-test-0123456789" } });
+    fireEvent.click(screen.getByTestId("key-save"));
+    expect((await screen.findByTestId("key-check")).textContent).toContain("Key works");
   });
 
   it("Shift+Enter keeps typing instead of sending", async () => {

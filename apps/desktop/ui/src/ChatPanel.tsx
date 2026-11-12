@@ -1,18 +1,29 @@
 import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import type { AgentStatus_Serialize, AppError, ChatItem_Serialize, ChatSummaryView } from "./bindings";
+import type {
+  AgentStatus_Serialize,
+  AppError,
+  ChatItem_Serialize,
+  ChatSummaryView,
+  KeyCheck,
+  TurnReview,
+  TurnUsageView,
+  UsageTotals_Serialize,
+} from "./bindings";
 import { commands, events } from "./bridge";
 import { Icon } from "./icons";
 import { Dropdown } from "./Menu";
 import { fire, reportError, runCommand, unlisten } from "./notify";
 
 interface Item {
-  role: "user" | "assistant" | "tool" | "question" | "note" | "error";
+  role: "user" | "assistant" | "tool" | "question" | "note" | "error" | "changes" | "usage";
   text: string;
   id?: string | null;
   ok?: boolean | null;
   summary?: string;
   options?: string[];
   answered?: boolean;
+  review?: TurnReview | null;
+  usage?: TurnUsageView | null;
 }
 
 function fromChat(items: ChatItem_Serialize[]): Item[] {
@@ -24,7 +35,23 @@ function fromChat(items: ChatItem_Serialize[]): Item[] {
     options: i.options,
     // A reloaded log belongs to a finished turn, so its questions are closed.
     answered: i.role === "question" ? true : undefined,
+    review: i.review,
+    usage: i.usage,
   }));
+}
+
+/** Dollars: four decimals under a cent, two above. */
+export function usd(v: number | null | undefined): string {
+  const c = v ?? 0;
+  return `$${c < 0.01 ? c.toFixed(4) : c.toFixed(2)}`;
+}
+
+/** Token counts: 950, 12.3k, 1.2M. */
+export function tokens(v: number | null | undefined): string {
+  const n = v ?? 0;
+  if (n < 1000) return String(Math.round(n));
+  if (n < 1_000_000) return `${(n / 1000).toFixed(1)}k`;
+  return `${(n / 1_000_000).toFixed(1)}M`;
 }
 
 /** Inline formatting: **bold** and `code`. */
@@ -93,6 +120,8 @@ export function ChatPanel({
   draft,
   onError,
   onSeek,
+  shownTurn,
+  onShowTurn,
 }: {
   onClose: () => void;
   /** Changes when another project opens (the chat list is per project). */
@@ -102,6 +131,10 @@ export function ChatPanel({
   onError?: (e: AppError) => void;
   /** The assistant's `seek_viewer` tool: show the timeline at this time (seconds). */
   onSeek?: (seconds: number) => void;
+  /** The turn whose changes the timeline highlights, if any. */
+  shownTurn?: string | null;
+  /** Highlights a turn's changed items on the timeline (`null`: stop). */
+  onShowTurn?: (turnId: string | null, ids: string[]) => void;
 }) {
   const [status, setStatus] = useState<AgentStatus_Serialize | null>(null);
   const [chats, setChats] = useState<ChatSummaryView[]>([]);
@@ -111,6 +144,8 @@ export function ChatPanel({
   const [thinking, setThinking] = useState(false);
   const [text, setText] = useState(() => draft ?? takeDraft());
   const [footer, setFooter] = useState<string | null>(null);
+  const [totals, setTotals] = useState<UsageTotals_Serialize | null>(null);
+  const [keyCheck, setKeyCheck] = useState<KeyCheck | null>(null);
   const chatRef = useRef<string | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
 
@@ -125,6 +160,13 @@ export function ChatPanel({
     (id: string) => runCommand(commands.agentChat(id), (c) => setItems(fromChat(c)), report),
     [report],
   );
+
+  const loadTotals = useCallback(
+    (id: string | null) => runCommand(commands.agentUsage(id), setTotals, report),
+    [report],
+  );
+
+  useEffect(() => loadTotals(chatId), [chatId, projectId, loadTotals]);
 
   useEffect(() => {
     runCommand(
@@ -203,12 +245,10 @@ export function ChatPanel({
           setThinking(false);
           const cost = ev.costUsd ?? 0;
           const secs = (ev.durationMs ?? 0) / 1000;
-          setFooter(
-            ev.note ??
-              (ev.stopped ? "Stopped." : `${secs.toFixed(1)}s · ≈$${cost < 0.01 ? cost.toFixed(4) : cost.toFixed(2)}`),
-          );
+          setFooter(ev.note ?? (ev.stopped ? "Stopped." : `${secs.toFixed(1)}s · ≈${usd(cost)}`));
           loadChat(ev.chatId);
           loadChats();
+          loadTotals(ev.chatId);
           break;
         }
         case "seek":
@@ -217,7 +257,7 @@ export function ChatPanel({
       }
     });
     return () => unlisten(un);
-  }, [loadChat, loadChats, report, onSeek]);
+  }, [loadChat, loadChats, loadTotals, report, onSeek]);
 
   useEffect(() => {
     scroller.current?.scrollTo?.({ top: scroller.current.scrollHeight });
@@ -249,6 +289,7 @@ export function ChatPanel({
   const openChat = (id: string) => {
     chatRef.current = id;
     setChatId(id);
+    onShowTurn?.(null, []);
     loadChat(id);
   };
 
@@ -257,6 +298,14 @@ export function ChatPanel({
     setChatId(null);
     setItems([]);
     setFooter(null);
+    onShowTurn?.(null, []);
+  };
+
+  const undoTurn = (turnId: string) => {
+    const id = chatRef.current;
+    if (!id) return;
+    if (shownTurn === turnId) onShowTurn?.(null, []);
+    runCommand(commands.agentUndoTurn(id, turnId), () => loadChat(id), report);
   };
 
   const model = status?.models.find((m) => m.id === status.model);
@@ -284,18 +333,54 @@ export function ChatPanel({
         </span>
       </header>
 
+      {totals && (totals.project.turns ?? 0) > 0 && (
+        <div
+          className="chat-usage muted small"
+          data-testid="chat-usage"
+          title={
+            `This project, all chats: ${tokens(totals.project.inputTokens)} tokens in, ${tokens(totals.project.outputTokens)} out (${tokens(totals.project.cacheReadTokens)} read from cache), ≈${usd(totals.project.costUsd)}.\n` +
+            `This month: ≈${usd(totals.month.costUsd)}${totals.monthCapUsd != null ? ` of your ${usd(totals.monthCapUsd)} cap` : ""}. Estimates from the API's token counts; Anthropic bills you directly.`
+          }
+        >
+          {totals.chat && (totals.chat.turns ?? 0) > 0 && (
+            <span>
+              This chat: {tokens(totals.chat.inputTokens)} in · {tokens(totals.chat.outputTokens)} out · ≈{usd(totals.chat.costUsd)}
+            </span>
+          )}
+          <span>Project: ≈{usd(totals.project.costUsd)}</span>
+        </div>
+      )}
       {status && !status.hasKey ? (
-        <KeyCard onSaved={setStatus} />
+        <KeyCard
+          onSaved={(s, check) => {
+            setStatus(s);
+            setKeyCheck(check);
+          }}
+        />
       ) : items.length === 0 ? (
         <div className="chat-empty">
           <Icon name="spark" size={34} />
+          {keyCheck && (
+            <p className={keyCheck.ok ? "key-ok" : "key-error"} role="status" data-testid="key-check">
+              {keyCheck.ok ? "Key works. " : ""}
+              {keyCheck.ok ? "You're ready." : keyCheck.message}
+            </p>
+          )}
           <p>Ask for a cut, captions, or a fresh idea.</p>
           <p className="muted small">I edit this project's timeline; every change is one undo step.</p>
         </div>
       ) : (
         <div className="chat-log" ref={scroller} data-testid="chat-log">
           {items.map((it, i) => (
-            <ChatLine key={i} item={it} onAnswer={(id, value) => fire(answer(id, value), report)} />
+            <ChatLine
+              key={i}
+              item={it}
+              onAnswer={(id, value) => fire(answer(id, value), report)}
+              shown={!!it.review && it.review.turnId === shownTurn}
+              onShow={(r) => onShowTurn?.(r ? r.turnId : null, r ? r.changedIds : [])}
+              onUndoTurn={undoTurn}
+              busy={running}
+            />
           ))}
           {running && thinking && <div className="chat-thinking muted small">Thinking…</div>}
         </div>
@@ -367,9 +452,80 @@ export function ChatPanel({
   );
 }
 
-function ChatLine({ item, onAnswer }: { item: Item; onAnswer: (id: string, value: string) => void }) {
+function ChatLine({
+  item,
+  onAnswer,
+  shown = false,
+  onShow,
+  onUndoTurn,
+  busy = false,
+}: {
+  item: Item;
+  onAnswer: (id: string, value: string) => void;
+  /** This turn's changes are highlighted on the timeline. */
+  shown?: boolean;
+  onShow?: (review: TurnReview | null) => void;
+  onUndoTurn?: (turnId: string) => void;
+  /** A turn is running (undoing one waits for it). */
+  busy?: boolean;
+}) {
   const [custom, setCustom] = useState("");
   switch (item.role) {
+    case "changes": {
+      const r = item.review;
+      if (!r) return null;
+      const n = r.count;
+      return (
+        <div className={`turn-review${r.undone ? " undone" : ""}`} data-testid="turn-review">
+          <div className="turn-review-row">
+            <span className="grow">{n > 0 ? `Changed ${n} item${n === 1 ? "" : "s"}` : "Changed the project"}</span>
+            {r.undone ? (
+              <span className="muted small">Undone</span>
+            ) : (
+              <>
+                {(r.changedIds.length > 0 || r.removed.length > 0) && (
+                  <button
+                    className={`btn small${shown ? " on" : ""}`}
+                    aria-pressed={shown}
+                    onClick={() => onShow?.(shown ? null : r)}
+                    data-testid="turn-show"
+                  >
+                    {shown ? "Hide" : "Show"}
+                  </button>
+                )}
+                <button
+                  className="btn small"
+                  disabled={busy}
+                  title="Revert everything this turn changed, as one step you can undo"
+                  onClick={() => onUndoTurn?.(r.turnId)}
+                  data-testid="turn-undo"
+                >
+                  Undo this turn
+                </button>
+              </>
+            )}
+          </div>
+          {shown && r.removed.length > 0 && (
+            <div className="muted small" data-testid="turn-removed">
+              Removed: {r.removed.join(", ")}
+            </div>
+          )}
+          {shown && r.changedIds.length > 0 && (
+            <div className="muted small">Highlighted on the timeline.</div>
+          )}
+        </div>
+      );
+    }
+    case "usage": {
+      const u = item.usage;
+      if (!u) return null;
+      return (
+        <div className="turn-usage muted small" data-testid="turn-usage">
+          {((u.durationMs ?? 0) / 1000).toFixed(1)}s · {tokens(u.inputTokens)} in · {tokens(u.outputTokens)} out · ≈
+          {usd(u.costUsd)}
+        </div>
+      );
+    }
     case "user":
       return <div className="msg msg-user" data-testid="msg-user">{item.text}</div>;
     case "assistant":
@@ -423,25 +579,50 @@ function ChatLine({ item, onAnswer }: { item: Item; onAnswer: (id: string, value
   }
 }
 
-function KeyCard({ onSaved }: { onSaved: (s: AgentStatus_Serialize) => void }) {
+/** What the assistant sends to Anthropic, and what it never sends. */
+export function AssistantDataList() {
+  return (
+    <ul className="data-list small" data-testid="assistant-data">
+      <li>
+        Sent to Anthropic: the timeline as text (item names and times, text and caption words, media file names), this
+        chat, and the results of the assistant's tools.
+      </li>
+      <li>Never sent: your media files or video frames.</li>
+      <li>Nothing else leaves this computer, and there is no telemetry.</li>
+    </ul>
+  );
+}
+
+function KeyCard({ onSaved }: { onSaved: (s: AgentStatus_Serialize, check: KeyCheck | null) => void }) {
   const [key, setKey] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [unchecked, setUnchecked] = useState<AgentStatus_Serialize | null>(null);
   const save = async () => {
     const r = await commands.agentSetKey(key);
-    if (r.status === "error") setError(r.error.message);
-    else {
-      setKey("");
-      onSaved(r.data);
+    if (r.status === "error") return setError(r.error.message);
+    setKey("");
+    // Try the key for real (a free token count) so a wrong key shows up now, not at the first message.
+    setChecking(true);
+    const c = await commands.agentCheckKey().finally(() => setChecking(false));
+    const check = c.status === "ok" ? c.data : null;
+    if (check && !check.ok) {
+      setError(check.message);
+      // Keep the card up with the reason. The key stays saved: a network problem is not the key's fault.
+      setUnchecked(r.data);
+      return;
     }
+    onSaved(r.data, check);
   };
   return (
     <div className="key-card" data-testid="key-card">
       <Icon name="spark" size={26} />
       <h3>Connect your assistant</h3>
       <p className="muted">
-        The assistant runs on your own Anthropic API key. It is kept in your system's credential store and sent only to
-        Anthropic with your requests. You can create a key in the Anthropic Console.
+        The assistant runs on your own Anthropic API key, kept in your system's credential store. You can create a key
+        in the Anthropic Console.
       </p>
+      <AssistantDataList />
       <input
         type="password"
         placeholder="sk-ant-…"
@@ -456,15 +637,20 @@ function KeyCard({ onSaved }: { onSaved: (s: AgentStatus_Serialize) => void }) {
           if (e.key === "Enter") fire(save(), (err) => setError(err.message));
         }}
       />
-      {error && <p className="key-error">{error}</p>}
+      {error && <p className="key-error" data-testid="key-error">{error}</p>}
       <button
         className="btn primary"
-        disabled={!key.trim()}
+        disabled={!key.trim() || checking}
         onClick={() => fire(save(), (err) => setError(err.message))}
         data-testid="key-save"
       >
-        Save key
+        {checking ? "Checking the key…" : "Save key"}
       </button>
+      {unchecked && (
+        <button className="btn" onClick={() => onSaved(unchecked, null)} data-testid="key-continue">
+          Use the saved key anyway
+        </button>
+      )}
     </div>
   );
 }

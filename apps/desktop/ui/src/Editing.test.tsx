@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { App } from "./App";
+import { commands } from "./bridge";
 
 async function editorWithClip() {
   render(<App />);
@@ -123,5 +124,27 @@ describe("editing", () => {
     const lower = screen.getByTestId("audio-duck");
     expect(lower.textContent).toBe("Lower music to 30 %");
     expect(lower.title).toContain("does not follow the dialogue");
+  });
+
+  it("lists the history with who made each change and restores to before one", async () => {
+    render(<App />);
+    fireEvent.click(screen.getByTestId("home-blank"));
+    await screen.findByTestId("editor");
+    await act(async () => {
+      await commands.setAspectRatio("9:16");
+    });
+    fireEvent.click(screen.getByTestId("history"));
+    const rows = await screen.findAllByTestId("history-row");
+    expect(rows.map((r) => r.textContent)).toEqual([
+      expect.stringMatching(/^YouChange aspect ratio/),
+      expect.stringMatching(/^YouNew project/),
+    ]);
+    fireEvent.click(rows[0]);
+    fireEvent.click(screen.getByTestId("history-restore"));
+    // One more change, listed first, which Undo can take back.
+    await waitFor(() => expect(screen.getAllByTestId("history-row")[0].textContent).toContain("Restore to before “change aspect ratio”"));
+    const r = await commands.projectView();
+    expect(r.status === "ok" && r.data?.aspectRatio).toBe("16:9");
+    expect(screen.getByTestId("undo").hasAttribute("disabled")).toBe(false);
   });
 });
