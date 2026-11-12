@@ -330,6 +330,22 @@ pub fn run_job(ctx: &Ctx, bundle: &Path, id: &str) -> Result<Job, Fail> {
     Ok(job)
 }
 
+/// Fails the project's jobs whose worker is gone (or that stopped making progress) and removes their pending
+/// placeholders, so they neither show as running forever nor block export.
+fn reap(ctx: &Ctx, bundle: &Path) {
+    let reaped = ove_generate::job::reap_stale_jobs(bundle, now_ms());
+    if reaped.is_empty() {
+        return;
+    }
+    let _ = edit(ctx, &bundle.display().to_string(), |w| {
+        let ops: Vec<_> = reaped.iter().flat_map(|j| ove_generate::place::failed_ops(w.doc(), j)).collect();
+        if ops.is_empty() {
+            return Ok(0);
+        }
+        w.apply(ops, ctx.source, format!("generate: {} stopped job(s)", reaped.len()))
+    });
+}
+
 fn bundles(ctx: &Ctx) -> Vec<PathBuf> {
     ctx.lib.list().map(|v| v.iter().map(|l| l.bundle().to_path_buf()).collect()).unwrap_or_default()
 }
@@ -349,6 +365,10 @@ pub fn run(ctx: &Ctx, cmd: &GenerateCmd) -> Out {
             let all = bundles(ctx);
             let (bundle, mut j) = ove_generate::job::find(all.iter().map(PathBuf::as_path), job)
                 .ok_or_else(|| Fail::new("job.notFound", format!("no job {job} in the library")))?;
+            if !j.status.done() {
+                reap(ctx, &bundle);
+                j = ove_generate::job::load(&bundle, &j.id).unwrap_or(j);
+            }
             if *cancel && !j.status.done() {
                 ove_generate::job::request_cancel(&bundle, &j.id)
                     .map_err(|e| Fail::new("file.unwritable", e.to_string()))?;
@@ -356,11 +376,11 @@ pub fn run(ctx: &Ctx, cmd: &GenerateCmd) -> Out {
             let deadline = std::time::Instant::now() + Duration::from_secs(1800);
             while (*wait || *cancel) && !j.status.done() && std::time::Instant::now() < deadline {
                 std::thread::sleep(Duration::from_millis(500));
-                j = ove_generate::job::load(&bundle, &j.id).unwrap_or(j);
-                // A worker that died leaves the job running forever: report it.
-                if j.status == Status::Running && now_ms() - j.updated_at > 10 * 60_000 {
-                    break;
+                // A worker that died leaves the job running forever: give it up.
+                if j.status == Status::Running && now_ms() - j.updated_at > ove_generate::job::DEAD_WORKER_GRACE_MS {
+                    reap(ctx, &bundle);
                 }
+                j = ove_generate::job::load(&bundle, &j.id).unwrap_or(j);
                 if *cancel && !*wait {
                     break;
                 }
@@ -369,6 +389,7 @@ pub fn run(ctx: &Ctx, cmd: &GenerateCmd) -> Out {
         }
         GenerateCmd::List { project } => {
             let b = ctx.find(project)?;
+            reap(ctx, &b);
             let jobs = ove_generate::job::list(&b);
             let text = if jobs.is_empty() {
                 "no generation jobs".into()

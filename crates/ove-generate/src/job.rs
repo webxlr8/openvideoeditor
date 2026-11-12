@@ -163,6 +163,76 @@ pub fn cancel_requested(bundle: &Path, id: &str) -> bool {
     check_id(id).is_ok() && jobs_dir(bundle).join(format!("{id}.cancel")).exists()
 }
 
+/// An unfinished job not updated for this long is given up whatever its worker (providers report progress at least
+/// every few seconds while polling, and a single request times out after 5 minutes).
+pub const STALE_AFTER_MS: i64 = 30 * 60_000;
+/// A running job whose worker process is gone is given up once it has not been updated for this long (so a worker
+/// that just started has saved its first progress).
+pub const DEAD_WORKER_GRACE_MS: i64 = 60_000;
+
+/// Whether process `pid` exists on this computer. Errs on the side of "alive" when it cannot tell.
+pub fn process_alive(pid: u32) -> bool {
+    if pid == std::process::id() {
+        return true;
+    }
+    #[cfg(unix)]
+    {
+        let Ok(p) = libc::pid_t::try_from(pid) else { return false };
+        if p <= 0 {
+            return false;
+        }
+        // SAFETY: signal 0 sends nothing; it only checks that the process exists and may be signalled.
+        let r = unsafe { libc::kill(p, 0) };
+        r == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let out = std::process::Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
+        match out {
+            Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).contains(&format!("\"{pid}\"")),
+            _ => true,
+        }
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        true
+    }
+}
+
+/// Marks unfinished jobs that will never finish as failed: a running job whose worker process is gone (after
+/// [`DEAD_WORKER_GRACE_MS`] without an update), and any queued or running job not updated for [`STALE_AFTER_MS`].
+/// Returns them, so the caller removes their pending placeholders ([`crate::place::failed_ops`]).
+pub fn reap_stale_jobs(bundle: &Path, now_ms: i64) -> Vec<Job> {
+    let mut reaped = Vec::new();
+    for mut job in list(bundle).into_iter().filter(|j| !j.status.done()) {
+        let idle = now_ms - job.updated_at;
+        let dead = job.status == Status::Running
+            && idle > DEAD_WORKER_GRACE_MS
+            && job.worker_pid.is_some_and(|p| !process_alive(p));
+        let stale = idle > STALE_AFTER_MS;
+        if !(dead || stale) {
+            continue;
+        }
+        job.status = Status::Failed;
+        job.error = Some(if dead {
+            "the generation stopped before finishing (the program running it closed or crashed)".into()
+        } else {
+            format!("no progress for {} minutes; given up", STALE_AFTER_MS / 60_000)
+        });
+        job.updated_at = now_ms;
+        if save(bundle, &job).is_ok() {
+            tracing::warn!(job = %job.id, "generation job given up: {}", job.error.as_deref().unwrap_or(""));
+            reaped.push(job);
+        }
+    }
+    reaped
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -209,5 +279,53 @@ mod tests {
         std::fs::write(jobs_dir(&bundle).join("g_2.json"), &evil).unwrap();
         assert!(load(&bundle, "g_2").is_none());
         assert_eq!(list(&bundle).iter().map(|j| j.id.as_str()).collect::<Vec<_>>(), ["g_1"]);
+    }
+
+    /// The id of a process that has exited.
+    fn dead_pid() -> u32 {
+        let exe = std::env::current_exe().unwrap();
+        let mut child = std::process::Command::new(exe)
+            .arg("--list")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let pid = child.id();
+        child.wait().unwrap();
+        pid
+    }
+
+    #[test]
+    fn stale_and_orphaned_jobs_are_failed() {
+        let d = tempfile::tempdir().unwrap();
+        let bundle = d.path();
+        let now = 10 * STALE_AFTER_MS;
+        let put = |id: &str, status: Status, pid: Option<u32>, idle_ms: i64| {
+            let mut j = job(id);
+            j.status = status;
+            j.worker_pid = pid;
+            j.updated_at = now - idle_ms;
+            save(bundle, &j).unwrap();
+        };
+        let gone = dead_pid();
+        assert!(!process_alive(gone));
+        assert!(process_alive(std::process::id()));
+        put("g_dead", Status::Running, Some(gone), 2 * 60_000);
+        put("g_dead_but_just_started", Status::Running, Some(gone), 5_000);
+        put("g_alive", Status::Running, Some(std::process::id()), 2 * 60_000);
+        put("g_alive_but_silent", Status::Running, Some(std::process::id()), STALE_AFTER_MS + 1);
+        put("g_queued_forever", Status::Queued, None, STALE_AFTER_MS + 1);
+        put("g_done", Status::Succeeded, Some(gone), STALE_AFTER_MS + 1);
+
+        let mut reaped: Vec<String> = reap_stale_jobs(bundle, now).into_iter().map(|j| j.id).collect();
+        reaped.sort();
+        assert_eq!(reaped, ["g_alive_but_silent", "g_dead", "g_queued_forever"]);
+        let dead = load(bundle, "g_dead").unwrap();
+        assert_eq!(dead.status, Status::Failed);
+        assert!(dead.error.unwrap().contains("stopped before finishing"));
+        assert_eq!(load(bundle, "g_alive").unwrap().status, Status::Running);
+        assert_eq!(load(bundle, "g_dead_but_just_started").unwrap().status, Status::Running);
+        assert_eq!(load(bundle, "g_done").unwrap().status, Status::Succeeded);
+        assert!(reap_stale_jobs(bundle, now).is_empty(), "reaping is idempotent");
     }
 }
