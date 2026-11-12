@@ -16,13 +16,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-15, windows-2025]
-    runs-on: ${{ matrix.os }}
+        os: [macos, windows]
+    runs-on: ${{ fromJSON(matrix.os == 'macos' && (vars.OVE_RUNNER_MACOS || '["self-hosted","macOS","ARM64"]') || matrix.os == 'windows' && (vars.OVE_RUNNER_WINDOWS || '["self-hosted","Windows","X64"]') || (vars.OVE_RUNNER_LINUX || '["self-hosted","Linux","X64"]')) }}
     defaults:
       run:
         shell: bash
     steps:
       - uses: actions/checkout@v4
+      - name: Rust toolchain (pinned by rust-toolchain.toml)
+        shell: bash
+        run: |
+          command -v rustup >/dev/null || { echo "::error::rustup is not installed on this runner (see docs/ci-runners.md)"; exit 1; }
+          rustup show active-toolchain
       - uses: Swatinem/rust-cache@v2
       - uses: pnpm/action-setup@v4
         with:
@@ -62,7 +67,7 @@ jobs:
     # Only for tags: a draft pre-release with both platforms' installers and checksums. A person reviews and publishes it.
     if: startsWith(github.ref, 'refs/tags/v')
     needs: package
-    runs-on: ubuntu-24.04
+    runs-on: ${{ fromJSON(vars.OVE_RUNNER_LINUX || '["self-hosted","Linux","X64"]') }}
     permissions:
       contents: write
     steps:
