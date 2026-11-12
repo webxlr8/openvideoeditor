@@ -1,5 +1,23 @@
 # CI runners
 
+## How each platform is built
+
+| Platform | Built on | Notes |
+| --- | --- | --- |
+| Windows installer (`-setup.exe`) | The self-hosted **Linux** runners, cross-compiled with MinGW-w64 and packaged with NSIS | No Windows machine needed. The CLI is smoke-tested under Wine. A real Windows runner (optional) adds native tests |
+| macOS installer (`.dmg`) | A self-hosted **Apple-silicon Mac**, or GitHub-hosted `macos-15` once Actions billing works | Apple's SDK may only be used on Apple hardware, so macOS cannot be cross-built from Linux |
+| Linux (development only) | The self-hosted Linux runners | |
+
+## Adding a runner
+
+- **Mac** (needed for the `.dmg`): on any Apple-silicon Mac with macOS 14+, run
+  `tools/runners/macos-runner.sh --repo webxlr8/openvideoeditor --token <token>`. Get the token from Settings → Actions →
+  Runners → New self-hosted runner. The script installs everything below and starts the runner as a service.
+- **Windows** (optional): in an elevated PowerShell on Windows 11 x64, run
+  `tools\runners\windows-runner.ps1 -Repo webxlr8/openvideoeditor -Token <token>`.
+
+## Labels
+
 CI, Release and Nightly run on the project's **self-hosted** GitHub Actions runners. By default a job asks for the
 labels GitHub gives every self-hosted runner:
 
