@@ -77,8 +77,10 @@ mod imp {
 
     pub fn is_network(path: &Path) -> bool {
         let Ok(c) = CString::new(path.as_os_str().as_bytes()) else { return false };
+        // SAFETY: `libc::statfs` is a plain C struct of integers and integer arrays, for which all-zero bytes are a
+        // valid value.
         let mut s: libc::statfs = unsafe { std::mem::zeroed() };
-        // SAFETY: c is a valid NUL-terminated path; s is a valid out-pointer.
+        // SAFETY: `c` is a NUL-terminated path that outlives the call and `s` is a valid, writable `statfs`.
         if unsafe { libc::statfs(c.as_ptr(), &mut s) } != 0 {
             return false;
         }
@@ -94,8 +96,10 @@ mod imp {
 
     pub fn is_network(path: &Path) -> bool {
         let Ok(c) = CString::new(path.as_os_str().as_bytes()) else { return false };
+        // SAFETY: `libc::statfs` is a plain C struct of integers and integer arrays, for which all-zero bytes are a
+        // valid value.
         let mut s: libc::statfs = unsafe { std::mem::zeroed() };
-        // SAFETY: c is a valid NUL-terminated path; s is a valid out-pointer.
+        // SAFETY: `c` is a NUL-terminated path that outlives the call and `s` is a valid, writable `statfs`.
         if unsafe { libc::statfs(c.as_ptr(), &mut s) } != 0 {
             return false;
         }
@@ -120,7 +124,8 @@ mod imp {
                 Prefix::UNC(..) | Prefix::VerbatimUNC(..) => true,
                 Prefix::Disk(d) | Prefix::VerbatimDisk(d) => {
                     let root: Vec<u16> = format!("{}:\\", d as char).encode_utf16().chain([0]).collect();
-                    // SAFETY: root is a valid NUL-terminated UTF-16 string.
+                    // SAFETY: `root` is a NUL-terminated UTF-16 string that outlives the call; `GetDriveTypeW` only
+                    // reads it.
                     unsafe { GetDriveTypeW(root.as_ptr()) == DRIVE_REMOTE }
                 }
                 _ => false,
@@ -211,12 +216,9 @@ fn list_one(bundle: &Path) -> Listing {
             Some(doc) => {
                 let entry = IndexEntry::from_doc(doc);
                 let _ = std::fs::create_dir_all(bundle.join("cache"));
-                let _ = crate::fsio::write_atomic(
-                    &index_path,
-                    &serde_json::to_vec_pretty(&entry).unwrap(),
-                    crate::fsio::INDEX,
-                    false,
-                );
+                if let Ok(bytes) = serde_json::to_vec_pretty(&entry) {
+                    let _ = crate::fsio::write_atomic(&index_path, &bytes, crate::fsio::INDEX, false);
+                }
                 Listing::Ok { bundle: bundle.to_path_buf(), entry }
             }
             None => {
@@ -311,7 +313,7 @@ impl Library {
     pub fn rename(&self, bundle: &Path, name: &str, source: Source) -> Result<()> {
         let mut p = Project::open(bundle, Mode::Write, self.clock.clone())?;
         p.apply(
-            vec![Op::UpdateProject { set: json!({"name": name}).as_object().unwrap().clone(), unset: vec![] }],
+            vec![Op::UpdateProject { set: serde_json::Map::from_iter([("name".into(), json!(name))]), unset: vec![] }],
             source,
             Some(format!("rename to {name}")),
         )?;
