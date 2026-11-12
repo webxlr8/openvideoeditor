@@ -9,6 +9,8 @@ use serde_json::Value;
 use ove_core::model::Document;
 use ove_core::time::Micros;
 
+use crate::report::{self, ExportReport};
+
 /// A frame rate as a rational (30/1, 30000/1001, …).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Rate {
@@ -152,6 +154,13 @@ fn resolve(bundle: Option<&Path>, native: &str) -> PathBuf {
 /// Builds the neutral timeline from a document. Overlapping items on one track are spread onto extra tracks so every
 /// format sees non-overlapping tracks. `pending`, hidden, caption, code, shader and adjustment items are left out.
 pub fn from_document(doc: &Document, bundle: Option<&Path>, rate: Rate) -> Timeline {
+    build(doc, bundle, rate).0
+}
+
+/// [`from_document`], with a report of the items it left out and the properties of the written ones that no format
+/// carries (format-specific losses are added by [`crate::export_with_report`]).
+pub fn build(doc: &Document, bundle: Option<&Path>, rate: Rate) -> (Timeline, ExportReport) {
+    let mut rep = ExportReport::default();
     let (width, height) = frame_size(&doc.project.aspect_ratio, 1080);
     let mut video: Vec<Track> = Vec::new();
     let mut audio: Vec<Track> = Vec::new();
@@ -178,7 +187,12 @@ pub fn from_document(doc: &Document, bundle: Option<&Path>, rate: Rate) -> Timel
         let mut lanes: Vec<Track> = Vec::new();
         let is_audio = t.kind == "audio";
         for it in doc.items_on_track(&t.id) {
-            if it.is_pending() || it.fields.get("hidden").and_then(Value::as_bool).unwrap_or(false) {
+            if it.is_pending() {
+                rep.omit(report::PENDING.0, 1, report::PENDING.1);
+                continue;
+            }
+            if it.fields.get("hidden").and_then(Value::as_bool).unwrap_or(false) {
+                rep.omit(report::HIDDEN.0, 1, report::HIDDEN.1);
                 continue;
             }
             let kind = match it.kind.as_str() {
@@ -186,7 +200,11 @@ pub fn from_document(doc: &Document, bundle: Option<&Path>, rate: Rate) -> Timel
                 "image" => ClipKind::Image,
                 "audio" => ClipKind::Audio,
                 "text" => ClipKind::Title,
-                _ => continue,
+                other => {
+                    let (what, why) = report::unsupported_kind(other);
+                    rep.omit(what, 1, why);
+                    continue;
+                }
             };
             let mid = it.media_id().map(str::to_string);
             let speed = it.fields.get("playbackSpeed").and_then(Value::as_f64).unwrap_or(1.0);
@@ -214,13 +232,16 @@ pub fn from_document(doc: &Document, bundle: Option<&Path>, rate: Rate) -> Timel
                 text: it.fields.get("textContent").and_then(Value::as_str).map(str::to_string),
             };
             if clip.end <= clip.start {
+                rep.omit(report::TOO_SHORT.0, 1, report::TOO_SHORT.1);
                 continue;
             }
+            report::note_properties(&mut rep, doc, it);
             match lanes.iter_mut().find(|l| l.clips.last().is_none_or(|c| c.end <= clip.start)) {
                 Some(l) => l.clips.push(clip),
                 None => lanes.push(Track { name: t.name.clone(), clips: vec![clip] }),
             }
         }
+        report::note_track(&mut rep, t, !lanes.is_empty());
         if lanes.is_empty() {
             lanes.push(Track { name: t.name.clone(), clips: vec![] });
         }
@@ -230,7 +251,7 @@ pub fn from_document(doc: &Document, bundle: Option<&Path>, rate: Rate) -> Timel
     audio.reverse();
     video.retain(|t| !t.clips.is_empty());
     audio.retain(|t| !t.clips.is_empty());
-    Timeline { name: doc.project.name.clone(), rate, width, height, video, audio }
+    (Timeline { name: doc.project.name.clone(), rate, width, height, video, audio }, rep)
 }
 
 /// `file://` URL for a path (percent-encoded; Windows drive paths become file:///C:/…).

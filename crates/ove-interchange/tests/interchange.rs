@@ -2,7 +2,7 @@
 
 use ove_core::model::Document;
 use ove_core::ops::{Op, apply_batch};
-use ove_interchange::{ClipKind, Format, Rate, export, read, to_ops};
+use ove_interchange::{ClipKind, ExportReport, Format, Rate, export, export_report, export_with_report, read, to_ops};
 use serde_json::json;
 
 /// Text title (top), image overlay, Main with three clips (trim, speed 2×, a gap), music on Audio.
@@ -191,4 +191,95 @@ fn reads_files_written_by_opentimelineio() {
         "{t:#?}"
     );
     assert!(t.audio.iter().any(|a| a.clips.iter().any(|c| c.path.as_ref().is_some_and(|p| p.ends_with("score.wav")))));
+}
+
+/// `doc()` plus what timeline files can't hold: a caption, motion graphics, a shader and an adjustment layer, a
+/// placeholder, a hidden clip, and clips using effects, a transform, volume and a transition.
+fn rich_doc() -> Document {
+    let ops: Vec<Op> = serde_json::from_value(json!([
+        {"op": "addTrack", "track": {"id": "t_cap", "name": "Captions", "order": 0, "type": "caption"}},
+        {"op": "addTrack", "track": {"id": "t_adj", "name": "Adjust", "order": 1, "type": "adjustment"}},
+        {"op": "addItem", "item": {"id": "cap", "trackId": "t_cap", "type": "caption", "startTime": 0, "endTime": 2, "captionText": "Hello"}},
+        {"op": "addItem", "item": {"id": "adj", "trackId": "t_adj", "type": "adjustment", "startTime": 0, "endTime": 2}},
+        {"op": "addItem", "item": {"id": "code", "trackId": "t_text", "type": "code", "startTime": 5, "endTime": 7, "codeComposition": {"template": "lower-third"}}},
+        {"op": "addItem", "item": {"id": "sh", "trackId": "t_text", "type": "shader", "startTime": 8, "endTime": 9, "shaderComposition": {"template": "aurora"}}},
+        {"op": "addItem", "item": {"id": "pend", "trackId": "t_overlay", "type": "image", "startTime": 5, "endTime": 6, "pending": true, "pendingDescription": "A logo"}},
+        {"op": "addItem", "item": {"id": "hid", "trackId": "t_overlay", "type": "image", "startTime": 7, "endTime": 8, "mediaItemId": "m3", "hidden": true}},
+        {"op": "updateItem", "id": "a", "set": {"effects": [{"id": "duotone", "params": {}}], "transitionIn": {"type": "crossfade", "duration": 0.5}}},
+        {"op": "updateItem", "id": "o", "set": {"transform": {"x": 100, "y": 0, "scale": 0.5}}},
+        {"op": "updateItem", "id": "s", "set": {"volume": 40}}
+    ]))
+    .unwrap();
+    apply_batch(&doc(), &ops).unwrap().doc
+}
+
+fn omitted(r: &ExportReport, kind: &str) -> usize {
+    r.omitted.iter().filter(|o| o.kind == kind).map(|o| o.count).sum()
+}
+
+#[test]
+fn report_is_empty_when_nothing_is_lost() {
+    let d = doc();
+    for f in [Format::Fcpxml, Format::Xml] {
+        let r = export_report(&d, None, f, Rate::FPS30);
+        assert!(r.is_empty(), "{f:?}: {r:?}");
+    }
+}
+
+#[test]
+fn report_lists_items_left_out_and_properties_not_carried() {
+    let d = rich_doc();
+    for f in [Format::Fcpxml, Format::Xml, Format::Edl, Format::Otio] {
+        let r = export_report(&d, None, f, Rate::FPS30);
+        for kind in
+            ["captions", "motion graphics", "shader layers", "adjustment layers", "placeholders", "hidden items"]
+        {
+            assert_eq!(omitted(&r, kind), 1, "{f:?} {kind}: {r:?}");
+        }
+        assert!(r.omitted.iter().all(|o| !o.reason.is_empty()), "{f:?}");
+        for p in ["effects", "position, scale and rotation", "volume", "transitions"] {
+            assert!(r.not_carried.iter().any(|x| x == p), "{f:?} {p}: {r:?}");
+        }
+        assert!(!r.not_carried.iter().any(|x| x == "crop"), "{f:?}: only used properties are listed");
+        // The report written with the file is the preview's.
+        let e = export_with_report(&d, None, f, Rate::FPS30);
+        assert_eq!(e.report, r, "{f:?}");
+        assert_eq!(e.text, export(&d, None, f, Rate::FPS30), "{f:?}");
+    }
+}
+
+#[test]
+fn report_says_what_each_format_drops() {
+    let d = doc();
+    // EDL: one video track and no titles; the logo on V2 and the title on V3 are left out.
+    let edl = export_report(&d, None, Format::Edl, Rate::FPS30);
+    assert_eq!(omitted(&edl, "video clips above the main track"), 1, "{edl:?}");
+    assert_eq!(omitted(&edl, "titles"), 1, "{edl:?}");
+    assert!(edl.not_carried.is_empty(), "{edl:?}");
+    // At NTSC rates the EDL's non-drop-frame timecode is called out.
+    let ntsc = export_report(&d, None, Format::Edl, Rate::from_fps(29.97));
+    assert!(ntsc.not_carried.iter().any(|p| p.starts_with("drop-frame timecode")), "{ntsc:?}");
+    // OTIO keeps titles only as empty clips.
+    let otio = export_report(&d, None, Format::Otio, Rate::FPS30);
+    assert_eq!(omitted(&otio, "titles"), 1, "{otio:?}");
+    // FCPXML and XML keep both.
+    for f in [Format::Fcpxml, Format::Xml] {
+        let r = export_report(&d, None, f, Rate::FPS30);
+        assert_eq!(omitted(&r, "titles") + omitted(&r, "video clips above the main track"), 0, "{f:?}");
+    }
+}
+
+#[test]
+fn report_notes_vertical_crop_muted_tracks_and_title_styling() {
+    let ops: Vec<Op> = serde_json::from_value(json!([
+        {"op": "setAspectRatio", "aspectRatio": "9:16"},
+        {"op": "updateTrack", "id": "t_audio", "set": {"muted": true}},
+        {"op": "updateItem", "id": "t", "set": {"fontFamily": "Inter", "fontSize": 96}}
+    ]))
+    .unwrap();
+    let d = apply_batch(&doc(), &ops).unwrap().doc;
+    let r = export_report(&d, None, Format::Fcpxml, Rate::FPS30);
+    for p in ["fill-the-frame crop", "muted tracks (written as audible)", "title styling (font, size, colours)"] {
+        assert!(r.not_carried.iter().any(|x| x == p), "{p}: {r:?}");
+    }
 }

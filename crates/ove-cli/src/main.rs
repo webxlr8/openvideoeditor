@@ -427,12 +427,21 @@ fn run(cli: &Cli, source: Source) -> Out {
         Cmd::Timeline { cmd: TimelineCmd::Export { project, file, format, fps } } => {
             let f = interchange_format(file, format)?;
             let p = ctx.read(project)?;
-            let text = ove_interchange::export(p.doc(), Some(p.bundle()), f, ove_interchange::Rate::from_fps(*fps));
-            std::fs::write(file, &text)
+            let out = ove_interchange::export_with_report(
+                p.doc(),
+                Some(p.bundle()),
+                f,
+                ove_interchange::Rate::from_fps(*fps),
+            );
+            std::fs::write(file, &out.text)
                 .map_err(|e| Fail::new("file.unwritable", format!("could not write {}: {e}", file.display())))?;
+            let mut text = format!("wrote {} ({})", file.display(), f.label());
+            for line in out.report.lines() {
+                text.push_str(&format!("\n  {line}"));
+            }
             Ok((
-                json!({"path": file, "format": f.extension(), "bytes": text.len()}),
-                format!("wrote {} ({})", file.display(), f.label()),
+                json!({"path": file, "format": f.extension(), "bytes": out.text.len(), "report": out.report.to_json()}),
+                text,
             ))
         }
         Cmd::Timeline { cmd: TimelineCmd::Import { project, file, format, fps } } => {
