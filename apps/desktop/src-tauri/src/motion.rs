@@ -9,11 +9,12 @@ use base64::Engine as _;
 use ove_core::model::Document;
 use serde::Serialize;
 use specta::Type;
-use tauri::State;
+use tauri::{AppHandle, Manager};
 
 use crate::AppState;
 use crate::error::{AppError, AppResult, ErrorCode};
 use crate::projects::lock;
+use crate::worker::{self, relock};
 
 /// A font family the text tools can use.
 #[derive(Debug, Clone, Serialize, Type)]
@@ -33,17 +34,20 @@ pub struct FontFamily {
 #[tauri::command]
 #[specta::specta]
 pub async fn list_fonts() -> AppResult<Vec<FontFamily>> {
-    Ok(ove_graphics::fonts::all_families()
-        .into_iter()
-        .map(|f| FontFamily {
-            family: f.family,
-            source: f.source,
-            category: f.category,
-            min_weight: f.weights.min,
-            max_weight: f.weights.max,
-            italic: f.italic,
-        })
-        .collect())
+    worker::blocking("list_fonts", move || {
+        Ok(ove_graphics::fonts::all_families()
+            .into_iter()
+            .map(|f| FontFamily {
+                family: f.family,
+                source: f.source,
+                category: f.category,
+                min_weight: f.weights.min,
+                max_weight: f.weights.max,
+                italic: f.italic,
+            })
+            .collect())
+    })
+    .await
 }
 
 fn png_data_url(w: u32, h: u32, rgba: &[u8]) -> Option<String> {
@@ -60,11 +64,11 @@ fn png_data_url(w: u32, h: u32, rgba: &[u8]) -> Option<String> {
 fn cached(key: String, make: impl FnOnce() -> Option<String>) -> Option<String> {
     static CACHE: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
     let cache = CACHE.get_or_init(Default::default);
-    if let Some(v) = cache.lock().ok()?.get(&key) {
+    if let Some(v) = relock(cache).get(&key) {
         return Some(v.clone());
     }
     let v = make()?;
-    let mut c = cache.lock().ok()?;
+    let mut c = relock(cache);
     if c.len() > 400 {
         c.clear();
     }
@@ -76,19 +80,22 @@ fn cached(key: String, make: impl FnOnce() -> Option<String>) -> Option<String> 
 #[tauri::command]
 #[specta::specta]
 pub async fn font_preview(family: String, text: String, size: u32) -> AppResult<String> {
-    let size = size.clamp(8, 96);
-    let text: String = text.chars().take(40).collect();
-    cached(format!("{family}\u{1}{text}\u{1}{size}"), || {
-        let st = ove_render::text::TextStyle {
-            size: size as f32,
-            align: ove_render::text::Align::Left,
-            font: Some(ove_render::fonts::FontSpec { family: family.clone(), weight: 400, italic: false }),
-            ..Default::default()
-        };
-        let img = ove_render::text::render_words(&ove_render::text::words_of(&text), &st);
-        png_data_url(img.w, img.h, &img.data)
+    worker::blocking("font_preview", move || {
+        let size = size.clamp(8, 96);
+        let text: String = text.chars().take(40).collect();
+        cached(format!("{family}\u{1}{text}\u{1}{size}"), || {
+            let st = ove_render::text::TextStyle {
+                size: size as f32,
+                align: ove_render::text::Align::Left,
+                font: Some(ove_render::fonts::FontSpec { family: family.clone(), weight: 400, italic: false }),
+                ..Default::default()
+            };
+            let img = ove_render::text::render_words(&ove_render::text::words_of(&text), &st);
+            png_data_url(img.w, img.h, &img.data)
+        })
+        .ok_or_else(|| AppError::new(ErrorCode::Internal, "The preview could not be drawn."))
     })
-    .ok_or_else(|| AppError::new(ErrorCode::Internal, "The preview could not be drawn."))
+    .await
 }
 
 /// Built-in motion templates with their prop schemas (JSON array).
@@ -103,16 +110,20 @@ pub fn list_templates() -> AppResult<String> {
 #[tauri::command]
 #[specta::specta]
 pub async fn template_thumbnail(id: String) -> AppResult<String> {
-    let t = ove_graphics::templates::get(&id).ok_or_else(|| AppError::new(ErrorCode::NotFound, "Unknown template."))?;
-    cached(format!("template\u{1}{id}"), || {
-        let c = ove_graphics::CodeComposition { template: Some(id.clone()), ..Default::default() };
-        let p = ove_graphics::prepare(&c, (1920, 1080)).ok()?;
-        let none = |_: &str| None;
-        let time = ove_graphics::FrameTime { time: t.duration * 0.6, duration: t.duration, fps: 30.0 };
-        let r = ove_graphics::render(&p, time, 0.15, &none, ove_graphics::Limits::default()).ok()?;
-        png_data_url(r.frame.width, r.frame.height, &r.frame.rgba)
+    worker::blocking("template_thumbnail", move || {
+        let t =
+            ove_graphics::templates::get(&id).ok_or_else(|| AppError::new(ErrorCode::NotFound, "Unknown template."))?;
+        cached(format!("template\u{1}{id}"), || {
+            let c = ove_graphics::CodeComposition { template: Some(id.clone()), ..Default::default() };
+            let p = ove_graphics::prepare(&c, (1920, 1080)).ok()?;
+            let none = |_: &str| None;
+            let time = ove_graphics::FrameTime { time: t.duration * 0.6, duration: t.duration, fps: 30.0 };
+            let r = ove_graphics::render(&p, time, 0.15, &none, ove_graphics::Limits::default()).ok()?;
+            png_data_url(r.frame.width, r.frame.height, &r.frame.rgba)
+        })
+        .ok_or_else(|| AppError::new(ErrorCode::Internal, "The thumbnail could not be drawn."))
     })
-    .ok_or_else(|| AppError::new(ErrorCode::Internal, "The thumbnail could not be drawn."))
+    .await
 }
 
 fn open_doc(state: &AppState) -> Option<(Document, PathBuf)> {
@@ -126,19 +137,27 @@ fn open_doc(state: &AppState) -> Option<(Document, PathBuf)> {
 /// frameMs, width, height}`.
 #[tauri::command]
 #[specta::specta]
-pub async fn check_code(state: State<'_, AppState>, composition_json: String, duration: f64) -> AppResult<String> {
-    let value: serde_json::Value = serde_json::from_str(&composition_json)
-        .map_err(|e| AppError::new(ErrorCode::InvalidArgument, format!("The composition is not valid JSON: {e}")))?;
-    let c = ove_graphics::CodeComposition::from_value(&value)
-        .ok_or_else(|| AppError::new(ErrorCode::InvalidArgument, "The composition must be an object."))?;
-    let opened = open_doc(&state);
-    let size =
-        opened.as_ref().map(|(d, _)| ove_render::eval::reference_size(&d.project.aspect_ratio)).unwrap_or((1920, 1080));
-    let load = |id: &str| {
-        let (doc, bundle) = opened.as_ref()?;
-        let path = ove_render::sources::media_path(doc, Some(bundle), id)?;
-        std::fs::read(path).ok().map(Arc::new)
-    };
-    let report = ove_graphics::check(&c, size, duration.max(0.1), &load);
-    serde_json::to_string(&report).map_err(|e| AppError::new(ErrorCode::Internal, e.to_string()))
+pub async fn check_code(app: AppHandle, composition_json: String, duration: f64) -> AppResult<String> {
+    worker::blocking("check_code", move || {
+        let state = app.state::<AppState>();
+        let state = &*state;
+        let value: serde_json::Value = serde_json::from_str(&composition_json).map_err(|e| {
+            AppError::new(ErrorCode::InvalidArgument, format!("The composition is not valid JSON: {e}"))
+        })?;
+        let c = ove_graphics::CodeComposition::from_value(&value)
+            .ok_or_else(|| AppError::new(ErrorCode::InvalidArgument, "The composition must be an object."))?;
+        let opened = open_doc(state);
+        let size = opened
+            .as_ref()
+            .map(|(d, _)| ove_render::eval::reference_size(&d.project.aspect_ratio))
+            .unwrap_or((1920, 1080));
+        let load = |id: &str| {
+            let (doc, bundle) = opened.as_ref()?;
+            let path = ove_render::sources::media_path(doc, Some(bundle), id)?;
+            std::fs::read(path).ok().map(Arc::new)
+        };
+        let report = ove_graphics::check(&c, size, duration.max(0.1), &load);
+        serde_json::to_string(&report).map_err(|e| AppError::new(ErrorCode::Internal, e.to_string()))
+    })
+    .await
 }

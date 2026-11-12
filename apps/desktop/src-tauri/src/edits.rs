@@ -10,11 +10,11 @@ use ove_core::time::{Micros, json_to_micros, micros_to_json, secs_to_micros};
 use ove_store::project::Project;
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
-use tauri::{AppHandle, State};
+use tauri::AppHandle;
 
 use crate::AppState;
 use crate::error::{AppError, AppResult, ErrorCode};
-use crate::projects::{ProjectView, edit, lock};
+use crate::projects::{ProjectView, edit, lock, serial};
 
 /// Shortest item an edit may leave (one frame at 25 fps).
 const MIN_DURATION: Micros = 40_000;
@@ -47,8 +47,8 @@ fn item(p: &Project, id: &str) -> AppResult<Item> {
 /// Full JSON of an item (every field, document names) for the inspector.
 #[tauri::command]
 #[specta::specta]
-pub fn item_detail(state: State<'_, AppState>, id: String) -> AppResult<String> {
-    with_project(&state, |p| Ok(item(p, &id)?.to_json().to_string()))
+pub async fn item_detail(app: AppHandle, id: String) -> AppResult<String> {
+    serial(&app, "item_detail", move |_, state| with_project(state, |p| Ok(item(p, &id)?.to_json().to_string()))).await
 }
 
 #[derive(Deserialize)]
@@ -76,32 +76,32 @@ fn edit_ops(edits: Vec<ItemEdit>) -> Vec<Op> {
 /// Sets and unsets fields of one item (`set_json`: an object of document field names → values).
 #[tauri::command]
 #[specta::specta]
-pub fn update_item(
+pub async fn update_item(
     app: AppHandle,
-    state: State<'_, AppState>,
     id: String,
     set_json: String,
     unset: Vec<String>,
     summary: Option<String>,
 ) -> AppResult<ProjectView> {
-    let set: Map<String, Value> = parse(&set_json, "the change")?;
-    let ops = edit_ops(vec![ItemEdit { id, set, unset }]);
-    edit(&app, &state, ops, summary.as_deref().unwrap_or("edit item"))
+    serial(&app, "update_item", move |app, state| {
+        let set: Map<String, Value> = parse(&set_json, "the change")?;
+        let ops = edit_ops(vec![ItemEdit { id, set, unset }]);
+        edit(app, state, ops, summary.as_deref().unwrap_or("edit item"))
+    })
+    .await
 }
 
 /// Several item edits as one revision: `[{id, set: {...}, unset: [...]}, …]`.
 #[tauri::command]
 #[specta::specta]
-pub fn update_items(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    edits_json: String,
-    summary: Option<String>,
-) -> AppResult<ProjectView> {
-    let edits: Vec<ItemEdit> = parse(&edits_json, "the changes")?;
-    let n = edits.len();
-    let summary = summary.unwrap_or_else(|| format!("edit {n} item{}", if n == 1 { "" } else { "s" }));
-    edit(&app, &state, edit_ops(edits), &summary)
+pub async fn update_items(app: AppHandle, edits_json: String, summary: Option<String>) -> AppResult<ProjectView> {
+    serial(&app, "update_items", move |app, state| {
+        let edits: Vec<ItemEdit> = parse(&edits_json, "the changes")?;
+        let n = edits.len();
+        let summary = summary.unwrap_or_else(|| format!("edit {n} item{}", if n == 1 { "" } else { "s" }));
+        edit(app, state, edit_ops(edits), &summary)
+    })
+    .await
 }
 
 fn prepare_new(mut v: Value) -> AppResult<Value> {
@@ -120,18 +120,18 @@ fn prepare_new(mut v: Value) -> AppResult<Value> {
 /// Adds items (titles, captions, adjustment layers, …). Missing ids are generated.
 #[tauri::command]
 #[specta::specta]
-pub fn add_items(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    items_json: String,
-    summary: Option<String>,
-) -> AppResult<ProjectView> {
-    let items: Vec<Value> = parse(&items_json, "the new items")?;
-    let n = items.len();
-    let ops =
-        items.into_iter().map(|i| prepare_new(i).map(|item| Op::AddItem { item })).collect::<AppResult<Vec<_>>>()?;
-    let summary = summary.unwrap_or_else(|| format!("add {n} item{}", if n == 1 { "" } else { "s" }));
-    edit(&app, &state, ops, &summary)
+pub async fn add_items(app: AppHandle, items_json: String, summary: Option<String>) -> AppResult<ProjectView> {
+    serial(&app, "add_items", move |app, state| {
+        let items: Vec<Value> = parse(&items_json, "the new items")?;
+        let n = items.len();
+        let ops = items
+            .into_iter()
+            .map(|i| prepare_new(i).map(|item| Op::AddItem { item }))
+            .collect::<AppResult<Vec<_>>>()?;
+        let summary = summary.unwrap_or_else(|| format!("add {n} item{}", if n == 1 { "" } else { "s" }));
+        edit(app, state, ops, &summary)
+    })
+    .await
 }
 
 /// Free span on a track starting at `from` for `dur`, else the track's end.
@@ -147,69 +147,76 @@ fn free_start(p: &Project, track: &str, from: Micros, dur: Micros, ignore: &[Str
 /// Duplicates items right after themselves on their track (or at the track's end when that is taken).
 #[tauri::command]
 #[specta::specta]
-pub fn duplicate_items(app: AppHandle, state: State<'_, AppState>, ids: Vec<String>) -> AppResult<ProjectView> {
-    let ops = with_project(&state, |p| {
-        let mut ops = Vec::new();
-        for id in &ids {
-            let it = item(p, id)?;
-            let dur = it.end - it.start;
-            let at = free_start(p, &it.track_id, it.end, dur, &[]);
-            let mut j = it.to_json();
-            j["id"] = new_item_id().into();
-            j["startTime"] = micros_to_json(at);
-            j["endTime"] = micros_to_json(at + dur);
-            ops.push(Op::AddItem { item: j });
-        }
-        Ok(ops)
-    })?;
-    edit(&app, &state, ops, "duplicate")
+pub async fn duplicate_items(app: AppHandle, ids: Vec<String>) -> AppResult<ProjectView> {
+    serial(&app, "duplicate_items", move |app, state| {
+        let ops = with_project(state, |p| {
+            let mut ops = Vec::new();
+            for id in &ids {
+                let it = item(p, id)?;
+                let dur = it.end - it.start;
+                let at = free_start(p, &it.track_id, it.end, dur, &[]);
+                let mut j = it.to_json();
+                j["id"] = new_item_id().into();
+                j["startTime"] = micros_to_json(at);
+                j["endTime"] = micros_to_json(at + dur);
+                ops.push(Op::AddItem { item: j });
+            }
+            Ok(ops)
+        })?;
+        edit(app, state, ops, "duplicate")
+    })
+    .await
 }
 
 /// Pastes copied items (full item JSON as from `item_detail`) so the earliest starts at `at` seconds, keeping
 /// relative timing and tracks. Items whose track no longer exists go to the first track of the same kind.
 #[tauri::command]
 #[specta::specta]
-pub fn paste_items(app: AppHandle, state: State<'_, AppState>, items_json: String, at: f64) -> AppResult<ProjectView> {
-    let items: Vec<Value> = parse(&items_json, "the clipboard")?;
-    let at = secs_to_micros(at.max(0.0)).unwrap_or(0);
-    let ops = with_project(&state, |p| {
-        let min = items.iter().filter_map(|i| i.get("startTime").and_then(json_to_micros)).min().unwrap_or(0);
-        let mut ops = Vec::new();
-        for mut i in items {
-            let (Some(s), Some(e)) =
-                (i.get("startTime").and_then(json_to_micros), i.get("endTime").and_then(json_to_micros))
-            else {
-                continue;
-            };
-            let track = i.get("trackId").and_then(Value::as_str).unwrap_or_default().to_string();
-            if p.doc().track(&track).is_none() {
-                let kind = i.get("type").and_then(Value::as_str).unwrap_or("video");
-                let want = if kind == "audio" {
-                    "audio"
-                } else if kind == "caption" {
-                    "caption"
-                } else {
-                    "video"
+pub async fn paste_items(app: AppHandle, items_json: String, at: f64) -> AppResult<ProjectView> {
+    serial(&app, "paste_items", move |app, state| {
+        let items: Vec<Value> = parse(&items_json, "the clipboard")?;
+        let at = secs_to_micros(at.max(0.0)).unwrap_or(0);
+        let ops = with_project(state, |p| {
+            let min = items.iter().filter_map(|i| i.get("startTime").and_then(json_to_micros)).min().unwrap_or(0);
+            let mut ops = Vec::new();
+            for mut i in items {
+                let (Some(s), Some(e)) =
+                    (i.get("startTime").and_then(json_to_micros), i.get("endTime").and_then(json_to_micros))
+                else {
+                    continue;
                 };
-                match p.doc().project.tracks.iter().find(|t| t.kind == want) {
-                    Some(t) => i["trackId"] = t.id.clone().into(),
-                    None => continue,
+                let track = i.get("trackId").and_then(Value::as_str).unwrap_or_default().to_string();
+                if p.doc().track(&track).is_none() {
+                    let kind = i.get("type").and_then(Value::as_str).unwrap_or("video");
+                    let want = if kind == "audio" {
+                        "audio"
+                    } else if kind == "caption" {
+                        "caption"
+                    } else {
+                        "video"
+                    };
+                    match p.doc().project.tracks.iter().find(|t| t.kind == want) {
+                        Some(t) => i["trackId"] = t.id.clone().into(),
+                        None => continue,
+                    }
                 }
+                if i.get("mediaItemId").and_then(Value::as_str).is_some_and(|m| !p.doc().project.media.contains_key(m))
+                {
+                    continue;
+                }
+                i["id"] = new_item_id().into();
+                i["startTime"] = micros_to_json(at + (s - min));
+                i["endTime"] = micros_to_json(at + (e - min));
+                ops.push(Op::AddItem { item: i });
             }
-            if i.get("mediaItemId").and_then(Value::as_str).is_some_and(|m| !p.doc().project.media.contains_key(m)) {
-                continue;
-            }
-            i["id"] = new_item_id().into();
-            i["startTime"] = micros_to_json(at + (s - min));
-            i["endTime"] = micros_to_json(at + (e - min));
-            ops.push(Op::AddItem { item: i });
+            Ok(ops)
+        })?;
+        if ops.is_empty() {
+            return Err(bad("Nothing to paste here."));
         }
-        Ok(ops)
-    })?;
-    if ops.is_empty() {
-        return Err(bad("Nothing to paste here."));
-    }
-    edit(&app, &state, ops, "paste")
+        edit(app, state, ops, "paste")
+    })
+    .await
 }
 
 /// The trim of one edge, in microseconds: `(start, end, trimStart)` after moving `edge` to `time`, keeping the
@@ -251,76 +258,85 @@ pub fn trimmed(
 /// Trims an item's start or end edge to `time` (seconds on the timeline).
 #[tauri::command]
 #[specta::specta]
-pub fn trim_item(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    id: String,
-    edge: String,
-    time: f64,
-) -> AppResult<ProjectView> {
-    let set = with_project(&state, |p| {
-        let it = item(p, &id)?;
-        let dur = it
-            .media_id()
-            .and_then(|m| p.doc().project.media.get(m))
-            .and_then(|m| m.data().and_then(|d| d.get("duration")).and_then(json_to_micros));
-        let t = secs_to_micros(time).ok_or_else(|| bad("The time is invalid."))?;
-        let (s, e, tr) = trimmed(&it, dur, &edge, t).map_err(bad)?;
-        let mut set = Map::new();
-        set.insert("startTime".into(), micros_to_json(s));
-        set.insert("endTime".into(), micros_to_json(e));
-        if tr != it.time_field("trimStart") {
-            set.insert("trimStart".into(), micros_to_json(tr));
-        }
-        Ok(set)
-    })?;
-    edit(&app, &state, vec![Op::UpdateItem { id, set }], "trim")
+pub async fn trim_item(app: AppHandle, id: String, edge: String, time: f64) -> AppResult<ProjectView> {
+    serial(&app, "trim_item", move |app, state| {
+        let set = with_project(state, |p| {
+            let it = item(p, &id)?;
+            let dur = it
+                .media_id()
+                .and_then(|m| p.doc().project.media.get(m))
+                .and_then(|m| m.data().and_then(|d| d.get("duration")).and_then(json_to_micros));
+            let t = secs_to_micros(time).ok_or_else(|| bad("The time is invalid."))?;
+            let (s, e, tr) = trimmed(&it, dur, &edge, t).map_err(bad)?;
+            let mut set = Map::new();
+            set.insert("startTime".into(), micros_to_json(s));
+            set.insert("endTime".into(), micros_to_json(e));
+            if tr != it.time_field("trimStart") {
+                set.insert("trimStart".into(), micros_to_json(tr));
+            }
+            Ok(set)
+        })?;
+        edit(app, state, vec![Op::UpdateItem { id, set }], "trim")
+    })
+    .await
 }
 
 /// Adds a track. Video/caption/adjustment/layout tracks go on top, audio tracks at the bottom.
 #[tauri::command]
 #[specta::specta]
-pub fn add_track(app: AppHandle, state: State<'_, AppState>, kind: String, name: String) -> AppResult<ProjectView> {
-    let (order, id) = with_project(&state, |p| {
-        let n = p.doc().project.tracks.len();
-        let id = format!("t_{}", new_item_id().trim_start_matches("i_"));
-        Ok((if kind == "audio" { n } else { 0 }, id))
-    })?;
-    edit(
-        &app,
-        &state,
-        vec![Op::AddTrack { track: json!({"id": id, "name": name, "order": order, "type": kind}) }],
-        "add track",
-    )
+pub async fn add_track(app: AppHandle, kind: String, name: String) -> AppResult<ProjectView> {
+    serial(&app, "add_track", move |app, state| {
+        let (order, id) = with_project(state, |p| {
+            let n = p.doc().project.tracks.len();
+            let id = format!("t_{}", new_item_id().trim_start_matches("i_"));
+            Ok((if kind == "audio" { n } else { 0 }, id))
+        })?;
+        edit(
+            app,
+            state,
+            vec![Op::AddTrack { track: json!({"id": id, "name": name, "order": order, "type": kind}) }],
+            "add track",
+        )
+    })
+    .await
 }
 
 #[tauri::command]
 #[specta::specta]
-pub fn rename_track(app: AppHandle, state: State<'_, AppState>, id: String, name: String) -> AppResult<ProjectView> {
-    let mut set = Map::new();
-    set.insert("name".into(), name.into());
-    edit(&app, &state, vec![Op::UpdateTrack { id, set }], "rename track")
+pub async fn rename_track(app: AppHandle, id: String, name: String) -> AppResult<ProjectView> {
+    serial(&app, "rename_track", move |app, state| {
+        let mut set = Map::new();
+        set.insert("name".into(), name.into());
+        edit(app, state, vec![Op::UpdateTrack { id, set }], "rename track")
+    })
+    .await
 }
 
 /// New track order, top first: every track id once.
 #[tauri::command]
 #[specta::specta]
-pub fn reorder_tracks(app: AppHandle, state: State<'_, AppState>, order: Vec<String>) -> AppResult<ProjectView> {
-    edit(&app, &state, vec![Op::ReorderTracks { order }], "reorder tracks")
+pub async fn reorder_tracks(app: AppHandle, order: Vec<String>) -> AppResult<ProjectView> {
+    serial(&app, "reorder_tracks", move |app, state| {
+        edit(app, state, vec![Op::ReorderTracks { order }], "reorder tracks")
+    })
+    .await
 }
 
 /// Removes a track and everything on it.
 #[tauri::command]
 #[specta::specta]
-pub fn remove_track(app: AppHandle, state: State<'_, AppState>, id: String) -> AppResult<ProjectView> {
-    let ids =
-        with_project(&state, |p| Ok(p.doc().items_on_track(&id).iter().map(|i| i.id.clone()).collect::<Vec<_>>()))?;
-    let mut ops = Vec::new();
-    if !ids.is_empty() {
-        ops.push(Op::RemoveItems { ids });
-    }
-    ops.push(Op::RemoveTrack { id });
-    edit(&app, &state, ops, "remove track")
+pub async fn remove_track(app: AppHandle, id: String) -> AppResult<ProjectView> {
+    serial(&app, "remove_track", move |app, state| {
+        let ids =
+            with_project(state, |p| Ok(p.doc().items_on_track(&id).iter().map(|i| i.id.clone()).collect::<Vec<_>>()))?;
+        let mut ops = Vec::new();
+        if !ids.is_empty() {
+            ops.push(Op::RemoveItems { ids });
+        }
+        ops.push(Op::RemoveTrack { id });
+        edit(app, state, ops, "remove track")
+    })
+    .await
 }
 
 #[cfg(test)]

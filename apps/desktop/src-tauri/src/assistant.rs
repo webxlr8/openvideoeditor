@@ -13,12 +13,12 @@ use ove_agent::tools::{self, ApplyRequest, ToolHost, label};
 use ove_agent::{AgentEvent, ChatStore, Client, KeyStore, OsKeyStore, Record, TurnConfig, run_turn};
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
 
 use crate::AppState;
 use crate::error::{AppError, AppResult, ErrorCode};
-use crate::projects::{ProjectChanged, view};
+use crate::worker::{self, relock};
 
 struct Running {
     cancel: Arc<AtomicBool>,
@@ -57,8 +57,8 @@ impl Assistant {
     }
 }
 
-fn lock<'a, T>(m: &'a Mutex<T>) -> AppResult<std::sync::MutexGuard<'a, T>> {
-    m.lock().map_err(|_| AppError::new(ErrorCode::Internal, "assistant state is unavailable"))
+fn lock<T>(m: &Mutex<T>) -> AppResult<std::sync::MutexGuard<'_, T>> {
+    Ok(relock(m))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -192,12 +192,11 @@ impl DesktopHost {
         changed: bool,
     ) -> Result<T, String> {
         let state = self.app.state::<AppState>();
-        let mut g = state.projects.open.lock().map_err(|_| "project state unavailable".to_string())?;
+        let mut g = crate::projects::lock(&state.projects.open).map_err(|e| e.message)?;
         let p = g.as_mut().ok_or("No project is open in the editor anymore.")?;
         let out = f(p)?;
         if changed {
-            let _ = ProjectChanged(Some(view(p))).emit(&self.app);
-            crate::exporting::notify_doc(&state, p.doc(), p.bundle());
+            crate::projects::emit(&self.app, Some(p));
         }
         Ok(out)
     }
@@ -234,7 +233,7 @@ impl ToolHost for DesktopHost {
     fn ask_user(&mut self, question_id: &str, _question: &str, _options: &[String]) -> Result<String, String> {
         let state = self.app.state::<AppState>();
         let (tx, rx) = channel();
-        state.assistant.answers.lock().map_err(|_| "unavailable")?.insert(question_id.to_string(), tx);
+        relock(&state.assistant.answers).insert(question_id.to_string(), tx);
         loop {
             if self.cancel.load(Ordering::SeqCst) {
                 return Err("The user stopped the turn without answering.".into());
@@ -263,7 +262,7 @@ fn status(a: &Assistant) -> AppResult<AgentStatus> {
 }
 
 fn bundle(state: &AppState) -> AppResult<PathBuf> {
-    let g = state.projects.open.lock().map_err(|_| AppError::new(ErrorCode::Internal, "project state unavailable"))?;
+    let g = crate::projects::lock(&state.projects.open)?;
     g.as_ref()
         .map(|p| p.bundle().to_path_buf())
         .ok_or_else(|| AppError::new(ErrorCode::InvalidArgument, "Open or create a project to chat about it."))
@@ -271,48 +270,73 @@ fn bundle(state: &AppState) -> AppResult<PathBuf> {
 
 #[tauri::command]
 #[specta::specta]
-pub fn agent_status(state: State<'_, AppState>) -> AppResult<AgentStatus> {
-    status(&state.assistant)
+pub async fn agent_status(app: AppHandle) -> AppResult<AgentStatus> {
+    worker::blocking("agent_status", move || {
+        let state = app.state::<AppState>();
+        let state = &*state;
+        status(&state.assistant)
+    })
+    .await
 }
 
 #[tauri::command]
 #[specta::specta]
-pub fn agent_set_key(state: State<'_, AppState>, key: String) -> AppResult<AgentStatus> {
-    state.assistant.keys.set(&key).map_err(|m| AppError::new(ErrorCode::InvalidArgument, m))?;
-    tracing::info!("assistant API key stored in the system credential store");
-    status(&state.assistant)
+pub async fn agent_set_key(app: AppHandle, key: String) -> AppResult<AgentStatus> {
+    worker::blocking("agent_set_key", move || {
+        let state = app.state::<AppState>();
+        let state = &*state;
+        state.assistant.keys.set(&key).map_err(|m| AppError::new(ErrorCode::InvalidArgument, m))?;
+        tracing::info!("assistant API key stored in the system credential store");
+        status(&state.assistant)
+    })
+    .await
 }
 
 #[tauri::command]
 #[specta::specta]
-pub fn agent_clear_key(state: State<'_, AppState>) -> AppResult<AgentStatus> {
-    state.assistant.keys.clear().map_err(|m| AppError::new(ErrorCode::Io, m))?;
-    status(&state.assistant)
+pub async fn agent_clear_key(app: AppHandle) -> AppResult<AgentStatus> {
+    worker::blocking("agent_clear_key", move || {
+        let state = app.state::<AppState>();
+        let state = &*state;
+        state.assistant.keys.clear().map_err(|m| AppError::new(ErrorCode::Io, m))?;
+        status(&state.assistant)
+    })
+    .await
 }
 
 #[tauri::command]
 #[specta::specta]
-pub fn agent_set_model(state: State<'_, AppState>, model: String) -> AppResult<AgentStatus> {
-    if !ove_agent::MODELS.iter().any(|m| m.id == model) {
-        return Err(AppError::new(ErrorCode::InvalidArgument, "Unknown model."));
-    }
-    *lock(&state.assistant.model)? = model.clone();
-    if let Some(p) = &state.assistant.settings_path {
-        let _ = std::fs::create_dir_all(p.parent().unwrap_or(p));
-        let _ = std::fs::write(p, serde_json::json!({"model": model}).to_string());
-    }
-    status(&state.assistant)
+pub async fn agent_set_model(app: AppHandle, model: String) -> AppResult<AgentStatus> {
+    worker::blocking("agent_set_model", move || {
+        let state = app.state::<AppState>();
+        let state = &*state;
+        if !ove_agent::MODELS.iter().any(|m| m.id == model) {
+            return Err(AppError::new(ErrorCode::InvalidArgument, "Unknown model."));
+        }
+        *lock(&state.assistant.model)? = model.clone();
+        if let Some(p) = &state.assistant.settings_path {
+            let _ = std::fs::create_dir_all(p.parent().unwrap_or(p));
+            let _ = std::fs::write(p, serde_json::json!({"model": model}).to_string());
+        }
+        status(&state.assistant)
+    })
+    .await
 }
 
 #[tauri::command]
 #[specta::specta]
-pub fn agent_chats(state: State<'_, AppState>) -> AppResult<Vec<ChatSummaryView>> {
-    let Ok(b) = bundle(&state) else { return Ok(vec![]) };
-    Ok(ChatStore::for_bundle(&b)
-        .list()
-        .into_iter()
-        .map(|c| ChatSummaryView { id: c.id, title: c.title, updated_at: c.updated_at as f64 })
-        .collect())
+pub async fn agent_chats(app: AppHandle) -> AppResult<Vec<ChatSummaryView>> {
+    worker::blocking("agent_chats", move || {
+        let state = app.state::<AppState>();
+        let state = &*state;
+        let Ok(b) = bundle(state) else { return Ok(vec![]) };
+        Ok(ChatStore::for_bundle(&b)
+            .list()
+            .into_iter()
+            .map(|c| ChatSummaryView { id: c.id, title: c.title, updated_at: c.updated_at as f64 })
+            .collect())
+    })
+    .await
 }
 
 /// A chat's records as display items.
@@ -368,8 +392,13 @@ pub fn chat_items(records: &[Record]) -> Vec<ChatItem> {
 
 #[tauri::command]
 #[specta::specta]
-pub fn agent_chat(state: State<'_, AppState>, id: String) -> AppResult<Vec<ChatItem>> {
-    Ok(chat_items(&ChatStore::for_bundle(&bundle(&state)?).records(&id)))
+pub async fn agent_chat(app: AppHandle, id: String) -> AppResult<Vec<ChatItem>> {
+    worker::blocking("agent_chat", move || {
+        let state = app.state::<AppState>();
+        let state = &*state;
+        Ok(chat_items(&ChatStore::for_bundle(&bundle(state)?).records(&id)))
+    })
+    .await
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -381,86 +410,85 @@ pub struct SendResult {
 /// Starts a turn in a chat (a new chat when `chat_id` is empty). Progress arrives as `agentUiEvent`.
 #[tauri::command]
 #[specta::specta]
-pub fn agent_send(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    chat_id: Option<String>,
-    text: String,
-) -> AppResult<SendResult> {
-    let text = text.trim().to_string();
-    if text.is_empty() {
-        return Err(AppError::new(ErrorCode::InvalidArgument, "Type a message first."));
-    }
-    let a = &state.assistant;
-    let Some((key, _)) = a.keys.get() else {
-        return Err(AppError::new(ErrorCode::InvalidArgument, "Add your Anthropic API key to use the assistant."));
-    };
-    let bundle = bundle(&state)?;
-    let model = lock(&a.model)?.clone();
-    let store = ChatStore::for_bundle(&bundle);
-    let chat_id = match chat_id.filter(|c| !c.is_empty()) {
-        Some(c) => c,
-        None => {
-            store
-                .create(&text, &model)
-                .map_err(|e| AppError::new(ErrorCode::Io, format!("Couldn't start the chat: {e}")))?
-                .id
+pub async fn agent_send(app: AppHandle, chat_id: Option<String>, text: String) -> AppResult<SendResult> {
+    worker::blocking("agent_send", move || {
+        let state = app.state::<AppState>();
+        let state = &*state;
+        let text = text.trim().to_string();
+        if text.is_empty() {
+            return Err(AppError::new(ErrorCode::InvalidArgument, "Type a message first."));
         }
-    };
-    let cancel = Arc::new(AtomicBool::new(false));
-    {
-        let mut running = lock(&a.running)?;
-        if running.is_some() {
-            return Err(AppError::new(ErrorCode::InvalidArgument, "The assistant is still working. Stop it or wait."));
+        let a = &state.assistant;
+        let Some((key, _)) = a.keys.get() else {
+            return Err(AppError::new(ErrorCode::InvalidArgument, "Add your Anthropic API key to use the assistant."));
+        };
+        let bundle = bundle(state)?;
+        let model = lock(&a.model)?.clone();
+        let store = ChatStore::for_bundle(&bundle);
+        let chat_id = match chat_id.filter(|c| !c.is_empty()) {
+            Some(c) => c,
+            None => {
+                store
+                    .create(&text, &model)
+                    .map_err(|e| AppError::new(ErrorCode::Io, format!("Couldn't start the chat: {e}")))?
+                    .id
+            }
+        };
+        let cancel = Arc::new(AtomicBool::new(false));
+        {
+            let mut running = lock(&a.running)?;
+            if running.is_some() {
+                return Err(AppError::new(
+                    ErrorCode::InvalidArgument,
+                    "The assistant is still working. Stop it or wait.",
+                ));
+            }
+            *running = Some(Running { cancel: cancel.clone() });
         }
-        *running = Some(Running { cancel: cancel.clone() });
-    }
-    let (app2, chat2) = (app.clone(), chat_id.clone());
-    std::thread::Builder::new()
-        .name("assistant-turn".into())
-        .spawn(move || {
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                let client = Client::new(key);
-                let mut host = DesktopHost { app: app2.clone(), cancel: cancel.clone() };
-                let cfg = TurnConfig { model, ..TurnConfig::default() };
-                let _ = run_turn(&client, &store, &chat2, &text, &mut host, &cfg, &cancel, &mut |e| {
-                    let _ = AgentUiEvent::from(e).emit(&app2);
-                });
-            }));
-            if result.is_err() {
-                tracing::error!("the assistant turn panicked");
-                let _ = AgentUiEvent::Error {
-                    code: "internal".into(),
-                    message: "The assistant stopped unexpectedly. Details are in the log.".into(),
+        let (app2, chat2) = (app.clone(), chat_id.clone());
+        std::thread::Builder::new()
+            .name("assistant-turn".into())
+            .spawn(move || {
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    let client = Client::new(key);
+                    let mut host = DesktopHost { app: app2.clone(), cancel: cancel.clone() };
+                    let cfg = TurnConfig { model, ..TurnConfig::default() };
+                    let _ = run_turn(&client, &store, &chat2, &text, &mut host, &cfg, &cancel, &mut |e| {
+                        let _ = AgentUiEvent::from(e).emit(&app2);
+                    });
+                }));
+                if result.is_err() {
+                    tracing::error!("the assistant turn panicked");
+                    let _ = AgentUiEvent::Error {
+                        code: "internal".into(),
+                        message: "The assistant stopped unexpectedly. Details are in the log.".into(),
+                    }
+                    .emit(&app2);
+                    let _ = AgentUiEvent::TurnDone {
+                        chat_id: chat2,
+                        stopped: true,
+                        duration_ms: 0.0,
+                        input_tokens: 0.0,
+                        output_tokens: 0.0,
+                        cache_read_tokens: 0.0,
+                        cost_usd: 0.0,
+                        note: None,
+                    }
+                    .emit(&app2);
                 }
-                .emit(&app2);
-                let _ = AgentUiEvent::TurnDone {
-                    chat_id: chat2,
-                    stopped: true,
-                    duration_ms: 0.0,
-                    input_tokens: 0.0,
-                    output_tokens: 0.0,
-                    cache_read_tokens: 0.0,
-                    cost_usd: 0.0,
-                    note: None,
-                }
-                .emit(&app2);
-            }
-            let st = app2.state::<AppState>();
-            if let Ok(mut r) = st.assistant.running.lock() {
-                *r = None;
-            }
-            if let Ok(mut q) = st.assistant.answers.lock() {
-                q.clear();
-            }
-        })
-        .map_err(|e| AppError::new(ErrorCode::Internal, e.to_string()))?;
-    Ok(SendResult { chat_id })
+                let st = app2.state::<AppState>();
+                *relock(&st.assistant.running) = None;
+                relock(&st.assistant.answers).clear();
+            })
+            .map_err(|e| AppError::new(ErrorCode::Internal, e.to_string()))?;
+        Ok(SendResult { chat_id })
+    })
+    .await
 }
 
 #[tauri::command]
 #[specta::specta]
-pub fn agent_stop(state: State<'_, AppState>) -> AppResult<()> {
+pub fn agent_stop(state: tauri::State<'_, AppState>) -> AppResult<()> {
     if let Some(r) = lock(&state.assistant.running)?.as_ref() {
         r.cancel.store(true, Ordering::SeqCst);
     }
@@ -470,7 +498,7 @@ pub fn agent_stop(state: State<'_, AppState>) -> AppResult<()> {
 
 #[tauri::command]
 #[specta::specta]
-pub fn agent_answer(state: State<'_, AppState>, question_id: String, answer: String) -> AppResult<()> {
+pub fn agent_answer(state: tauri::State<'_, AppState>, question_id: String, answer: String) -> AppResult<()> {
     let tx = lock(&state.assistant.answers)?.remove(&question_id);
     match tx {
         Some(tx) => tx

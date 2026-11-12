@@ -49,6 +49,8 @@ tauri-plugin-dialog = "2"
 tauri-plugin-single-instance = "2"
 tauri-specta = { version = "=2.0.0-rc.28", features = ["derive", "typescript"] }
 thiserror = "2.0.21"
+# FIFO turn-taking for project commands (already in the tree through Tauri).
+tokio = { version = "1", default-features = false, features = ["sync"] }
 tracing = "0.1.44"
 tracing-appender = "0.2.5"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
@@ -69,6 +71,8 @@ windows = { version = "0.62", features = [
 
 [dev-dependencies]
 tempfile = "3"
+# Mock runtime: drives the real invoke handler in tests.
+tauri = { version = "2.12", features = ["macos-private-api", "test"] }
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

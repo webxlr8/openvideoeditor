@@ -84,7 +84,10 @@ export const commands = {
 	importTimeline: (path: string | null, fps: number | null) => typedError<TimelineImport_Serialize | null, AppError>(__TAURI_INVOKE("import_timeline", { path, fps })),
 	/**  Plays the open project's composited timeline in the viewer. */
 	openTimeline: () => typedError<MediaInfo_Serialize, AppError>(__TAURI_INVOKE("open_timeline")),
-	/**  Starts exporting the open project in the background. Progress arrives as `exportProgress` events. */
+	/**
+	 *  Starts exporting the open project in the background. Progress arrives as `exportProgress` events; the last one
+	 *  has `done` set. Refused up front when media is offline, placeholders are pending or an export is running.
+	 */
 	exportProject: (request: ExportRequest) => typedError<null, AppError>(__TAURI_INVOKE("export_project", { request })),
 	cancelExport: () => typedError<null, AppError>(__TAURI_INVOKE("cancel_export")),
 	/**  Save dialog for the export destination. `None` when cancelled. */
@@ -419,7 +422,10 @@ export type ExportProgress_Deserialize = {
 	done: boolean,
 	error?: string | null,
 	path?: string | null,
+	/**  The video encoder in use (known once encoding starts). */
 	encoder?: string | null,
+	/**  Set when the encoder is a fallback (not hardware, not H.264): show it to the user. */
+	warning?: string | null,
 	secondsTaken?: number | null,
 };
 
@@ -431,7 +437,10 @@ export type ExportProgress_Serialize = {
 	done: boolean,
 	error: string | null,
 	path: string | null,
+	/**  The video encoder in use (known once encoding starts). */
 	encoder: string | null,
+	/**  Set when the encoder is a fallback (not hardware, not H.264): show it to the user. */
+	warning?: string,
 	secondsTaken: number | null,
 };
 

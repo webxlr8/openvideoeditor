@@ -2,10 +2,16 @@
 //!
 //! Video encoder preference: the platform's hardware encoder (VideoToolbox on macOS; Media Foundation, NVENC,
 //! Quick Sync or AMF on Windows), then OpenH264 (BSD), then libx264 if the FFmpeg build has it (GPL: development
-//! machines only, never in a shipped build), then MPEG-4 Part 2 as a last resort. Audio: FFmpeg's native AAC.
+//! machines only, never in a shipped build), then MPEG-4 Part 2 as a last resort (the result then carries a warning
+//! the app shows). Audio: FFmpeg's native AAC.
+//!
+//! The video is written to a sibling temporary file (`name.partial.mp4`), flushed to disk and renamed over the
+//! destination only when complete, so a failed or cancelled export never leaves a broken file or destroys an earlier
+//! export of the same name. Export is refused while placeholders are pending or media files are offline.
 
+use std::collections::BTreeSet;
 use std::ffi::CString;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::ptr;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -41,6 +47,8 @@ pub struct Progress {
     pub frame: u64,
     pub total_frames: u64,
     pub fraction: f64,
+    /// The video encoder in use.
+    pub encoder: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -52,6 +60,8 @@ pub struct ExportResult {
     pub frames: u64,
     pub duration_seconds: f64,
     pub video_encoder: String,
+    /// Set when the video encoder is neither a hardware nor an H.264 encoder (see [`encoder_warning`]).
+    pub encoder_warning: Option<String>,
     pub seconds_taken: f64,
 }
 
@@ -85,6 +95,114 @@ pub fn encoder_candidates() -> Vec<&'static str> {
     }
     v.extend(["libopenh264", "libx264", "mpeg4"]);
     v
+}
+
+/// True for the platform hardware encoders.
+pub fn is_hardware_encoder(name: &str) -> bool {
+    ["videotoolbox", "nvenc", "qsv", "amf", "_mf", "vaapi"].iter().any(|k| name.contains(k))
+}
+
+/// True for H.264 encoders.
+pub fn is_h264_encoder(name: &str) -> bool {
+    name.starts_with("h264") || matches!(name, "libopenh264" | "libx264")
+}
+
+/// A plain-language warning when `encoder` is a fallback (not hardware, not H.264): files from it are larger and
+/// some players, phones and sites do not accept them.
+pub fn encoder_warning(encoder: &str) -> Option<String> {
+    if is_hardware_encoder(encoder) || is_h264_encoder(encoder) {
+        return None;
+    }
+    let what = if encoder == "mpeg4" { "MPEG-4 Part 2".to_string() } else { format!("the {encoder} encoder") };
+    Some(format!(
+        "No H.264 encoder is available on this computer, so the video was saved as {what}. It plays in VLC and most \
+         editors, but some players, phones and websites may not accept it, and the file is larger."
+    ))
+}
+
+/// The temporary file an export to `out` is written to: `name.partial.ext` next to it.
+pub fn partial_path(out: &Path) -> PathBuf {
+    let stem = out.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "export".into());
+    let name = match out.extension() {
+        Some(ext) => format!("{stem}.partial.{}", ext.to_string_lossy()),
+        None => format!("{stem}.partial"),
+    };
+    out.with_file_name(name)
+}
+
+/// Names of the media files the timeline uses that are not on disk (sorted, each once). Missing files would export
+/// as black frames and silence.
+pub fn offline_media(doc: &Document, bundle: Option<&Path>) -> Vec<String> {
+    let mut names = BTreeSet::new();
+    for item in doc.project.items.values().filter(|i| !i.is_pending()) {
+        let Some(id) = item.media_id() else { continue };
+        let path = crate::sources::media_path(doc, bundle, id);
+        if path.as_deref().is_some_and(|p| p.is_file()) {
+            continue;
+        }
+        let name = doc
+            .project
+            .media
+            .get(id)
+            .and_then(|m| m.file_name())
+            .map(str::to_string)
+            .or_else(|| path.as_deref().and_then(Path::file_name).map(|n| n.to_string_lossy().into_owned()))
+            .unwrap_or_else(|| id.to_string());
+        names.insert(name);
+    }
+    names.into_iter().collect()
+}
+
+/// Checks that the timeline can be exported with these settings, without rendering anything.
+pub fn preflight(doc: &Document, bundle: Option<&Path>, settings: &ExportSettings) -> Result<(), ExportError> {
+    let pending = doc.project.items.values().filter(|i| i.is_pending()).count();
+    if pending > 0 {
+        return Err(ExportError::Refused(format!(
+            "{pending} pending placeholder{} still need media; fill or remove them before exporting",
+            if pending == 1 { "" } else { "s" }
+        )));
+    }
+    if doc.duration() <= 0 {
+        return Err(ExportError::Refused("the timeline is empty".into()));
+    }
+    if settings.fps == 0 || settings.fps > 120 || settings.height < 16 || settings.height > 4320 {
+        return Err(ExportError::Refused("frame rate must be 1–120 and height 16–4320".into()));
+    }
+    let offline = offline_media(doc, bundle);
+    if !offline.is_empty() {
+        let names = offline.iter().map(|n| format!("“{n}”")).collect::<Vec<_>>().join(", ");
+        let what = if offline.len() == 1 { "this media file is" } else { "these media files are" };
+        return Err(ExportError::Refused(format!(
+            "{what} offline: {names}; reconnect the drive or relink the media before exporting"
+        )));
+    }
+    Ok(())
+}
+
+/// Removes the temporary export file when dropped (failure, cancel or panic) unless it was kept.
+struct PartialFile {
+    path: PathBuf,
+    keep: bool,
+}
+
+impl Drop for PartialFile {
+    fn drop(&mut self) {
+        if !self.keep {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
+}
+
+/// Flushes the finished temporary file to disk and renames it over the destination.
+fn finish_file(tmp: &Path, out: &Path) -> std::io::Result<()> {
+    std::fs::File::open(tmp)?.sync_all()?;
+    std::fs::rename(tmp, out)?;
+    // The rename itself is durable once the directory is flushed (not possible on Windows; rename is enough there).
+    #[cfg(unix)]
+    if let Some(dir) = out.parent().filter(|d| !d.as_os_str().is_empty()) {
+        let _ = std::fs::File::open(dir).and_then(|d| d.sync_all());
+    }
+    Ok(())
 }
 
 struct Stream {
@@ -392,8 +510,9 @@ impl Muxer {
     }
 }
 
-/// Exports the whole timeline. `progress` is called after every frame; set `cancel` to stop (the partial file is
-/// removed).
+/// Exports the whole timeline to `out`. `progress` is called after every frame; set `cancel` to stop. The file at
+/// `out` is replaced only by a complete export: on failure or cancel it is left as it was and the temporary file is
+/// removed.
 pub fn export(
     doc: &Document,
     bundle: Option<&Path>,
@@ -402,20 +521,8 @@ pub fn export(
     cancel: &AtomicBool,
     mut progress: impl FnMut(Progress),
 ) -> Result<ExportResult, ExportError> {
-    let pending = doc.project.items.values().filter(|i| i.is_pending()).count();
-    if pending > 0 {
-        return Err(ExportError::Refused(format!(
-            "{pending} pending placeholder{} still need media; fill or remove them before exporting",
-            if pending == 1 { "" } else { "s" }
-        )));
-    }
+    preflight(doc, bundle, settings)?;
     let duration = doc.duration();
-    if duration <= 0 {
-        return Err(ExportError::Refused("the timeline is empty".into()));
-    }
-    if settings.fps == 0 || settings.fps > 120 || settings.height < 16 || settings.height > 4320 {
-        return Err(ExportError::Refused("frame rate must be 1–120 and height 16–4320".into()));
-    }
     ove_media::init();
     let started = std::time::Instant::now();
     let mut renderer = Renderer::new(bundle, settings.height);
@@ -425,8 +532,10 @@ pub fn export(
     if let Some(parent) = out.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
+    let mut partial = PartialFile { path: partial_path(out), keep: false };
     // SAFETY: the muxer owns every FFmpeg object and frees them on drop.
-    let mut mux = unsafe { Muxer::open(out, w, h, settings)? };
+    let mut mux = unsafe { Muxer::open(&partial.path, w, h, settings)? };
+    let encoder = mux.encoder.clone();
     let result = (|| -> Result<(), ExportError> {
         let a_n = unsafe { (*mux.aframe).nb_samples } as usize;
         let mut audio_pts: i64 = 0;
@@ -447,23 +556,29 @@ pub fn export(
                 unsafe { mux.audio_frame(&samples, audio_pts)? };
                 audio_pts += a_n as i64;
             }
-            progress(Progress { frame: i + 1, total_frames: total, fraction: (i + 1) as f64 / total as f64 });
+            progress(Progress {
+                frame: i + 1,
+                total_frames: total,
+                fraction: (i + 1) as f64 / total as f64,
+                encoder: encoder.clone(),
+            });
         }
         // SAFETY: flush and trailer.
         unsafe { mux.finish() }
     })();
-    let encoder = mux.encoder.clone();
+    // Closes the file before it is flushed, renamed or removed.
     drop(mux);
-    if let Err(e) = result {
-        let _ = std::fs::remove_file(out);
-        return Err(e);
-    }
+    result?;
+    finish_file(&partial.path, out)
+        .map_err(|e| ExportError::Ffmpeg(format!("could not save the finished file as {}: {e}", out.display())))?;
+    partial.keep = true;
     Ok(ExportResult {
         path: out.display().to_string(),
         width: w,
         height: h,
         frames: total,
         duration_seconds: total as f64 / settings.fps as f64,
+        encoder_warning: encoder_warning(&encoder),
         video_encoder: encoder,
         seconds_taken: started.elapsed().as_secs_f64(),
     })

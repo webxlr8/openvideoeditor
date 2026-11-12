@@ -3,9 +3,10 @@
 //! viewer thread; state changes go to the UI as `playbackChanged` events.
 
 use std::path::PathBuf;
-use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, SendError, Sender, channel};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use ove_core::model::Document;
 use ove_media::{AudioDecoder, AudioOutputSpec, DecodeWorker, DecoderOptions, SampleFormat, Samples};
@@ -21,6 +22,7 @@ use crate::media::{self, MediaInfo};
 use crate::timeline::{TIMELINE_FPS, TimelineFrame, TimelineSource};
 use crate::transport::{PlaybackState, TransportCommand};
 use crate::viewer::ViewerMsg;
+use crate::worker::relock;
 use crate::{AppErrorRaised, PlaybackChanged};
 
 /// Audio kept decoded ahead of the play head.
@@ -53,12 +55,111 @@ pub struct Shared {
     pub state: Mutex<PlaybackState>,
     pub diag: Mutex<EngineDiag>,
     pub media: Mutex<Option<MediaInfo>>,
+    /// When the engine loop last went round (ms on [`now_ms`]'s clock).
+    beat: AtomicU64,
 }
 
-#[derive(Clone)]
+/// An engine that has not gone round its loop for this long while a request waits is considered stuck.
+const STALL_MS: u64 = 5_000;
+/// More restarts than this within [`RESTART_WINDOW`] means something is persistently wrong: stop restarting.
+const MAX_RESTARTS: usize = 3;
+const RESTART_WINDOW: Duration = Duration::from_secs(60);
+
+fn now_ms() -> u64 {
+    static EPOCH: OnceLock<Instant> = OnceLock::new();
+    EPOCH.get_or_init(Instant::now).elapsed().as_millis() as u64
+}
+
+impl Shared {
+    fn beat(&self) {
+        self.beat.store(now_ms(), Ordering::Relaxed);
+    }
+
+    fn stalled(&self) -> bool {
+        now_ms().saturating_sub(self.beat.load(Ordering::Relaxed)) > STALL_MS
+    }
+}
+
+/// The playback engine as the rest of the app sees it. The engine runs on its own thread with panics contained; a
+/// panic ends that thread, and the next message restarts it (fresh state, same volume). A stuck engine is replaced
+/// when a request to it times out.
 pub struct EngineHandle {
-    pub tx: Sender<EngineMsg>,
+    tx: Mutex<Sender<EngineMsg>>,
     pub shared: Arc<Shared>,
+    app: AppHandle,
+    viewer: Sender<ViewerMsg>,
+    restarts: Mutex<Vec<Instant>>,
+}
+
+fn not_running() -> AppError {
+    AppError::new(
+        ErrorCode::WorkerPanic,
+        "The playback engine keeps failing, so it was not restarted. Your project is saved; restart the app to play \
+         again.",
+    )
+}
+
+impl EngineHandle {
+    /// Sends a message to the engine, restarting it first if it stopped.
+    pub fn send(&self, msg: EngineMsg) -> AppResult<()> {
+        let mut tx = relock(&self.tx);
+        match tx.send(msg) {
+            Ok(()) => Ok(()),
+            Err(SendError(msg)) => {
+                tracing::warn!("the playback engine had stopped; restarting it");
+                *tx = self.restart()?;
+                tx.send(msg).map_err(|_| not_running())
+            }
+        }
+    }
+
+    /// Sends a request built around a reply channel and waits up to `timeout` for the answer (`what` names the
+    /// request in errors: "opening the file").
+    pub fn request<T>(
+        &self,
+        make: impl FnOnce(Sender<AppResult<T>>) -> EngineMsg,
+        timeout: Duration,
+        what: &str,
+    ) -> AppResult<T> {
+        let (reply, rx) = channel();
+        self.send(make(reply))?;
+        match rx.recv_timeout(timeout) {
+            Ok(r) => r,
+            Err(RecvTimeoutError::Disconnected) => Err(AppError::new(
+                ErrorCode::WorkerPanic,
+                format!("Playback stopped by an internal error while {what}. It restarts on its own; try again."),
+            )),
+            Err(RecvTimeoutError::Timeout) if self.shared.stalled() => {
+                tracing::error!(what, "the playback engine stopped responding; replacing it");
+                let mut tx = relock(&self.tx);
+                // Dropping the old sender ends the stuck engine's loop if it ever returns.
+                *tx = self.restart()?;
+                Err(AppError::new(
+                    ErrorCode::Internal,
+                    format!("Playback stopped responding while {what} and was restarted. Try again."),
+                ))
+            }
+            Err(RecvTimeoutError::Timeout) => {
+                Err(AppError::new(ErrorCode::Internal, format!("Playback took too long {what}. Try again.")))
+            }
+        }
+    }
+
+    fn restart(&self) -> AppResult<Sender<EngineMsg>> {
+        {
+            let mut r = relock(&self.restarts);
+            r.retain(|t| t.elapsed() < RESTART_WINDOW);
+            if r.len() >= MAX_RESTARTS {
+                tracing::error!(restarts = r.len(), "the playback engine keeps failing; not restarting it");
+                return Err(not_running());
+            }
+            r.push(Instant::now());
+        }
+        start(self.app.clone(), self.viewer.clone(), self.shared.clone()).map_err(|e| {
+            tracing::error!(error = %e, "could not restart the playback engine");
+            not_running()
+        })
+    }
 }
 
 struct Audio {
@@ -435,22 +536,53 @@ fn snapshot(s: Option<&Session>, volume: f64, muted: bool, audio_available: bool
 }
 
 pub fn spawn(app: AppHandle, viewer: Sender<ViewerMsg>) -> std::io::Result<EngineHandle> {
-    let (tx, rx) = channel::<EngineMsg>();
     let shared = Arc::new(Shared::default());
-    let sh = shared.clone();
-    crate::worker::spawn_contained("playback", move || run(app, viewer, rx, sh))?;
-    Ok(EngineHandle { tx, shared })
+    let tx = start(app.clone(), viewer.clone(), shared.clone())?;
+    Ok(EngineHandle { tx: Mutex::new(tx), shared, app, viewer, restarts: Mutex::new(Vec::new()) })
+}
+
+/// Starts an engine thread. When it panics, the UI is told playback stopped; the thread then ends, which closes its
+/// channel, so the next message restarts it.
+fn start(app: AppHandle, viewer: Sender<ViewerMsg>, shared: Arc<Shared>) -> std::io::Result<Sender<EngineMsg>> {
+    let (tx, rx) = channel::<EngineMsg>();
+    shared.beat();
+    std::thread::Builder::new().name("playback".into()).spawn(move || {
+        let a = app.clone();
+        let sh = shared.clone();
+        if crate::worker::contain("playback", move || run(a, viewer, rx, sh)).is_err() {
+            *relock(&shared.media) = None;
+            let snap = {
+                let mut s = relock(&shared.state);
+                s.has_media = false;
+                s.playing = false;
+                s.speed = 0.0;
+                s.clone()
+            };
+            let _ = PlaybackChanged(snap).emit(&app);
+            let _ = AppErrorRaised(AppError::new(
+                ErrorCode::WorkerPanic,
+                "Playback stopped because of an internal error. Open the clip or timeline again to continue.",
+            ))
+            .emit(&app);
+        }
+    })?;
+    Ok(tx)
 }
 
 fn run(app: AppHandle, viewer: Sender<ViewerMsg>, rx: Receiver<EngineMsg>, shared: Arc<Shared>) {
     let time: Arc<dyn TimeSource> = Arc::new(SystemTime::new());
     let mut session: Option<Session> = None;
-    let (mut volume, mut muted) = (1.0f64, false);
+    // A restarted engine keeps the volume the user set.
+    let (mut volume, mut muted) = {
+        let s = relock(&shared.state);
+        (s.volume, s.muted)
+    };
     let mut audio_available = false;
     let mut last_sent: Option<PlaybackState> = None;
     // Frames still to step (positive forward, negative back); any other transport command cancels them.
     let mut pending_steps: i64 = 0;
     loop {
+        shared.beat();
         let busy = pending_steps != 0
             || session.as_ref().is_some_and(|s| s.player.transport().is_playing() || !s.player.is_settled());
         let timeout = if busy { Duration::from_millis(4) } else { Duration::from_millis(20) };
@@ -465,7 +597,7 @@ fn run(app: AppHandle, viewer: Sender<ViewerMsg>, rx: Receiver<EngineMsg>, share
                     }
                     // A failed open keeps the previous file playing; a successful one replaces it.
                     session = Some(s);
-                    *shared.media.lock().unwrap() = Some(info.clone());
+                    *relock(&shared.media) = Some(info.clone());
                     info
                 });
                 if let Err(e) = &result {
@@ -482,7 +614,7 @@ fn run(app: AppHandle, viewer: Sender<ViewerMsg>, rx: Receiver<EngineMsg>, share
                     a.out.ring().set_muted(muted);
                 }
                 let info = s.info.clone();
-                *shared.media.lock().unwrap() = Some(info.clone());
+                *relock(&shared.media) = Some(info.clone());
                 session = Some(s);
                 let _ = reply.send(Ok(info));
             }
@@ -502,14 +634,14 @@ fn run(app: AppHandle, viewer: Sender<ViewerMsg>, rx: Receiver<EngineMsg>, share
                     if playing {
                         s.player.command(Command::Play, now);
                     }
-                    *shared.media.lock().unwrap() = Some(s.info.clone());
+                    *relock(&shared.media) = Some(s.info.clone());
                     session = Some(s);
                 }
             }
             Ok(EngineMsg::Close) => {
                 session = None;
                 pending_steps = 0;
-                *shared.media.lock().unwrap() = None;
+                *relock(&shared.media) = None;
             }
             Ok(EngineMsg::Transport(cmd)) => {
                 if let Some(s) = session.as_mut() {
@@ -584,19 +716,17 @@ fn run(app: AppHandle, viewer: Sender<ViewerMsg>, rx: Receiver<EngineMsg>, share
                     t.render_ms.load(std::sync::atomic::Ordering::Relaxed)
                 ),
             };
-            if let Ok(mut g) = shared.diag.lock() {
-                *g = EngineDiag {
-                    decode_path: path,
-                    dropped_frames: d.dropped_frames,
-                    presented_frames: d.presented_frames,
-                    av_offset_ms: (d.av_offset.count > 0).then(|| d.av_offset.mean_us as f64 / 1000.0),
-                    seek_p95_ms: (d.seek_latency.count > 0).then(|| d.seek_latency.p95_us as f64 / 1000.0),
-                };
-            }
+            *relock(&shared.diag) = EngineDiag {
+                decode_path: path,
+                dropped_frames: d.dropped_frames,
+                presented_frames: d.presented_frames,
+                av_offset_ms: (d.av_offset.count > 0).then(|| d.av_offset.mean_us as f64 / 1000.0),
+                seek_p95_ms: (d.seek_latency.count > 0).then(|| d.seek_latency.p95_us as f64 / 1000.0),
+            };
         }
         let snap = snapshot(session.as_ref(), volume, muted, audio_available);
         if last_sent.as_ref() != Some(&snap) {
-            *shared.state.lock().unwrap() = snap.clone();
+            *relock(&shared.state) = snap.clone();
             let _ = PlaybackChanged(snap.clone()).emit(&app);
             last_sent = Some(snap);
         }
