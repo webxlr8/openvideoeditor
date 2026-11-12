@@ -239,6 +239,7 @@ export function App() {
             ?.split(/[\\/]/)
             .pop()
             ?.replace(/\.[^.]+$/, "") ?? "Untitled Project",
+          null,
         );
         if (created.status === "error") return showError(created.error);
         setProject(created.data);
@@ -324,8 +325,9 @@ export function App() {
     text: string,
     name: string,
     aspect?: string,
+    template?: string,
   ) => {
-    const created = await commands.createProject(name);
+    const created = await commands.createProject(name, template ?? null);
     if (created.status === "error") return showError(created.error);
     let view = created.data;
     if (aspect && aspect !== view.aspectRatio) {
@@ -491,7 +493,7 @@ export function App() {
             onOpenFile={() => fire(importInto(null))}
             onBlank={() =>
               runCommand(
-                commands.createProject("Untitled Project"),
+                commands.createProject("Untitled Project", null),
                 openProjectView,
                 showError,
               )

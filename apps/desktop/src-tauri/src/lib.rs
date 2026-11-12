@@ -125,6 +125,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             projects::rename_project,
             projects::set_track_flag,
             projects::undo,
+            projects::project_history,
+            projects::restore_before,
             projects::redo,
             // Timeline exchange (FCPXML, XML, EDL, OTIO).
             control::report_ui_state,
@@ -172,6 +174,10 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             assistant::agent_send,
             assistant::agent_stop,
             assistant::agent_answer,
+            assistant::agent_set_limits,
+            assistant::agent_check_key,
+            assistant::agent_usage,
+            assistant::agent_undo_turn,
             // Captions: speech models, auto-captions, caption styles (change 10).
             captions::caption_models,
             captions::caption_presets,

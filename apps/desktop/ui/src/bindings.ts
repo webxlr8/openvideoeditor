@@ -29,7 +29,7 @@ export const commands = {
 	/**  Diagnostics hook: panics inside the viewer thread; the error arrives as `AppErrorRaised`. */
 	debugPanicViewer: () => typedError<null, AppError>(__TAURI_INVOKE("debug_panic_viewer")),
 	listProjects: () => typedError<ProjectSummary_Serialize[], AppError>(__TAURI_INVOKE("list_projects")),
-	createProject: (name: string) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("create_project", { name })),
+	createProject: (name: string, template: string | null) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("create_project", { name, template })),
 	openProject: (bundle: string) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("open_project", { bundle })),
 	closeProject: () => typedError<null, AppError>(__TAURI_INVOKE("close_project")),
 	projectView: () => typedError<ProjectView_Serialize | null, AppError>(__TAURI_INVOKE("project_view")),
@@ -44,6 +44,10 @@ export const commands = {
 	renameProject: (name: string) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("rename_project", { name })),
 	setTrackFlag: (id: string, flag: string, value: boolean) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("set_track_flag", { id, flag, value })),
 	undo: () => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("undo")),
+	/**  The open project's revisions, newest first (the history panel). */
+	projectHistory: () => typedError<HistoryRow[], AppError>(__TAURI_INVOKE("project_history")),
+	/**  "Restore to before this": one new revision with the project as it was before `rev`. */
+	restoreBefore: (rev: number | null) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("restore_before", { rev })),
 	redo: () => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("redo")),
 	/**  The UI reports its selection and viewer mode (for `ove app context`). */
 	reportUiState: (ui: UiState) => typedError<null, AppError>(__TAURI_INVOKE("report_ui_state", { ui })),
@@ -128,6 +132,20 @@ export const commands = {
 	agentSend: (chatId: string | null, text: string) => typedError<SendResult, AppError>(__TAURI_INVOKE("agent_send", { chatId, text })),
 	agentStop: () => typedError<null, AppError>(__TAURI_INVOKE("agent_stop")),
 	agentAnswer: (questionId: string, answer: string) => typedError<null, AppError>(__TAURI_INVOKE("agent_answer", { questionId, answer })),
+	/**  Saves the spend caps and per-turn limits (Settings → Assistant). They apply from the next turn. */
+	agentSetLimits: (limits: AgentLimits_Deserialize) => typedError<AgentStatus_Serialize, AppError>(__TAURI_INVOKE("agent_set_limits", { limits })),
+	/**
+	 *  Tries the saved key with the smallest real request there is (counting the tokens of one word: free, nothing
+	 *  generated), so a wrong key shows up before the first turn.
+	 */
+	agentCheckKey: () => typedError<KeyCheck, AppError>(__TAURI_INVOKE("agent_check_key")),
+	/**  Running token and cost totals: the chat, the project, and the project this month. */
+	agentUsage: (chatId: string | null) => typedError<UsageTotals_Serialize, AppError>(__TAURI_INVOKE("agent_usage", { chatId })),
+	/**
+	 *  "Undo this turn": reverts every revision the turn made as one new revision (itself undoable) and notes it in the
+	 *  chat log so the chat shows it after a reload.
+	 */
+	agentUndoTurn: (chatId: string, turnId: string) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("agent_undo_turn", { chatId, turnId })),
 	/**  The speech models (none ship with the app; each downloads on first use). */
 	captionModels: () => typedError<CaptionModel[], AppError>(__TAURI_INVOKE("caption_models")),
 	/**  The caption styles as JSON (`[{id, label, fontSize, textColor, highlightColor, animation, …}]`). */
@@ -197,6 +215,33 @@ export const events = {
 };
 
 /* Types */
+/**  Spending and size limits for the assistant (Settings → Assistant). */
+export type AgentLimits = AgentLimits_Serialize | AgentLimits_Deserialize;
+
+/**  Spending and size limits for the assistant (Settings → Assistant). */
+export type AgentLimits_Deserialize = {
+	/**  Spend cap per turn in US dollars; `None`: no cap. */
+	turnCapUsd?: number | null,
+	/**  Spend cap per project per calendar month (UTC) in US dollars; `None`: no cap. */
+	projectMonthCapUsd?: number | null,
+	/**  Model requests per turn. */
+	maxRequests: number,
+	/**  Minutes per turn. */
+	maxMinutes: number,
+};
+
+/**  Spending and size limits for the assistant (Settings → Assistant). */
+export type AgentLimits_Serialize = {
+	/**  Spend cap per turn in US dollars; `None`: no cap. */
+	turnCapUsd: number | null,
+	/**  Spend cap per project per calendar month (UTC) in US dollars; `None`: no cap. */
+	projectMonthCapUsd: number | null,
+	/**  Model requests per turn. */
+	maxRequests: number,
+	/**  Minutes per turn. */
+	maxMinutes: number,
+};
+
 export type AgentStatus = AgentStatus_Serialize | AgentStatus_Deserialize;
 
 export type AgentStatus_Deserialize = {
@@ -206,6 +251,7 @@ export type AgentStatus_Deserialize = {
 	model: string,
 	models: ModelOption[],
 	running: boolean,
+	limits: AgentLimits_Deserialize,
 };
 
 export type AgentStatus_Serialize = {
@@ -215,6 +261,7 @@ export type AgentStatus_Serialize = {
 	model: string,
 	models: ModelOption[],
 	running: boolean,
+	limits: AgentLimits_Serialize,
 };
 
 /**  Live assistant activity. */
@@ -355,6 +402,10 @@ export type ChatItem_Deserialize = {
 	id?: string | null,
 	ok?: boolean | null,
 	options: string[],
+	/**  role `usage`: the finished turn's cost and tokens. */
+	usage?: TurnUsageView | null,
+	/**  role `changes`: what the turn changed. */
+	review?: TurnReview | null,
 };
 
 /**  One line of the chat as the UI shows it. */
@@ -366,6 +417,10 @@ export type ChatItem_Serialize = {
 	id: string | null,
 	ok: boolean | null,
 	options: string[],
+	/**  role `usage`: the finished turn's cost and tokens. */
+	usage: TurnUsageView | null,
+	/**  role `changes`: what the turn changed. */
+	review: TurnReview | null,
 };
 
 export type ChatSummaryView = {
@@ -467,6 +522,20 @@ export type FontFamily = {
 /**  A job changed (started, finished, failed). Payload: the job as JSON. */
 export type GenerationUpdated = string;
 
+/**  One revision in the history panel. */
+export type HistoryRow = {
+	rev: number | null,
+	/**  ms since the epoch. */
+	time: number | null,
+	/**  The recorded source: gui, cli, mcp, agent, migration, undo, redo or restore. */
+	source: string,
+	/**  Who made it, in words: You, Assistant, Command line, MCP, Template, Generation, App update. */
+	who: string,
+	summary: string,
+	/**  The project as it was before this revision can still be rebuilt (older ones may have been pruned). */
+	canRestore: boolean,
+};
+
 export type ItemView = ItemView_Serialize | ItemView_Deserialize;
 
 export type ItemView_Deserialize = {
@@ -507,6 +576,13 @@ export type ItemView_Serialize = {
 	transitionIn: number | null,
 	transitionOut: number | null,
 	speed: number | null,
+};
+
+/**  The result of trying the saved key with a real (free) request. */
+export type KeyCheck = {
+	ok: boolean,
+	/**  "Key works." or the provider's error in plain words. */
+	message: string,
 };
 
 /**  Properties shown next to the viewer. */
@@ -701,6 +777,16 @@ export type SendResult = {
 	chatId: string,
 };
 
+/**  Tokens and estimated cost of some turns. */
+export type SpendView = {
+	/**  Input tokens (cache writes included, cache reads not). */
+	inputTokens: number | null,
+	outputTokens: number | null,
+	cacheReadTokens: number | null,
+	costUsd: number | null,
+	turns: number | null,
+};
+
 /**  The written file (`None` when the dialog was cancelled or for a preview) and what it doesn't carry over. */
 export type TimelineExport = TimelineExport_Serialize | TimelineExport_Deserialize;
 
@@ -772,6 +858,30 @@ export type TransportCommand = { kind: "play" } | { kind: "pause" } | { kind: "t
 /**  Seek to an exact frame (clamped to the media). */
 { kind: "seekFrame"; frame: number } | { kind: "setLoop"; enabled: boolean };
 
+/**  What a turn changed on the timeline, for "Show" and "Undo this turn". */
+export type TurnReview = {
+	turnId: string,
+	/**  Project revisions the turn made, oldest first. */
+	revs: (number | null)[],
+	/**  Items added, changed or removed. */
+	count: number,
+	/**  Added or changed items that are still on the timeline. */
+	changedIds: string[],
+	/**  Names of the items the turn removed. */
+	removed: string[],
+	/**  "Undo this turn" already reverted it. */
+	undone: boolean,
+};
+
+/**  Cost and tokens of one finished turn, shown under it. */
+export type TurnUsageView = {
+	durationMs: number | null,
+	inputTokens: number | null,
+	outputTokens: number | null,
+	cacheReadTokens: number | null,
+	costUsd: number | null,
+};
+
 /**  What the UI shows that only it knows: the selection and the viewer mode. */
 export type UiState = {
 	selection: string[],
@@ -799,6 +909,31 @@ export type UpdateInfo_Serialize = {
 	url: string | null,
 	/**  Why there is no answer (not configured, offline, …). */
 	message: string | null,
+};
+
+/**  Running totals for the chat header. */
+export type UsageTotals = UsageTotals_Serialize | UsageTotals_Deserialize;
+
+/**  Running totals for the chat header. */
+export type UsageTotals_Deserialize = {
+	/**  The chat asked about, if any. */
+	chat?: SpendView | null,
+	/**  Every chat of the open project, all time. */
+	project: SpendView,
+	/**  Every chat of the open project this calendar month (UTC). */
+	month: SpendView,
+	monthCapUsd?: number | null,
+};
+
+/**  Running totals for the chat header. */
+export type UsageTotals_Serialize = {
+	/**  The chat asked about, if any. */
+	chat: SpendView | null,
+	/**  Every chat of the open project, all time. */
+	project: SpendView,
+	/**  Every chat of the open project this calendar month (UTC). */
+	month: SpendView,
+	monthCapUsd: number | null,
 };
 
 /**  Which presentation path is active. */
