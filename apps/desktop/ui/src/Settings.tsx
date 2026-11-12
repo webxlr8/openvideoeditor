@@ -13,6 +13,7 @@ import type {
 } from "./bindings";
 import { commands } from "./bridge";
 import { AssistantDataList } from "./ChatPanel";
+import { copyText } from "./clipboard";
 import { type Catalog, KeyEntry, loadCatalog } from "./Generate";
 import { Icon } from "./icons";
 import { fire, logError, runCommand } from "./notify";
@@ -20,6 +21,7 @@ import {
   REBINDABLE,
   RESERVED,
   bindingOf,
+  customBindings,
   keyLabel,
   resetBindings,
   setBinding,
@@ -35,14 +37,6 @@ const SECTIONS = [
   { id: "about", label: "About & updates" },
 ] as const;
 type Section = (typeof SECTIONS)[number]["id"];
-
-/** Copies text; `navigator.clipboard` is missing outside secure contexts (and in tests). */
-function copyText(text: string): Promise<void> {
-  const clip = (navigator as Partial<Navigator>).clipboard;
-  return clip
-    ? clip.writeText(text)
-    : Promise.reject(new Error("the clipboard is not available"));
-}
 
 function Copyable({ text }: { text: string }) {
   const [done, setDone] = useState(false);
@@ -258,6 +252,13 @@ function ShortcutsSection() {
       </table>
       <button
         className="btn"
+        disabled={Object.keys(customBindings()).length === 0}
+        title={
+          Object.keys(customBindings()).length === 0
+            ? "Every key is already the default"
+            : undefined
+        }
+        data-testid="bind-reset-all"
         onClick={() => {
           resetBindings();
           force((n) => n + 1);

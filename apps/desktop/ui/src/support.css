@@ -1,0 +1,53 @@
+/* What's new and Send feedback (Home). */
+.modal.support-modal {
+  width: min(620px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.support-modal h4 {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.support-modal p {
+  margin: 0;
+}
+.support-list {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  line-height: 1.45;
+}
+.support-text {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg-1);
+  resize: vertical;
+}
+.support-env,
+.support-preview pre {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg-1);
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+}
+.support-preview pre {
+  max-height: 200px;
+  overflow: auto;
+  margin-top: 6px;
+}
+.support-preview summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--muted);
+}
