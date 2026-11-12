@@ -25,7 +25,7 @@ import { formatShort, formatTimecode, parseTimecode } from "./timecode";
 import { Viewer } from "./Viewer";
 import { type EditResult, itemDetail, snapToFrame } from "./edit";
 import { Inspector } from "./Inspector";
-import { EDIT_ACTIONS, keyToAction } from "./keys";
+import { EDIT_ACTIONS, MOD, keyToAction } from "./keys";
 import { CaptionsPanel } from "./CaptionsPanel";
 import {
   AudioPanel,
@@ -742,8 +742,8 @@ function TransportBar({
           className="icon-btn"
           title={
             project?.undoSummary
-              ? `Undo ${project.undoSummary} (⌘Z)`
-              : "Undo (⌘Z)"
+              ? `Undo ${project.undoSummary} (${MOD} Z)`
+              : `Undo (${MOD} Z)`
           }
           disabled={!project?.canUndo}
           data-testid="undo"
@@ -753,7 +753,7 @@ function TransportBar({
         </button>
         <button
           className="icon-btn"
-          title="Redo (⇧⌘Z)"
+          title={`Redo (⇧${MOD} Z)`}
           disabled={!project?.canRedo}
           data-testid="redo"
           onClick={() => onEdit(commands.redo())}
@@ -877,7 +877,7 @@ function TransportBar({
           </button>
           <button
             className={`chip-sm${zoom === null ? " on" : ""}`}
-            title="Fit the timeline (⌘0)"
+            title={`Fit the timeline (${MOD} 0)`}
             data-testid="zoom-fit"
             onClick={() => setZoom(null)}
           >
