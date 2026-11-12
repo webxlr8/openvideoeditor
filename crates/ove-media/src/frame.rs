@@ -21,12 +21,17 @@ pub enum PixelFormat {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum OutputFormat {
     /// Convert to a GPU-friendly format: NV12 (8-bit YUV), P010 (deeper YUV) or RGBA8 (alpha / RGB sources).
+    /// HDR sources (PQ / HLG) are tone-mapped to SDR BT.709 RGBA8 on the CPU ([`crate::tonemap`]), so a viewer that
+    /// knows nothing about HDR shows them correctly.
     #[default]
     Display,
+    /// Like [`OutputFormat::Display`], but HDR frames stay 10-bit YUV (P010) with [`crate::ColorInfo::transfer`] set,
+    /// for a viewer that tone-maps on the GPU (`ove_gpu::Transfer`). Cheaper than CPU tone-mapping at 4K.
+    DisplayHdr,
     /// Keep the decoder's format; planes tightly packed exactly like FFmpeg's `rawvideo`/`framemd5` output.
     Native,
     /// RGBA8 (straight alpha), scaled down to fit `max_width` x `max_height` (aspect kept, never upscaled; 0 = no
-    /// limit). For the compositor, which works in RGBA at canvas resolution.
+    /// limit). For the compositor, which works in RGBA at canvas resolution. HDR sources are tone-mapped to SDR.
     Rgba { max_width: u32, max_height: u32 },
 }
 

@@ -10,10 +10,12 @@ fn hdr_colour_is_reported() {
     if !common::ready() {
         return;
     }
-    let mut d = open_video(&media("hevc_hdr_vfr.mov"), DecoderOptions::default()).unwrap();
+    let opts = DecoderOptions { output: OutputFormat::DisplayHdr, ..Default::default() };
+    let mut d = open_video(&media("hevc_hdr_vfr.mov"), opts).unwrap();
     let f = d.next_frame().unwrap().unwrap();
     assert_eq!(f.format, PixelFormat::P010);
     assert!(f.color.hdr);
+    assert_eq!(f.color.transfer, ove_media::Transfer::Pq);
     assert_eq!(f.color.matrix, ove_media::ColorMatrix::Bt2020);
     let mut d = open_video(&media("h264_4k60.mp4"), DecoderOptions::default()).unwrap();
     let f = d.next_frame().unwrap().unwrap();

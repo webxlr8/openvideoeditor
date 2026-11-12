@@ -9,6 +9,7 @@ use ffmpeg_the_third::frame::Video as AvFrame;
 use ffmpeg_the_third::media::Type as MediaType;
 use ffmpeg_the_third::{Error as AvError, Packet};
 
+use crate::convert::Transfer;
 use crate::error::{MediaError, Result};
 use crate::frame::{DecodePath, OutputFormat, PixelFormat, Plane, VideoFrame};
 use crate::util::{Micros, NOPTS, Rational, check_online, open_input, ts_to_us, us_to_ts};
@@ -304,12 +305,19 @@ impl FfmpegVideoDecoder {
         let (w, h) = (frame.width(), frame.height());
         // SAFETY: format field read.
         let src_fmt = ffi::AVPixelFormat(unsafe { (*frame.as_ptr()).format });
+        // SAFETY: valid frame.
+        let mut color = unsafe { crate::convert::color_info(frame.as_ptr()) };
+        let hdr = color.transfer != Transfer::Sdr;
         let (format, planes) = match self.opts.output {
             OutputFormat::Native => {
                 let name = crate::util::pix_fmt_info(src_fmt).map(|i| i.name).unwrap_or_default();
                 (PixelFormat::Native(name), pack_planes(&frame, src_fmt)?)
             }
-            OutputFormat::Display => {
+            OutputFormat::Display if hdr => {
+                copies += 1;
+                self.rgba(&frame, src_fmt, w, h, &mut color)?
+            }
+            OutputFormat::Display | OutputFormat::DisplayHdr => {
                 if src_fmt == ffi::AVPixelFormat::NV12 {
                     (PixelFormat::Nv12, pack_planes(&frame, src_fmt)?)
                 } else if src_fmt == ffi::AVPixelFormat::P010LE {
@@ -329,17 +337,13 @@ impl FfmpegVideoDecoder {
                 let s = fit(max_width, w).min(fit(max_height, h));
                 let (ow, oh) = (((w as f64 * s).round() as u32).max(1), ((h as f64 * s).round() as u32).max(1));
                 copies += 1;
-                let target = ffi::AVPixelFormat::RGBA;
-                let out = self.sws.convert(&frame, src_fmt, target, ow, oh)?;
-                (PixelFormat::Rgba8, pack_planes(&out, target)?)
+                self.rgba(&frame, src_fmt, ow, oh, &mut color)?
             }
         };
-        let (w, h) = match self.opts.output {
-            OutputFormat::Rgba { .. } => (planes[0].width, planes[0].height),
+        let (w, h) = match format {
+            PixelFormat::Rgba8 => (planes[0].width, planes[0].height),
             _ => (w, h),
         };
-        // SAFETY: valid frame.
-        let color = unsafe { crate::convert::color_info(frame.as_ptr()) };
         Ok(VideoFrame {
             color,
             pts_us: raw.pts_us,
@@ -351,6 +355,45 @@ impl FfmpegVideoDecoder {
             decode_path: path,
             copies,
         })
+    }
+
+    /// RGBA8 at `ow`×`oh`: HDR (PQ/HLG) is tone-mapped to SDR BT.709, everything else goes through swscale.
+    fn rgba(
+        &mut self,
+        frame: &AvFrame,
+        src_fmt: ffi::AVPixelFormat,
+        ow: u32,
+        oh: u32,
+        color: &mut crate::convert::ColorInfo,
+    ) -> Result<(PixelFormat, Vec<Plane>)> {
+        if color.transfer != Transfer::Sdr {
+            let scaled;
+            let (w, h) = (frame.width(), frame.height());
+            // SAFETY: valid CPU frames; the source view borrows `frame` / `scaled`, both alive until the call returns.
+            let src = unsafe {
+                match crate::convert::yuv_source(frame.as_ptr()) {
+                    Some(src) if (ow, oh) == (w, h) => Some(src),
+                    _ => {
+                        // Scale (and widen other layouts) in Y'CbCr first, so only output pixels are tone-mapped.
+                        let target = ffi::AVPixelFormat::YUV444P16LE;
+                        scaled = self.sws.convert_yuv(frame, src_fmt, target, ow, oh)?;
+                        crate::convert::yuv_source(scaled.as_ptr())
+                    }
+                }
+            };
+            if let Some(src) = src {
+                let (kr, kb) = color.matrix.coefficients();
+                let params = crate::tonemap::YuvParams { kr, kb, full_range: color.full_range };
+                let mut data = vec![0u8; src.width * src.height * 4];
+                crate::tonemap::tone_map_yuv(&src, params, color.transfer, color.bt2020_primaries, &mut data);
+                color.transfer = Transfer::Sdr;
+                let plane = Plane { data, stride: src.width * 4, width: src.width as u32, height: src.height as u32 };
+                return Ok((PixelFormat::Rgba8, vec![plane]));
+            }
+        }
+        let target = ffi::AVPixelFormat::RGBA;
+        let out = self.sws.convert(frame, src_fmt, target, ow, oh)?;
+        Ok((PixelFormat::Rgba8, pack_planes(&out, target)?))
     }
 
     fn next_raw(&mut self) -> Result<Option<RawFrame>> {
@@ -544,6 +587,30 @@ impl Sws {
         out_w: u32,
         out_h: u32,
     ) -> Result<AvFrame> {
+        self.convert_with(src, from, to, out_w, out_h, false)
+    }
+
+    /// Y'CbCr → Y'CbCr (scaling, re-layout) keeping the source's range and matrix.
+    fn convert_yuv(
+        &mut self,
+        src: &AvFrame,
+        from: ffi::AVPixelFormat,
+        to: ffi::AVPixelFormat,
+        out_w: u32,
+        out_h: u32,
+    ) -> Result<AvFrame> {
+        self.convert_with(src, from, to, out_w, out_h, true)
+    }
+
+    fn convert_with(
+        &mut self,
+        src: &AvFrame,
+        from: ffi::AVPixelFormat,
+        to: ffi::AVPixelFormat,
+        out_w: u32,
+        out_h: u32,
+        keep_yuv: bool,
+    ) -> Result<AvFrame> {
         let (w, h) = (src.width() as i32, src.height() as i32);
         let (ow, oh) = (out_w as i32, out_h as i32);
         // SAFETY: getCachedContext reuses or frees the previous context; frames are valid.
@@ -580,16 +647,9 @@ impl Sws {
             };
             let full = ((*sp).color_range == ffi::AVColorRange::JPEG) as i32;
             let coeffs = ffi::sws_getCoefficients(space);
-            ffi::sws_setColorspaceDetails(
-                ctx,
-                coeffs,
-                full,
-                ffi::sws_getCoefficients(SWS_CS_ITU601),
-                1,
-                0,
-                1 << 16,
-                1 << 16,
-            );
+            let (dst_coeffs, dst_full) =
+                if keep_yuv { (coeffs, full) } else { (ffi::sws_getCoefficients(SWS_CS_ITU601), 1) };
+            ffi::sws_setColorspaceDetails(ctx, coeffs, full, dst_coeffs, dst_full, 0, 1 << 16, 1 << 16);
             let mut out = AvFrame::new(to.into(), ow as u32, oh as u32);
             ffi::sws_scale(
                 ctx,

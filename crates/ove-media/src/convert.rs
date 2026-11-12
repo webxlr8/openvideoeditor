@@ -20,6 +20,19 @@ pub enum ColorMatrix {
     Bt2020,
 }
 
+/// Transfer function (EOTF/OETF) of picture data.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Transfer {
+    /// BT.709 / sRGB-like SDR.
+    #[default]
+    Sdr,
+    /// SMPTE ST 2084 (HDR10, Dolby Vision base layers).
+    Pq,
+    /// ARIB STD-B67 hybrid log-gamma (phones, broadcast).
+    Hlg,
+}
+
 /// Colour description the viewer needs to convert YUV correctly.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -27,13 +40,35 @@ pub struct ColorInfo {
     pub matrix: ColorMatrix,
     /// Full range (0–255) instead of video range (16–235).
     pub full_range: bool,
-    /// Transfer is PQ or HLG (HDR); the viewer tone-maps.
+    /// The source's transfer is PQ or HLG (HDR), whether or not this frame was tone-mapped.
     pub hdr: bool,
+    /// Transfer of this frame's pixels. `Pq`/`Hlg` only for untouched HDR data ([`crate::OutputFormat::DisplayHdr`],
+    /// [`crate::OutputFormat::Native`]); RGBA output of an HDR source is tone-mapped to SDR BT.709 and says `Sdr`.
+    pub transfer: Transfer,
+    /// Primaries are BT.2020 (the gamut a GPU tone-mapper converts from).
+    pub bt2020_primaries: bool,
 }
 
 impl Default for ColorInfo {
     fn default() -> Self {
-        ColorInfo { matrix: ColorMatrix::Bt709, full_range: false, hdr: false }
+        ColorInfo {
+            matrix: ColorMatrix::Bt709,
+            full_range: false,
+            hdr: false,
+            transfer: Transfer::Sdr,
+            bt2020_primaries: false,
+        }
+    }
+}
+
+impl ColorMatrix {
+    /// (Kr, Kb) luma coefficients.
+    pub fn coefficients(self) -> (f32, f32) {
+        match self {
+            ColorMatrix::Bt601 => (0.299, 0.114),
+            ColorMatrix::Bt709 => (0.2126, 0.0722),
+            ColorMatrix::Bt2020 => (0.2627, 0.0593),
+        }
     }
 }
 
@@ -48,13 +83,87 @@ pub(crate) unsafe fn color_info(f: *const ffi::AVFrame) -> ColorInfo {
             _ if (*f).height >= 720 => ColorMatrix::Bt709,
             _ => ColorMatrix::Bt601,
         };
-        let trc = (*f).color_trc;
+        let transfer = match (*f).color_trc {
+            ffi::AVColorTransferCharacteristic::SMPTE2084 => Transfer::Pq,
+            ffi::AVColorTransferCharacteristic::ARIB_STD_B67 => Transfer::Hlg,
+            _ => Transfer::Sdr,
+        };
+        // Unspecified primaries on an HDR stream are BT.2020 in practice.
+        let bt2020_primaries = (*f).color_primaries == ffi::AVColorPrimaries::BT2020
+            || ((*f).color_primaries == ffi::AVColorPrimaries::UNSPECIFIED && transfer != Transfer::Sdr);
         ColorInfo {
             matrix,
             full_range: (*f).color_range == ffi::AVColorRange::JPEG,
-            hdr: trc == ffi::AVColorTransferCharacteristic::SMPTE2084
-                || trc == ffi::AVColorTransferCharacteristic::ARIB_STD_B67,
+            hdr: transfer != Transfer::Sdr,
+            transfer,
+            bt2020_primaries,
         }
+    }
+}
+
+/// The frame's planes as a 10–16-bit Y'CbCr source for the tone-mapper, or `None` for layouts it does not read
+/// (8-bit, RGB, alpha, big-endian, packed, …) — the caller converts those to `yuv444p16le` with swscale first.
+pub(crate) unsafe fn yuv_source<'a>(f: *const ffi::AVFrame) -> Option<crate::tonemap::YuvSource<'a>> {
+    // SAFETY: caller passes a valid, CPU-mapped frame that outlives the returned borrow; each slice covers
+    // linesize × rows of its plane.
+    unsafe {
+        let fmt = ffi::AVPixelFormat((*f).format);
+        let d = ffi::av_pix_fmt_desc_get(fmt);
+        if d.is_null() {
+            return None;
+        }
+        let d = &*d;
+        let unsupported = (ffi::AV_PIX_FMT_FLAG_RGB
+            | ffi::AV_PIX_FMT_FLAG_ALPHA
+            | ffi::AV_PIX_FMT_FLAG_BE
+            | ffi::AV_PIX_FMT_FLAG_PAL
+            | ffi::AV_PIX_FMT_FLAG_HWACCEL
+            | ffi::AV_PIX_FMT_FLAG_BITSTREAM
+            | ffi::AV_PIX_FMT_FLAG_FLOAT) as u64;
+        let planes = ffi::av_pix_fmt_count_planes(fmt);
+        if d.flags & unsupported != 0
+            || d.nb_components != 3
+            || d.log2_chroma_w > 1
+            || d.log2_chroma_h > 1
+            || d.comp[0].step != 2
+            || d.comp[0].depth <= 8
+        {
+            return None;
+        }
+        let (w, h) = ((*f).width as usize, (*f).height as usize);
+        let rows = |i: usize, sub: u8| if i == 0 { h } else { (h + (1 << sub) - 1) >> sub };
+        let plane = |i: usize| -> Option<(&'a [u8], usize)> {
+            let ls = (*f).linesize[i];
+            if ls <= 0 || (*f).data[i].is_null() {
+                return None;
+            }
+            let n = rows(i, d.log2_chroma_h);
+            Some((std::slice::from_raw_parts((*f).data[i], ls as usize * n), ls as usize))
+        };
+        let (planar, msb_aligned) = match planes {
+            // Planar: samples in the low bits.
+            3 if d.comp[0].shift == 0 && d.comp[1].plane == 1 && d.comp[2].plane == 2 => (true, false),
+            // Semi-planar P010/P016/P210/P216: interleaved CbCr, samples in the high bits.
+            2 if d.comp[1].plane == 1 && d.comp[2].plane == 1 && d.comp[1].step == 4 && d.comp[1].offset == 0 => {
+                (false, true)
+            }
+            _ => return None,
+        };
+        // msb-aligned layouts store `depth` bits shifted up by `shift`; together they fill the word.
+        if msb_aligned && d.comp[0].shift as u32 + d.comp[0].depth as u32 != 16 {
+            return None;
+        }
+        Some(crate::tonemap::YuvSource {
+            width: w,
+            height: h,
+            depth: d.comp[0].depth as u32,
+            log2_chroma_w: d.log2_chroma_w as u32,
+            log2_chroma_h: d.log2_chroma_h as u32,
+            y: plane(0)?,
+            cb: plane(1)?,
+            cr: if planar { Some(plane(2)?) } else { None },
+            msb_aligned,
+        })
     }
 }
 

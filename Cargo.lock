@@ -4054,6 +4054,7 @@ dependencies = [
  "ffmpeg-the-third",
  "libc",
  "md-5",
+ "rayon",
  "serde",
  "serde_json",
  "tempfile",
