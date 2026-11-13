@@ -115,9 +115,7 @@ export function captureScreen(file) {
     "Add-Type -AssemblyName System.Windows.Forms, System.Drawing",
     "$b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds",
     "$bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height",
-    // CaptureBlt includes layered windows, as the screen shows them.
-    "$op = [System.Drawing.CopyPixelOperation]::SourceCopy -bor [System.Drawing.CopyPixelOperation]::CaptureBlt",
-    "[System.Drawing.Graphics]::FromImage($bmp).CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size, $op)",
+    "[System.Drawing.Graphics]::FromImage($bmp).CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)",
     `$bmp.Save('${file.replace(/'/g, "''")}')`,
   ].join("; ");
   const r = spawnSync("powershell", ["-NoProfile", "-NonInteractive", "-Command", ps], { stdio: "ignore" });

@@ -8,7 +8,8 @@
 # Makes a throwaway library with one project holding a solid magenta clip, starts the app on it, opens the project
 # through the app's control link (`ove app open`, `ove app seek`), captures the screen to OUT.png and counts magenta
 # pixels. VIEWER (`below`, `above` or `stream`) sets OVE_VIEWER_LAYERING; without it the app's default viewer is used.
-# Exits 1 when the picture is not on the screen. Needs ffmpeg (with libx264) and python3.
+# Exits 1 when the picture is not on the screen, 3 when the capture itself is blank. Needs ffmpeg (with libx264) and
+# python3.
 set -euo pipefail
 OVE="${1:?usage: $0 PATH_TO_OVE PATH_TO_APP OUT.png [VIEWER]}"
 APP="${2:?usage: $0 PATH_TO_OVE PATH_TO_APP OUT.png [VIEWER]}"
@@ -64,13 +65,11 @@ if [ "$OS" = macos ]; then
 elif [ "$OS" = linux ]; then
   import -window root "$OUT"
 else
-  # CaptureBlt includes layered windows, as the screen shows them.
   powershell -NoProfile -NonInteractive -Command "
     Add-Type -AssemblyName System.Windows.Forms, System.Drawing
     \$b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
     \$bmp = New-Object System.Drawing.Bitmap \$b.Width, \$b.Height
-    \$op = [System.Drawing.CopyPixelOperation]::SourceCopy -bor [System.Drawing.CopyPixelOperation]::CaptureBlt
-    [System.Drawing.Graphics]::FromImage(\$bmp).CopyFromScreen(\$b.Location, [System.Drawing.Point]::Empty, \$b.Size, \$op)
+    [System.Drawing.Graphics]::FromImage(\$bmp).CopyFromScreen(\$b.Location, [System.Drawing.Point]::Empty, \$b.Size)
     \$bmp.Save('$(native "$OUT")')"
 fi
 [ -s "$OUT" ] || { echo "preview check: no screen capture was written" >&2; exit 1; }
@@ -81,6 +80,10 @@ import sys
 data = open(sys.argv[1], "rb").read()
 total = len(data) // 3
 r, g, b = data[0::3], data[1::3], data[2::3]
+# A capture that is one flat colour is a failed capture, not a missing picture.
+if total == 0 or (min(r) == max(r) and min(g) == max(g) and min(b) == max(b)):
+    print("preview check: the screen capture is blank (one flat colour); nothing can be concluded from it")
+    sys.exit(3)
 # Magenta as a screen shows it (colour management moves the exact values): strong red and blue, little green.
 magenta = sum(1 for i in range(total) if r[i] > 170 and b[i] > 170 and g[i] < 110)
 share = 100.0 * magenta / max(total, 1)
