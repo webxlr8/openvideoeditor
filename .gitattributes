@@ -1,0 +1,6 @@
+# Text files are stored and checked out with LF on every OS: golden files, fixtures and the projection are compared
+# byte for byte, and Windows checkouts would otherwise turn them into CRLF.
+* text=auto eol=lf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.ps1 text eol=crlf

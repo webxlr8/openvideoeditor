@@ -110,8 +110,12 @@ jobs:
           path: tools/ffmpeg/out
           key: ffmpeg-${{ matrix.os }}-${{ hashFiles('tools/ffmpeg/*.sh') }}
       - name: FFmpeg (LGPL, shared)
-        run: |
-          if [ "$RUNNER_OS" = "Windows" ]; then msys2 -c 'tools/ffmpeg/build.sh --ci'; else tools/ffmpeg/build.sh --ci; fi
+        if: runner.os != 'Windows'
+        run: tools/ffmpeg/build.sh --ci
+      - name: FFmpeg (LGPL, shared; MSYS2 shell with the MSVC environment)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: tools/ffmpeg/build.sh --ci
       - name: test media matrix (generated with the runner's ffmpeg CLI; test-only)
         run: python3 tests/media/media.py generate
       - name: UI typecheck / lint / test / licences

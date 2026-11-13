@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { App } from "./App";
 import { commands } from "./bridge";
-import { readAnimation, resolvedProps, templateAsSource, writeAnimation, type MotionTemplate } from "./motion";
+import { readAnimation, resolvedProps, templateAsSource, writeAnimation, type MotionTemplate } from "./motionModel";
 
 async function editor() {
   render(<App />);

@@ -24,7 +24,7 @@ import {
   templateItem,
   templateThumbnail,
   writeAnimation,
-} from "./motion";
+} from "./motionModel";
 import "./motion.css";
 
 const obj = (v: unknown): Fields => (v && typeof v === "object" && !Array.isArray(v) ? (v as Fields) : {});
