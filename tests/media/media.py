@@ -36,6 +36,7 @@ import os
 import shutil
 import subprocess
 import sys
+import traceback
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -335,31 +336,32 @@ def derive_truncated(name, src, frac):
         raise GenerateError(f"{name}: expected {keep} bytes")
 
 
-def lock_file(f):
-    """Blocks until this process holds the exclusive generate lock."""
+def lock_file(fd):
+    """Blocks until this process holds the exclusive generate lock (`fd`: os.open of LOCK, binary, read/write)."""
     if fcntl:
-        fcntl.flock(f, fcntl.LOCK_EX)
+        fcntl.flock(fd, fcntl.LOCK_EX)
         return
-    f.seek(0)
     while True:
+        os.lseek(fd, 0, os.SEEK_SET)
         try:
-            msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)  # retries for about 10 s, then raises
+            msvcrt.locking(fd, msvcrt.LK_LOCK, 1)  # retries for about 10 s, then raises
             return
-        except OSError:
+        except PermissionError:  # still held by another process (EACCES / EDEADLOCK)
             continue
 
 
-def unlock_file(f):
+def unlock_file(fd):
     if fcntl:
-        fcntl.flock(f, fcntl.LOCK_UN)
+        fcntl.flock(fd, fcntl.LOCK_UN)
         return
-    f.seek(0)
-    msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+    os.lseek(fd, 0, os.SEEK_SET)
+    msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
 
 
 def generate(force=False, recording=False):
     os.makedirs(FILES, exist_ok=True)
-    with open(LOCK, "a+") as lock:
+    lock = os.open(LOCK, os.O_RDWR | os.O_CREAT | getattr(os, "O_BINARY", 0), 0o644)
+    try:
         lock_file(lock)
         try:
             checker = Checker(load_manifest(), ffmpeg_version(), recording)
@@ -386,6 +388,8 @@ def generate(force=False, recording=False):
             save_stamps(checker.stamps)
         finally:
             unlock_file(lock)
+    finally:
+        os.close(lock)
 
 
 def entries():
@@ -471,6 +475,7 @@ def main():
     except GenerateError as e:
         sys.exit(f"media generation failed: {e}")
     except (OSError, subprocess.CalledProcessError) as e:
+        traceback.print_exc()
         sys.exit(f"media generation failed: {e}")
 
 
