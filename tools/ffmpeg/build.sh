@@ -144,6 +144,10 @@ if [ "$TARGET" = windows-x64 ]; then
     exit 2
   fi
   export PKG_CONFIG_PATH="$VCPKG_DEPS/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+  # configure falls back to zlib.h and -lz (z.lib under MSVC) when pkg-config does not answer; vcpkg names it zlib.lib.
+  rm -rf "$DEPS" && mkdir -p "$DEPS/lib" && cp "$VCPKG_DEPS/lib/zlib.lib" "$DEPS/lib/z.lib"
+  WIN_DEP_FLAGS=(--extra-cflags=-I"$(cygpath -m "$VCPKG_DEPS/include")"
+    --extra-ldflags=-L"$(cygpath -m "$VCPKG_DEPS/lib")" --extra-ldflags=-L"$(cygpath -m "$DEPS/lib")")
 fi
 
 # --- configuration ----------------------------------------------------------------------------------------------------
@@ -191,7 +195,7 @@ case "$TARGET" in
     ;;
   windows-x64|windows-x64-gnu)
     if [ "$TARGET" = windows-x64 ]; then
-      FLAGS+=(--toolchain=msvc --arch=x86_64 --target-os=win64)
+      FLAGS+=(--toolchain=msvc --arch=x86_64 --target-os=win64 "${WIN_DEP_FLAGS[@]}")
     else
       # MinGW-w64 GCC cross build from Linux. libgcc is linked statically, so the DLLs import only Windows system DLLs
       # (and libdav1d.dll); zlib is a static library from $DEPS.
@@ -207,7 +211,7 @@ case "$TARGET" in
 esac
 
 cd "$SRC"
-./configure "${FLAGS[@]}" > "$OUT/configure.log" 2>&1 || { tail -40 "$OUT/configure.log"; exit 1; }
+./configure "${FLAGS[@]}" > "$OUT/configure.log" 2>&1 || { tail -40 "$OUT/configure.log"; echo "--- ffbuild/config.log (end)"; tail -60 ffbuild/config.log 2>/dev/null; exit 1; }
 
 # Licence gate on the configured result before spending time compiling.
 grep -E '^#define (FFMPEG_CONFIGURATION|FFMPEG_LICENSE|CONFIG_GPL|CONFIG_NONFREE|CONFIG_VERSION3) ' config.h > "$OUT/license.txt"
