@@ -148,7 +148,8 @@ if [ "$TARGET" = windows-x64 ]; then
   command -v nmake >/dev/null || { echo "nmake is needed (run inside the MSVC developer environment)" >&2; exit 2; }
   rm -rf "$DEPS" "$WORK/zlib-${ZLIB_VERSION}" && mkdir -p "$DEPS/include" "$DEPS/lib"
   fetch "$ZLIB_URL" "$ZLIB_SHA256"
-  (cd "$WORK/zlib-${ZLIB_VERSION}" && nmake -nologo -f win32/Makefile.msc zlib.lib) > "$OUT/zlib.log" 2>&1 \
+  # No -Zi: configure treats link warnings as errors, and a library without its .pdb warns (LNK4099).
+  (cd "$WORK/zlib-${ZLIB_VERSION}" && nmake -nologo -f win32/Makefile.msc CFLAGS="-nologo -MD -W3 -O2" zlib.lib) > "$OUT/zlib.log" 2>&1 \
     || { tail -30 "$OUT/zlib.log"; exit 1; }
   cp "$WORK/zlib-${ZLIB_VERSION}"/{zlib.h,zconf.h} "$DEPS/include/"
   # configure checks zlib with -lz, which MSVC links as z.lib.
@@ -219,7 +220,7 @@ case "$TARGET" in
 esac
 
 cd "$SRC"
-./configure "${FLAGS[@]}" > "$OUT/configure.log" 2>&1 || { tail -40 "$OUT/configure.log"; echo "--- ffbuild/config.log: the dependency checks"; grep -n -A14 -E "^(check_pkg_config|check_lib|require_pkg_config) (zlib|libdav1d)" ffbuild/config.log 2>/dev/null | head -150; echo "--- (end)"; tail -30 ffbuild/config.log 2>/dev/null; exit 1; }
+./configure "${FLAGS[@]}" > "$OUT/configure.log" 2>&1 || { tail -40 "$OUT/configure.log"; echo "--- ffbuild/config.log: the dependency checks"; grep -n -A40 -E "^(check_lib|require_pkg_config) (zlib|libdav1d)" ffbuild/config.log 2>/dev/null | head -150; echo "--- (end)"; tail -30 ffbuild/config.log 2>/dev/null; exit 1; }
 
 # Licence gate on the configured result before spending time compiling.
 grep -E '^#define (FFMPEG_CONFIGURATION|FFMPEG_LICENSE|CONFIG_GPL|CONFIG_NONFREE|CONFIG_VERSION3) ' config.h > "$OUT/license.txt"
