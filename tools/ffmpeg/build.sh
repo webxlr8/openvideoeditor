@@ -234,6 +234,9 @@ make install > /dev/null
 if [ "$TARGET" = windows-x64 ]; then
   # FFmpeg's DLLs import dav1d's.
   cp "$VCPKG_DEPS/bin/dav1d.dll" "$OUT/bin/"
+  # The MSVC toolchain installs the import libraries (avutil.lib, ...) next to the DLLs; the Rust bindings link
+  # from lib/.
+  cp "$OUT"/bin/*.lib "$OUT/lib/"
 fi
 
 # --- records ----------------------------------------------------------------------------------------------------------

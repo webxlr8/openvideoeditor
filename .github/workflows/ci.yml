@@ -121,6 +121,8 @@ jobs:
           $link = Join-Path $env:VCToolsInstallDir 'bin\Hostx64\x64\link.exe'
           if (!(Test-Path $link)) { throw "no MSVC link.exe at $link" }
           "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER=$link" >> $env:GITHUB_ENV
+          # bindgen (FFmpeg, whisper.cpp): the runner's LLVM, not whichever libclang.dll PATH finds first.
+          "LIBCLANG_PATH=C:\Program Files\LLVM\bin" >> $env:GITHUB_ENV
       - uses: actions/cache@v4
         with:
           path: tools/ffmpeg/out
@@ -230,6 +232,8 @@ jobs:
           $link = Join-Path $env:VCToolsInstallDir 'bin\Hostx64\x64\link.exe'
           if (!(Test-Path $link)) { throw "no MSVC link.exe at $link" }
           "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER=$link" >> $env:GITHUB_ENV
+          # bindgen (FFmpeg, whisper.cpp): the runner's LLVM, not whichever libclang.dll PATH finds first.
+          "LIBCLANG_PATH=C:\Program Files\LLVM\bin" >> $env:GITHUB_ENV
       # Same build and cache key as the workspace job's FFmpeg.
       - uses: actions/cache@v4
         with:
