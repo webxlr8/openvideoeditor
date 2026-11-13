@@ -528,8 +528,10 @@ fn create_hw_device(name: &str, codec: ffi::AVCodecID) -> std::result::Result<Hw
             if cfg.is_null() {
                 break;
             }
-            if (*cfg).device_type == ty && ((*cfg).methods & ffi::AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX.0 as i32) != 0
-            {
+            // C enums are u32 in the bindings on Linux and macOS but i32 under MSVC: the cast is needed off Windows.
+            #[allow(clippy::unnecessary_cast)]
+            let device_ctx = ffi::AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX.0 as i32;
+            if (*cfg).device_type == ty && ((*cfg).methods & device_ctx) != 0 {
                 pix_fmt = Some((*cfg).pix_fmt);
                 break;
             }
@@ -667,6 +669,9 @@ impl Sws {
                         SWS_CS_ITU601
                     }
                 }
+                // C enums are u32 in the bindings on Linux and macOS but i32 under MSVC: the cast is needed off
+                // Windows.
+                #[allow(clippy::unnecessary_cast)]
                 s => s.0 as i32,
             };
             let full = ((*sp).color_range == ffi::AVColorRange::JPEG) as i32;
