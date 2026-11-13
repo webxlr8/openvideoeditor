@@ -69,7 +69,14 @@ pub fn path_str(p: &Path) -> String {
 
 /// Item fields as a flat comparable map including head fields (trackId, type, startTime, endTime).
 pub fn item_view(i: &Item) -> Map<String, Value> {
-    let mut m = normal::item_fields(&i.kind, &i.fields);
+    item_view_as(i, &i.kind)
+}
+
+/// The item's fields as an item of `kind` would show them: defaults of `kind` are dropped, everything else is kept.
+/// For a file that changes an item's kind: a value that was only a default of the old kind (so not shown) may mean
+/// nothing for the new one, and must then be seen, and removed, like any other field the file no longer has.
+fn item_view_as(i: &Item, kind: &str) -> Map<String, Value> {
+    let mut m = normal::item_fields(kind, &i.fields);
     m.insert("trackId".into(), i.track_id.clone().into());
     m.insert("type".into(), i.kind.clone().into());
     m.insert("startTime".into(), micros_to_json(i.start));
@@ -439,8 +446,9 @@ pub fn merge(base: &Document, current: &Document, file: &FileModel, prefer: Pref
                 seen.insert(id.clone());
                 positions.insert(id.clone(), fi.pos);
                 let bi = &base.project.items[id];
-                let bv = item_view(bi);
-                let ch = changes(&bi.kind, &bv, &fv);
+                // Compared as the kind the file gives the item (the same kind unless the file changes it).
+                let bv = item_view_as(bi, &fi.kind);
+                let ch = changes(&fi.kind, &bv, &fv);
                 if ch.is_empty() {
                     continue;
                 }
@@ -467,7 +475,7 @@ pub fn merge(base: &Document, current: &Document, file: &FileModel, prefer: Pref
                         }
                     }
                     Some(ci) => {
-                        let cv = item_view(&ci);
+                        let cv = item_view_as(&ci, &fi.kind);
                         let mut item = (*ci).clone();
                         for (p, f) in ch {
                             if let Some(new) = ctx.decide(id, &path_str(&p), get(&bv, &p), f, get(&cv, &p)) {

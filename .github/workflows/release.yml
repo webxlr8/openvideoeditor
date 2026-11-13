@@ -12,11 +12,17 @@ on:
   workflow_dispatch:
   push:
     tags: ["v*"]
-    # Dry runs: work branches that change packaging build and smoke-test the installers without publishing.
+    # Dry runs: work branches that change what ships (code, packaging, the libraries) build and smoke-test the
+    # installers without publishing.
     branches: ["claude/**"]
-    paths: [".github/workflows/release.yml", "tools/package.sh", "tools/notices.sh", "tools/notices/**",
-            "tools/ffmpeg/**", "tools/cross/**", "tools/macos/**", ".cargo/**", "tools/smoke-cli.sh", "about.toml", ".gitattributes", "apps/desktop/src-tauri/tauri*.json",
-            "apps/desktop/src-tauri/build.rs", "apps/desktop/src-tauri/src/lib.rs"]
+    paths: [".github/workflows/release.yml", "crates/**", "apps/desktop/**", "Cargo.toml", "Cargo.lock", ".cargo/**",
+            "tools/package.sh", "tools/notices.sh", "tools/notices/**", "tools/ffmpeg/**", "tools/cross/**",
+            "tools/macos/**", "tools/smoke-cli.sh", "about.toml", ".gitattributes"]
+
+concurrency:
+  group: release-${{ github.ref }}
+  # A newer push to a work branch replaces its dry run; a tagged release is never cancelled.
+  cancel-in-progress: ${{ startsWith(github.ref, 'refs/heads/claude/') }}
 
 permissions:
   contents: read
