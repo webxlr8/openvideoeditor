@@ -362,13 +362,24 @@ fn deleted_file_goes_offline() {
     for _ in 0..3 {
         d.next_frame().unwrap().unwrap();
     }
-    std::fs::remove_file(&copy).unwrap();
-    let err = loop {
-        match d.next_frame() {
-            Ok(Some(_)) => continue,
-            Ok(None) => panic!("reached the end without noticing the file was removed"),
-            Err(e) => break e,
-        }
-    };
-    assert_eq!(err.code(), "media.offline", "{err}");
+    // Windows does not let a file that is open be deleted: the media cannot vanish under the decoder this way, and
+    // decoding carries on.
+    #[cfg(windows)]
+    {
+        let refused = std::fs::remove_file(&copy).expect_err("Windows refuses to delete an open file");
+        assert_eq!(refused.raw_os_error(), Some(32), "sharing violation expected: {refused}");
+        assert!(d.next_frame().unwrap().is_some(), "decoding continues");
+    }
+    #[cfg(not(windows))]
+    {
+        std::fs::remove_file(&copy).unwrap();
+        let err = loop {
+            match d.next_frame() {
+                Ok(Some(_)) => continue,
+                Ok(None) => panic!("reached the end without noticing the file was removed"),
+                Err(e) => break e,
+            }
+        };
+        assert_eq!(err.code(), "media.offline", "{err}");
+    }
 }

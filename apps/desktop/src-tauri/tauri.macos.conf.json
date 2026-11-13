@@ -4,6 +4,7 @@
     "windows": [
       {
         "label": "main",
+        "create": false,
         "title": "OpenVideoEditor",
         "width": 1440,
         "height": 900,

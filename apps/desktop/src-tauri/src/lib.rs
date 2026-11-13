@@ -368,6 +368,14 @@ fn create_main_window(app: &tauri::App) -> tauri::Result<()> {
     let Some(config) = app.config().app.windows.iter().find(|w| w.label == "main").cloned() else {
         return Ok(());
     };
+    // A platform config (tauri.windows.conf.json, tauri.macos.conf.json) that forgets `"create": false` has already
+    // made the window: keep it rather than fail to start.
+    if app.get_webview_window("main").is_some() {
+        tracing::warn!(
+            "the main window was created from the config; mark it \"create\": false in every tauri.*.conf.json"
+        );
+        return Ok(());
+    }
     #[allow(unused_mut, reason = "only the Windows debug build changes the builder")]
     let mut builder = tauri::WebviewWindowBuilder::from_config(app.handle(), &config)?;
     // Debug builds driven by msedgedriver (the app end-to-end suite). The driver hands WebView2 its remote-debugging

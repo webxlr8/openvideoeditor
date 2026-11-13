@@ -131,13 +131,24 @@ fn worker_reports_offline_media() {
     let dec = FfmpegVideoDecoder::open(&copy, native()).unwrap();
     let mut w = DecodeWorker::spawn(Box::new(dec), 2).unwrap();
     assert!(matches!(w.recv_timeout(Duration::from_secs(2)), Some(WorkerEvent::Frame(_))));
-    std::fs::remove_file(&copy).unwrap();
-    let err = loop {
-        match w.recv_timeout(Duration::from_secs(5)).expect("worker went silent") {
-            WorkerEvent::Frame(_) => continue,
-            WorkerEvent::Eof => panic!("reached the end without noticing the file was removed"),
-            WorkerEvent::Error(e) => break e,
-        }
-    };
-    assert_eq!(err.code(), "media.offline");
+    // Windows does not let a file that is open be deleted: the media cannot vanish under the worker this way, and
+    // frames keep coming.
+    #[cfg(windows)]
+    {
+        let refused = std::fs::remove_file(&copy).expect_err("Windows refuses to delete an open file");
+        assert_eq!(refused.raw_os_error(), Some(32), "sharing violation expected: {refused}");
+        assert!(matches!(w.recv_timeout(Duration::from_secs(5)), Some(WorkerEvent::Frame(_))), "decoding continues");
+    }
+    #[cfg(not(windows))]
+    {
+        std::fs::remove_file(&copy).unwrap();
+        let err = loop {
+            match w.recv_timeout(Duration::from_secs(5)).expect("worker went silent") {
+                WorkerEvent::Frame(_) => continue,
+                WorkerEvent::Eof => panic!("reached the end without noticing the file was removed"),
+                WorkerEvent::Error(e) => break e,
+            }
+        };
+        assert_eq!(err.code(), "media.offline");
+    }
 }

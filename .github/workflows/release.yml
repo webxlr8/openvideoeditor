@@ -15,7 +15,8 @@ on:
     # Dry runs: work branches that change packaging build and smoke-test the installers without publishing.
     branches: ["claude/**"]
     paths: [".github/workflows/release.yml", "tools/package.sh", "tools/notices.sh", "tools/notices/**",
-            "tools/ffmpeg/**", "tools/cross/**", "tools/macos/**", ".cargo/**", "tools/smoke-cli.sh", "about.toml", ".gitattributes", "apps/desktop/src-tauri/tauri.conf.json"]
+            "tools/ffmpeg/**", "tools/cross/**", "tools/macos/**", ".cargo/**", "tools/smoke-cli.sh", "about.toml", ".gitattributes", "apps/desktop/src-tauri/tauri*.json",
+            "apps/desktop/src-tauri/build.rs", "apps/desktop/src-tauri/src/lib.rs"]
 
 permissions:
   contents: read
@@ -197,7 +198,11 @@ jobs:
         run: |
           $app = Start-Process -FilePath "$env:OVE_DIR\ove-desktop.exe" -PassThru
           Start-Sleep -Seconds 25
-          if ($app.HasExited) { throw "the app exited early with code $($app.ExitCode)" }
+          if ($app.HasExited) {
+            Get-ChildItem -Path $env:LOCALAPPDATA, $env:APPDATA -Recurse -Filter 'ove*.log' -ErrorAction SilentlyContinue |
+              ForEach-Object { Get-Content $_.FullName -Tail 40 }
+            throw "the app exited early with code $($app.ExitCode)"
+          }
           Add-Type -AssemblyName System.Windows.Forms, System.Drawing
           $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
           $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
