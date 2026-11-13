@@ -1,0 +1,6 @@
+[env]
+# whisper.cpp (ggml) otherwise compiles for the build machine's exact CPU (-march/-mcpu=native), so an app built on a
+# newer machine can crash with an illegal instruction on an older one: on macOS the default arm64 target (Apple M1)
+# is used instead; Windows builds are cross-compiled, where ggml already uses its portable baseline.
+# whisper-rs-sys does not rebuild when this changes: `cargo clean -p whisper-rs-sys` after editing it.
+GGML_NATIVE = "OFF"

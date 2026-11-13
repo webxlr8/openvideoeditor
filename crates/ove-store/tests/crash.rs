@@ -74,6 +74,8 @@ fn kill_at_random_points_never_corrupts() {
     let mut rng = Rng(0x5eed_cafe);
     let (mut killed_by_failpoint, mut killed_externally, mut completed) = (0, 0, 0);
     let mut acked_hist = [0usize; BATCHES + 2];
+    // How long an uninterrupted child takes on this machine; external kills land at a random point within it.
+    let mut child_us: u64 = 60_000;
 
     let mut run = 0u64;
     while killed_by_failpoint + killed_externally < runs {
@@ -97,6 +99,7 @@ fn kill_at_random_points_never_corrupts() {
             let hit = if point.starts_with("record") { 1 + rng.below(2 * BATCHES as u64) } else { 1 };
             cmd.env("OVE_FAILPOINTS", format!("{point}=abort@{hit}"));
         }
+        let started = std::time::Instant::now();
         let mut child = cmd.spawn().unwrap();
         let stdout = child.stdout.take().unwrap();
         let reader = std::thread::spawn(move || {
@@ -115,13 +118,14 @@ fn kill_at_random_points_never_corrupts() {
             (last, done, all)
         });
         if external {
-            std::thread::sleep(Duration::from_micros(2_000 + rng.below(60_000)));
+            std::thread::sleep(Duration::from_micros(1_000 + rng.below(child_us.max(2_000))));
             let _ = child.kill();
         }
         let _ = child.wait();
         let (last, done, all_lines) = reader.join().unwrap();
         if done {
             completed += 1;
+            child_us = (started.elapsed().as_micros() as u64).saturating_mul(9) / 10;
         } else if external {
             killed_externally += 1;
         } else {

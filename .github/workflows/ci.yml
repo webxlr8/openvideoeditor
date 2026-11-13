@@ -268,6 +268,9 @@ jobs:
         run: |
           source ../../tools/ffmpeg/env.sh
           pnpm e2e:app
+      - name: native crashes (kernel log)
+        if: failure() && runner.os == 'Linux'
+        run: sudo dmesg | grep -iE "ove-desktop|WebKit|trap|segfault|invalid opcode" | tail -20 || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:
