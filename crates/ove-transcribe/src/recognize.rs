@@ -267,7 +267,8 @@ impl Default for Options {
     fn default() -> Self {
         Options {
             language: None,
-            threads: std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).min(8),
+            // One core stays free so the editor keeps responding while it transcribes.
+            threads: std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).saturating_sub(1).clamp(1, 8),
             model_name: "base".into(),
         }
     }

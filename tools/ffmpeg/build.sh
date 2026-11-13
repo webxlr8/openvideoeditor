@@ -145,7 +145,13 @@ if [ "$TARGET" = windows-x64 ]; then
   fi
   export PKG_CONFIG_PATH="$VCPKG_DEPS/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
   # configure falls back to zlib.h and -lz (z.lib under MSVC) when pkg-config does not answer; vcpkg names it zlib.lib.
-  rm -rf "$DEPS" && mkdir -p "$DEPS/lib" && cp "$VCPKG_DEPS/lib/zlib.lib" "$DEPS/lib/z.lib"
+  # The library's name depends on the zlib version: z.lib, zlib.lib or zlib1.lib.
+  rm -rf "$DEPS" && mkdir -p "$DEPS/lib"
+  for n in z zlib zlib1; do
+    if [ -f "$VCPKG_DEPS/lib/$n.lib" ]; then cp "$VCPKG_DEPS/lib/$n.lib" "$DEPS/lib/z.lib"; break; fi
+  done
+  [ -f "$DEPS/lib/z.lib" ] || { echo "no zlib import library in $VCPKG_DEPS/lib:" >&2; ls "$VCPKG_DEPS/lib" >&2; exit 2; }
+  echo "vcpkg: $(cd "$VCPKG_DEPS/lib" && ls ./*.lib | tr '\n' ' ')/ $(cd "$VCPKG_DEPS/bin" && ls ./*.dll | tr '\n' ' ')"
   WIN_DEP_FLAGS=(--extra-cflags=-I"$(cygpath -m "$VCPKG_DEPS/include")"
     --extra-ldflags=-L"$(cygpath -m "$VCPKG_DEPS/lib")" --extra-ldflags=-L"$(cygpath -m "$DEPS/lib")")
 fi
@@ -219,7 +225,10 @@ grep -E '^#define (FFMPEG_CONFIGURATION|FFMPEG_LICENSE|CONFIG_GPL|CONFIG_NONFREE
 
 make -j"$JOBS" > "$OUT/make.log" 2>&1 || { tail -40 "$OUT/make.log"; exit 1; }
 make install > /dev/null
-if [ "$TARGET" = windows-x64 ]; then cp "$VCPKG_DEPS/bin/dav1d.dll" "$VCPKG_DEPS/bin/zlib1.dll" "$OUT/bin/"; fi
+if [ "$TARGET" = windows-x64 ]; then
+  # FFmpeg's DLLs import dav1d's and zlib's (z.dll, zlib1.dll or zlib.dll, by version).
+  for dll in "$VCPKG_DEPS"/bin/*.dll; do case "$(basename "$dll")" in dav1d.dll|z.dll|zlib1.dll|zlib.dll) cp "$dll" "$OUT/bin/" ;; esac; done
+fi
 
 # --- records ----------------------------------------------------------------------------------------------------------
 {
