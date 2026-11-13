@@ -161,6 +161,126 @@ jobs:
           source ../../tools/ffmpeg/env.sh
           pnpm tauri build --debug --no-bundle
 
+  app-e2e:
+    # The real desktop app (debug build) driven through tauri-driver: every main user flow, see
+    # apps/desktop/e2e-app/run.mjs. Releases need this green on every OS.
+    name: app e2e (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.97.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: app-e2e
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/desktop/pnpm-lock.yaml
+      - name: prerequisites (Linux; WebKitWebDriver, Xvfb, speech synthesis, X11 window close)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nasm libdav1d-dev pkg-config ffmpeg clang libclang-dev cmake libasound2-dev \
+            libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libayatana-appindicator3-dev libssl-dev libdbus-1-dev \
+            webkit2gtk-driver xvfb espeak-ng python3-xlib
+      - name: prerequisites (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          choco install -y ffmpeg nasm llvm
+          vcpkg install dav1d:x64-windows
+      - name: display resolution (Windows; the runner's default 1024×768 is smaller than the app's window)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        continue-on-error: true
+        run: Set-DisplayResolution -Width 1920 -Height 1080 -Force
+      - uses: msys2/setup-msys2@v2
+        if: runner.os == 'Windows'
+        with:
+          msystem: MINGW64
+          path-type: inherit
+          install: make pkg-config diffutils
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+      # Same build and cache key as the workspace job's FFmpeg.
+      - uses: actions/cache@v4
+        with:
+          path: tools/ffmpeg/out
+          key: ffmpeg-${{ runner.os == 'Windows' && 'windows' || 'linux' }}-${{ hashFiles('tools/ffmpeg/*.sh') }}
+      - name: FFmpeg (LGPL, shared)
+        if: runner.os != 'Windows'
+        run: tools/ffmpeg/build.sh --ci
+      - name: FFmpeg (LGPL, shared; MSYS2 shell with the MSVC environment)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: tools/ffmpeg/build.sh --ci
+      - name: test media matrix
+        run: python3 tests/media/media.py generate
+      - name: tauri-driver
+        # Third-party tools: the workspace's `-D warnings` is not theirs to meet.
+        env:
+          RUSTFLAGS: ""
+        run: cargo install tauri-driver --locked
+      - name: msedgedriver matching the runner's WebView2 (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          RUSTFLAGS: ""
+        run: |
+          cargo install --git https://github.com/chippers/msedgedriver-tool
+          & "$HOME/.cargo/bin/msedgedriver-tool.exe"
+          $PWD.Path >> $env:GITHUB_PATH
+      # The mock first: a later plain `cargo build` of the desktop crate would replace the app binary with one that
+      # loads the Vite dev server instead of the built UI.
+      - name: mock Messages API (the assistant's scripted stand-in)
+        run: |
+          source tools/ffmpeg/env.sh
+          cargo build -p ove-agent --example mock_server
+      - name: debug app build
+        working-directory: apps/desktop
+        run: |
+          source ../../tools/ffmpeg/env.sh
+          pnpm install --frozen-lockfile
+          pnpm tauri build --debug --no-bundle
+      # The speech model the captions flow downloads on first use (ggml-tiny, 77 MB; checked by sha256 on download).
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/ove-whisper-models
+          key: whisper-models-v1
+      - name: app e2e (Linux, Xvfb)
+        if: runner.os == 'Linux'
+        working-directory: apps/desktop
+        env:
+          OVE_WHISPER_MODEL_DIR: ${{ runner.temp }}/ove-whisper-models
+        run: |
+          source ../../tools/ffmpeg/env.sh
+          xvfb-run -a -s "-screen 0 1920x1080x24" pnpm e2e:app
+      - name: app e2e (Windows)
+        if: runner.os == 'Windows'
+        working-directory: apps/desktop
+        env:
+          OVE_WHISPER_MODEL_DIR: ${{ runner.temp }}/ove-whisper-models
+        run: |
+          source ../../tools/ffmpeg/env.sh
+          pnpm e2e:app
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: app-e2e-${{ matrix.os }}
+          path: apps/desktop/e2e-app/artefacts
+          if-no-files-found: warn
+
   windows-cross:
     # The Windows code (cfg(windows), the Windows viewer, keyring, FFmpeg and whisper.cpp bindings) checked from a
     # Linux runner with the MinGW-w64 cross build, so it cannot break silently without a Windows runner.

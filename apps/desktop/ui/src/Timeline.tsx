@@ -135,7 +135,8 @@ export function Timeline(props: TimelineProps) {
       return;
     }
     const group = selection.includes(item.id) && selection.length > 1 ? selection : [item.id];
-    if (!selection.includes(item.id) || selection.length <= 1) onSelect(item);
+    // The playhead goes to the clicked point (not the clip's start), so "split at playhead" splits where clicked.
+    if (!selection.includes(item.id) || selection.length <= 1) onSelect(item, Math.max(0, timeAt(e.clientX) - (item.start ?? 0)));
     const x0 = e.clientX;
     const y0 = e.clientY;
     let last: Drag | null = null;

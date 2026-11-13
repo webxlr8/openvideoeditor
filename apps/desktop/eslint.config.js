@@ -42,7 +42,7 @@ export default tseslint.config(
     rules: { "@typescript-eslint/require-await": "off" },
   },
   {
-    files: ["ui/e2e/**/*.mjs", "scripts/**/*.mjs"],
+    files: ["ui/e2e/**/*.mjs", "e2e-app/**/*.mjs", "scripts/**/*.mjs"],
     extends: [js.configs.recommended],
     languageOptions: {
       ecmaVersion: 2022,

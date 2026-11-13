@@ -57,6 +57,17 @@ describe("editing", () => {
     expect(clips()[0].getAttribute("title")).not.toContain("00:00.00–");
   });
 
+  it("clicking inside a clip puts the playhead there, so S splits at the clicked point", async () => {
+    await editorWithClip();
+    expect(screen.getByTestId("timecode").textContent).toBe("00:00:00:00");
+    fireEvent.pointerDown(clips()[0], { button: 0, clientX: 400 });
+    fireEvent.pointerUp(window);
+    await waitFor(() => expect(screen.getByTestId("timecode").textContent).not.toBe("00:00:00:00"));
+    await waitFor(() => expect(screen.getByTestId("split").hasAttribute("disabled")).toBe(false));
+    fireEvent.keyDown(window, { key: "s" });
+    await waitFor(() => expect(clips().length).toBe(2));
+  });
+
   it("right-click menu duplicates and deletes", async () => {
     await editorWithClip();
     fireEvent.contextMenu(clips()[0], { clientX: 300, clientY: 600 });

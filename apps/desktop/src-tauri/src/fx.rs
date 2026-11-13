@@ -128,7 +128,11 @@ pub async fn import_lut(app: AppHandle, path: Option<String>) -> AppResult<Optio
         let src = match path {
             Some(p) => PathBuf::from(p),
             None => {
-                let Some(f) = app.dialog().file().add_filter("Cube LUT", &["cube"]).blocking_pick_file() else {
+                let picked = match crate::scripted_dialogs::open() {
+                    Some(paths) => paths.into_iter().next().map(tauri_plugin_dialog::FilePath::from),
+                    None => app.dialog().file().add_filter("Cube LUT", &["cube"]).blocking_pick_file(),
+                };
+                let Some(f) = picked else {
                     return Ok(None);
                 };
                 f.into_path().map_err(|_| bad("That file cannot be opened."))?

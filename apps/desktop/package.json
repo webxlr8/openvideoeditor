@@ -9,11 +9,12 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b --noEmit",
-    "lint": "eslint ui",
+    "lint": "eslint ui e2e-app",
     "test": "vitest run",
     "e2e": "node ui/e2e/layout.e2e.mjs",
     "licenses": "node scripts/check-licenses.mjs",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "e2e:app": "node e2e-app/run.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "2.12.4",
@@ -34,6 +35,7 @@
     "eslint-plugin-react-hooks": "7.1.1",
     "globals": "17.14.0",
     "jsdom": "31.0.0",
+    "selenium-webdriver": "4.52.0",
     "typescript": "6.0.3",
     "typescript-eslint": "8.72.2",
     "vite": "8.3.8",

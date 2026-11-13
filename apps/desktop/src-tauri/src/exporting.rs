@@ -245,8 +245,17 @@ pub async fn choose_export_path(app: AppHandle, default_name: String) -> AppResu
     worker::blocking("choose_export_path", move || {
         let name =
             if default_name.to_lowercase().ends_with(".mp4") { default_name } else { format!("{default_name}.mp4") };
-        let picked = app.dialog().file().add_filter("MP4 video", &["mp4"]).set_file_name(&name).blocking_save_file();
-        Ok(picked.and_then(|p| p.into_path().ok()).map(|p| p.display().to_string()))
+        let picked = match crate::scripted_dialogs::save(&name) {
+            Some(scripted) => scripted,
+            None => app
+                .dialog()
+                .file()
+                .add_filter("MP4 video", &["mp4"])
+                .set_file_name(&name)
+                .blocking_save_file()
+                .and_then(|p| p.into_path().ok()),
+        };
+        Ok(picked.map(|p| p.display().to_string()))
     })
     .await
 }

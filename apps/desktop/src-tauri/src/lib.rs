@@ -16,6 +16,7 @@ pub mod logging;
 pub mod media;
 pub mod motion;
 pub mod projects;
+pub mod scripted_dialogs;
 pub mod support;
 pub mod timeline;
 pub mod transport;
