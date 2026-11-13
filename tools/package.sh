@@ -139,6 +139,16 @@ print("DLL check passed: every import is shipped or a Windows system DLL")
 PY
 fi
 
+# whisper.cpp must be built for a portable CPU baseline, never the build machine's (-march/-mcpu=native): see
+# .cargo/config.toml. A cached build from before that setting would not rebuild on its own.
+caches=("$OUT_DIR"/build/whisper-rs-sys-*/out/build/CMakeCache.txt)
+[ -f "${caches[0]}" ] || { echo "no whisper.cpp build found under $OUT_DIR/build" >&2; exit 1; }
+if grep -l "^GGML_NATIVE:BOOL=ON" "${caches[@]}"; then
+  echo "whisper.cpp was built for this machine's CPU (GGML_NATIVE=ON): cargo clean -p whisper-rs-sys and package again" >&2
+  exit 1
+fi
+echo "whisper.cpp: portable build (GGML_NATIVE=OFF)"
+
 BUNDLE_DIR="$OUT_DIR/bundle"
 if [ "$TARGET" = macos-arm64 ]; then
   # Every library the app and `ove` load must be inside the app or part of macOS.

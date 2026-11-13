@@ -38,6 +38,9 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          # v1: caches from before GGML_NATIVE=OFF hold CPU-specific whisper.cpp objects (.cargo/config.toml).
+          prefix-key: v1-rust
       - name: crash harness, retention, performance
         shell: bash
         run: |

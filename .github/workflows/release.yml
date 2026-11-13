@@ -33,7 +33,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.97.0
         with:
           components: rustfmt, clippy
+      # Tagged releases build from a clean state; dry runs reuse the cache.
       - uses: Swatinem/rust-cache@v2
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        with:
+          prefix-key: v1-rust
       - uses: pnpm/action-setup@v4
         with:
           version: 10
@@ -92,7 +96,11 @@ jobs:
         with:
           components: rustfmt, clippy
           targets: x86_64-pc-windows-gnu
+      # Tagged releases build from a clean state; dry runs reuse the cache.
       - uses: Swatinem/rust-cache@v2
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        with:
+          prefix-key: v1-rust
       - uses: pnpm/action-setup@v4
         with:
           version: 10

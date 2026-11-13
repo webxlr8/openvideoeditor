@@ -32,6 +32,9 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          # v1: caches from before GGML_NATIVE=OFF hold CPU-specific whisper.cpp objects (.cargo/config.toml).
+          prefix-key: v1-rust
       - name: build prerequisites (Linux audio and keyring headers)
         if: runner.os == 'Linux'
         shell: bash
@@ -73,6 +76,9 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          # v1: caches from before GGML_NATIVE=OFF hold CPU-specific whisper.cpp objects (.cargo/config.toml).
+          prefix-key: v1-rust
       - uses: pnpm/action-setup@v4
         with:
           version: 10
@@ -173,6 +179,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.97.0
       - uses: Swatinem/rust-cache@v2
         with:
+          prefix-key: v1-rust
           key: app-e2e
       - uses: pnpm/action-setup@v4
         with:
@@ -293,6 +300,9 @@ jobs:
           components: rustfmt, clippy
           targets: x86_64-pc-windows-gnu
       - uses: Swatinem/rust-cache@v2
+        with:
+          # v1: caches from before GGML_NATIVE=OFF hold CPU-specific whisper.cpp objects (.cargo/config.toml).
+          prefix-key: v1-rust
       - name: prerequisites (MinGW-w64)
         run: |
           pkgs="gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 mingw-w64-tools nasm meson ninja-build pkg-config cmake clang
