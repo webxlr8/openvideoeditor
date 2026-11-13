@@ -56,13 +56,11 @@ jobs:
 
   package-windows:
     name: package-windows (cross-built on Linux)
-    runs-on: ${{ fromJSON(vars.OVE_RUNNER_LINUX || '["self-hosted","Linux","X64"]') }}
+    # Needs a Linux runner with at least 5 GiB of memory (compiling the windows crate alone peaks near 2.7 GB). Point
+    # OVE_RUNNER_PACKAGE at one (a JSON label array) when the default Linux runners are smaller.
+    runs-on: ${{ fromJSON(vars.OVE_RUNNER_PACKAGE || vars.OVE_RUNNER_LINUX || '["self-hosted","Linux","X64"]') }}
     env:
-      # The Linux runners are containers with 1 CPU and a few GB of memory (swap cannot be added inside them). One
-      # compile at a time, no link-time optimisation and the Windows binding crates unoptimised (Cargo.toml) keep the
-      # release build within that.
-      CARGO_BUILD_JOBS: 1
-      CARGO_PROFILE_RELEASE_LTO: "false"
+      CARGO_BUILD_JOBS: 2
     defaults:
       run:
         shell: bash
@@ -84,8 +82,17 @@ jobs:
           nproc
           free -m
           # The container's own memory limit (what actually kills a build), if cgroups expose it.
-          cat /sys/fs/cgroup/memory.max 2>/dev/null || cat /sys/fs/cgroup/memory/memory.limit_in_bytes 2>/dev/null || true
           df -h . | tail -1
+          # The memory this job may use: the container limit if there is one, else the machine's.
+          limit=$(cat /sys/fs/cgroup/memory.max 2>/dev/null || cat /sys/fs/cgroup/memory/memory.limit_in_bytes 2>/dev/null || echo max)
+          total=$(( $(awk '/^MemTotal:/ {print $2}' /proc/meminfo) * 1024 ))
+          case "$limit" in max|"") limit=$total ;; esac
+          [ "$limit" -lt "$total" ] || limit=$total
+          echo "memory available to this job: $(( limit / 1048576 )) MiB"
+          if [ "$limit" -lt $(( 5 * 1073741824 )) ]; then
+            echo "::error::This runner allows $(( limit / 1048576 )) MiB; the Windows release build needs at least 5 GiB. Set the repository variable OVE_RUNNER_PACKAGE to the labels of a larger Linux runner (docs/ci-runners.md)."
+            exit 1
+          fi
       - name: prerequisites (MinGW-w64, NSIS, Wine)
         run: |
           pkgs="gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 mingw-w64-tools nasm meson ninja-build pkg-config cmake clang

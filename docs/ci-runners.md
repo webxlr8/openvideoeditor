@@ -73,4 +73,11 @@ draft release lists macOS as missing.
 Pushes to `claude/**` branches that change packaging (the release workflow, `tools/package.sh`, the FFmpeg or cross
 scripts, notices) run the release workflow as a dry run: installers are built and smoke-tested, nothing is published.
 
+**Memory for releases.** The Windows release build needs a Linux runner with at least **5 GiB** of memory: compiling
+Microsoft's `windows` binding crate alone peaks near 2.7 GB, whatever the optimisation settings. The job checks this
+first and stops with a message if the runner is smaller. If the default Linux runners are smaller (the current ones
+are containers limited to 3 GiB), raise one container's limit or add a larger runner, give it a label, and set the
+repository variable `OVE_RUNNER_PACKAGE`, e.g. `["self-hosted","Linux","X64","ove-big"]`. CI itself (debug builds and
+tests) runs fine on the 3 GiB runners.
+
 Runners should keep their work folder between runs (the default), so the FFmpeg build and Rust caches are reused.
