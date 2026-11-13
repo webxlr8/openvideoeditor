@@ -113,6 +113,14 @@ jobs:
           install: make pkg-config diffutils
       - uses: ilammy/msvc-dev-cmd@v1
         if: runner.os == 'Windows'
+      # With the MSVC environment set, rustc runs the first link.exe on PATH, which in Git Bash is coreutils' link.
+      - name: MSVC linker for cargo
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $link = Join-Path $env:VCToolsInstallDir 'bin\Hostx64\x64\link.exe'
+          if (!(Test-Path $link)) { throw "no MSVC link.exe at $link" }
+          "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER=$link" >> $env:GITHUB_ENV
       - uses: actions/cache@v4
         with:
           path: tools/ffmpeg/out
@@ -214,6 +222,14 @@ jobs:
           install: make pkg-config diffutils
       - uses: ilammy/msvc-dev-cmd@v1
         if: runner.os == 'Windows'
+      # With the MSVC environment set, rustc runs the first link.exe on PATH, which in Git Bash is coreutils' link.
+      - name: MSVC linker for cargo
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $link = Join-Path $env:VCToolsInstallDir 'bin\Hostx64\x64\link.exe'
+          if (!(Test-Path $link)) { throw "no MSVC link.exe at $link" }
+          "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER=$link" >> $env:GITHUB_ENV
       # Same build and cache key as the workspace job's FFmpeg.
       - uses: actions/cache@v4
         with:
