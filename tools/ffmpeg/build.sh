@@ -152,6 +152,9 @@ if [ "$TARGET" = windows-x64 ]; then
   (cd "$WORK/zlib-${ZLIB_VERSION}" && nmake -nologo -f win32/Makefile.msc CFLAGS="-nologo -MD -W3 -O2" zlib.lib) > "$OUT/zlib.log" 2>&1 \
     || { tail -30 "$OUT/zlib.log"; exit 1; }
   cp "$WORK/zlib-${ZLIB_VERSION}"/{zlib.h,zconf.h} "$DEPS/include/"
+  # zconf.h includes <unistd.h> when HAVE_UNISTD_H is defined at all; FFmpeg's config.h defines it as 0 under MSVC.
+  sed -i 's|^#ifdef HAVE_UNISTD_H .*$|#if 0 /* MSVC: no unistd.h (FFmpeg defines HAVE_UNISTD_H as 0) */|' "$DEPS/include/zconf.h"
+  grep -q "^#if 0 /\* MSVC: no unistd.h" "$DEPS/include/zconf.h" || { echo "zconf.h: HAVE_UNISTD_H guard not found" >&2; exit 1; }
   # configure checks zlib with -lz, which its MSVC toolchain links as zlib.lib.
   cp "$WORK/zlib-${ZLIB_VERSION}/zlib.lib" "$DEPS/lib/zlib.lib"
   # MSVC link takes -LIBPATH: (configure translates only the flags it gets from pkg-config).
