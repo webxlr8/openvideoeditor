@@ -148,12 +148,12 @@ if [ "$TARGET" = windows-x64 ]; then
   command -v nmake >/dev/null || { echo "nmake is needed (run inside the MSVC developer environment)" >&2; exit 2; }
   rm -rf "$DEPS" "$WORK/zlib-${ZLIB_VERSION}" && mkdir -p "$DEPS/include" "$DEPS/lib"
   fetch "$ZLIB_URL" "$ZLIB_SHA256"
-  # No -Zi: configure treats link warnings as errors, and a library without its .pdb warns (LNK4099).
+  # No -Zi: a library without its .pdb makes every link warn (LNK4099).
   (cd "$WORK/zlib-${ZLIB_VERSION}" && nmake -nologo -f win32/Makefile.msc CFLAGS="-nologo -MD -W3 -O2" zlib.lib) > "$OUT/zlib.log" 2>&1 \
     || { tail -30 "$OUT/zlib.log"; exit 1; }
   cp "$WORK/zlib-${ZLIB_VERSION}"/{zlib.h,zconf.h} "$DEPS/include/"
-  # configure checks zlib with -lz, which MSVC links as z.lib.
-  cp "$WORK/zlib-${ZLIB_VERSION}/zlib.lib" "$DEPS/lib/z.lib"
+  # configure checks zlib with -lz, which its MSVC toolchain links as zlib.lib.
+  cp "$WORK/zlib-${ZLIB_VERSION}/zlib.lib" "$DEPS/lib/zlib.lib"
   # MSVC link takes -LIBPATH: (configure translates only the flags it gets from pkg-config).
   WIN_DEP_FLAGS=(--extra-cflags=-I"$(cygpath -m "$DEPS/include")"
     --extra-ldflags=-LIBPATH:"$(cygpath -m "$DEPS/lib")" --extra-ldflags=-LIBPATH:"$(cygpath -m "$VCPKG_DEPS/lib")")
