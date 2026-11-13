@@ -13,7 +13,7 @@ fetched from URLs listed in MANIFEST.json ("real" entries) when the owner provid
 The generator is `OVE_FIXTURE_FFMPEG` if set, else `ffmpeg` on PATH (it needs lavfi sources and the encoders).
 
 Safe to run from many test processes at once:
-- `generate` holds an exclusive lock (`files/.lock`, fcntl.flock) for the whole run, so concurrent callers wait and
+- `generate` holds an exclusive lock (`files/.lock`; fcntl.flock, or msvcrt.locking on Windows) for the whole run, so concurrent callers wait and
   then find the files ready;
 - every file is written under a temporary name and renamed into place, so a reader never sees a partial file;
 - truncated files are cut only from a complete source whose checksum was verified.
@@ -25,7 +25,11 @@ checksum recorded in `files/.generated.json`, so the next run accepts it without
 integrity check (short, unreadable) is an error. Set OVE_MEDIA_STRICT=1 on the machine that made the manifest to
 require exact checksums there.
 """
-import fcntl
+try:
+    import fcntl
+except ImportError:  # Windows
+    fcntl = None
+    import msvcrt
 import hashlib
 import json
 import os
@@ -331,10 +335,32 @@ def derive_truncated(name, src, frac):
         raise GenerateError(f"{name}: expected {keep} bytes")
 
 
+def lock_file(f):
+    """Blocks until this process holds the exclusive generate lock."""
+    if fcntl:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        return
+    f.seek(0)
+    while True:
+        try:
+            msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)  # retries for about 10 s, then raises
+            return
+        except OSError:
+            continue
+
+
+def unlock_file(f):
+    if fcntl:
+        fcntl.flock(f, fcntl.LOCK_UN)
+        return
+    f.seek(0)
+    msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+
+
 def generate(force=False, recording=False):
     os.makedirs(FILES, exist_ok=True)
     with open(LOCK, "a+") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+        lock_file(lock)
         try:
             checker = Checker(load_manifest(), ffmpeg_version(), recording)
             regenerated = set()
@@ -359,7 +385,7 @@ def generate(force=False, recording=False):
                 checker.accept_fresh(name)
             save_stamps(checker.stamps)
         finally:
-            fcntl.flock(lock, fcntl.LOCK_UN)
+            unlock_file(lock)
 
 
 def entries():

@@ -4,9 +4,10 @@ name: Release build
 # Run manually for a test build, or push a tag `v<version>` (e.g. v0.1.0-alpha.1) to also publish a draft
 # pre-release whose notes come from docs/releases/<version>.md.
 #
-# Windows: cross-built on a Linux runner with MinGW-w64 (NSIS -setup.exe only; MSI needs WiX on Windows) and smoke
-# tested under Wine. macOS: needs a Mac runner (tools/runners/macos-runner.sh); set the repository variable
-# OVE_RELEASE_MACOS to `true` once one is registered. Until then the release is drafted without a .dmg.
+# Runs on GitHub-hosted runners (free for public repositories); OVE_RUNNER_* variables can point jobs elsewhere.
+# Windows: cross-built on Ubuntu with MinGW-w64 (NSIS -setup.exe), smoke-tested under Wine, then installed and tested
+# on a real Windows machine. macOS: built and smoke-tested on an Apple-silicon Mac (set OVE_RELEASE_MACOS to `false`
+# to skip it).
 on:
   workflow_dispatch:
   push:
@@ -14,17 +15,17 @@ on:
     # Dry runs: work branches that change packaging build and smoke-test the installers without publishing.
     branches: ["claude/**"]
     paths: [".github/workflows/release.yml", "tools/package.sh", "tools/notices.sh", "tools/notices/**",
-            "tools/ffmpeg/**", "tools/cross/**", "about.toml", "apps/desktop/src-tauri/tauri.conf.json"]
+            "tools/ffmpeg/**", "tools/cross/**", "tools/smoke-cli.sh", "about.toml", "apps/desktop/src-tauri/tauri.conf.json"]
 
 permissions:
   contents: read
 
 jobs:
   package-macos:
-    if: vars.OVE_RELEASE_MACOS == 'true'
-    # A failed or missing macOS build does not hold back the Windows installer; publish lists it as missing.
+    if: vars.OVE_RELEASE_MACOS != 'false'
+    # A failed macOS build does not hold back the Windows installer; publish lists it as missing.
     continue-on-error: true
-    runs-on: ${{ fromJSON(vars.OVE_RUNNER_MACOS || '["self-hosted","macOS","ARM64"]') }}
+    runs-on: ${{ fromJSON(vars.OVE_RUNNER_MACOS || '"macos-15"') }}
     defaults:
       run:
         shell: bash
@@ -41,13 +42,18 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: prerequisites
-        run: brew install dav1d nasm pkg-config
+      - name: prerequisites (ffmpeg CLI is only for generating test media)
+        run: brew install dav1d nasm pkg-config ffmpeg
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-about
       - name: package
         run: tools/package.sh
+      - name: smoke test of the ove command line inside the app
+        run: |
+          python3 tests/media/media.py generate
+          app=$(ls -d target/release/bundle/macos/*.app | head -1)
+          tools/smoke-cli.sh "$app/Contents/MacOS/ove"
       - uses: actions/upload-artifact@v4
         with:
           name: installers-macos
@@ -58,7 +64,7 @@ jobs:
     name: package-windows (cross-built on Linux)
     # Needs a Linux runner with at least 5 GiB of memory (compiling the windows crate alone peaks near 2.7 GB). Point
     # OVE_RUNNER_PACKAGE at one (a JSON label array) when the default Linux runners are smaller.
-    runs-on: ${{ fromJSON(vars.OVE_RUNNER_PACKAGE || vars.OVE_RUNNER_LINUX || '["self-hosted","Linux","X64"]') }}
+    runs-on: ${{ fromJSON(vars.OVE_RUNNER_PACKAGE || vars.OVE_RUNNER_LINUX || '"ubuntu-24.04"') }}
     env:
       CARGO_BUILD_JOBS: 2
     defaults:
@@ -125,13 +131,72 @@ jobs:
           name: installers-windows
           if-no-files-found: error
           path: target/x86_64-pc-windows-gnu/release/bundle/nsis/*-setup.exe
+      # Test media for the real-Windows check (the generator uses POSIX file locks, so it runs here).
+      - uses: actions/upload-artifact@v4
+        with:
+          name: test-media
+          path: tests/media/files
+          retention-days: 3
+
+  smoke-windows:
+    name: install and test on real Windows
+    needs: package-windows
+    runs-on: ${{ fromJSON(vars.OVE_RUNNER_WINDOWS || '"windows-2025"') }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: installers-windows
+          path: installer
+      - uses: actions/download-artifact@v4
+        with:
+          name: test-media
+          path: tests/media/files
+      - name: install silently (per-user NSIS install)
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem installer\*-setup.exe | Select-Object -First 1
+          Start-Process -FilePath $setup.FullName -ArgumentList '/S' -Wait
+          $exe = Get-ChildItem -Path $env:LOCALAPPDATA, $env:ProgramFiles -Recurse -Filter ove-desktop.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $exe) { throw "ove-desktop.exe not found after install" }
+          "OVE_DIR=$($exe.DirectoryName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Get-ChildItem $exe.DirectoryName | Format-Table Name, Length
+      - name: ove command line on Windows (import, decode, export, timeline exchange)
+        run: |
+          choco install -y ffmpeg > /dev/null
+          tools/smoke-cli.sh "$(cygpath -u "$OVE_DIR")/ove.exe"
+      - name: the app starts and stays up
+        shell: pwsh
+        run: |
+          $app = Start-Process -FilePath "$env:OVE_DIR\ove-desktop.exe" -PassThru
+          Start-Sleep -Seconds 25
+          if ($app.HasExited) { throw "the app exited early with code $($app.ExitCode)" }
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+          [System.Drawing.Graphics]::FromImage($bmp).CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+          $bmp.Save("$env:RUNNER_TEMP\app-windows.png")
+          Stop-Process -Id $app.Id
+          $logs = Get-ChildItem -Path $env:LOCALAPPDATA, $env:APPDATA -Recurse -Filter 'ove*.log' -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($logs) { Get-Content $logs.FullName -Tail 40 }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-app-screenshot
+          path: ${{ runner.temp }}/app-windows.png
+          if-no-files-found: ignore
 
   publish:
     # Only for tags: a draft pre-release with the installers that were built and checksums. A person reviews and
     # publishes it. Needs the Windows installer; macOS is added when its job succeeded.
-    if: always() && startsWith(github.ref, 'refs/tags/v') && needs.package-windows.result == 'success'
-    needs: [package-windows, package-macos]
-    runs-on: ${{ fromJSON(vars.OVE_RUNNER_LINUX || '["self-hosted","Linux","X64"]') }}
+    if: >-
+      always() && startsWith(github.ref, 'refs/tags/v') && needs.package-windows.result == 'success'
+      && needs.smoke-windows.result == 'success'
+    needs: [package-windows, smoke-windows, package-macos]
+    runs-on: ${{ fromJSON(vars.OVE_RUNNER_LINUX || '"ubuntu-24.04"') }}
     permissions:
       contents: write
     steps:

@@ -7,7 +7,7 @@ on:
 
 jobs:
   fuzz:
-    runs-on: ${{ fromJSON(vars.OVE_RUNNER_LINUX || '["self-hosted","Linux","X64"]') }}
+    runs-on: ${{ fromJSON(vars.OVE_RUNNER_LINUX || '"ubuntu-24.04"') }}
     strategy:
       fail-fast: false
       matrix:
@@ -30,7 +30,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [macos, windows]
-    runs-on: ${{ fromJSON(matrix.os == 'macos' && (vars.OVE_RUNNER_MACOS || '["self-hosted","macOS","ARM64"]') || matrix.os == 'windows' && (vars.OVE_RUNNER_WINDOWS || '["self-hosted","Windows","X64"]') || (vars.OVE_RUNNER_LINUX || '["self-hosted","Linux","X64"]')) }}
+    runs-on: ${{ fromJSON(matrix.os == 'macos' && (vars.OVE_RUNNER_MACOS || '"macos-15"') || matrix.os == 'windows' && (vars.OVE_RUNNER_WINDOWS || '"windows-2025"') || (vars.OVE_RUNNER_LINUX || '"ubuntu-24.04"')) }}
     steps:
       - uses: actions/checkout@v4
       # Installs rustup on the runner if it is missing; the version matches rust-toolchain.toml.

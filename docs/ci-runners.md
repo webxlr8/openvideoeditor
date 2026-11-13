@@ -1,14 +1,21 @@
 # CI runners
 
+The repository is public, so CI, Release and Nightly run on **GitHub-hosted runners** by default (free for public
+repositories): `ubuntu-24.04`, `macos-15` (Apple silicon) and `windows-2025`.
+
+**Security.** Self-hosted runners should not serve a public repository: a pull request from anyone could run code on
+them. Keep the `OVE_RUNNER_*` variables unset, or point them only at isolated, disposable machines. Also require
+approval for workflow runs from outside contributors (Settings → Actions → General).
+
 ## How each platform is built
 
-| Platform | Built on | Notes |
+| Platform | Built on | Tested |
 | --- | --- | --- |
-| Windows installer (`-setup.exe`) | The self-hosted **Linux** runners, cross-compiled with MinGW-w64 and packaged with NSIS | No Windows machine needed. The CLI is smoke-tested under Wine. A real Windows runner (optional) adds native tests |
-| macOS installer (`.dmg`) | A self-hosted **Apple-silicon Mac**, or GitHub-hosted `macos-15` once Actions billing works | Apple's SDK may only be used on Apple hardware, so macOS cannot be cross-built from Linux |
-| Linux (development only) | The self-hosted Linux runners | |
+| Windows installer (`-setup.exe`) | `ubuntu-24.04`, cross-compiled with MinGW-w64 and packaged with NSIS | `ove.exe` under Wine, then the installer is installed on `windows-2025`: the `ove` command line runs the full smoke test and the app must start and stay up (a screenshot is kept) |
+| macOS installer (`.dmg`) | `macos-15` | The `ove` command line inside the `.app` runs the full smoke test |
+| Linux (development only) | `ubuntu-24.04` | CI |
 
-## Adding a runner
+## Self-hosted runners (optional, private use only)
 
 - **Mac** (needed for the `.dmg`): on any Apple-silicon Mac with macOS 14+, run
   `tools/runners/macos-runner.sh --repo webxlr8/openvideoeditor --token <token>`. Get the token from Settings → Actions →

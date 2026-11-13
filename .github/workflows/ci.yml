@@ -21,8 +21,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON(vars.OVE_CI_OSES || '["linux"]') }}
-    runs-on: ${{ fromJSON(matrix.os == 'macos' && (vars.OVE_RUNNER_MACOS || '["self-hosted","macOS","ARM64"]') || matrix.os == 'windows' && (vars.OVE_RUNNER_WINDOWS || '["self-hosted","Windows","X64"]') || (vars.OVE_RUNNER_LINUX || '["self-hosted","Linux","X64"]')) }}
+        os: ${{ fromJSON(vars.OVE_CI_OSES || '["linux","macos","windows"]') }}
+    runs-on: ${{ fromJSON(matrix.os == 'macos' && (vars.OVE_RUNNER_MACOS || '"macos-15"') || matrix.os == 'windows' && (vars.OVE_RUNNER_WINDOWS || '"windows-2025"') || (vars.OVE_RUNNER_LINUX || '"ubuntu-24.04"')) }}
     steps:
       - uses: actions/checkout@v4
       # Installs rustup on the runner if it is missing; the version matches rust-toolchain.toml.
@@ -57,10 +57,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Self-hosted runners; which OSes run is the OVE_CI_OSES repository variable (default Linux only, so a run never
-        # waits for a runner that does not exist). See docs/ci-runners.md.
-        os: ${{ fromJSON(vars.OVE_CI_OSES || '["linux"]') }}
-    runs-on: ${{ fromJSON(matrix.os == 'macos' && (vars.OVE_RUNNER_MACOS || '["self-hosted","macOS","ARM64"]') || matrix.os == 'windows' && (vars.OVE_RUNNER_WINDOWS || '["self-hosted","Windows","X64"]') || (vars.OVE_RUNNER_LINUX || '["self-hosted","Linux","X64"]')) }}
+        # GitHub-hosted runners by default (free for public repositories); OVE_CI_OSES and OVE_RUNNER_* override.
+        # See docs/ci-runners.md.
+        os: ${{ fromJSON(vars.OVE_CI_OSES || '["linux","macos","windows"]') }}
+    runs-on: ${{ fromJSON(matrix.os == 'macos' && (vars.OVE_RUNNER_MACOS || '"macos-15"') || matrix.os == 'windows' && (vars.OVE_RUNNER_WINDOWS || '"windows-2025"') || (vars.OVE_RUNNER_LINUX || '"ubuntu-24.04"')) }}
     defaults:
       run:
         shell: bash
@@ -153,7 +153,7 @@ jobs:
     # The Windows code (cfg(windows), the Windows viewer, keyring, FFmpeg and whisper.cpp bindings) checked from a
     # Linux runner with the MinGW-w64 cross build, so it cannot break silently without a Windows runner.
     name: Windows code (cross clippy on Linux)
-    runs-on: ${{ fromJSON(vars.OVE_RUNNER_LINUX || '["self-hosted","Linux","X64"]') }}
+    runs-on: ${{ fromJSON(vars.OVE_RUNNER_LINUX || '"ubuntu-24.04"') }}
     defaults:
       run:
         shell: bash
@@ -186,7 +186,7 @@ jobs:
           cargo clippy --target x86_64-pc-windows-gnu --workspace --all-targets -- -D warnings
 
   deny:
-    runs-on: ${{ fromJSON(vars.OVE_RUNNER_LINUX || '["self-hosted","Linux","X64"]') }}
+    runs-on: ${{ fromJSON(vars.OVE_RUNNER_LINUX || '"ubuntu-24.04"') }}
     steps:
       - uses: actions/checkout@v4
       # Installs rustup on the runner if it is missing; the version matches rust-toolchain.toml.
