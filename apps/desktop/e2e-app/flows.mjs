@@ -5,7 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { Key } from "./lib/session.mjs";
-import { bundleItems, ffprobe, makeSpeech, revisionFiles } from "./lib/support.mjs";
+import { WINDOWS, bundleItems, ffprobe, makeSpeech, revisionFiles } from "./lib/support.mjs";
 
 // ---------------------------------------------------------------------------------------------------------------
 // Shared steps
@@ -627,7 +627,10 @@ export const FLOWS = [
       const after = shape(await openFromHome(app, "Reopen E2E"));
       assert.deepEqual(after.items, before.items, "items survive a restart");
       assert.equal((await detail(app, clip.id)).opacity, 0.25);
-      if (ctx.rebound) {
+      if (ctx.rebound && WINDOWS) {
+        // Shortcuts are kept in the web profile, and msedgedriver gives every launch a new, empty one.
+        ctx.log("    not checked on Windows: the rebound shortcut after a restart (the driver starts each launch with a new web profile)");
+      } else if (ctx.rebound) {
         await goHome(app);
         await app.click("nav-settings");
         await app.click("set-shortcuts");

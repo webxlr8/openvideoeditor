@@ -125,7 +125,7 @@ export function ffprobe(file) {
 
 /**
  * A short spoken WAV for auto-captions: espeak-ng where it is installed (Linux CI installs it), else the Windows
- * speech synthesiser (System.Speech) through PowerShell. Returns null when neither is available.
+ * speech synthesiser (System.Speech) through PowerShell, else the recording in fixtures/ (that sentence only).
  */
 export function makeSpeech(file, text) {
   if (fs.existsSync(file) && fs.statSync(file).size > 1000) return file;
@@ -144,6 +144,12 @@ export function makeSpeech(file, text) {
     ].join("; ");
     const r = spawnSync("powershell", ["-NoProfile", "-NonInteractive", "-Command", ps], { stdio: "inherit" });
     if (r.status === 0 && fs.existsSync(file) && fs.statSync(file).size > 1000) return file;
+  }
+  // Neither synthesiser (a Windows machine without an installed voice): the same sentence, recorded with espeak-ng.
+  const recorded = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "fixtures", "speech.wav");
+  if (fs.existsSync(recorded)) {
+    fs.copyFileSync(recorded, file);
+    return file;
   }
   return null;
 }

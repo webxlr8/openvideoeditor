@@ -74,7 +74,9 @@ pub async fn app_info(app: AppHandle) -> AppResult<AppInfo> {
 #[specta::specta]
 pub fn take_pending_open_paths(state: State<'_, AppState>) -> AppResult<Vec<String>> {
     let mut pending = relock(&state.pending_paths);
-    state.ui_ready.store(true, Ordering::SeqCst);
+    if !state.ui_ready.swap(true, Ordering::SeqCst) {
+        tracing::info!("ui ready");
+    }
     Ok(std::mem::take(&mut *pending))
 }
 

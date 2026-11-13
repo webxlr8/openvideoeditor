@@ -186,6 +186,9 @@ async function pageProblems(app) {
 }
 
 const results = [];
+// Launches in a row that the driver could not turn into a session. After two, the rest would fail the same way
+// (a minute each), so they are reported as not run.
+let launchFailures = 0;
 const selected = FLOWS.filter((f) => !only || only.some((o) => f.name.toLowerCase().includes(o)));
 log(`app: ${APP}\nwork: ${work}\nartefacts: ${OUT}\n`);
 try {
@@ -193,11 +196,22 @@ try {
     const id = String(i + 1).padStart(2, "0");
     const t0 = Date.now();
     log(`▶ ${id} ${flow.name}`);
+    if (launchFailures >= 2) {
+      log(`✗ ${id} NOT RUN: the driver could not start the app`);
+      results.push({ flow: flow.name, ok: false, seconds: 0, error: "not run: the driver could not start the app" });
+      continue;
+    }
     let error = null;
     try {
       if (!ctx.app?.alive) {
         if (appRunning(APP_EXE)) killApp(APP_EXE);
-        ctx.app = await newSession().start();
+        try {
+          ctx.app = await newSession().start();
+          launchFailures = 0;
+        } catch (e) {
+          launchFailures += 1;
+          throw e;
+        }
       }
       logDir = ctx.app.info?.logDir ?? logDir;
       await pageProblems(ctx.app); // what came before this flow is not its fault

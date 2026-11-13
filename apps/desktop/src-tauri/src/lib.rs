@@ -363,6 +363,59 @@ pub fn requested_backend() -> ViewerBackend {
     }
 }
 
+/// The main window, from its `tauri.conf.json` entry (marked `"create": false` so it is made here).
+fn create_main_window(app: &tauri::App) -> tauri::Result<()> {
+    let Some(config) = app.config().app.windows.iter().find(|w| w.label == "main").cloned() else {
+        return Ok(());
+    };
+    #[allow(unused_mut, reason = "only the Windows debug build changes the builder")]
+    let mut builder = tauri::WebviewWindowBuilder::from_config(app.handle(), &config)?;
+    // Debug builds driven by msedgedriver (the app end-to-end suite). The driver hands WebView2 its remote-debugging
+    // switch and a profile folder in environment variables, but since WebView2 runtime 133 those are ignored when the
+    // app passes browser arguments of its own, which wry always does (actions/runner-images#14738). So pass the
+    // driver's values explicitly. Release builds never read the variables.
+    #[cfg(all(windows, debug_assertions))]
+    {
+        if let Ok(extra) = std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS") {
+            let args = webview2_args(&extra);
+            tracing::info!(%args, "WebView2 arguments from the driver");
+            builder = builder.additional_browser_args(&args);
+        }
+        if let Some(dir) = std::env::var_os("WEBVIEW2_USER_DATA_FOLDER").filter(|d| !d.is_empty()) {
+            tracing::info!(dir = %std::path::Path::new(&dir).display(), "WebView2 profile folder from the driver");
+            builder = builder.data_directory(std::path::PathBuf::from(dir));
+        }
+    }
+    builder.build()?;
+    Ok(())
+}
+
+/// wry's default WebView2 arguments together with `extra`, with a single merged `--disable-features` list (Chromium
+/// keeps only the last one given).
+#[cfg(any(test, all(windows, debug_assertions)))]
+fn webview2_args(extra: &str) -> String {
+    let mut features = vec!["msWebOOUI", "msPdfOOUI", "msSmartScreenProtection"];
+    let mut rest = Vec::new();
+    for arg in extra.split_whitespace() {
+        match arg.strip_prefix("--disable-features=") {
+            Some(list) => {
+                for f in list.split(',') {
+                    if !f.is_empty() && !features.contains(&f) {
+                        features.push(f);
+                    }
+                }
+            }
+            None => rest.push(arg),
+        }
+    }
+    let mut out = format!("--disable-features={}", features.join(","));
+    for arg in rest {
+        out.push(' ');
+        out.push_str(arg);
+    }
+    out
+}
+
 #[allow(unused_variables)]
 fn attach_native_layer(app: &tauri::AppHandle, window: &tauri::WebviewWindow, backend: ViewerBackend) {
     if backend == ViewerBackend::Stream {
@@ -493,6 +546,7 @@ pub fn run() -> ExitCode {
             control::start(&handle);
             app.manage(generation::Generation::default());
 
+            create_main_window(app)?;
             if let Some(window) = app.get_webview_window("main") {
                 restore_window(&handle, &window);
                 attach_native_layer(&handle, &window, requested_backend());
@@ -548,6 +602,19 @@ pub fn run() -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn webview2_args_keep_wry_defaults_and_merge_disabled_features() {
+        let args = webview2_args(
+            "--disable-features=IgnoreDuplicateNavs,Prewarm,msPdfOOUI --remote-debugging-port=0 --enable-automation",
+        );
+        assert_eq!(
+            args,
+            "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,IgnoreDuplicateNavs,Prewarm \
+             --remote-debugging-port=0 --enable-automation"
+        );
+        assert_eq!(webview2_args(""), "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection");
+    }
 
     #[test]
     fn args_are_filtered_and_resolved() {

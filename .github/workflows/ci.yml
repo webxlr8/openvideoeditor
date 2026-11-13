@@ -10,8 +10,8 @@ on:
 
 concurrency:
   group: ci-${{ github.ref }}
-  # Pull requests cancel superseded runs; pushes queue behind the running one so every result is kept.
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # Pull requests and work branches cancel superseded runs; pushes to main queue so every result is kept.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || startsWith(github.ref, 'refs/heads/claude/') }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -35,6 +35,7 @@ jobs:
         with:
           # v1: caches from before GGML_NATIVE=OFF hold CPU-specific whisper.cpp objects (.cargo/config.toml).
           prefix-key: v1-rust
+          cache-on-failure: true
       - name: build prerequisites (Linux audio and keyring headers)
         if: runner.os == 'Linux'
         shell: bash
@@ -79,6 +80,7 @@ jobs:
         with:
           # v1: caches from before GGML_NATIVE=OFF hold CPU-specific whisper.cpp objects (.cargo/config.toml).
           prefix-key: v1-rust
+          cache-on-failure: true
       - uses: pnpm/action-setup@v4
         with:
           version: 10
@@ -123,7 +125,8 @@ jobs:
           "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER=$link" >> $env:GITHUB_ENV
           # bindgen (FFmpeg, whisper.cpp): the runner's LLVM, not whichever libclang.dll PATH finds first.
           "LIBCLANG_PATH=C:\Program Files\LLVM\bin" >> $env:GITHUB_ENV
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
+        id: ffmpeg-cache
         with:
           path: tools/ffmpeg/out
           key: ffmpeg-${{ matrix.os }}-${{ hashFiles('tools/ffmpeg/*.sh') }}
@@ -134,6 +137,12 @@ jobs:
         if: runner.os == 'Windows'
         shell: msys2 {0}
         run: tools/ffmpeg/build.sh --ci
+      # Saved as soon as it is built, so a later failure in this job does not cost the next run a rebuild.
+      - uses: actions/cache/save@v4
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        with:
+          path: tools/ffmpeg/out
+          key: ${{ steps.ffmpeg-cache.outputs.cache-primary-key }}
       - name: test media matrix (generated with the runner's ffmpeg CLI; test-only)
         run: python3 tests/media/media.py generate
       - name: UI typecheck / lint / test / licences
@@ -144,12 +153,26 @@ jobs:
           pnpm run lint
           pnpm run test
           pnpm run licenses
-      - name: clippy + test (whole workspace, every crate)
+      # Tests make fixtures with a full ffmpeg CLI (lavfi, libx264): the one test media was generated with, named
+      # explicitly because env.sh puts the LGPL build's folder (whose test CLI has neither) first on PATH on Windows.
+      - name: fixture ffmpeg
+        run: |
+          fixture="$(command -v ffmpeg)"
+          if command -v cygpath >/dev/null; then fixture="$(cygpath -w "$fixture")"; fi
+          echo "fixture ffmpeg: $fixture ($(ffmpeg -hide_banner -version | sed -n 1p))"
+          echo "OVE_FIXTURE_FFMPEG=$fixture" >> "$GITHUB_ENV"
+      - name: clippy (whole workspace, every crate)
         run: |
           source tools/ffmpeg/env.sh
           cargo clippy --workspace --all-targets --all-features -- -D warnings
-          cargo test --workspace --all-features
+      # Every test runs even when one fails, so one run shows everything that is wrong on a platform.
+      - name: test (whole workspace, every crate)
+        if: ${{ !cancelled() }}
+        run: |
+          source tools/ffmpeg/env.sh
+          cargo test --workspace --all-features --no-fail-fast
       - name: bindings drift
+        if: ${{ !cancelled() }}
         run: |
           source tools/ffmpeg/env.sh
           cargo run -q -p ove-desktop --features bindings --bin export-bindings -- --check
@@ -166,6 +189,7 @@ jobs:
             tools/ffmpeg/out/*/buildconf.txt
             tools/ffmpeg/out/*/sizes.txt
       - name: debug app build
+        if: ${{ !cancelled() }}
         working-directory: apps/desktop
         run: |
           source ../../tools/ffmpeg/env.sh
@@ -190,6 +214,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           prefix-key: v1-rust
+          cache-on-failure: true
           key: app-e2e
       - uses: pnpm/action-setup@v4
         with:
@@ -235,7 +260,8 @@ jobs:
           # bindgen (FFmpeg, whisper.cpp): the runner's LLVM, not whichever libclang.dll PATH finds first.
           "LIBCLANG_PATH=C:\Program Files\LLVM\bin" >> $env:GITHUB_ENV
       # Same build and cache key as the workspace job's FFmpeg.
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
+        id: ffmpeg-cache
         with:
           path: tools/ffmpeg/out
           key: ffmpeg-${{ runner.os == 'Windows' && 'windows' || 'linux' }}-${{ hashFiles('tools/ffmpeg/*.sh') }}
@@ -246,6 +272,12 @@ jobs:
         if: runner.os == 'Windows'
         shell: msys2 {0}
         run: tools/ffmpeg/build.sh --ci
+      # Saved as soon as it is built, so a later failure in this job does not cost the next run a rebuild.
+      - uses: actions/cache/save@v4
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        with:
+          path: tools/ffmpeg/out
+          key: ${{ steps.ffmpeg-cache.outputs.cache-primary-key }}
       - name: test media matrix
         run: python3 tests/media/media.py generate
       - name: tauri-driver
@@ -344,6 +376,7 @@ jobs:
         with:
           # v1: caches from before GGML_NATIVE=OFF hold CPU-specific whisper.cpp objects (.cargo/config.toml).
           prefix-key: v1-rust
+          cache-on-failure: true
       - name: prerequisites (MinGW-w64)
         run: |
           pkgs="gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 mingw-w64-tools nasm meson ninja-build pkg-config cmake clang
