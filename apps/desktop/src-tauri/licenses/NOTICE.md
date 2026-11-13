@@ -18,7 +18,7 @@ your own build of the same version.
 
 FFmpeg is a trademark of Fabrice Bellard, originator of the FFmpeg project.
 
-## dav1d 1.5.4: BSD 2-Clause
+## dav1d: BSD 2-Clause
 
 AV1 decoding, as a shared library used by FFmpeg. Licence: `dav1d-BSD-2-Clause.txt`.
 

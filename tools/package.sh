@@ -60,13 +60,8 @@ shipped() {
 
 case "$TARGET" in
   macos-arm64)
-    # Install names → @rpath so the libraries load from Contents/Frameworks.
-    while read -r f; do
-      install_name_tool -id "@rpath/$(basename "$f")" "$f"
-      for dep in $(otool -L "$f" | awk 'NR>1 {print $1}' | grep "$LIB/lib"); do
-        install_name_tool -change "$dep" "@rpath/$(basename "$dep")" "$f"
-      done
-    done < <(shipped)
+    # Self-contained libraries for Contents/Frameworks: dav1d bundled, @rpath references, signatures renewed.
+    python3 "$ROOT/tools/macos/bundle-libs.py" "$LIB/lib"
     export RUSTFLAGS="${RUSTFLAGS:-} -C link-arg=-Wl,-rpath,@executable_path/../Frameworks"
     python3 - "$GEN" <<PY
 import json, sys
@@ -145,6 +140,10 @@ PY
 fi
 
 BUNDLE_DIR="$OUT_DIR/bundle"
+if [ "$TARGET" = macos-arm64 ]; then
+  # Every library the app and `ove` load must be inside the app or part of macOS.
+  for app in "$BUNDLE_DIR"/macos/*.app; do python3 "$ROOT/tools/macos/bundle-libs.py" --check "$app"; done
+fi
 echo
 echo "Artefacts:"
 status=0
