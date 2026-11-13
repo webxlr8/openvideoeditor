@@ -4,7 +4,8 @@
 //! semi-planar formats the GPU uploads, without colour conversion: luma is copied (shifted to the high bits for
 //! P010), chroma is interleaved and, for 4:2:2/4:4:4 sources, subsampled to 4:2:0 by taking every other sample.
 //! That is a preview simplification (full chroma is kept for export by the compositor in change 6), and it is ~20×
-//! faster than a general swscale conversion at 4K. Range and matrix are carried in [`ColorInfo`].
+//! faster than a general swscale conversion at 4K. Semi-planar 4:2:2 (NV16, P210: what VideoToolbox returns for 4:2:2
+//! sources) is reduced to 4:2:0 the same way. Range and matrix are carried in [`ColorInfo`].
 
 use ffmpeg_the_third::ffi;
 use serde::Serialize;
@@ -275,6 +276,183 @@ pub(crate) unsafe fn to_semiplanar(f: *const ffi::AVFrame) -> Option<(PixelForma
                     Plane { data: uv, stride: cw * 4, width: cw as u32, height: ch as u32 },
                 ],
             ))
+        }
+    }
+}
+
+/// Repack a semi-planar 4:2:2 frame (NV16, NV20, P210, P216 — what VideoToolbox returns for 4:2:2 sources) into
+/// NV12 (8-bit) or P010 (deeper) by keeping every other chroma row. `None` for any other layout.
+///
+/// # Safety
+///
+/// `f` must point to a valid AVFrame whose planes are in CPU memory (not a hardware frame), alive and unmodified
+/// for the duration of the call.
+pub(crate) unsafe fn semiplanar_422_to_420(f: *const ffi::AVFrame) -> Option<(PixelFormat, Vec<Plane>)> {
+    // SAFETY: the caller guarantees `f` is a valid CPU frame. The descriptor is a non-null pointer into FFmpeg's
+    // static table (checked). The format is checked to be little-endian 2-plane YUV with luma in plane 0 and
+    // interleaved Cb/Cr in plane 1, horizontally (not vertically) subsampled, with 1- or 2-byte samples. So row `r`
+    // of the luma plane holds `w` samples at `data[0] + r × linesize[0]`, and every one of the `h` rows of the
+    // chroma plane holds `2 × cw` interleaved samples; every slice below stays inside its plane.
+    unsafe {
+        let fmt = ffi::AVPixelFormat((*f).format);
+        let d = ffi::av_pix_fmt_desc_get(fmt);
+        if d.is_null() {
+            return None;
+        }
+        let d = &*d;
+        let unsupported = (ffi::AV_PIX_FMT_FLAG_RGB
+            | ffi::AV_PIX_FMT_FLAG_ALPHA
+            | ffi::AV_PIX_FMT_FLAG_BE
+            | ffi::AV_PIX_FMT_FLAG_PAL
+            | ffi::AV_PIX_FMT_FLAG_HWACCEL
+            | ffi::AV_PIX_FMT_FLAG_BITSTREAM
+            | ffi::AV_PIX_FMT_FLAG_FLOAT) as u64;
+        let depth = d.comp[0].depth as u32;
+        let bytes = if depth > 8 { 2usize } else { 1 };
+        if d.flags & unsupported != 0
+            || d.flags & ffi::AV_PIX_FMT_FLAG_PLANAR as u64 == 0
+            || d.nb_components != 3
+            || ffi::av_pix_fmt_count_planes(fmt) != 2
+            || d.log2_chroma_w != 1
+            || d.log2_chroma_h != 0
+            || d.comp[0].plane != 0
+            || d.comp[1].plane != 1
+            || d.comp[2].plane != 1
+            || d.comp[0].step as usize != bytes
+            || d.comp[1].step as usize != 2 * bytes
+            || d.comp[2].step as usize != 2 * bytes
+            || d.comp[1].offset as usize != 0
+            || d.comp[2].offset as usize != bytes
+            || d.comp[1].depth as u32 != depth
+            || d.comp[1].shift != d.comp[0].shift
+            || depth + d.comp[0].shift as u32 > 8 * bytes as u32
+        {
+            return None;
+        }
+        let (w, h) = ((*f).width as usize, (*f).height as usize);
+        if w == 0 || h == 0 {
+            return None;
+        }
+        let (cw, ch) = (w.div_ceil(2), h.div_ceil(2));
+        let (yp, yls) = ((*f).data[0] as *const u8, (*f).linesize[0] as isize);
+        let (cp, cls) = ((*f).data[1] as *const u8, (*f).linesize[1] as isize);
+        if bytes == 1 {
+            let mut y = vec![0u8; w * h];
+            for (r, row) in y.chunks_exact_mut(w).enumerate() {
+                row.copy_from_slice(std::slice::from_raw_parts(yp.offset(r as isize * yls), w));
+            }
+            let mut uv = vec![0u8; cw * 2 * ch];
+            for (r, row) in uv.chunks_exact_mut(cw * 2).enumerate() {
+                row.copy_from_slice(std::slice::from_raw_parts(cp.offset((r << 1) as isize * cls), cw * 2));
+            }
+            Some((
+                PixelFormat::Nv12,
+                vec![
+                    Plane { data: y, stride: w, width: w as u32, height: h as u32 },
+                    Plane { data: uv, stride: cw * 2, width: cw as u32, height: ch as u32 },
+                ],
+            ))
+        } else {
+            // P010 keeps samples in the high bits: move them there whatever the source alignment.
+            let shift = 16 - depth - d.comp[0].shift as u32;
+            let widen = |src: &[u16], out: &mut [u8]| {
+                for (o, s) in out.chunks_exact_mut(2).zip(src) {
+                    o.copy_from_slice(&(u16::from_le(*s) << shift).to_le_bytes());
+                }
+            };
+            let mut y = vec![0u8; w * h * 2];
+            for (r, row) in y.chunks_exact_mut(w * 2).enumerate() {
+                widen(std::slice::from_raw_parts(yp.offset(r as isize * yls) as *const u16, w), row);
+            }
+            let mut uv = vec![0u8; cw * 4 * ch];
+            for (r, row) in uv.chunks_exact_mut(cw * 4).enumerate() {
+                widen(std::slice::from_raw_parts(cp.offset((r << 1) as isize * cls) as *const u16, cw * 2), row);
+            }
+            Some((
+                PixelFormat::P010,
+                vec![
+                    Plane { data: y, stride: w * 2, width: w as u32, height: h as u32 },
+                    Plane { data: uv, stride: cw * 4, width: cw as u32, height: ch as u32 },
+                ],
+            ))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ffmpeg_the_third::format::Pixel;
+    use ffmpeg_the_third::frame::Video;
+
+    /// A `w`×`h` frame whose luma sample at (x, y) is `luma(x, y)` and whose chroma pair at (cx, y) is
+    /// `(cb(cx, y), cr(cx, y))`, written as 16-bit words (or bytes for 8-bit formats).
+    fn semiplanar_frame(fmt: Pixel, w: u32, h: u32, wide: bool) -> Video {
+        let mut f = Video::new(fmt, w, h);
+        let (ys, cs) = (f.stride(0), f.stride(1));
+        let cw = w.div_ceil(2) as usize;
+        let put = |buf: &mut [u8], i: usize, v: u16| {
+            if wide {
+                buf[2 * i..2 * i + 2].copy_from_slice(&v.to_le_bytes());
+            } else {
+                buf[i] = v as u8;
+            }
+        };
+        let bpp = if wide { 2 } else { 1 };
+        for y in 0..h as usize {
+            let row = &mut f.data_mut(0)[y * ys..y * ys + w as usize * bpp];
+            for x in 0..w as usize {
+                put(row, x, (y * 16 + x) as u16);
+            }
+        }
+        for y in 0..h as usize {
+            let row = &mut f.data_mut(1)[y * cs..y * cs + cw * 2 * bpp];
+            for cx in 0..cw {
+                put(row, 2 * cx, (100 + y * 8 + cx) as u16);
+                put(row, 2 * cx + 1, (200 + y * 8 + cx) as u16);
+            }
+        }
+        f
+    }
+
+    fn word(p: &Plane, row: usize, i: usize) -> u16 {
+        let o = row * p.stride + 2 * i;
+        u16::from_le_bytes([p.data[o], p.data[o + 1]])
+    }
+
+    #[test]
+    fn nv16_becomes_nv12_keeping_even_chroma_rows() {
+        let f = semiplanar_frame(Pixel::NV16, 6, 4, false);
+        // SAFETY: `f` is a valid CPU frame that outlives the call.
+        let (fmt, planes) = unsafe { semiplanar_422_to_420(f.as_ptr()) }.expect("NV16 is handled");
+        assert_eq!(fmt, PixelFormat::Nv12);
+        assert_eq!((planes[0].width, planes[0].height, planes[1].width, planes[1].height), (6, 4, 3, 2));
+        assert_eq!(planes[0].data[3 * 6 + 5], (3 * 16 + 5) as u8);
+        // Output chroma row 1 is source row 2.
+        let uv = &planes[1];
+        assert_eq!(&uv.data[uv.stride..uv.stride + 2], &[(100 + 16) as u8, (200 + 16) as u8]);
+    }
+
+    #[test]
+    fn p210_becomes_p010_unchanged_and_p216_too() {
+        for fmt in [Pixel::P210LE, Pixel::P216LE] {
+            let f = semiplanar_frame(fmt, 5, 3, true);
+            // SAFETY: `f` is a valid CPU frame that outlives the call.
+            let (out, planes) = unsafe { semiplanar_422_to_420(f.as_ptr()) }.expect("handled");
+            assert_eq!(out, PixelFormat::P010, "{fmt:?}");
+            assert_eq!((planes[1].width, planes[1].height), (3, 2));
+            assert_eq!(word(&planes[0], 2, 4), 2 * 16 + 4);
+            assert_eq!(word(&planes[1], 1, 2), 100 + 16 + 1);
+            assert_eq!(word(&planes[1], 1, 3), 200 + 16 + 1);
+        }
+    }
+
+    #[test]
+    fn other_layouts_are_left_to_the_caller() {
+        for fmt in [Pixel::NV12, Pixel::P010LE, Pixel::YUV422P10LE, Pixel::RGBA, Pixel::NV24] {
+            let f = Video::new(fmt, 4, 4);
+            // SAFETY: `f` is a valid CPU frame that outlives the call.
+            assert!(unsafe { semiplanar_422_to_420(f.as_ptr()) }.is_none(), "{fmt:?}");
         }
     }
 }

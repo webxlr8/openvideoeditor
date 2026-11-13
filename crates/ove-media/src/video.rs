@@ -333,6 +333,9 @@ impl FfmpegVideoDecoder {
                 // and outlives the call (the contract of `to_semiplanar`).
                 } else if let Some(out) = unsafe { crate::convert::to_semiplanar(frame.as_ptr()) } {
                     out
+                // SAFETY: as above: a valid CPU frame that outlives the call.
+                } else if let Some(out) = unsafe { crate::convert::semiplanar_422_to_420(frame.as_ptr()) } {
+                    out
                 } else {
                     copies += 1;
                     let target = ffi::AVPixelFormat::RGBA;
