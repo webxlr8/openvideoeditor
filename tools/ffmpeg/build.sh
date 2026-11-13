@@ -144,7 +144,8 @@ if [ "$TARGET" = windows-x64 ]; then
     exit 2
   fi
   export PKG_CONFIG_PATH="$VCPKG_DEPS/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
-  # configure falls back to zlib.h and -lz (z.lib under MSVC) when pkg-config does not answer; vcpkg names it zlib.lib.
+  # configure falls back to zlib.h and -lz (z.lib under MSVC) when pkg-config does not answer, and MSVC link takes
+  # -LIBPATH: (configure translates only the flags it gets from pkg-config).
   # The library's name depends on the zlib version: z.lib, zlib.lib or zlib1.lib.
   rm -rf "$DEPS" && mkdir -p "$DEPS/lib"
   for n in z zlib zlib1; do
@@ -153,7 +154,7 @@ if [ "$TARGET" = windows-x64 ]; then
   [ -f "$DEPS/lib/z.lib" ] || { echo "no zlib import library in $VCPKG_DEPS/lib:" >&2; ls "$VCPKG_DEPS/lib" >&2; exit 2; }
   echo "vcpkg: $(cd "$VCPKG_DEPS/lib" && ls ./*.lib | tr '\n' ' ')/ $(cd "$VCPKG_DEPS/bin" && ls ./*.dll | tr '\n' ' ')"
   WIN_DEP_FLAGS=(--extra-cflags=-I"$(cygpath -m "$VCPKG_DEPS/include")"
-    --extra-ldflags=-L"$(cygpath -m "$VCPKG_DEPS/lib")" --extra-ldflags=-L"$(cygpath -m "$DEPS/lib")")
+    --extra-ldflags=-LIBPATH:"$(cygpath -m "$VCPKG_DEPS/lib")" --extra-ldflags=-LIBPATH:"$(cygpath -m "$DEPS/lib")")
 fi
 
 # --- configuration ----------------------------------------------------------------------------------------------------
