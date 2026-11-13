@@ -222,7 +222,8 @@ def atomic_write(name, build):
     tmp = tmp_name(name)
     try:
         build(tmp)
-        with open(tmp, "rb") as f:
+        # Read/write: Windows' fsync (_commit) refuses a read-only descriptor with EBADF.
+        with open(tmp, "r+b") as f:
             os.fsync(f.fileno())
         os.replace(tmp, os.path.join(FILES, name))
     finally:
