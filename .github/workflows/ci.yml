@@ -2,6 +2,8 @@ name: CI
 
 on:
   pull_request:
+  # The release workflow runs this whole suite on the tagged commit before it publishes anything.
+  workflow_call:
   push:
     # Work branches too, so a branch is tested on the macOS/Windows runners before it reaches main.
     branches: [main, "claude/**"]

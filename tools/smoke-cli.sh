@@ -46,6 +46,79 @@ ove verify "$P"
 ove export "$P" "$(native "$WORK/out.mp4")" --height 360 --fps 25 2>&1 | tee "$WORK/export.log"
 ove timeline export "$P" "$(native "$WORK/out.fcpxml")"
 
+# --- Editing as text, history and undo -------------------------------------------------------------------------
+"$OVE" --library "$LIB" source print "$P" > "$WORK/t.tsx"
+python3 - "$(native "$WORK/t.tsx")" <<'PY'
+import sys
+p = sys.argv[1]; s = open(p, encoding="utf-8").read()
+key = '<track id="t_text" name="Text" kind="video">'
+assert key in s, "text track missing from the projection"
+s = s.replace(key, key + '\n      <text start={0.5} end={3} textContent="Smoke title" />', 1)
+open(p, "w", encoding="utf-8").write(s)
+PY
+ove source check "$P" "$(native "$WORK/t.tsx")"
+ove source apply "$P" "$(native "$WORK/t.tsx")"
+"$OVE" --library "$LIB" source print "$P" | grep -q 'textContent="Smoke title"' || { echo "text edit not applied" >&2; exit 1; }
+revs=$("$OVE" --library "$LIB" history "$P" | wc -l)
+[ "$revs" -ge 3 ] || { echo "expected at least 3 revisions, got $revs" >&2; exit 1; }
+ove undo "$P"
+if "$OVE" --library "$LIB" source print "$P" | grep -q 'Smoke title'; then echo "undo did not remove the text" >&2; exit 1; fi
+ove verify "$P"
+
+# --- Audio analysis and frame statistics ---------------------------------------------------------------------
+ove audio levels "$P" audio_aac.m4a
+ove audio silence "$P" audio_aac.m4a
+ove audio loudness "$P" audio_aac.m4a
+ove look "$P" --count 3 --stats
+
+# --- A second export with other settings ---------------------------------------------------------------------
+ove export "$P" "$(native "$WORK/out720.mp4")" --height 720 --fps 24
+[ -s "$WORK/out720.mp4" ] || { echo "720p export wrote nothing" >&2; exit 1; }
+
+# --- Timeline exchange round trip: every format back into a new project --------------------------------------
+for ext in fcpxml xml edl otio; do
+  ove timeline export "$P" "$(native "$WORK/rt.$ext")"
+  ove project create "RT $ext"
+  ove timeline import "RT $ext" "$(native "$WORK/rt.$ext")"
+  n=$("$OVE" --library "$LIB" source print "RT $ext" | grep -c '<clip' || true)
+  [ "$n" -ge 1 ] || { echo "round trip through .$ext imported no clips" >&2; exit 1; }
+  echo "round trip .$ext: $n clips"
+done
+
+# --- MCP server: the protocol an AI agent uses ---------------------------------------------------------------
+step mcp
+python3 - "$OVE" "$LIB" "$P" <<'PY'
+import json, subprocess, sys
+ove, lib, project = sys.argv[1:4]
+proc = subprocess.Popen([ove, "--library", lib, "mcp"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+def call(i, method, params=None):
+    msg = {"jsonrpc": "2.0", "id": i, "method": method}
+    if params is not None:
+        msg["params"] = params
+    proc.stdin.write(json.dumps(msg) + "\n"); proc.stdin.flush()
+    while True:
+        line = proc.stdout.readline()
+        if not line:
+            sys.exit(f"MCP server closed during {method}")
+        reply = json.loads(line)
+        if reply.get("id") == i:
+            if "error" in reply:
+                sys.exit(f"MCP {method} failed: {reply['error']}")
+            return reply["result"]
+init = call(1, "initialize", {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "smoke", "version": "1"}})
+proc.stdin.write(json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}) + "\n"); proc.stdin.flush()
+tools = [t["name"] for t in call(2, "tools/list")["tools"]]
+for needed in ("list_projects", "print_timeline", "apply_timeline", "verify_timeline"):
+    assert needed in tools, f"MCP tool {needed} missing"
+listed = call(3, "tools/call", {"name": "list_projects", "arguments": {}})
+assert not listed.get("isError"), listed
+printed = call(4, "tools/call", {"name": "print_timeline", "arguments": {"project": project}})
+text = "".join(c.get("text", "") for c in printed.get("content", []))
+assert "<timeline" in text, "print_timeline returned no timeline"
+proc.stdin.close(); proc.wait(timeout=30)
+print(f"MCP ok: server {init.get('serverInfo', {}).get('name')}, {len(tools)} tools")
+PY
+
 echo
 echo "== outputs"
 [ -s "$WORK/out.mp4" ] || { echo "export wrote no MP4" >&2; exit 1; }

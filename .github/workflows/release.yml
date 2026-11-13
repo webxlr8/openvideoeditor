@@ -23,8 +23,6 @@ permissions:
 jobs:
   package-macos:
     if: vars.OVE_RELEASE_MACOS != 'false'
-    # A failed macOS build does not hold back the Windows installer; publish lists it as missing.
-    continue-on-error: true
     runs-on: ${{ fromJSON(vars.OVE_RUNNER_MACOS || '"macos-15"') }}
     defaults:
       run:
@@ -54,6 +52,24 @@ jobs:
           python3 tests/media/media.py generate
           app=$(ls -d target/release/bundle/macos/*.app | head -1)
           tools/smoke-cli.sh "$app/Contents/MacOS/ove"
+      - name: the app starts and stays up
+        run: |
+          app=$(ls -d target/release/bundle/macos/*.app | head -1)
+          exe=$(ls "$app/Contents/MacOS/" | grep -v '^ove$' | head -1)
+          "$app/Contents/MacOS/$exe" > "$RUNNER_TEMP/app-macos.log" 2>&1 &
+          pid=$!
+          sleep 25
+          kill -0 "$pid" || { echo "::error::the app exited early"; tail -50 "$RUNNER_TEMP/app-macos.log"; exit 1; }
+          screencapture -x "$RUNNER_TEMP/app-macos.png" || true
+          kill "$pid"
+          tail -20 "$RUNNER_TEMP/app-macos.log"
+          if grep -E "panicked|ERROR" "$RUNNER_TEMP/app-macos.log"; then echo "::error::errors in the app log"; exit 1; fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-app-screenshot
+          path: ${{ runner.temp }}/app-macos.*
+          if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
           name: installers-macos
@@ -189,13 +205,22 @@ jobs:
           path: ${{ runner.temp }}/app-windows.png
           if-no-files-found: ignore
 
+  ci:
+    # The full CI suite (every OS, every crate, UI, app end-to-end) on the tagged commit; nothing publishes unless it
+    # passes. Branch dry runs skip it: CI already runs on every push.
+    if: startsWith(github.ref, 'refs/tags/v')
+    uses: ./.github/workflows/ci.yml
+
   publish:
     # Only for tags: a draft pre-release with the installers that were built and checksums. A person reviews and
     # publishes it. Needs the Windows installer; macOS is added when its job succeeded.
+    # Publishes only when everything passed: CI on every OS, the Windows installer and its real-Windows test, and the
+    # macOS build and its tests (unless OVE_RELEASE_MACOS is `false`).
     if: >-
-      always() && startsWith(github.ref, 'refs/tags/v') && needs.package-windows.result == 'success'
-      && needs.smoke-windows.result == 'success'
-    needs: [package-windows, smoke-windows, package-macos]
+      always() && startsWith(github.ref, 'refs/tags/v') && needs.ci.result == 'success'
+      && needs.package-windows.result == 'success' && needs.smoke-windows.result == 'success'
+      && (needs.package-macos.result == 'success' || vars.OVE_RELEASE_MACOS == 'false')
+    needs: [ci, package-windows, smoke-windows, package-macos]
     runs-on: ${{ fromJSON(vars.OVE_RUNNER_LINUX || '"ubuntu-24.04"') }}
     permissions:
       contents: write
