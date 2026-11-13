@@ -136,25 +136,26 @@ EOF
 fi
 
 # --- native Windows dependencies (windows-x64, MSVC) ----------------------------------------------------------------
-# dav1d and zlib from vcpkg (`vcpkg install dav1d:x64-windows zlib:x64-windows`); their DLLs go next to FFmpeg's.
+# dav1d from vcpkg (`vcpkg install dav1d:x64-windows`; its DLL goes next to FFmpeg's). zlib is built from the same
+# pinned source as the cross build and linked statically, so FFmpeg's DLLs need no zlib DLL.
 if [ "$TARGET" = windows-x64 ]; then
   VCPKG_DEPS="${OVE_VCPKG_INSTALLED:-$(cygpath -u "${VCPKG_INSTALLATION_ROOT:-${VCPKG_ROOT:-C:/vcpkg}}")/installed/x64-windows}"
-  if [ ! -f "$VCPKG_DEPS/lib/pkgconfig/dav1d.pc" ] || [ ! -f "$VCPKG_DEPS/lib/pkgconfig/zlib.pc" ]; then
-    echo "dav1d and zlib are needed in $VCPKG_DEPS: vcpkg install dav1d:x64-windows zlib:x64-windows" >&2
+  if [ ! -f "$VCPKG_DEPS/lib/pkgconfig/dav1d.pc" ]; then
+    echo "dav1d is needed in $VCPKG_DEPS: vcpkg install dav1d:x64-windows" >&2
     exit 2
   fi
   export PKG_CONFIG_PATH="$VCPKG_DEPS/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
-  # configure falls back to zlib.h and -lz (z.lib under MSVC) when pkg-config does not answer, and MSVC link takes
-  # -LIBPATH: (configure translates only the flags it gets from pkg-config).
-  # The library's name depends on the zlib version: z.lib, zlib.lib or zlib1.lib.
-  rm -rf "$DEPS" && mkdir -p "$DEPS/lib"
-  for n in z zlib zlib1; do
-    if [ -f "$VCPKG_DEPS/lib/$n.lib" ]; then cp "$VCPKG_DEPS/lib/$n.lib" "$DEPS/lib/z.lib"; break; fi
-  done
-  [ -f "$DEPS/lib/z.lib" ] || { echo "no zlib import library in $VCPKG_DEPS/lib:" >&2; ls "$VCPKG_DEPS/lib" >&2; exit 2; }
-  echo "vcpkg: $(cd "$VCPKG_DEPS/lib" && ls ./*.lib | tr '\n' ' ')/ $(cd "$VCPKG_DEPS/bin" && ls ./*.dll | tr '\n' ' ')"
-  WIN_DEP_FLAGS=(--extra-cflags=-I"$(cygpath -m "$VCPKG_DEPS/include")"
-    --extra-ldflags=-LIBPATH:"$(cygpath -m "$VCPKG_DEPS/lib")" --extra-ldflags=-LIBPATH:"$(cygpath -m "$DEPS/lib")")
+  command -v nmake >/dev/null || { echo "nmake is needed (run inside the MSVC developer environment)" >&2; exit 2; }
+  rm -rf "$DEPS" "$WORK/zlib-${ZLIB_VERSION}" && mkdir -p "$DEPS/include" "$DEPS/lib"
+  fetch "$ZLIB_URL" "$ZLIB_SHA256"
+  (cd "$WORK/zlib-${ZLIB_VERSION}" && nmake -nologo -f win32/Makefile.msc zlib.lib) > "$OUT/zlib.log" 2>&1 \
+    || { tail -30 "$OUT/zlib.log"; exit 1; }
+  cp "$WORK/zlib-${ZLIB_VERSION}"/{zlib.h,zconf.h} "$DEPS/include/"
+  # configure checks zlib with -lz, which MSVC links as z.lib.
+  cp "$WORK/zlib-${ZLIB_VERSION}/zlib.lib" "$DEPS/lib/z.lib"
+  # MSVC link takes -LIBPATH: (configure translates only the flags it gets from pkg-config).
+  WIN_DEP_FLAGS=(--extra-cflags=-I"$(cygpath -m "$DEPS/include")"
+    --extra-ldflags=-LIBPATH:"$(cygpath -m "$DEPS/lib")" --extra-ldflags=-LIBPATH:"$(cygpath -m "$VCPKG_DEPS/lib")")
 fi
 
 # --- configuration ----------------------------------------------------------------------------------------------------
@@ -227,8 +228,8 @@ grep -E '^#define (FFMPEG_CONFIGURATION|FFMPEG_LICENSE|CONFIG_GPL|CONFIG_NONFREE
 make -j"$JOBS" > "$OUT/make.log" 2>&1 || { tail -40 "$OUT/make.log"; exit 1; }
 make install > /dev/null
 if [ "$TARGET" = windows-x64 ]; then
-  # FFmpeg's DLLs import dav1d's and zlib's (z.dll, zlib1.dll or zlib.dll, by version).
-  for dll in "$VCPKG_DEPS"/bin/*.dll; do case "$(basename "$dll")" in dav1d.dll|z.dll|zlib1.dll|zlib.dll) cp "$dll" "$OUT/bin/" ;; esac; done
+  # FFmpeg's DLLs import dav1d's.
+  cp "$VCPKG_DEPS/bin/dav1d.dll" "$OUT/bin/"
 fi
 
 # --- records ----------------------------------------------------------------------------------------------------------
