@@ -302,7 +302,7 @@ impl Session {
             }
             (_, Err(e)) => {
                 *audio_ok = false;
-                tracing::warn!(error = %e, "no audio output device; video plays on the system clock");
+                no_audio_device(&e);
                 None
             }
             (None, Ok(_)) => None,
@@ -353,7 +353,7 @@ impl Session {
             None => match AudioOutput::open_default(time.clone()) {
                 Ok(o) => Some(o),
                 Err(e) => {
-                    tracing::warn!(error = %e, "no audio output device; the timeline plays on the system clock");
+                    no_audio_device(&e);
                     None
                 }
             },
@@ -499,6 +499,16 @@ fn map_command(cmd: TransportCommand, s: &Session) -> Vec<Command> {
 pub fn frame_index(pts_us: i64, fps: f64) -> u32 {
     // Timestamps are rounded to whole microseconds, so a frame start can sit up to 0.5 µs early.
     ((pts_us as f64 + 1.0) * fps / 1e6).floor().max(0.0) as u32
+}
+
+/// Logs a missing audio output once as a warning (every timeline change reopens the output), then at debug level.
+fn no_audio_device(e: &dyn std::fmt::Display) {
+    static WARNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if WARNED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+        tracing::debug!(error = %e, "no audio output device; playback runs on the system clock");
+    } else {
+        tracing::warn!(error = %e, "no audio output device; playback runs on the system clock");
+    }
 }
 
 fn snapshot(s: Option<&Session>, volume: f64, muted: bool, audio_available: bool) -> PlaybackState {
