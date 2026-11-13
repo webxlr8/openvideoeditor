@@ -17,7 +17,7 @@ on:
     branches: ["claude/**"]
     paths: [".github/workflows/release.yml", "crates/**", "apps/desktop/**", "Cargo.toml", "Cargo.lock", ".cargo/**",
             "tools/package.sh", "tools/notices.sh", "tools/notices/**", "tools/ffmpeg/**", "tools/cross/**",
-            "tools/macos/**", "tools/smoke-cli.sh", "about.toml", ".gitattributes"]
+            "tools/macos/**", "tools/smoke-cli.sh", "tools/preview-check.sh", "about.toml", ".gitattributes"]
 
 concurrency:
   group: release-${{ github.ref }}
@@ -75,6 +75,25 @@ jobs:
           kill "$pid"
           tail -20 "$RUNNER_TEMP/app-macos.log"
           if grep -E "panicked|ERROR" "$RUNNER_TEMP/app-macos.log"; then echo "::error::errors in the app log"; exit 1; fi
+      # A capture of the real screen with a magenta clip open: frame counters cannot tell whether the picture shows.
+      - name: the viewer shows the picture (the default viewer, on the real screen)
+        run: |
+          app=$(ls -d target/release/bundle/macos/*.app | head -1)
+          exe=$(ls "$app/Contents/MacOS/" | grep -v '^ove$' | head -1)
+          tools/preview-check.sh "$app/Contents/MacOS/ove" "$app/Contents/MacOS/$exe" "$RUNNER_TEMP/preview/macos-default.png"
+      - name: the stream viewer on macOS (for information; not the default)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: |
+          app=$(ls -d target/release/bundle/macos/*.app | head -1)
+          exe=$(ls "$app/Contents/MacOS/" | grep -v '^ove$' | head -1)
+          tools/preview-check.sh "$app/Contents/MacOS/ove" "$app/Contents/MacOS/$exe" "$RUNNER_TEMP/preview/macos-stream.png" stream
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: preview-macos
+          path: ${{ runner.temp }}/preview
+          if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -199,6 +218,10 @@ jobs:
         run: |
           choco install -y ffmpeg > /dev/null
           tools/smoke-cli.sh "$(cygpath -u "$OVE_DIR")/ove.exe"
+      - name: display resolution (the runner's default 1024x768 is smaller than the app's window)
+        shell: pwsh
+        continue-on-error: true
+        run: Set-DisplayResolution -Width 1920 -Height 1080 -Force
       - name: the app starts and stays up
         shell: pwsh
         run: |
@@ -217,6 +240,24 @@ jobs:
           Stop-Process -Id $app.Id
           $logs = Get-ChildItem -Path $env:LOCALAPPDATA, $env:APPDATA -Recurse -Filter 'ove*.log' -ErrorAction SilentlyContinue | Select-Object -First 1
           if ($logs) { Get-Content $logs.FullName -Tail 40 }
+      - name: the viewer shows the picture (the default viewer, on the real screen)
+        shell: bash
+        run: |
+          dir="$(cygpath -u "$OVE_DIR")"
+          tools/preview-check.sh "$dir/ove.exe" "$dir/ove-desktop.exe" "$(cygpath -u "$RUNNER_TEMP")/preview/windows-default.png"
+      - name: the native viewer on Windows (for information; not the default)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          dir="$(cygpath -u "$OVE_DIR")"
+          tools/preview-check.sh "$dir/ove.exe" "$dir/ove-desktop.exe" "$(cygpath -u "$RUNNER_TEMP")/preview/windows-below.png" below
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: preview-windows
+          path: ${{ runner.temp }}/preview
+          if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         if: always()
         with:

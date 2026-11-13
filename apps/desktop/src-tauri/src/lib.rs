@@ -351,14 +351,18 @@ fn save_window(app: &tauri::AppHandle, window: &tauri::Window) {
     }
 }
 
-/// Requested viewer layering: `OVE_VIEWER_LAYERING=below|above|stream` (default: below on
-/// macOS/Windows, stream elsewhere).
+/// Requested viewer layering: `OVE_VIEWER_LAYERING=below|above|stream` (default: below on macOS, stream elsewhere).
+///
+/// Windows uses the stream viewer: a child window under a transparent WebView2 is not shown (the page's transparent
+/// area reveals the desktop behind the app window instead), measured on Windows Server 2025 with WebView2 156. The
+/// release workflow checks the picture of the default viewer on a real screen on macOS and Windows
+/// (tools/preview-check.sh).
 pub fn requested_backend() -> ViewerBackend {
     match std::env::var("OVE_VIEWER_LAYERING").as_deref() {
         Ok("stream") => ViewerBackend::Stream,
         Ok("above") => ViewerBackend::NativeAbove,
         Ok("below") => ViewerBackend::NativeBelow,
-        _ if cfg!(any(target_os = "macos", windows)) => ViewerBackend::NativeBelow,
+        _ if cfg!(target_os = "macos") => ViewerBackend::NativeBelow,
         _ => ViewerBackend::Stream,
     }
 }

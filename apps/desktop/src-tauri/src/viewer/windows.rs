@@ -3,9 +3,10 @@
 //! transparent background; candidate 2 puts it on top. Mouse input passes through to the web
 //! view either way (`HTTRANSPARENT`).
 //!
-//! UNVERIFIED on hardware: compiled for x86_64-pc-windows-msvc only; whether WebView2's
-//! transparent background reveals a sibling child window below it must be measured (task 5.2).
-//! The DirectComposition-visual variant of candidate 1 is not implemented yet.
+//! Not the default (see `requested_backend`): measured on Windows Server 2025 with WebView2 156, candidate 1 shows
+//! the desktop behind the app window where the picture should be: WebView2's transparent background does not reveal
+//! a sibling child window below it. Candidate 2 is unmeasured. The DirectComposition-visual variant of candidate 1 is
+//! not implemented yet. Selected only with `OVE_VIEWER_LAYERING=below|above`.
 
 use std::num::NonZeroIsize;
 use std::sync::Once;

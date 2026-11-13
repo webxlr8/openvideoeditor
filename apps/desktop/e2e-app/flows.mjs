@@ -429,11 +429,13 @@ export const FLOWS = [
       if (backend === "stream") {
         await app.waitFor(async () => (await litViewerPixels(app)) > 20, "a rendered frame in the viewer canvas", 30000);
       } else {
+        // WebDriver cannot see a native surface under the page (the release workflow checks it on the real screen,
+        // tools/preview-check.sh).
         ctx.log(`    native viewer (${backend}): checked through the presented-frame count`);
-        // WebDriver cannot see the native surface under the page; a capture of the real screen is kept to look at.
-        const shot = captureScreen(path.join(ctx.out, "viewer-screen.png"));
-        if (shot) ctx.log(`    screen capture: ${shot}`);
       }
+      // Windows: a capture of the real screen, kept with the artefacts.
+      const shot = captureScreen(path.join(ctx.out, "viewer-screen.png"));
+      if (shot) ctx.log(`    screen capture: ${shot}`);
       assert.equal(await app.count("region-error"), 0);
     },
   },
