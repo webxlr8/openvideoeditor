@@ -33,7 +33,12 @@ function permitted(expr, allowed) {
 function list(prod) {
   const args = ["licenses", "list", "--json"];
   if (prod) args.push("--prod");
-  const out = execFileSync("pnpm", args, { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] });
+  // pnpm is pnpm.cmd on Windows, which only a shell can start (the arguments are fixed literals).
+  const out = execFileSync("pnpm", args, {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "inherit"],
+    shell: process.platform === "win32",
+  });
   return JSON.parse(out || "{}");
 }
 
