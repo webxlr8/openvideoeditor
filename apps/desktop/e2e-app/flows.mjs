@@ -5,7 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { Key } from "./lib/session.mjs";
-import { WINDOWS, bundleItems, ffprobe, makeSpeech, revisionFiles } from "./lib/support.mjs";
+import { WINDOWS, bundleItems, captureScreen, ffprobe, makeSpeech, revisionFiles } from "./lib/support.mjs";
 
 // ---------------------------------------------------------------------------------------------------------------
 // Shared steps
@@ -424,9 +424,16 @@ export const FLOWS = [
       const before = await presented();
       await clickClip(app, first.id, 0.9);
       await app.waitFor(async () => (await presented()) > before, "the viewer to present a frame", 30000);
-      if (app.info.viewerBackend === "stream") {
+      // Asked now, not at launch: the native viewer attaches some seconds after the window appears.
+      const backend = (await app.invoke("app_info")).viewerBackend;
+      if (backend === "stream") {
         await app.waitFor(async () => (await litViewerPixels(app)) > 20, "a rendered frame in the viewer canvas", 30000);
-      } else ctx.log(`    native viewer (${app.info.viewerBackend}): checked through the presented-frame count`);
+      } else {
+        ctx.log(`    native viewer (${backend}): checked through the presented-frame count`);
+        // WebDriver cannot see the native surface under the page; a capture of the real screen is kept to look at.
+        const shot = captureScreen(path.join(ctx.out, "viewer-screen.png"));
+        if (shot) ctx.log(`    screen capture: ${shot}`);
+      }
       assert.equal(await app.count("region-error"), 0);
     },
   },

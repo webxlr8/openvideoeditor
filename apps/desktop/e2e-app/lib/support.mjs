@@ -108,6 +108,20 @@ export function which(cmd) {
   return r.status === 0 ? r.stdout.split(/\r?\n/)[0].trim() : null;
 }
 
+/** A picture of the real screen (Windows only; elsewhere null). Not a check: kept with the artefacts. */
+export function captureScreen(file) {
+  if (!WINDOWS) return null;
+  const ps = [
+    "Add-Type -AssemblyName System.Windows.Forms, System.Drawing",
+    "$b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds",
+    "$bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height",
+    "[System.Drawing.Graphics]::FromImage($bmp).CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)",
+    `$bmp.Save('${file.replace(/'/g, "''")}')`,
+  ].join("; ");
+  const r = spawnSync("powershell", ["-NoProfile", "-NonInteractive", "-Command", ps], { stdio: "ignore" });
+  return r.status === 0 && fs.existsSync(file) ? file : null;
+}
+
 /** Stream types and duration of a media file, or null when ffprobe is not available. */
 export function ffprobe(file) {
   const bin = process.env.OVE_E2E_FFPROBE || which("ffprobe");

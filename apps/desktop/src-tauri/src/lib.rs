@@ -628,7 +628,9 @@ mod tests {
     fn args_are_filtered_and_resolved() {
         let args = vec!["-v".to_string(), "psn_0_123".into(), "clip.mov".into(), "/abs/a.mp4".into()];
         let paths = paths_from_args(&args, Path::new("/work"));
-        assert_eq!(paths, vec!["/work/clip.mov".to_string(), "/abs/a.mp4".to_string()]);
+        // The relative path is joined with the platform's separator.
+        let joined = Path::new("/work").join("clip.mov").display().to_string();
+        assert_eq!(paths, vec![joined, "/abs/a.mp4".to_string()]);
     }
 
     #[test]
@@ -686,7 +688,9 @@ mod tests {
                     cmd: cmd.into(),
                     callback: CallbackFn(0),
                     error: CallbackFn(1),
-                    url: "tauri://localhost".parse().unwrap(),
+                    // The app's own origin (elsewhere Tauri treats the call as coming from a remote page and
+                    // refuses it): WebView2 serves the app from http://tauri.localhost.
+                    url: if cfg!(windows) { "http://tauri.localhost" } else { "tauri://localhost" }.parse().unwrap(),
                     body: InvokeBody::default(),
                     headers: Default::default(),
                     invoke_key: tauri::test::INVOKE_KEY.to_string(),
