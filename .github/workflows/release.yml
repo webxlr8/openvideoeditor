@@ -15,7 +15,7 @@ on:
     # Dry runs: work branches that change packaging build and smoke-test the installers without publishing.
     branches: ["claude/**"]
     paths: [".github/workflows/release.yml", "tools/package.sh", "tools/notices.sh", "tools/notices/**",
-            "tools/ffmpeg/**", "tools/cross/**", "tools/macos/**", "tools/smoke-cli.sh", "about.toml", ".gitattributes", "apps/desktop/src-tauri/tauri.conf.json"]
+            "tools/ffmpeg/**", "tools/cross/**", "tools/macos/**", ".cargo/**", "tools/smoke-cli.sh", "about.toml", ".gitattributes", "apps/desktop/src-tauri/tauri.conf.json"]
 
 permissions:
   contents: read

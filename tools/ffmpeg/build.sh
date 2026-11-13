@@ -218,7 +218,7 @@ case "$TARGET" in
 esac
 
 cd "$SRC"
-./configure "${FLAGS[@]}" > "$OUT/configure.log" 2>&1 || { tail -40 "$OUT/configure.log"; echo "--- ffbuild/config.log (end)"; tail -60 ffbuild/config.log 2>/dev/null; exit 1; }
+./configure "${FLAGS[@]}" > "$OUT/configure.log" 2>&1 || { tail -40 "$OUT/configure.log"; echo "--- ffbuild/config.log: the dependency checks"; grep -n -A14 -E "^(check_pkg_config|check_lib|require_pkg_config) (zlib|libdav1d)" ffbuild/config.log 2>/dev/null | head -150; echo "--- (end)"; tail -30 ffbuild/config.log 2>/dev/null; exit 1; }
 
 # Licence gate on the configured result before spending time compiling.
 grep -E '^#define (FFMPEG_CONFIGURATION|FFMPEG_LICENSE|CONFIG_GPL|CONFIG_NONFREE|CONFIG_VERSION3) ' config.h > "$OUT/license.txt"
