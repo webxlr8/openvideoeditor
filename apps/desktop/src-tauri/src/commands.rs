@@ -104,6 +104,9 @@ pub async fn open_media_dialog(app: AppHandle) -> AppResult<Option<MediaInfo>> {
     exts.extend_from_slice(media::AUDIO_EXTENSIONS);
     let a = app.clone();
     let picked = worker::blocking("open_media_dialog", move || {
+        if let Some(paths) = crate::scripted_dialogs::open() {
+            return Ok(paths.into_iter().next().map(tauri_plugin_dialog::FilePath::from));
+        }
         Ok(a.dialog().file().add_filter("Media", &exts).blocking_pick_file())
     })
     .await?;

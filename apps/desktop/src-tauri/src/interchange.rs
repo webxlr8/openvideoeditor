@@ -116,13 +116,18 @@ fn export_timeline_now(
     let path = match path {
         Some(p) => PathBuf::from(p),
         None => {
-            let picked = app
-                .dialog()
-                .file()
-                .add_filter(f.label(), &[f.extension()])
-                .set_file_name(format!("{name}.{}", f.extension()))
-                .blocking_save_file();
-            match picked.and_then(|p| p.into_path().ok()) {
+            let file_name = format!("{name}.{}", f.extension());
+            let picked = match crate::scripted_dialogs::save(&file_name) {
+                Some(scripted) => scripted,
+                None => app
+                    .dialog()
+                    .file()
+                    .add_filter(f.label(), &[f.extension()])
+                    .set_file_name(&file_name)
+                    .blocking_save_file()
+                    .and_then(|p| p.into_path().ok()),
+            };
+            match picked {
                 Some(p) => p,
                 None => return Ok(TimelineExport { path: None, report }),
             }
@@ -179,8 +184,16 @@ pub async fn import_timeline(app: AppHandle, path: Option<String>, fps: f64) -> 
         Some(p) => PathBuf::from(p),
         None => {
             let exts: Vec<&str> = FORMATS.iter().map(|f| f.extension()).collect();
-            let picked = app.dialog().file().add_filter("Timeline", &exts).blocking_pick_file();
-            match picked.and_then(|p| p.into_path().ok()) {
+            let picked = match crate::scripted_dialogs::open() {
+                Some(paths) => paths.into_iter().next(),
+                None => app
+                    .dialog()
+                    .file()
+                    .add_filter("Timeline", &exts)
+                    .blocking_pick_file()
+                    .and_then(|p| p.into_path().ok()),
+            };
+            match picked {
                 Some(p) => p,
                 None => return Ok(None),
             }

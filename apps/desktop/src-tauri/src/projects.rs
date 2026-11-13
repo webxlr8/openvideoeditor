@@ -877,6 +877,10 @@ pub async fn import_media_dialog(app: AppHandle) -> AppResult<Option<ProjectView
     exts.extend_from_slice(crate::media::AUDIO_EXTENSIONS);
     let a = app.clone();
     let files = worker::blocking("import_media_dialog", move || {
+        if let Some(paths) = crate::scripted_dialogs::open() {
+            let files: Vec<tauri_plugin_dialog::FilePath> = paths.into_iter().map(Into::into).collect();
+            return Ok((!files.is_empty()).then_some(files));
+        }
         Ok(a.dialog().file().add_filter("Media", &exts).blocking_pick_files())
     })
     .await?;
