@@ -117,14 +117,7 @@ jobs:
       - name: FFmpeg (LGPL, shared; MSYS2 shell with the MSVC environment)
         if: runner.os == 'Windows'
         shell: msys2 {0}
-        run: |
-          # dav1d and zlib from vcpkg (classic mode): their .pc files for configure, their DLLs next to FFmpeg's for
-          # the tests.
-          deps="$(cygpath -u "${VCPKG_INSTALLATION_ROOT:-C:/vcpkg}")/installed/x64-windows"
-          export PKG_CONFIG_PATH="$deps/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
-          echo "pkg-config: $(command -v pkg-config); dav1d $(pkg-config --modversion dav1d); zlib $(pkg-config --modversion zlib)"
-          tools/ffmpeg/build.sh --ci
-          cp "$deps"/bin/dav1d.dll "$deps"/bin/zlib1.dll tools/ffmpeg/out/windows-x64/bin/
+        run: tools/ffmpeg/build.sh --ci
       - name: test media matrix (generated with the runner's ffmpeg CLI; test-only)
         run: python3 tests/media/media.py generate
       - name: UI typecheck / lint / test / licences
@@ -200,7 +193,7 @@ jobs:
         if: runner.os == 'Windows'
         run: |
           choco install -y ffmpeg nasm llvm
-          vcpkg install dav1d:x64-windows
+          vcpkg install dav1d:x64-windows zlib:x64-windows
       - name: display resolution (Windows; the runner's default 1024×768 is smaller than the app's window)
         if: runner.os == 'Windows'
         shell: pwsh

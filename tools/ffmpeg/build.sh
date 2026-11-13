@@ -135,6 +135,17 @@ EOF
   unset PKG_CONFIG_PATH
 fi
 
+# --- native Windows dependencies (windows-x64, MSVC) ----------------------------------------------------------------
+# dav1d and zlib from vcpkg (`vcpkg install dav1d:x64-windows zlib:x64-windows`); their DLLs go next to FFmpeg's.
+if [ "$TARGET" = windows-x64 ]; then
+  VCPKG_DEPS="${OVE_VCPKG_INSTALLED:-$(cygpath -u "${VCPKG_INSTALLATION_ROOT:-${VCPKG_ROOT:-C:/vcpkg}}")/installed/x64-windows}"
+  if [ ! -f "$VCPKG_DEPS/lib/pkgconfig/dav1d.pc" ] || [ ! -f "$VCPKG_DEPS/lib/pkgconfig/zlib.pc" ]; then
+    echo "dav1d and zlib are needed in $VCPKG_DEPS: vcpkg install dav1d:x64-windows zlib:x64-windows" >&2
+    exit 2
+  fi
+  export PKG_CONFIG_PATH="$VCPKG_DEPS/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+fi
+
 # --- configuration ----------------------------------------------------------------------------------------------------
 # Only what the preview and export pipeline reads (docs/spec formats for change 1): MP4/MOV/MXF/MKV/WebM containers and
 # audio-only files; H.264, HEVC, ProRes, DNxHD/HR, AV1 (dav1d), VP9 video; AAC, ALAC, Opus, PCM, MP3, FLAC audio.
@@ -204,6 +215,7 @@ grep -E '^#define (FFMPEG_CONFIGURATION|FFMPEG_LICENSE|CONFIG_GPL|CONFIG_NONFREE
 
 make -j"$JOBS" > "$OUT/make.log" 2>&1 || { tail -40 "$OUT/make.log"; exit 1; }
 make install > /dev/null
+if [ "$TARGET" = windows-x64 ]; then cp "$VCPKG_DEPS/bin/dav1d.dll" "$VCPKG_DEPS/bin/zlib1.dll" "$OUT/bin/"; fi
 
 # --- records ----------------------------------------------------------------------------------------------------------
 {
