@@ -204,6 +204,39 @@ def ffmpeg_version():
     return out.splitlines()[0]
 
 
+# AV1 encoders in order of preference, with equivalent fast settings. Some FFmpeg builds (e.g. the "essentials"
+# Windows build) lack SVT-AV1; any of them makes a valid AV1 fixture for the decoder tests.
+AV1_ENCODERS = {
+    "libsvtav1": ["-preset", "12"],
+    "libaom-av1": ["-cpu-used", "8", "-row-mt", "1"],
+    "librav1e": ["-speed", "10"],
+}
+
+
+def encoders():
+    out = subprocess.run([ffmpeg_bin(), "-hide_banner", "-encoders"], capture_output=True, text=True, check=True).stdout
+    return {line.split()[1] for line in out.splitlines() if len(line.split()) > 1 and line.startswith(" ")}
+
+
+def with_available_encoder(args, available):
+    """`args` with an unavailable AV1 encoder (and its options) swapped for one this FFmpeg has."""
+    if "-c:v" not in args:
+        return args
+    i = args.index("-c:v")
+    enc = args[i + 1]
+    if enc not in AV1_ENCODERS or enc in available:
+        return args
+    alt = next((e for e in AV1_ENCODERS if e in available), None)
+    if alt is None:
+        raise GenerateError(f"this FFmpeg has no AV1 encoder (needs one of {', '.join(AV1_ENCODERS)})")
+    opts = AV1_ENCODERS[enc]
+    rest = args[i + 2:]
+    if rest[: len(opts)] == opts:
+        rest = rest[len(opts):]
+    warn(f"{enc} is not in this FFmpeg; using {alt}")
+    return args[:i] + ["-c:v", alt] + AV1_ENCODERS[alt] + rest
+
+
 def run(args):
     subprocess.run([ffmpeg_bin(), "-hide_banner", "-loglevel", "error", "-y"] + args, check=True)
 
@@ -367,7 +400,9 @@ def generate(force=False, recording=False):
         try:
             checker = Checker(load_manifest(), ffmpeg_version(), recording)
             regenerated = set()
+            available = encoders()
             for name, (_, _, args) in MATRIX.items():
+                args = with_available_encoder(args, available)
                 out = os.path.join(FILES, name)
                 if not force and checker.good(name):
                     continue

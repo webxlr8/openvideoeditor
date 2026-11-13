@@ -103,7 +103,7 @@ jobs:
       - name: build prerequisites (Windows)
         if: runner.os == 'Windows'
         run: |
-          choco install -y ffmpeg nasm llvm
+          choco install -y ffmpeg-full nasm llvm
           vcpkg install dav1d:x64-windows
       - uses: msys2/setup-msys2@v2
         if: runner.os == 'Windows'
@@ -199,7 +199,7 @@ jobs:
       - name: prerequisites (Windows)
         if: runner.os == 'Windows'
         run: |
-          choco install -y ffmpeg nasm llvm
+          choco install -y ffmpeg-full nasm llvm
           vcpkg install dav1d:x64-windows
       - name: display resolution (Windows; the runner's default 1024×768 is smaller than the app's window)
         if: runner.os == 'Windows'
