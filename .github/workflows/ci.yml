@@ -262,6 +262,13 @@ jobs:
           cargo install --git https://github.com/chippers/msedgedriver-tool
           & "$HOME/.cargo/bin/msedgedriver-tool.exe"
           $PWD.Path >> $env:GITHUB_PATH
+          # tauri-driver starts this wrapper, so msedgedriver writes a verbose log the job uploads.
+          $driver = Join-Path $PWD.Path 'msedgedriver.exe'
+          if (!(Test-Path $driver)) { throw "msedgedriver.exe was not downloaded" }
+          $log = Join-Path $env:RUNNER_TEMP 'msedgedriver.log'
+          $wrapper = Join-Path $env:RUNNER_TEMP 'msedgedriver-verbose.cmd'
+          "@`"$driver`" %* --verbose --log-path=`"$log`"" | Set-Content -Encoding ascii $wrapper
+          "OVE_E2E_NATIVE_DRIVER=$wrapper" >> $env:GITHUB_ENV
       # The mock first: a later plain `cargo build` of the desktop crate would replace the app binary with one that
       # loads the Vite dev server instead of the built UI.
       - name: mock Messages API (the assistant's scripted stand-in)
@@ -298,6 +305,20 @@ jobs:
       - name: native crashes (kernel log)
         if: failure() && runner.os == 'Linux'
         run: sudo dmesg | grep -iE "ove-desktop|WebKit|trap|segfault|invalid opcode" | tail -20 || true
+      - name: WebView2 diagnostics (Windows)
+        if: failure() && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Get-Command msedgedriver -All -ErrorAction SilentlyContinue | Format-Table -AutoSize Source, Version
+          Get-ChildItem Env: | Where-Object Name -like 'WEBVIEW2*' | Format-Table -AutoSize
+          foreach ($root in @($env:LOCALAPPDATA, $env:TEMP, $env:APPDATA)) {
+            Get-ChildItem -Path $root -Recurse -Filter DevToolsActivePort -ErrorAction SilentlyContinue |
+              ForEach-Object { "$($_.FullName): $(Get-Content $_.FullName -TotalCount 1)" }
+            Get-ChildItem -Path $root -Recurse -Directory -Filter EBWebView -ErrorAction SilentlyContinue |
+              ForEach-Object { "WebView2 data: $($_.FullName)" }
+          }
+          $log = Join-Path $env:RUNNER_TEMP 'msedgedriver.log'
+          if (Test-Path $log) { Copy-Item $log apps/desktop/e2e-app/artefacts/ ; Get-Content $log -Tail 80 }
       - uses: actions/upload-artifact@v4
         if: always()
         with:
