@@ -136,8 +136,21 @@ enum Cmd {
         #[command(subcommand)]
         cmd: SkillsCmd,
     },
+    /// The supported AI agents installed on this computer (Claude, Codex, OpenCode, Hermes, Kimi, Grok).
+    Agents {
+        #[command(subcommand)]
+        cmd: Option<AgentsCmd>,
+    },
     /// Serve the commands as MCP tools on stdin/stdout (`claude mcp add openvideoeditor -- ove mcp`).
     Mcp,
+}
+
+#[derive(Subcommand)]
+enum AgentsCmd {
+    /// Which agents are installed, and their versions.
+    List,
+    /// Give an installed agent the editing guide and this program's MCP server (`ove agents connect claude`).
+    Connect { agent: String },
 }
 
 #[derive(Subcommand)]
@@ -305,6 +318,8 @@ fn run(cli: &Cli, source: Source) -> Out {
         Cmd::Docs { topic } => return docs::docs(topic.as_deref()),
         Cmd::Doctor => return docs::doctor(cli.library.as_deref()),
         Cmd::Skills { cmd: SkillsCmd::Install { dir } } => return docs::install_skills(dir),
+        Cmd::Agents { cmd: None | Some(AgentsCmd::List) } => return docs::agents_list(),
+        Cmd::Agents { cmd: Some(AgentsCmd::Connect { agent }) } => return docs::agents_connect(agent),
         Cmd::Mcp => return Err(Fail::new("mcp.nested", "already serving MCP")),
         _ => {}
     }
@@ -474,7 +489,7 @@ fn run(cli: &Cli, source: Source) -> Out {
             })
         }
         // Answered before the library is opened.
-        Cmd::Docs { .. } | Cmd::Doctor | Cmd::Skills { .. } | Cmd::Mcp => {
+        Cmd::Docs { .. } | Cmd::Doctor | Cmd::Skills { .. } | Cmd::Agents { .. } | Cmd::Mcp => {
             Err(Fail::new("internal", "this command does not use a library"))
         }
     }

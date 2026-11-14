@@ -4018,6 +4018,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ove-agents"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "tempfile",
+ "tracing",
+]
+
+[[package]]
 name = "ove-analyze"
 version = "0.1.0"
 dependencies = [
@@ -4050,6 +4059,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "dunce",
+ "ove-agents",
  "ove-analyze",
  "ove-control",
  "ove-core",

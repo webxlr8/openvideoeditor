@@ -103,6 +103,64 @@ fn exe() -> String {
     std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_else(|_| "ove".into())
 }
 
+fn agent_line(d: &ove_agents::Detected) -> String {
+    match d.state {
+        ove_agents::State::Ready => format!("ok   {}: {}", d.name, d.version.as_deref().unwrap_or("")),
+        ove_agents::State::Found => {
+            format!("ok   {}: found at {} (it did not say its version)", d.name, d.path.as_deref().unwrap_or("?"))
+        }
+        ove_agents::State::NotInstalled => format!("--   {}: not installed ({})", d.name, d.get_it),
+    }
+}
+
+/// The supported agents as found on this computer.
+pub fn agents_list() -> Out {
+    let found = ove_agents::detect_all(&ove_agents::Env::from_process(), &ove_agents::Limits::default());
+    let text = found.iter().map(agent_line).collect::<Vec<_>>().join("\n");
+    Ok((json!({"agents": found}), text))
+}
+
+/// Gives an installed agent the editing guide (when it reads skills) and this program's MCP server.
+pub fn agents_connect(id: &str) -> Out {
+    let known = || ove_agents::AGENTS.iter().map(|a| a.id).collect::<Vec<_>>().join(", ");
+    let spec = ove_agents::agent(id)
+        .ok_or_else(|| Fail::new("agent.unknown", format!("no agent {id:?}; the supported agents are: {}", known())))?;
+    let env = ove_agents::Env::from_process();
+    let limits = ove_agents::Limits::default();
+    let found = ove_agents::detect(spec, &env, &limits);
+    let program = found.path.as_deref().map(PathBuf::from).ok_or_else(|| {
+        Fail::new("agent.notInstalled", format!("{} is not installed on this computer ({})", spec.name, spec.get_it))
+    })?;
+    let ove = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("ove"));
+    let mut lines = Vec::new();
+    let mut guide = None;
+    if let Some(dir) = env.home.as_deref().and_then(|h| ove_agents::skills_dir(spec, h)) {
+        let (_, text) = install_skills(std::slice::from_ref(&dir))?;
+        lines.extend(text.lines().take_while(|l| l.starts_with("wrote ")).map(str::to_string));
+        guide = Some(dir);
+    }
+    let outcome = ove_agents::connect(spec, &program, &ove, &limits);
+    lines.push(match outcome.status {
+        ove_agents::ConnectStatus::Connected => format!("{} now has the {} tools", spec.name, ove_agents::SERVER_NAME),
+        ove_agents::ConnectStatus::AlreadyConnected => {
+            format!("{} already had the {} tools", spec.name, ove_agents::SERVER_NAME)
+        }
+        ove_agents::ConnectStatus::Manual => {
+            format!("To finish, do this yourself ({}):\n  {}", outcome.detail, outcome.instructions)
+        }
+        ove_agents::ConnectStatus::Failed => {
+            return Err(Fail::new(
+                "agent.connectFailed",
+                format!(
+                    "{} refused: {}\nYou can run it yourself:\n  {}",
+                    spec.name, outcome.detail, outcome.instructions
+                ),
+            ));
+        }
+    });
+    Ok((json!({"agent": spec.id, "outcome": outcome, "guide": guide}), lines.join("\n")))
+}
+
 /// Environment check: library, media support, encoders, the running app, agent setup.
 pub fn doctor(library: Option<&Path>) -> Out {
     let mut checks: Vec<Value> = Vec::new();
@@ -155,6 +213,24 @@ pub fn doctor(library: Option<&Path>) -> Out {
         match &skill {
             Some(p) if p.is_file() => p.display().to_string(),
             _ => "not installed (`ove skills install`)".into(),
+        },
+    );
+    let agents = ove_agents::detect_all(&ove_agents::Env::from_process(), &ove_agents::Limits::default());
+    let installed: Vec<String> = agents
+        .iter()
+        .filter(|a| a.state != ove_agents::State::NotInstalled)
+        .map(|a| match &a.version {
+            Some(v) => format!("{} ({v})", a.name),
+            None => a.name.clone(),
+        })
+        .collect();
+    add(
+        "agents",
+        !installed.is_empty(),
+        if installed.is_empty() {
+            "none of the supported agents is installed (`ove agents`)".into()
+        } else {
+            installed.join(", ")
         },
     );
     let text = checks
