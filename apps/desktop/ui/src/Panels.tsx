@@ -34,6 +34,7 @@ import {
 } from "./fx";
 import { Icon } from "./icons";
 import { fire } from "./notify";
+import { PanelHint, selectFirst } from "./onboarding/PanelHint";
 import { TextAnimationPicker } from "./Motion";
 
 export interface PanelProps {
@@ -46,6 +47,10 @@ export interface PanelProps {
   onSelect: (item: ItemView_Serialize) => void;
   /** Shows an error toast. */
   onError?: (e: AppError) => void;
+  /** Opens the import dialog (what an empty panel offers in a project without media). */
+  onImport?: () => void;
+  /** Selects an item and keeps this panel open (`onSelect` shows the item's properties in its place). */
+  onPick?: (item: ItemView_Serialize) => void;
 }
 
 const round = (t: number) => snapToFrame(t);
@@ -82,8 +87,34 @@ export function TextPanel({
       live = false;
     };
   }, [primaryId, project.rev]);
+  const first = TEXT_PRESETS[0];
   return (
     <>
+      {track && !project.items.some((i) => i.kind === "text") && (
+        <PanelHint
+          panel="text"
+          action="Add a title"
+          onAction={() =>
+            onEdit(
+              addItems(
+                [
+                  {
+                    trackId: track,
+                    type: "text",
+                    startTime: round(playhead),
+                    endTime: round(playhead + first.duration),
+                    name: first.label,
+                    ...first.fields,
+                  },
+                ],
+                `add ${first.label.toLowerCase()}`,
+              ),
+            )
+          }
+        >
+          Titles put words over your video.
+        </PanelHint>
+      )}
       <h5 className="panel-sub">
         Animation {texts.length ? `— ${texts.length} selected` : ""}
       </h5>
@@ -143,7 +174,14 @@ export function TextPanel({
   );
 }
 
-export function TransitionsPanel({ project, selection, onEdit }: PanelProps) {
+export function TransitionsPanel({
+  project,
+  selection,
+  onEdit,
+  onSelect,
+  onPick = onSelect,
+  onImport,
+}: PanelProps) {
   const catalog = useCatalog();
   const [duration, setDuration] = useState(0.5);
   const [easing, setEasing] = useState("ease-in-out");
@@ -212,7 +250,12 @@ export function TransitionsPanel({ project, selection, onEdit }: PanelProps) {
   return (
     <>
       {!item && (
-        <Empty>Select a clip on the timeline, then pick a transition.</Empty>
+        <PanelHint
+          panel="transitions"
+          {...selectFirst(project, visual, onPick, onImport)}
+        >
+          A transition blends one clip into the next.
+        </PanelHint>
       )}
       <label className="slider panel-slider">
         <span className="slider-label">Duration</span>
@@ -400,6 +443,9 @@ export function EffectsPanel({
   playhead,
   selection,
   onEdit,
+  onSelect,
+  onPick = onSelect,
+  onImport,
 }: PanelProps) {
   const catalog = useCatalog();
   const [query, setQuery] = useState("");
@@ -435,6 +481,14 @@ export function EffectsPanel({
   );
   return (
     <>
+      {selection.length === 0 && (
+        <PanelHint
+          panel="effects"
+          {...selectFirst(project, visual, onPick, onImport)}
+        >
+          Effects change how the picture looks.
+        </PanelHint>
+      )}
       <p className="muted panel-note">
         Click a preview to add it as a layer{" "}
         {selection.length ? "over the selected clips" : "at the playhead"}; “On
@@ -597,6 +651,8 @@ export function AudioPanel({
   selection,
   onEdit,
   onSelect,
+  onPick = onSelect,
+  onImport,
 }: PanelProps) {
   const sound = selection.filter(
     (i) => i.kind === "video" || i.kind === "audio",
@@ -618,7 +674,17 @@ export function AudioPanel({
         Selected {sound.length ? `(${sound.length})` : ""}
       </h5>
       {sound.length === 0 && (
-        <Empty>Select clips with sound to fade or mute them.</Empty>
+        <PanelHint
+          panel="audio"
+          {...selectFirst(
+            project,
+            (i) => i.kind === "video" || i.kind === "audio",
+            onPick,
+            onImport,
+          )}
+        >
+          Fade, mute and set the level of a clip's sound here.
+        </PanelHint>
       )}
       <div className="chips-row">
         <button
@@ -766,11 +832,26 @@ const PLACEMENTS = [
   },
 ];
 
-export function LayoutPanel({ project, selection, onEdit }: PanelProps) {
+export function LayoutPanel({
+  project,
+  selection,
+  onEdit,
+  onSelect,
+  onPick = onSelect,
+  onImport,
+}: PanelProps) {
   const catalog = useCatalog();
   const targets = selection.filter((i) => visual(i) || i.kind === "text");
   return (
     <>
+      {targets.length === 0 && (
+        <PanelHint
+          panel="layout"
+          {...selectFirst(project, visual, onPick, onImport)}
+        >
+          Layouts place clips side by side or one inside another.
+        </PanelHint>
+      )}
       <h5 className="panel-sub">Frame</h5>
       <div className="aspect-grid">
         {ASPECTS.map((a) => {

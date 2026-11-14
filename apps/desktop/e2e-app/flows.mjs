@@ -341,6 +341,64 @@ export const FLOWS = [
   },
 
   {
+    name: "hints: empty panels say what they are for and offer one action; a starter prompt fills the message box",
+    async run(ctx) {
+      const { app } = ctx;
+      await newProject(app, "Hints E2E");
+      // Captions in a project without captions (and, here, without media): what captions do, and one action.
+      await app.click("rail-captions");
+      assert.match(await app.text("hint-captions"), /Captions put the spoken words on screen/);
+      assert.equal(await app.text("hint-captions-action"), "Import media");
+      assert.equal(await app.count('[data-testid="hint-captions"] button'), 1, "one action");
+      // Text: the action adds a title, and the hint goes.
+      await app.click("rail-text");
+      await app.find("hint-text");
+      await app.saveArtefacts(ctx.out, "hint-text");
+      await app.click("hint-text-action");
+      await app.waitFor(async () => (await app.project()).items.some((i) => i.kind === "text"), "a title from the hint");
+      await app.waitGone("hint-text");
+      // Media: the action is the import (the native file picker is answered by OVE_E2E_DIALOGS).
+      fs.writeFileSync(path.join(ctx.dialogs, "open.txt"), ctx.media.video);
+      await app.click("rail-media");
+      await app.click("hint-media-action");
+      const view = await app.waitFor(async () => {
+        const p = await app.project();
+        return p.media.length === 1 ? p : null;
+      }, "the import from the Media hint", 60000);
+      fs.rmSync(path.join(ctx.dialogs, "open.txt"), { force: true });
+      // A panel that works on a clip: with nothing selected it offers the first clip, and stays open.
+      await app.keys(Key.ESCAPE);
+      await app.click("rail-transitions");
+      assert.equal(await app.text("hint-transitions-action"), "Select the first clip");
+      await app.click("hint-transitions-action");
+      const [clip] = mainClips(view);
+      await app.waitFor(
+        async () => (await (await app.find(`[data-testid="clip"][data-id="${clip.id}"]`)).getAttribute("class")).includes("selected"),
+        "the first clip to be selected",
+      );
+      await app.find("panel-transitions");
+      await app.waitGone("hint-transitions");
+
+      // An empty chat: three examples; a tap puts the words in the message box and sends nothing.
+      if (!(await app.exists("chat"))) await app.click("toggle-chat");
+      await app.find("starters");
+      assert.equal(await app.count('[data-testid^="starter-"].starter'), 3, "three examples");
+      const example = await app.text("starter-1");
+      await app.click("starter-1");
+      const composer = await app.find("composer");
+      await app.waitFor(async () => (await composer.getAttribute("value")) === example, "the example in the message box");
+      await app.click("starter-what");
+      assert.match(await app.text("starter-answer"), /one undo step/);
+      await app.saveArtefacts(ctx.out, "starter-prompts");
+      await sleep(500);
+      assert.equal(await app.count("msg-user"), 0, "nothing was sent");
+      assert.equal(await app.count("starters"), 1, "the chat is still empty");
+      // The message box is left empty for the next flow's project.
+      await app.replaceText(composer, "");
+    },
+  },
+
+  {
     name: "media: Import button and window drop add clips with thumbnails",
     async run(ctx) {
       const { app, media } = ctx;

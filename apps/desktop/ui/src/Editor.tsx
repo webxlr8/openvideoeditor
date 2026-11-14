@@ -39,6 +39,7 @@ import { MotionPanel } from "./Motion";
 import { GeneratePanel } from "./Generate";
 import { HistoryPanel } from "./HistoryPanel";
 import { type HelpActions, HelpMenu } from "./onboarding/HelpMenu";
+import { PanelHint } from "./onboarding/PanelHint";
 import { Shortcuts } from "./Shortcuts";
 import { type SelectMode, Timeline } from "./Timeline";
 
@@ -269,6 +270,12 @@ export function Editor({
         onEdit,
         onSelect: (i) => onSelect(i),
         onError,
+        onImport,
+        // Selected from a panel's hint: the panel stays, as when a rail button is pressed with a clip selected.
+        onPick: (i) => {
+          setClosedFor(i.id);
+          onSelect(i);
+        },
       }
     : null;
   const projectBar = project && (
@@ -614,13 +621,19 @@ function SidePanel({
                 </div>
               </button>
             ))}
-            {media.length === 0 && (
-              <p className="muted">
-                {query
-                  ? "No media matches."
-                  : "No media yet. Import files or drop them on the window."}
-              </p>
-            )}
+            {media.length === 0 &&
+              (query ? (
+                <p className="muted">No media matches.</p>
+              ) : (
+                <PanelHint
+                  panel="media"
+                  action="Import media"
+                  onAction={onImport}
+                >
+                  The video, sound and picture files of this project are kept
+                  here. You can also drop files on the window.
+                </PanelHint>
+              ))}
           </div>
         </>
       ) : panelProps ? (

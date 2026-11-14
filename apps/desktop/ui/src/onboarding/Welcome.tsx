@@ -73,8 +73,8 @@ export function Welcome({
             </p>
             <ul className="welcome-points">
               <li>
-                <strong>Nothing is lost.</strong> Every change is saved as you
-                work and can be undone.
+                <strong>Your work is saved as you go.</strong> Every change is
+                kept and can be undone.
               </li>
               <li>
                 <strong>An assistant can edit for you.</strong> It works on the

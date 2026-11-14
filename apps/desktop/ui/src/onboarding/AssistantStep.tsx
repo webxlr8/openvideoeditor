@@ -8,7 +8,7 @@ const OPTIONS: { value: string | null; id: string; label: string; note: string }
       value: null,
       id: "none",
       label: "I'll edit by hand",
-      note: "No assistant. Nothing leaves this computer.",
+      note: "No assistant, so nothing is sent.",
     },
     {
       value: "api-key",
