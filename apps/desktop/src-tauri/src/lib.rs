@@ -1,6 +1,7 @@
 //! Desktop shell: window, single instance and open-file routing, typed bridge, logs and crash
 //! containment, the native viewer, and playback through ove-media / ove-playback (change 1).
 
+pub mod agents;
 pub mod assistant;
 pub mod captions;
 pub mod commands;
@@ -101,6 +102,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
     tauri_specta::Builder::<tauri::Wry>::new()
         .commands(collect_commands![
             commands::app_info,
+            agents::detect_agents,
+            agents::connect_agent,
             commands::take_pending_open_paths,
             commands::open_media,
             commands::open_media_dialog,

@@ -46,7 +46,9 @@ Connect gives an installed agent the app's MCP server and editing guide:
 - the MCP server: the agent's own command, run by the app (`claude mcp add openvideoeditor -- <ove> mcp`,
   `codex mcp add openvideoeditor -- <ove> mcp`).
 
-An agent whose command has not been run against a real install by us shows the command to copy instead of a button.
+An agent whose command has not been checked by us against a real install shows the command to copy instead of a
+button. Today that leaves one button, Claude's (its command was read from the installed program's own help); Codex's
+command comes from OpenAI's documentation and the other four are set up in the agent's own settings.
 The app never edits an agent's configuration files itself. Connect is idempotent and reports what the agent printed.
 
 ## D5. In-app chat through a local agent

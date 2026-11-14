@@ -4112,6 +4112,7 @@ dependencies = [
  "objc2-quartz-core",
  "os_info",
  "ove-agent",
+ "ove-agents",
  "ove-control",
  "ove-core",
  "ove-generate",

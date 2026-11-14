@@ -7,6 +7,8 @@ import * as generated from "./bindings";
 import fxCatalogJson from "./fx-catalog.json?raw";
 import { fire } from "./notify";
 import type {
+  AgentConnect,
+  AgentInfo_Serialize,
   AgentLimits_Deserialize,
   AgentLimits_Serialize,
   AgentStatus_Serialize,
@@ -76,6 +78,8 @@ export interface MockControl {
   };
   /** Simulated speech models: which are on disk, and how long each progress step takes. */
   captions: { installed: string[]; stepMs: number };
+  /** Ids of the supported agents that are "installed on this computer" (none unless a test says so). */
+  localAgents: string[];
 }
 
 declare global {
@@ -644,6 +648,7 @@ function createMock(): {
     },
     agent: { hasKey: true, stepMs: 120, ask: false },
     captions: { installed: [], stepMs: 60 },
+    localAgents: [],
   };
   const track = (name: string) => control.calls.push(name);
 
@@ -1157,6 +1162,45 @@ function createMock(): {
         logDir: null,
         libraryDir: "/mock/library",
       }),
+    detectAgents: () =>
+      ok<AgentInfo_Serialize[]>(
+        (
+          [
+            ["claude", "Claude", "Anthropic", "2.1.325 (Claude Code)"],
+            ["codex", "Codex", "OpenAI", "codex-cli 0.169.0"],
+            ["opencode", "OpenCode", "Anomaly", "1.19.5"],
+            ["hermes", "Hermes", "Nous Research", "0.16.0"],
+            ["kimi", "Kimi", "Moonshot AI", "1.0.0"],
+            ["grok", "Grok", "xAI", "1.0.79"],
+          ] as const
+        ).map(([id, name, vendor, version]) => {
+          const installed = control.localAgents.includes(id);
+          return {
+            id,
+            name,
+            vendor,
+            state: installed ? "ready" : "notInstalled",
+            version: installed ? version : null,
+            getIt: `https://example.com/${id}`,
+            // As in the app: only Claude's command has been checked against a real install.
+            connectRuns: id === "claude",
+            connectInstructions:
+              id === "claude"
+                ? "claude mcp add --scope user openvideoeditor -- ove mcp"
+                : id === "codex"
+                  ? "codex mcp add openvideoeditor -- ove mcp"
+                  : `In ${name}, add an MCP server named openvideoeditor that runs: ove mcp`,
+          };
+        }),
+      ),
+    connectAgent: (id: string) => (
+      track(`connectAgent:${id}`),
+      ok<AgentConnect>({
+        status: id === "claude" ? "connected" : "manual",
+        instructions: `${id} mcp add openvideoeditor -- ove mcp`,
+        detail: id === "claude" ? "Added stdio MCP server openvideoeditor" : "set up in the agent's own settings",
+      })
+    ),
     takePendingOpenPaths: () => (
       track("takePendingOpenPaths"),
       ok<string[]>([])

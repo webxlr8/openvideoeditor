@@ -9,6 +9,16 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 export const commands = {
 	appInfo: () => typedError<AppInfo_Serialize, AppError>(__TAURI_INVOKE("app_info")),
 	/**
+	 *  The supported agents and whether each is installed. Starts each agent's program for its version, so it runs off
+	 *  the main thread; it reads none of an agent's files.
+	 */
+	detectAgents: () => typedError<AgentInfo_Serialize[], AppError>(__TAURI_INVOKE("detect_agents")),
+	/**
+	 *  Gives an installed agent the editing guide and the app's MCP server, through the agent's own command. Only a
+	 *  command checked against a real install is run; for the others the answer says what to do.
+	 */
+	connectAgent: (id: string) => typedError<AgentConnect, AppError>(__TAURI_INVOKE("connect_agent", { id })),
+	/**
 	 *  Paths the app was launched with (or that arrived before the UI was ready). Marks the UI ready:
 	 *  later paths arrive as `OpenPathsRequested` events.
 	 */
@@ -222,6 +232,52 @@ export const events = {
 };
 
 /* Types */
+export type AgentConnect = {
+	status: AgentConnectStatus,
+	instructions: string,
+	/**  What the agent printed, or why nothing was run. */
+	detail: string,
+};
+
+export type AgentConnectStatus = "connected" | "alreadyConnected" | 
+/**  Nothing was run: the person follows the instructions. */
+"manual" | "failed";
+
+/**  One supported agent as found on this computer. */
+export type AgentInfo = AgentInfo_Serialize | AgentInfo_Deserialize;
+
+/**  One supported agent as found on this computer. */
+export type AgentInfo_Deserialize = {
+	id: string,
+	/**  The name to show (as the vendor allows it). */
+	name: string,
+	vendor: string,
+	state: AgentState,
+	version?: string | null,
+	/**  Where to get the agent. */
+	getIt: string,
+	/**  Whether Connect does the work (true), or the person follows `connect_instructions` (false). */
+	connectRuns: boolean,
+	/**  The command Connect runs, or what to do by hand. */
+	connectInstructions: string,
+};
+
+/**  One supported agent as found on this computer. */
+export type AgentInfo_Serialize = {
+	id: string,
+	/**  The name to show (as the vendor allows it). */
+	name: string,
+	vendor: string,
+	state: AgentState,
+	version: string | null,
+	/**  Where to get the agent. */
+	getIt: string,
+	/**  Whether Connect does the work (true), or the person follows `connect_instructions` (false). */
+	connectRuns: boolean,
+	/**  The command Connect runs, or what to do by hand. */
+	connectInstructions: string,
+};
+
 /**  Spending and size limits for the assistant (Settings → Assistant). */
 export type AgentLimits = AgentLimits_Serialize | AgentLimits_Deserialize;
 
@@ -248,6 +304,12 @@ export type AgentLimits_Serialize = {
 	/**  Minutes per turn. */
 	maxMinutes: number,
 };
+
+export type AgentState = 
+/**  Installed, and it answered with its version. */
+"ready" | 
+/**  Installed, but it did not answer in time. */
+"found" | "notInstalled";
 
 export type AgentStatus = AgentStatus_Serialize | AgentStatus_Deserialize;
 

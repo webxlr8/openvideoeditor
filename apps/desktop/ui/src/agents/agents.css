@@ -1,0 +1,94 @@
+.agent-icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: #fff;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+.assistant-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.assistant-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--bg-4);
+  border-radius: 10px;
+  background: var(--bg-2);
+  text-align: left;
+}
+.assistant-row:hover:not(:disabled) {
+  background: var(--bg-3);
+}
+.assistant-row[aria-checked="true"] {
+  border-color: var(--accent);
+  background: var(--bg-3);
+}
+.assistant-row .names {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+.assistant-row .names small,
+.agent-line .names small {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.assistant-row .state,
+.agent-line .state {
+  flex: none;
+  font-size: 12px;
+  color: var(--muted);
+}
+.assistant-row .state.ready,
+.agent-line .state.ready {
+  color: #7ad69b;
+}
+.agent-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 12px 0;
+}
+.agent-line {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--bg-4);
+  border-radius: 10px;
+  background: var(--bg-2);
+}
+.agent-line .head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.agent-line .names {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+.agent-line .note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.agent-line .note.bad {
+  color: #f08a8a;
+}

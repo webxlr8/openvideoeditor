@@ -2,15 +2,23 @@
 
 ## 1. Agents: the short list, detection, the picker
 
-- [ ] 1.1 `ove-agents` crate: the six entries as data (id, name, vendor, executables, version flag, start command,
-      MCP-add command and whether it is checked).
-- [ ] 1.2 Detection: search path and install folders, `--version` with a 5 s limit and no window, Ready / Found / Not
-      installed. Tests with stand-in executables: installed, missing, hangs, prints rubbish.
-- [ ] 1.3 Tauri command and bindings; detection off the main thread; `ove doctor` lists the agents.
-- [ ] 1.4 Picker with icons (own neutral icons in the slot) in Settings → Assistant and the chat panel; no key form
-      when an agent is Ready.
-- [ ] 1.5 Connect for Claude and Codex (editing guide + the agent's own `mcp add`), idempotent; copyable command for
-      the other four. Tests with stand-in executables that record what they were asked.
+- [x] 1.1 `ove-agents` crate: the six entries as data (id, name, vendor, programs, version flag, start command,
+      MCP set-up and whether its command is checked). Verified: unit tests on the list (six ids, "Claude" never
+      "Claude Code", only a checked command can run).
+- [x] 1.2 Detection: search path and install folders, `--version` with a 5 s limit and no window, Ready / Found / Not
+      installed. Verified: `crates/ove-agents/tests/standins.rs` with stand-in programs (installed, missing, hangs,
+      fails, over-long line, version on stderr, search path before install folders).
+- [x] 1.3 Tauri commands (`detect_agents`, `connect_agent`) and bindings, off the main thread; `ove agents` and
+      `ove doctor` list the agents. Verified: `crates/ove-cli/tests/agents.rs`; bindings drift check; run here
+      against the installed Claude (`ok   Claude: 2.1.325`).
+- [x] 1.4 Picker with icons (own neutral icons in the artwork slot) and the Settings section; the chat shows
+      installed assistants first and no key form when one is installed. Verified: `ui/src/agents/Agents.test.tsx`.
+      Not done here: choosing the assistant for in-app chat (section 3).
+- [x] 1.5 Connect for Claude (editing guide + `claude mcp add --scope user`, asked first with `mcp get`, so twice
+      changes nothing); the command or a sentence to copy for the other five. Verified: stand-in programs that
+      record what they were asked (crate and command-line tests). Claude's command was read from Claude Code
+      2.1.325's own help; it was not run against a real configuration here. Codex is not a button yet: its command
+      comes from OpenAI's documentation and has not been run by us (4.2).
 
 ## 2. Onboarding
 
@@ -40,6 +48,7 @@
 ## 4. After
 
 - [ ] 4.1 Vendor artwork in the icon slots where the vendor's terms allow it.
-- [ ] 4.2 Connect buttons for OpenCode, Hermes, Kimi and Grok as each command is checked against a real install.
+- [ ] 4.2 Connect buttons for Codex, OpenCode, Hermes, Kimi and Grok as each command is checked against a real
+      install.
 - [ ] 4.3 Release notes and the in-app "What's new", with the changed privacy text (the assistant sees frames and
       sound measurements; media files stay on the computer).

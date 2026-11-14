@@ -210,6 +210,17 @@ pub fn skills_dir(spec: &AgentSpec, home: &Path) -> Option<PathBuf> {
     spec.skills_dir.map(|d| d.split('/').fold(home.to_path_buf(), |p, part| p.join(part)))
 }
 
+/// Writes the app's editing guide into `dir` (an agent's skills folder) by asking `ove skills install`. The app uses
+/// this; the command line writes the guide itself.
+pub fn install_guide(ove: &Path, dir: &Path, limits: &Limits) -> Result<(), String> {
+    let args = ["skills".to_string(), "install".to_string(), "--dir".to_string(), dir.display().to_string()];
+    match run::run_limited(ove, &args, limits.connect) {
+        Some(r) if r.success => Ok(()),
+        Some(r) => Err(r.text()),
+        None => Err(format!("{} could not be started, or did not answer in time", ove.display())),
+    }
+}
+
 /// Gives the installed agent at `program` the app's MCP server (`ove mcp`, with `ove` at this path).
 ///
 /// Runs the agent's own command, and only when it is a checked one; otherwise returns what to do by hand. Asking

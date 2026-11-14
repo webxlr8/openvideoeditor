@@ -9,6 +9,7 @@ import type {
   TurnUsageView,
   UsageTotals_Serialize,
 } from "./bindings";
+import { NoKeyCard } from "./agents/NoKeyCard";
 import { commands, events } from "./bridge";
 import { Icon } from "./icons";
 import { COMING_LATER, Dropdown } from "./Menu";
@@ -358,12 +359,14 @@ export function ChatPanel({
         </div>
       )}
       {status && !status.hasKey ? (
-        <KeyCard
-          onSaved={(s, check) => {
-            setStatus(s);
-            setKeyCheck(check);
-          }}
-        />
+        <NoKeyCard onError={report}>
+          <KeyCard
+            onSaved={(s, check) => {
+              setStatus(s);
+              setKeyCheck(check);
+            }}
+          />
+        </NoKeyCard>
       ) : items.length === 0 ? (
         <div className="chat-empty">
           <Icon name="spark" size={34} />
