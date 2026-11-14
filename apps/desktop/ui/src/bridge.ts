@@ -73,6 +73,8 @@ export interface MockControl {
   calls: string[];
   /** Simulates the native side routing paths to the window. */
   routePaths(paths: string[]): void;
+  /** A project opened from outside the window (an agent or the command line, through the control link). */
+  remoteOpen(name: string): void;
   /** The simulated assistant: whether a key is stored, how long each streamed step takes, whether the key check
    * fails, and what each turn costs. */
   agent: {
@@ -654,6 +656,11 @@ function createMock(): {
     calls: [],
     routePaths(paths) {
       emit("open-paths-requested", { paths });
+    },
+    remoteOpen(name) {
+      project = newProject(name);
+      library.unshift(project);
+      emit("remote-opened", clone(project));
     },
     agent: { hasKey: true, stepMs: 120, ask: false },
     captions: { installed: [], stepMs: 60 },

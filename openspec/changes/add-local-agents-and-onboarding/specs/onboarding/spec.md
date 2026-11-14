@@ -18,6 +18,14 @@ privacy), each of which can be skipped, and SHALL NOT show it again once finishe
 - **WHEN** Skip is pressed on any screen
 - **THEN** Home is shown and the welcome does not return at the next launch
 
+### Requirement: The welcome steps aside for a project opened from outside
+When an agent or the command line opens a project in the app while the welcome is showing, the welcome SHALL close
+for that run without being finished or skipped.
+
+#### Scenario: Opened from outside
+- **WHEN** `ove app open` opens a project during a first run
+- **THEN** the editor shows that project, and the welcome is shown again at the next launch
+
 ### Requirement: Onboarding state is the app's
 Onboarding state SHALL be kept in the app's configuration folder by the native side, not in the web profile.
 

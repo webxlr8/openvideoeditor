@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ProjectView_Serialize } from "../bindings";
 import { commands, events } from "../bridge";
 import { logError, unlisten } from "../notify";
-import { stepsShownBy } from "./checklist";
+import { stepsShownBy } from "./checklistSteps";
 import {
   type OnboardingChange,
   type OnboardingState,
@@ -19,6 +19,8 @@ export interface Onboarding {
   /** The welcome covers the window: a first run, or Help → Show the welcome again. */
   welcomeOpen: boolean;
   showWelcome: () => void;
+  /** Takes the welcome out of the way for this run without finishing it (it returns at the next launch). */
+  standAside: () => void;
   /** The welcome's last screen was left with this assistant chosen (null: edit by hand). */
   finishWelcome: (assistant: string | null) => void;
   skipWelcome: () => void;
@@ -28,6 +30,7 @@ export interface Onboarding {
 export function useOnboarding(project: ProjectView_Serialize | null): Onboarding {
   const [state, setState] = useState<OnboardingState | null>(null);
   const [again, setAgain] = useState(false);
+  const [aside, setAside] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -83,8 +86,12 @@ export function useOnboarding(project: ProjectView_Serialize | null): Onboarding
 
   return {
     state,
-    welcomeOpen: again || state?.welcome === "pending",
+    welcomeOpen: again || (!aside && state?.welcome === "pending"),
     showWelcome: useCallback(() => setAgain(true), []),
+    standAside: useCallback(() => {
+      setAgain(false);
+      setAside(true);
+    }, []),
     finishWelcome: useCallback(
       (assistant) => {
         setAgain(false);

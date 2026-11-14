@@ -4,7 +4,7 @@
 
 import type { ChecklistStep } from "../bindings";
 import { Icon } from "../icons";
-import { STEPS } from "./checklist";
+import { STEPS } from "./checklistSteps";
 import "./onboarding.css";
 
 export function Checklist({

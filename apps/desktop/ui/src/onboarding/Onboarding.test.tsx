@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { App } from "../App";
 import type { ItemView_Serialize, ProjectView_Serialize } from "../bindings";
 import { commands } from "../bridge";
-import { STEPS, stepsShownBy } from "./checklist";
+import { STEPS, stepsShownBy } from "./checklistSteps";
 import { FIRST_RUN, SETTLED, applyChange } from "./state";
 
 const mock = () => window.__oveMock!;
@@ -31,6 +31,16 @@ beforeEach(() => {
 });
 
 describe("welcome", () => {
+  it("steps aside, unfinished, when a project is opened from outside the window", async () => {
+    await firstRun();
+    // An agent or the command line opens a project through the control link.
+    act(() => mock().remoteOpen("Opened by an agent"));
+    await screen.findByTestId("editor");
+    expect(screen.queryByTestId("welcome")).toBeNull();
+    // Not finished and not skipped: it is due again at the next launch.
+    expect(mock().onboarding.welcome).toBe("pending");
+  });
+
   it("shows three screens on a first run, never asks for a key, and does not come back once finished", async () => {
     await firstRun();
     expect(screen.getByTestId("welcome-screen-what")).toBeTruthy();

@@ -226,7 +226,7 @@ export function App() {
     () => runCommand(commands.createSampleProject(), openProjectView, showError),
     [openProjectView, showError],
   );
-  const { showWelcome, setChecklistClosed } = onboarding;
+  const { showWelcome, setChecklistClosed, standAside } = onboarding;
   const help = useMemo<HelpActions>(
     () => ({
       gettingStarted: () => setChecklistClosed(false),
@@ -413,7 +413,12 @@ export function App() {
         if (e.payload) setProject(e.payload);
       }),
       // `ove app open` / `ove project open`: show that project in the editor.
-      events.remoteOpened.listen((e) => openProjectView(e.payload)),
+      events.remoteOpened.listen((e) => {
+        // An agent or the command line opened a project here: the person is looking for it, so a welcome that is
+        // still up steps aside for this run (it is not finished, and returns at the next launch).
+        standAside();
+        openProjectView(e.payload);
+      }),
       events.openPathsRequested.listen((e) => {
         if (e.payload.paths.length > 0) fire(importInto(e.payload.paths));
       }),
@@ -458,7 +463,7 @@ export function App() {
       showError,
     );
     return () => listeners.forEach(unlisten);
-  }, [importInto, openProjectView, showError, showInfo]);
+  }, [importInto, openProjectView, showError, showInfo, standAside]);
 
   // The command line asks what is selected and which viewer mode is on (`ove app context`).
   useEffect(() => {
