@@ -214,6 +214,12 @@ export const commands = {
 	matchColor: (itemId: string, referenceTime: number | null, strength: number | null) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("match_color", { itemId, referenceTime, strength })),
 	/**  Histograms (red, green, blue, luma; 64 bins, 0..1) of the timeline frame at `time` seconds. */
 	colorScopes: (time: number | null) => typedError<((number | null)[])[], AppError>(__TAURI_INVOKE("color_scopes", { time })),
+	/**  The onboarding state (a first run when there is none yet). */
+	onboardingState: () => typedError<OnboardingState_Serialize, AppError>(__TAURI_INVOKE("onboarding_state")),
+	/**  Changes the onboarding state and returns it as it is now. */
+	onboardingUpdate: (change: OnboardingChange_Deserialize) => typedError<OnboardingState_Serialize, AppError>(__TAURI_INVOKE("onboarding_update", { change })),
+	/**  "Try the sample": copies the sample project into the library and opens it in the editor. */
+	createSampleProject: () => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("create_sample_project")),
 };
 
 /** Events */
@@ -498,6 +504,9 @@ export type ChatSummaryView = {
 	updatedAt: number | null,
 };
 
+/**  A step of the guided first edit. */
+export type ChecklistStep = "import" | "cut" | "title" | "captions" | "export";
+
 export type CrashReport = {
 	path: string,
 	/**  Milliseconds since the epoch. */
@@ -747,6 +756,62 @@ export type OmittedItems = {
 	kind: string,
 	count: number,
 	reason: string,
+};
+
+/**  One change to the state. */
+export type OnboardingChange = OnboardingChange_Serialize | OnboardingChange_Deserialize;
+
+/**  One change to the state. */
+export type OnboardingChange_Deserialize = 
+/**  The welcome was walked to its end with this assistant chosen (`None`: edit by hand). */
+{ kind: "finishWelcome"; assistant?: string | null } | 
+/**  Skip was pressed on a welcome screen. */
+{ kind: "skipWelcome" } | 
+/**  The assistant was chosen somewhere else (Settings, the chat panel). */
+{ kind: "setAssistant"; assistant?: string | null } | 
+/**  Checklist steps the project or the app showed as done. */
+{ kind: "completeSteps"; steps: ChecklistStep[] } | 
+/**  The checklist was closed, or reopened from Help. */
+{ kind: "setChecklistClosed"; closed: boolean };
+
+/**  One change to the state. */
+export type OnboardingChange_Serialize = 
+/**  The welcome was walked to its end with this assistant chosen (`None`: edit by hand). */
+{ kind: "finishWelcome"; assistant: string | null } | 
+/**  Skip was pressed on a welcome screen. */
+{ kind: "skipWelcome" } | 
+/**  The assistant was chosen somewhere else (Settings, the chat panel). */
+{ kind: "setAssistant"; assistant: string | null } | 
+/**  Checklist steps the project or the app showed as done. */
+{ kind: "completeSteps"; steps: ChecklistStep[] } | 
+/**  The checklist was closed, or reopened from Help. */
+{ kind: "setChecklistClosed"; closed: boolean };
+
+/**  What `onboarding.json` holds. */
+export type OnboardingState = OnboardingState_Serialize | OnboardingState_Deserialize;
+
+/**  What `onboarding.json` holds. */
+export type OnboardingState_Deserialize = {
+	version?: number,
+	welcome?: Welcome,
+	/**  The assistant picked in the welcome: an agent's id, `"api-key"`, or `None` for "I'll edit by hand". */
+	assistant?: string | null,
+	/**  Steps of the guided first edit the person has done, in checklist order. */
+	stepsDone?: ChecklistStep[],
+	/**  The checklist is out of the way until Help → Getting started brings it back. */
+	checklistClosed?: boolean,
+};
+
+/**  What `onboarding.json` holds. */
+export type OnboardingState_Serialize = {
+	version: number,
+	welcome: Welcome,
+	/**  The assistant picked in the welcome: an agent's id, `"api-key"`, or `None` for "I'll edit by hand". */
+	assistant: string | null,
+	/**  Steps of the guided first edit the person has done, in checklist order. */
+	stepsDone: ChecklistStep[],
+	/**  The checklist is out of the way until Help → Getting started brings it back. */
+	checklistClosed: boolean,
 };
 
 /**  Paths routed to the running app (second launch, Open With, Dock/taskbar drop, window drop). */
@@ -1100,6 +1165,11 @@ export type ViewerStats_Serialize = {
 	/**  Time from the last seek/step request to the frame being presented. */
 	lastSeekMs: number | null,
 };
+
+/**  Where the welcome stands. */
+export type Welcome = 
+/**  Never finished or skipped: shown at launch. */
+"pending" | "finished" | "skipped";
 
 /* Tauri Specta runtime */
 async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; data: T } | { status: "error"; error: E }> {

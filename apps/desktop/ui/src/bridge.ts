@@ -30,6 +30,12 @@ import type {
   ViewerRect,
 } from "./bindings";
 import {
+  type OnboardingChange,
+  type OnboardingState,
+  SETTLED,
+  applyChange,
+} from "./onboarding/state";
+import {
   MOCK_FONTS,
   MOCK_TEMPLATES,
   mockCheck,
@@ -80,6 +86,9 @@ export interface MockControl {
   captions: { installed: string[]; stepMs: number };
   /** Ids of the supported agents that are "installed on this computer" (none unless a test says so). */
   localAgents: string[];
+  /** Onboarding state as the native side would keep it. Onboarding is over by default (the welcome would cover
+   * every other test); a test of the first run puts `FIRST_RUN` here before rendering. */
+  onboarding: OnboardingState;
 }
 
 declare global {
@@ -649,6 +658,7 @@ function createMock(): {
     agent: { hasKey: true, stepMs: 120, ask: false },
     captions: { installed: [], stepMs: 60 },
     localAgents: [],
+    onboarding: { ...SETTLED },
   };
   const track = (name: string) => control.calls.push(name);
 
@@ -2204,6 +2214,71 @@ function createMock(): {
       return t ? ok(t) : fail("not_found", "Unknown template.");
     },
     checkCode: (compositionJson: string) => ok(mockCheck(compositionJson)),
+    // Onboarding: the state lives in `control.onboarding`; the sample is a project like the native one.
+    onboardingState: () => ok(control.onboarding),
+    onboardingUpdate: (change: OnboardingChange) => {
+      track(`onboardingUpdate:${change.kind}`);
+      control.onboarding = applyChange(control.onboarding, change);
+      return ok(control.onboarding);
+    },
+    createSampleProject: () => {
+      track("createSampleProject");
+      const copies = library.filter((p) => p.name.startsWith("Sample project"));
+      project = newProject(
+        copies.length ? `Sample project ${copies.length + 1}` : "Sample project",
+      );
+      undoStack = [];
+      redoStack = [];
+      history = [];
+      project.media.push({
+        id: "m_sample",
+        name: "sample-clip.mp4",
+        path: `${project.bundle}/media/sample-clip.mp4`,
+        kind: "video",
+        durationSeconds: 7,
+        width: 960,
+        height: 540,
+        status: "online",
+        thumbnail: null,
+      });
+      const clip = { trackId: "t_main", type: "video", name: "Sample clip", mediaItemId: "m_sample" };
+      const caption = (id: string, text: string, startTime: number, endTime: number) => ({
+        id,
+        trackId: "t_captions",
+        type: "caption",
+        name: "Caption",
+        startTime,
+        endTime,
+        captionText: text,
+      });
+      project.items.push(
+        ...[
+          { ...clip, id: "i_sample_a", startTime: 0, endTime: 2.8, trimStart: 0 },
+          {
+            ...clip,
+            id: "i_sample_b",
+            startTime: 2.8,
+            endTime: 6.4,
+            trimStart: 3.4,
+            transitionIn: { type: "dissolve", duration: 0.5, easing: "ease-in-out" },
+          },
+          {
+            id: "i_sample_title",
+            trackId: "t_text",
+            type: "text",
+            name: "Title",
+            startTime: 0.2,
+            endTime: 2.6,
+            textContent: "My first video",
+          },
+          caption("i_sample_c1", "Welcome to OpenVideoEditor.", 0.5, 2.94),
+          caption("i_sample_c2", "Cut it, add a title, then export.", 3.055, 6.139),
+        ].map(fromDetail),
+      );
+      record("new project from template “Sample project”", "gui", null);
+      library.unshift(project);
+      return publish();
+    },
   };
 
   const makeEvent = (name: string) => ({
