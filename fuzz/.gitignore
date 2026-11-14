@@ -1,0 +1,6 @@
+target/
+artifacts/
+coverage/
+# corpus entries the fuzzer adds (hash names, no extension); hand-written seeds have extensions
+corpus/*/*
+!corpus/*/*.*

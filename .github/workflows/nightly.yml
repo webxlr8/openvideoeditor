@@ -1,0 +1,51 @@
+name: Nightly
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  fuzz:
+    runs-on: ${{ fromJSON(vars.OVE_RUNNER_LINUX || '"ubuntu-24.04"') }}
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [read_json, apply_batch, parse_projection]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - run: cargo +nightly install cargo-fuzz --locked
+      - name: fuzz ${{ matrix.target }} for 30 minutes
+        working-directory: fuzz
+        run: cargo +nightly fuzz run ${{ matrix.target }} corpus/${{ matrix.target }} -- -max_total_time=1800
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: fuzz-artifacts-${{ matrix.target }}
+          path: fuzz/artifacts
+
+  long-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos, windows]
+    runs-on: ${{ fromJSON(matrix.os == 'macos' && (vars.OVE_RUNNER_MACOS || '"macos-15"') || matrix.os == 'windows' && (vars.OVE_RUNNER_WINDOWS || '"windows-2025"') || (vars.OVE_RUNNER_LINUX || '"ubuntu-24.04"')) }}
+    steps:
+      - uses: actions/checkout@v4
+      # Installs rustup on the runner if it is missing; the version matches rust-toolchain.toml.
+      - uses: dtolnay/rust-toolchain@1.97.0
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # v1: caches from before GGML_NATIVE=OFF hold CPU-specific whisper.cpp objects (.cargo/config.toml).
+          prefix-key: v1-rust
+      - name: crash harness, retention, performance
+        shell: bash
+        run: |
+          cargo test --release -p ove-store --test crash
+          cargo test --release -p ove-store --test store -- --include-ignored
+          OVE_PERF_ENFORCE=1 cargo test --release -p ove-store --test perf -- --ignored --nocapture
+          cargo test --release -p ove-projection --test perf -- --ignored --nocapture
+          OVE_SOAK_SECS=1800 cargo test --release -p ove-store --test projection concurrency_soak -- --nocapture

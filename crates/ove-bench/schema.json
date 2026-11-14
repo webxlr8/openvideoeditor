@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ove-bench/schema.json",
+  "title": "ove-bench report",
+  "description": "Output of the headless playback benchmark (change add-desktop-shell-and-native-preview, task 3.3). Times in microseconds.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "file", "media", "decodePath", "queueFrames", "playSeconds", "presentedFrames", "droppedFrames",
+    "skippedFrames", "avOffsetUs", "seekUs", "peakMemoryBytes", "machine"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "file": { "type": "string" },
+    "media": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["container", "codec", "width", "height", "frameRate", "variableFrameRate"],
+      "properties": {
+        "container": { "type": "string" },
+        "codec": { "type": "string" },
+        "profile": { "type": ["string", "null"] },
+        "width": { "type": "integer", "minimum": 1 },
+        "height": { "type": "integer", "minimum": 1 },
+        "pixelFormat": { "type": ["string", "null"] },
+        "frameRate": { "type": "number", "minimum": 0 },
+        "variableFrameRate": { "type": "boolean" },
+        "durationUs": { "type": ["integer", "null"], "minimum": 0 }
+      }
+    },
+    "decodePath": { "type": "string", "pattern": "^(software|hardware \\(.+\\))$" },
+    "queueFrames": { "type": "integer", "minimum": 1 },
+    "playSeconds": { "type": "number", "minimum": 0 },
+    "presentedFrames": { "type": "integer", "minimum": 0 },
+    "droppedFrames": { "type": "integer", "minimum": 0 },
+    "skippedFrames": { "type": "integer", "minimum": 0 },
+    "avOffsetUs": { "$ref": "#/$defs/offset" },
+    "seekUs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["count", "p50", "p95", "max", "exact"],
+      "properties": {
+        "count": { "type": "integer", "minimum": 0 },
+        "p50": { "type": "integer", "minimum": 0 },
+        "p95": { "type": "integer", "minimum": 0 },
+        "max": { "type": "integer", "minimum": 0 },
+        "exact": { "type": "boolean" }
+      }
+    },
+    "peakMemoryBytes": { "type": "integer", "minimum": 0 },
+    "machine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["os", "arch", "cpus"],
+      "properties": {
+        "os": { "type": "string" },
+        "arch": { "type": "string" },
+        "cpus": { "type": "integer", "minimum": 1 }
+      }
+    }
+  },
+  "$defs": {
+    "offset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mean", "p95", "max"],
+      "properties": {
+        "mean": { "type": "integer", "minimum": 0 },
+        "p95": { "type": "integer", "minimum": 0 },
+        "max": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

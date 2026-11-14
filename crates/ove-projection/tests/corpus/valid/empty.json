@@ -1,0 +1,16 @@
+{
+  "format": "ove-project",
+  "version": 1,
+  "project": {
+    "id": "p_empty",
+    "name": "Empty",
+    "createdAt": 1,
+    "updatedAt": 1,
+    "stateUpdatedAt": 1,
+    "aspectRatio": "9:16",
+    "media": [],
+    "tracks": [],
+    "timelineItems": []
+  },
+  "media": []
+}

@@ -1,0 +1,92 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/ove-core",
+    "crates/ove-store",
+    "crates/ove-projection",
+    "crates/ove-cli",
+    "crates/ove-control",
+    "crates/ove-generate",
+    "crates/ove-interchange",
+    "crates/ove-agent",
+    "crates/ove-media",
+    "crates/ove-playback",
+    "crates/ove-gpu",
+    "crates/ove-bench",
+    "crates/ove-transcribe",
+    "crates/ove-render",
+    "crates/ove-analyze",
+    "crates/ove-graphics",
+    "crates/ove-guard",
+    "apps/desktop/src-tauri",
+]
+default-members = [
+    "crates/ove-core",
+    "crates/ove-control",
+    "crates/ove-generate",
+    "crates/ove-interchange",
+    "crates/ove-store",
+    "crates/ove-projection",
+    "crates/ove-cli",
+    "crates/ove-agent",
+    "crates/ove-guard",
+    "crates/ove-playback",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+license = "Apache-2.0"
+publish = false
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+missing_debug_implementations = "allow"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+# No panics in shipped code: failures surface as errors. Tests, benches and examples may still
+# unwrap (see clippy.toml).
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+unreachable = "deny"
+dbg_macro = "deny"
+undocumented_unsafe_blocks = "deny"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "debuginfo"
+
+# The Windows API binding crates are huge and almost all declarations: one codegen unit each makes the release build
+# slower and hungrier for no run-time gain. (Compiling the windows crate still peaks near 2.7 GB whatever the settings;
+# see docs/ci-runners.md for the runner memory the release needs.)
+[profile.release.package.windows]
+codegen-units = 16
+
+[profile.release.package.windows-sys]
+codegen-units = 16
+
+[profile.dev]
+# Smaller target dirs: line tables for our crates, no debug info for dependencies.
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.test]
+opt-level = 1
+
+[profile.dev.package.proptest]
+opt-level = 3
+
+# Speech recognition is unusably slow unoptimised; build whisper.cpp optimised in dev and test builds too.
+[profile.dev.package.whisper-rs-sys]
+opt-level = 3
+
+[profile.test.package.whisper-rs-sys]
+opt-level = 3

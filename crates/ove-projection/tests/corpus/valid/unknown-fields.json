@@ -1,0 +1,81 @@
+{
+  "format": "ove-project",
+  "version": 1,
+  "project": {
+    "id": "p_unknown",
+    "name": "Unknown fields everywhere",
+    "createdAt": 1,
+    "updatedAt": 2,
+    "stateUpdatedAt": 2,
+    "aspectRatio": "9:16",
+    "zFuture": {
+      "b": 1,
+      "a": [
+        1,
+        2
+      ]
+    },
+    "cast": [
+      {
+        "name": "Ana",
+        "role": "host"
+      }
+    ],
+    "media": [
+      {
+        "id": "m1",
+        "zz": true,
+        "data": {
+          "type": "video",
+          "unknownProbeField": "x"
+        },
+        "aa": 1
+      }
+    ],
+    "tracks": [
+      {
+        "id": "t1",
+        "name": "Main",
+        "order": 0,
+        "type": "video",
+        "zebra": "striped",
+        "alpha": 0.5
+      }
+    ],
+    "timelineItems": [
+      {
+        "id": "i1",
+        "trackId": "t1",
+        "type": "video",
+        "startTime": 0,
+        "endTime": 1.000001,
+        "zUnknown": {
+          "deep": [
+            {
+              "k": null
+            }
+          ]
+        },
+        "mediaItemId": "m1",
+        "transform": {
+          "x": 10,
+          "scael": 2
+        },
+        "aUnknown": 3.14159
+      }
+    ]
+  },
+  "media": [
+    {
+      "mediaId": "m1",
+      "nativePath": "C:\\Footage\\a.mp4",
+      "ownedByBundle": false,
+      "checksum": "abc",
+      "probeStatus": "probed"
+    }
+  ],
+  "zTopLevel": "kept",
+  "aTopLevel": [
+    true
+  ]
+}

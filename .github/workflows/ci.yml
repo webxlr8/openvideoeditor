@@ -1,0 +1,412 @@
+name: CI
+
+on:
+  pull_request:
+  # The release workflow runs this whole suite on the tagged commit before it publishes anything.
+  workflow_call:
+  push:
+    # Work branches too, so a branch is tested on the macOS/Windows runners before it reaches main.
+    branches: [main, "claude/**"]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  # Pull requests and work branches cancel superseded runs; pushes to main queue so every result is kept.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || startsWith(github.ref, 'refs/heads/claude/') }}
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  core:
+    name: core (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(vars.OVE_CI_OSES || '["linux","macos","windows"]') }}
+    runs-on: ${{ fromJSON(matrix.os == 'macos' && (vars.OVE_RUNNER_MACOS || '"macos-15"') || matrix.os == 'windows' && (vars.OVE_RUNNER_WINDOWS || '"windows-2025"') || (vars.OVE_RUNNER_LINUX || '"ubuntu-24.04"')) }}
+    steps:
+      - uses: actions/checkout@v4
+      # Installs rustup on the runner if it is missing; the version matches rust-toolchain.toml.
+      - uses: dtolnay/rust-toolchain@1.97.0
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # v1: caches from before GGML_NATIVE=OFF hold CPU-specific whisper.cpp objects (.cargo/config.toml).
+          prefix-key: v1-rust
+          cache-on-failure: true
+      - name: build prerequisites (Linux audio and keyring headers)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          if command -v apt-get >/dev/null && sudo -n true 2>/dev/null; then
+            sudo apt-get update && sudo apt-get install -y libasound2-dev libdbus-1-dev pkg-config
+          fi
+      - name: fmt
+        run: cargo fmt --all -- --check
+      - name: clippy (document core)
+        run: cargo clippy -p ove-core -p ove-store -p ove-projection -p ove-cli -p ove-playback --all-targets -- -D warnings
+      - name: test (document core)
+        run: cargo test -p ove-core -p ove-store -p ove-projection -p ove-cli -p ove-playback
+      - name: schema / typings drift
+        shell: bash
+        run: |
+          cargo run -q -p ove-core --bin ove-schema -- --check
+          cargo run -q -p ove-projection --bin ove-typings -- --check
+      - name: projection corpus type-checks against timeline.d.ts
+        shell: bash
+        run: tools/check-projection-types.sh
+
+  media:
+    name: workspace + desktop (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # GitHub-hosted runners by default (free for public repositories); OVE_CI_OSES and OVE_RUNNER_* override.
+        # See docs/ci-runners.md.
+        os: ${{ fromJSON(vars.OVE_CI_OSES || '["linux","macos","windows"]') }}
+    runs-on: ${{ fromJSON(matrix.os == 'macos' && (vars.OVE_RUNNER_MACOS || '"macos-15"') || matrix.os == 'windows' && (vars.OVE_RUNNER_WINDOWS || '"windows-2025"') || (vars.OVE_RUNNER_LINUX || '"ubuntu-24.04"')) }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      # Installs rustup on the runner if it is missing; the version matches rust-toolchain.toml.
+      - uses: dtolnay/rust-toolchain@1.97.0
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # v1: caches from before GGML_NATIVE=OFF hold CPU-specific whisper.cpp objects (.cargo/config.toml).
+          prefix-key: v1-rust
+          cache-on-failure: true
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/desktop/pnpm-lock.yaml
+      - name: build prerequisites (macOS)
+        if: runner.os == 'macOS'
+        run: brew install dav1d nasm pkg-config ffmpeg
+      - name: build prerequisites (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          pkgs="nasm libdav1d-dev pkg-config ffmpeg clang libclang-dev cmake libasound2-dev libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev
+            libayatana-appindicator3-dev libssl-dev libdbus-1-dev"
+          if command -v apt-get >/dev/null && sudo -n true 2>/dev/null; then
+            sudo apt-get update && sudo apt-get install -y $pkgs
+          else
+            echo "No passwordless apt on this runner; expecting these packages to be installed: $pkgs"
+          fi
+      - name: build prerequisites (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          choco install -y ffmpeg-full nasm llvm
+          vcpkg install dav1d:x64-windows
+      - uses: msys2/setup-msys2@v2
+        if: runner.os == 'Windows'
+        with:
+          msystem: MINGW64
+          path-type: inherit
+          install: make pkg-config diffutils
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+      # With the MSVC environment set, rustc runs the first link.exe on PATH, which in Git Bash is coreutils' link.
+      - name: MSVC linker for cargo
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $link = Join-Path $env:VCToolsInstallDir 'bin\Hostx64\x64\link.exe'
+          if (!(Test-Path $link)) { throw "no MSVC link.exe at $link" }
+          "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER=$link" >> $env:GITHUB_ENV
+          # bindgen (FFmpeg, whisper.cpp): the runner's LLVM, not whichever libclang.dll PATH finds first.
+          "LIBCLANG_PATH=C:\Program Files\LLVM\bin" >> $env:GITHUB_ENV
+      - uses: actions/cache/restore@v4
+        id: ffmpeg-cache
+        with:
+          path: tools/ffmpeg/out
+          key: ffmpeg-${{ matrix.os }}-${{ hashFiles('tools/ffmpeg/*.sh') }}
+      - name: FFmpeg (LGPL, shared)
+        if: runner.os != 'Windows'
+        run: tools/ffmpeg/build.sh --ci
+      - name: FFmpeg (LGPL, shared; MSYS2 shell with the MSVC environment)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: tools/ffmpeg/build.sh --ci
+      # Saved as soon as it is built, so a later failure in this job does not cost the next run a rebuild.
+      - uses: actions/cache/save@v4
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        with:
+          path: tools/ffmpeg/out
+          key: ${{ steps.ffmpeg-cache.outputs.cache-primary-key }}
+      - name: test media matrix (generated with the runner's ffmpeg CLI; test-only)
+        run: python3 tests/media/media.py generate
+      - name: UI typecheck / lint / test / licences
+        working-directory: apps/desktop
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run typecheck
+          pnpm run lint
+          pnpm run test
+          pnpm run licenses
+      # Tests make fixtures with a full ffmpeg CLI (lavfi, libx264): the one test media was generated with, named
+      # explicitly because env.sh puts the LGPL build's folder (whose test CLI has neither) first on PATH on Windows.
+      - name: fixture ffmpeg
+        run: |
+          fixture="$(command -v ffmpeg)"
+          if command -v cygpath >/dev/null; then fixture="$(cygpath -w "$fixture")"; fi
+          echo "fixture ffmpeg: $fixture ($(ffmpeg -hide_banner -version | sed -n 1p))"
+          echo "OVE_FIXTURE_FFMPEG=$fixture" >> "$GITHUB_ENV"
+      - name: clippy (whole workspace, every crate)
+        run: |
+          source tools/ffmpeg/env.sh
+          cargo clippy --workspace --all-targets --all-features -- -D warnings
+      # Every test runs even when one fails, so one run shows everything that is wrong on a platform.
+      - name: test (whole workspace, every crate)
+        if: ${{ !cancelled() }}
+        run: |
+          source tools/ffmpeg/env.sh
+          cargo test --workspace --all-features --no-fail-fast
+      - name: bindings drift
+        if: ${{ !cancelled() }}
+        run: |
+          source tools/ffmpeg/env.sh
+          cargo run -q -p ove-desktop --features bindings --bin export-bindings -- --check
+      - name: benchmark on the matrix (JSON artefacts)
+        run: |
+          source tools/ffmpeg/env.sh
+          mkdir -p bench-out
+          for f in tests/media/files/*; do cargo run -q --release -p ove-bench -- "$f" > "bench-out/$(basename "$f").json" || true; done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench-and-ffmpeg-${{ matrix.os }}
+          path: |
+            bench-out
+            tools/ffmpeg/out/*/buildconf.txt
+            tools/ffmpeg/out/*/sizes.txt
+      - name: debug app build
+        if: ${{ !cancelled() }}
+        working-directory: apps/desktop
+        run: |
+          source ../../tools/ffmpeg/env.sh
+          pnpm tauri build --debug --no-bundle
+
+  app-e2e:
+    # The real desktop app (debug build) driven through tauri-driver: every main user flow, see
+    # apps/desktop/e2e-app/run.mjs. Releases need this green on every OS.
+    name: app e2e (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.97.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: v1-rust
+          cache-on-failure: true
+          key: app-e2e
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/desktop/pnpm-lock.yaml
+      - name: prerequisites (Linux; WebKitWebDriver, Xvfb, speech synthesis, X11 window close)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nasm libdav1d-dev pkg-config ffmpeg clang libclang-dev cmake libasound2-dev \
+            libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libayatana-appindicator3-dev libssl-dev libdbus-1-dev \
+            webkit2gtk-driver xvfb espeak-ng python3-xlib
+      - name: prerequisites (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          choco install -y ffmpeg-full nasm llvm
+          vcpkg install dav1d:x64-windows
+      - name: display resolution (Windows; the runner's default 1024×768 is smaller than the app's window)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        continue-on-error: true
+        run: Set-DisplayResolution -Width 1920 -Height 1080 -Force
+      - uses: msys2/setup-msys2@v2
+        if: runner.os == 'Windows'
+        with:
+          msystem: MINGW64
+          path-type: inherit
+          install: make pkg-config diffutils
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+      # With the MSVC environment set, rustc runs the first link.exe on PATH, which in Git Bash is coreutils' link.
+      - name: MSVC linker for cargo
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $link = Join-Path $env:VCToolsInstallDir 'bin\Hostx64\x64\link.exe'
+          if (!(Test-Path $link)) { throw "no MSVC link.exe at $link" }
+          "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER=$link" >> $env:GITHUB_ENV
+          # bindgen (FFmpeg, whisper.cpp): the runner's LLVM, not whichever libclang.dll PATH finds first.
+          "LIBCLANG_PATH=C:\Program Files\LLVM\bin" >> $env:GITHUB_ENV
+      # Same build and cache key as the workspace job's FFmpeg.
+      - uses: actions/cache/restore@v4
+        id: ffmpeg-cache
+        with:
+          path: tools/ffmpeg/out
+          key: ffmpeg-${{ runner.os == 'Windows' && 'windows' || 'linux' }}-${{ hashFiles('tools/ffmpeg/*.sh') }}
+      - name: FFmpeg (LGPL, shared)
+        if: runner.os != 'Windows'
+        run: tools/ffmpeg/build.sh --ci
+      - name: FFmpeg (LGPL, shared; MSYS2 shell with the MSVC environment)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: tools/ffmpeg/build.sh --ci
+      # Saved as soon as it is built, so a later failure in this job does not cost the next run a rebuild.
+      - uses: actions/cache/save@v4
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        with:
+          path: tools/ffmpeg/out
+          key: ${{ steps.ffmpeg-cache.outputs.cache-primary-key }}
+      - name: test media matrix
+        run: python3 tests/media/media.py generate
+      - name: tauri-driver
+        # Third-party tools: the workspace's `-D warnings` is not theirs to meet.
+        env:
+          RUSTFLAGS: ""
+        run: cargo install tauri-driver --locked
+      - name: msedgedriver matching the runner's WebView2 (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          RUSTFLAGS: ""
+        run: |
+          cargo install --git https://github.com/chippers/msedgedriver-tool
+          & "$HOME/.cargo/bin/msedgedriver-tool.exe"
+          $PWD.Path >> $env:GITHUB_PATH
+          # tauri-driver starts this wrapper, so msedgedriver writes a verbose log the job uploads.
+          $driver = Join-Path $PWD.Path 'msedgedriver.exe'
+          if (!(Test-Path $driver)) { throw "msedgedriver.exe was not downloaded" }
+          $log = Join-Path $env:RUNNER_TEMP 'msedgedriver.log'
+          $wrapper = Join-Path $env:RUNNER_TEMP 'msedgedriver-verbose.cmd'
+          "@`"$driver`" %* --verbose --log-path=`"$log`"" | Set-Content -Encoding ascii $wrapper
+          "OVE_E2E_NATIVE_DRIVER=$wrapper" >> $env:GITHUB_ENV
+      # The mock first: a later plain `cargo build` of the desktop crate would replace the app binary with one that
+      # loads the Vite dev server instead of the built UI.
+      - name: mock Messages API (the assistant's scripted stand-in)
+        run: |
+          source tools/ffmpeg/env.sh
+          cargo build -p ove-agent --example mock_server
+      - name: debug app build
+        working-directory: apps/desktop
+        run: |
+          source ../../tools/ffmpeg/env.sh
+          pnpm install --frozen-lockfile
+          pnpm tauri build --debug --no-bundle
+      # The speech model the captions flow downloads on first use (ggml-tiny, 77 MB; checked by sha256 on download).
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/ove-whisper-models
+          key: whisper-models-v1
+      - name: app e2e (Linux, Xvfb)
+        if: runner.os == 'Linux'
+        working-directory: apps/desktop
+        env:
+          OVE_WHISPER_MODEL_DIR: ${{ runner.temp }}/ove-whisper-models
+        run: |
+          source ../../tools/ffmpeg/env.sh
+          xvfb-run -a -s "-screen 0 1920x1080x24" pnpm e2e:app
+      - name: app e2e (Windows)
+        if: runner.os == 'Windows'
+        working-directory: apps/desktop
+        env:
+          OVE_WHISPER_MODEL_DIR: ${{ runner.temp }}/ove-whisper-models
+        run: |
+          source ../../tools/ffmpeg/env.sh
+          pnpm e2e:app
+      - name: native crashes (kernel log)
+        if: failure() && runner.os == 'Linux'
+        run: sudo dmesg | grep -iE "ove-desktop|WebKit|trap|segfault|invalid opcode" | tail -20 || true
+      - name: WebView2 diagnostics (Windows)
+        if: failure() && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Get-Command msedgedriver -All -ErrorAction SilentlyContinue | Format-Table -AutoSize Source, Version
+          Get-ChildItem Env: | Where-Object Name -like 'WEBVIEW2*' | Format-Table -AutoSize
+          foreach ($root in @($env:LOCALAPPDATA, $env:TEMP, $env:APPDATA)) {
+            Get-ChildItem -Path $root -Recurse -Filter DevToolsActivePort -ErrorAction SilentlyContinue |
+              ForEach-Object { "$($_.FullName): $(Get-Content $_.FullName -TotalCount 1)" }
+            Get-ChildItem -Path $root -Recurse -Directory -Filter EBWebView -ErrorAction SilentlyContinue |
+              ForEach-Object { "WebView2 data: $($_.FullName)" }
+          }
+          $log = Join-Path $env:RUNNER_TEMP 'msedgedriver.log'
+          if (Test-Path $log) { Copy-Item $log apps/desktop/e2e-app/artefacts/ ; Get-Content $log -Tail 80 }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: app-e2e-${{ matrix.os }}
+          path: apps/desktop/e2e-app/artefacts
+          if-no-files-found: warn
+
+  windows-cross:
+    # The Windows code (cfg(windows), the Windows viewer, keyring, FFmpeg and whisper.cpp bindings) checked from a
+    # Linux runner with the MinGW-w64 cross build, so it cannot break silently without a Windows runner.
+    name: Windows code (cross clippy on Linux)
+    runs-on: ${{ fromJSON(vars.OVE_RUNNER_LINUX || '"ubuntu-24.04"') }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.97.0
+        with:
+          components: rustfmt, clippy
+          targets: x86_64-pc-windows-gnu
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # v1: caches from before GGML_NATIVE=OFF hold CPU-specific whisper.cpp objects (.cargo/config.toml).
+          prefix-key: v1-rust
+          cache-on-failure: true
+      - name: prerequisites (MinGW-w64)
+        run: |
+          pkgs="gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 mingw-w64-tools nasm meson ninja-build pkg-config cmake clang
+            libclang-dev"
+          if command -v apt-get >/dev/null && sudo -n true 2>/dev/null; then
+            sudo apt-get update && sudo apt-get install -y $pkgs
+          else
+            echo "No passwordless apt on this runner; expecting these packages to be installed: $pkgs"
+          fi
+      - uses: actions/cache@v4
+        with:
+          path: tools/ffmpeg/out/windows-x64-gnu
+          key: ffmpeg-windows-x64-gnu-${{ hashFiles('tools/ffmpeg/*.sh') }}
+      - name: FFmpeg for Windows (LGPL, shared, cross-built)
+        run: tools/ffmpeg/build.sh --ci --target windows-x64-gnu
+      - name: clippy (x86_64-pc-windows-gnu, whole workspace)
+        run: |
+          export OVE_FFMPEG_TARGET=windows-x64-gnu
+          source tools/ffmpeg/env.sh
+          cargo clippy --target x86_64-pc-windows-gnu --workspace --all-targets -- -D warnings
+
+  deny:
+    runs-on: ${{ fromJSON(vars.OVE_RUNNER_LINUX || '"ubuntu-24.04"') }}
+    steps:
+      - uses: actions/checkout@v4
+      # Installs rustup on the runner if it is missing; the version matches rust-toolchain.toml.
+      - uses: dtolnay/rust-toolchain@1.97.0
+        with:
+          components: rustfmt, clippy
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+      - run: cargo deny check

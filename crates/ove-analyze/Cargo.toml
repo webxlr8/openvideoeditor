@@ -1,0 +1,23 @@
+[package]
+name = "ove-analyze"
+description = "Media and timeline analysis for agents: frames, contact sheets, scene cuts, levels, silence, loudness"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+ove-core = { path = "../ove-core" }
+ove-media = { path = "../ove-media" }
+ove-render = { path = "../ove-render" }
+png = "0.18"
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+
+[dev-dependencies]
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
+tempfile = "3"
+
+[lints]
+workspace = true

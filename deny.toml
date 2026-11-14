@@ -1,0 +1,58 @@
+# Licence and advisory policy (docs/03-architecture-plan.md §5, openspec/config.yaml hard rules).
+[graph]
+all-features = true
+# Only the shipped platforms. Linux builds are for development and pull in the GTK3 stack, whose unmaintained-crate
+# advisories do not apply to anything we ship.
+targets = ["aarch64-apple-darwin", "x86_64-pc-windows-msvc"]
+
+[advisories]
+version = 2
+yanked = "deny"
+# Reviewed "unmaintained" notices (not vulnerabilities). Re-check when the upstream crates move.
+ignore = [
+    # paste: compile-time macro helper pulled in by specta / tauri-specta (typed IPC bindings); no code at run time.
+    { id = "RUSTSEC-2024-0436", reason = "build-time macro only, via specta; tracked until specta drops it" },
+    # ttf-parser: font parsing inside fontdb, which ove-graphics uses to find system and bundled fonts. No maintained
+    # fontdb release without it exists yet; the advisory names skrifa as the successor. Fonts are parsed from the
+    # bundled set and system font folders only.
+    { id = "RUSTSEC-2026-0192", reason = "via fontdb; no maintained alternative release yet; move to skrifa when fontdb does" },
+]
+
+[licenses]
+version = 2
+confidence-threshold = 0.9
+allow = [
+    "MIT",
+    "MIT-0",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "CC0-1.0",
+    "BSL-1.0",
+    "0BSD",
+    "CDLA-Permissive-2.0",
+    # FFmpeg bindings: the wrapper crates are WTFPL; FFmpeg itself is built LGPL-only and linked dynamically.
+    "WTFPL",
+    # whisper-rs / whisper-rs-sys (speech recognition bindings) are public domain; whisper.cpp itself is MIT.
+    "Unlicense",
+]
+# jpeg-encoder (a required dependency of the Takumi raster backend used by ove-graphics) is
+# "(MIT OR Apache-2.0) AND IJG": its forward DCT is ported from the Independent JPEG Group's code. The IJG terms are
+# permissive (no warranty; acknowledge the IJG code in the documentation); the acknowledgement is in
+# crates/ove-graphics/SUPPORTED.md. Allowed for this crate only.
+exceptions = [{ allow = ["IJG"], crate = "jpeg-encoder" }]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

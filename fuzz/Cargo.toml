@@ -1,0 +1,38 @@
+[package]
+name = "ove-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+ove-core = { path = "../crates/ove-core" }
+ove-projection = { path = "../crates/ove-projection" }
+serde_json = "1"
+
+# Not part of the main workspace (needs nightly + cargo-fuzz).
+[workspace]
+
+[[bin]]
+name = "read_json"
+path = "fuzz_targets/read_json.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "apply_batch"
+path = "fuzz_targets/apply_batch.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "parse_projection"
+path = "fuzz_targets/parse_projection.rs"
+test = false
+doc = false
+bench = false

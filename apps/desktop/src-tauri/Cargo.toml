@@ -1,0 +1,88 @@
+[package]
+name = "ove-desktop"
+description = "Desktop app (Tauri shell)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+default-run = "ove-desktop"
+
+[lib]
+name = "ove_desktop_lib"
+
+[[bin]]
+name = "ove-desktop"
+path = "src/main.rs"
+
+# Developer tool, not shipped: `cargo run -p ove-desktop --features bindings --bin export-bindings`.
+[[bin]]
+name = "export-bindings"
+path = "src/bin/export-bindings.rs"
+required-features = ["bindings"]
+
+[dependencies]
+dunce = "1.0"
+ureq = { version = "2.12", default-features = false, features = ["tls"] }
+memory-stats = "1.2.0"
+os_info = "3.15.0"
+ove-gpu = { version = "0.1.0", path = "../../../crates/ove-gpu" }
+ove-agent = { path = "../../../crates/ove-agent" }
+ove-control = { path = "../../../crates/ove-control" }
+ove-core = { path = "../../../crates/ove-core" }
+ove-generate = { path = "../../../crates/ove-generate" }
+ove-interchange = { path = "../../../crates/ove-interchange" }
+ove-graphics = { path = "../../../crates/ove-graphics" }
+ove-guard = { path = "../../../crates/ove-guard" }
+ove-media = { path = "../../../crates/ove-media" }
+ove-render = { path = "../../../crates/ove-render" }
+ove-store = { path = "../../../crates/ove-store" }
+ove-transcribe = { path = "../../../crates/ove-transcribe" }
+png = "0.18"
+base64 = "0.22"
+ove-playback = { path = "../../../crates/ove-playback", features = ["media", "audio-output"] }
+raw-window-handle = "0.6"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1"
+specta = { version = "=2.0.0-rc.28", features = ["derive"] }
+specta-typescript = "0.0.15"
+tauri = { version = "2.12", features = ["macos-private-api"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-single-instance = "2"
+tauri-specta = { version = "=2.0.0-rc.28", features = ["derive", "typescript"] }
+thiserror = "2.0.21"
+# FIFO turn-taking for project commands (already in the tree through Tauri).
+tokio = { version = "1", default-features = false, features = ["sync"] }
+tracing = "0.1.44"
+tracing-appender = "0.2.5"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSGeometry"] }
+objc2-app-kit = { version = "0.3", features = ["NSView", "NSResponder", "NSGraphics"] }
+objc2-quartz-core = { version = "0.3", features = ["CALayer", "CAMetalLayer"] }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_System_LibraryLoader",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[dev-dependencies]
+tempfile = "3"
+# Mock runtime: drives the real invoke handler in tests.
+tauri = { version = "2.12", features = ["macos-private-api", "test"] }
+tracing-log = "0.2"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[lints]
+workspace = true
+
+[features]
+# Builds the export-bindings developer tool.
+bindings = []

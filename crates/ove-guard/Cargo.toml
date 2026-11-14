@@ -1,0 +1,17 @@
+[package]
+name = "ove-guard"
+description = "Small guards shared by the networked crates: secret redaction for logs, endpoint override policy, ids safe to use in file names"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+rustls = { version = "0.23", default-features = false, features = ["std", "ring"] }
+rustls-platform-verifier = "0.7.1"
+tracing = "0.1"
+ureq = { version = "2.12", default-features = false, features = ["tls"] }
+
+[lints]
+workspace = true

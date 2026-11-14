@@ -97,3 +97,56 @@ given and normalised for comparison only (case-insensitive on Windows and on cas
 
 First version of the format (`version: 1`). The migration framework and fixtures exist from this change so the first
 real migration is routine.
+
+## Implementation notes (deviations decided during apply)
+
+- **Field registry instead of one struct per item type (D5).** Head fields the core reasons about (ids, `trackId`,
+  `type`, `startTime`, `endTime`, track `order`) are typed; all other fields live in an ordered field map described
+  by a declarative registry (`ove-core/src/schema.rs`). Validation, default omission, the JSON Schema, the schema
+  reference document and (in change 3) the projection attribute order and `timeline.d.ts` are all generated from it,
+  which keeps one source of truth with less code. Unknown fields keep their original order; known head fields are
+  written in a canonical order first.
+- **Four ops beyond the reference's ten.** `addMedia`, `updateMedia`, `removeMedia` (registry + media items) and
+  `updateProject` (name and project metadata such as `cast`). The reference performs these outside its op list,
+  but our rule is that `project.json` changes only through the pipeline (rename, media registration in change 3,
+  probe results in change 5).
+- **Lock holder info in `.lock.holder`, not `.lock` (D8).** Windows byte-range locks are mandatory, so another
+  process could not read holder info inside the locked file. The advisory lock itself is on `.lock` (std
+  `File::try_lock`: `flock` on macOS, `LockFileEx` on Windows).
+- **Item map is a persistent ordered map** (`imbl::OrdMap`, MPL-2.0 unmodified) so a batch clone is O(1) (D6).
+  Measured: in-memory apply on 5,000 items went from 2.2 ms to 72 µs (p50).
+- **Prune cut point (D10).** Records are pruned up to the newest periodic snapshot at or before the oldest revision
+  retention requires, so every retained revision stays reconstructable; retention may keep up to 199 extra records.
+  (Found by the retention test: cutting exactly at the 2,000th record made the oldest retained revision unbuildable.)
+- **Snapshot cadence.** The once-per-second `project.json` rewrite runs on the committing thread; on a 2.7 MB
+  document it shows as a ~60 ms outlier once per second (p95 unaffected). Moving it to a background writer is a
+  follow-up for the GUI (change 7).
+- **`ove-doc undo/redo` across processes.** Session undo stacks are per process (D7). The test CLI's `undo` returns
+  to the state before the latest revision and `redo` reverts the latest revision if it is an undo; both are restores
+  recorded with source `undo`/`redo`.
+
+## Results
+
+Environment: Linux x86_64 dev container (4 vCPU, virtio disk, ext4-on-overlay), Rust 1.97.0, release build for
+timings. macOS and Windows numbers come from the CI jobs and the reference machines (pending).
+
+| Check | Result |
+|---|---|
+| Fixture round trip (every item type; unknown fields at every level) | byte-identical |
+| Property test, random document + random batch (10,000 cases; ~40% of batches accepted, the rest rejected across 11 codes) | pass, 2.3 s |
+| Property test, `apply(diff(a, b))` both directions; JSON round trip (1,000) | pass |
+| Open-after-replay equals in-memory state, 1,000 random batch sequences incl. undo/redo | pass, ~60 s |
+| Crash harness (task 4.3), child killed 1,000 times: 760 at failpoints inside record/snapshot/index write, flush, rename, dir-sync; 240 by external SIGKILL at random moments | every reopen = state before or after the last acknowledged batch |
+| Faults: disk full (write, flush), permission denied, file busy (rename) | batch rejected with `disk.full` / `permission.denied` / `file.busy`, state intact, no temp files left |
+| Second writer (real second process), stale lock after `abort()` | refused naming pid/process/host; takeover detected and logged |
+| Open 5,000-item project (2.7 MB `project.json`), p50 of 10 | **116 ms** (budget 200 ms) |
+| 1,000 single-op batches incl. durable record write | **p50 0.71 ms, p95 1.73 ms**, max 64 ms (snapshot second) (budget p95 10 ms) |
+| Durable record write alone (`fdatasync` + rename + dir fsync) | p50 0.59 ms, p95 3.6 ms |
+| 10,000-revision project | commit 0.96 ms each; open with replay 58 ms; rebuild an old revision 55 ms; prune 8,000 records 0.74 s |
+
+| Fuzz, 3 minutes per target locally (libFuzzer, nightly toolchain): `read_json` 1.62 M runs, `apply_batch` 3.06 M runs | no crashes, no panics |
+
+Not yet verified (tasks left open): owner review of `docs/spec/project-schema-v1.md` (1.1); the 30-minute nightly
+fuzz runs (2.4, workflow added, short local runs below); every "on both OSes" check (4.1, 4.3, 4.5, 5.1, 5.2, 6.2)
+until the macOS/Windows CI jobs have run; SMB-share library refusal on real network volumes (5.1, detection code is
+per-OS: `MNT_LOCAL`, `GetDriveTypeW`/UNC, Linux `f_type`); reference-machine performance (6.1).

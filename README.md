@@ -3,6 +3,44 @@
 Agent-native desktop video editor (macOS Apple silicon + Windows 11 x64), built in Rust with a Tauri shell.
 v1 rebuilds a proven reference design feature for feature; later versions add production-house workflows.
 
+## Using the app
+
+Install: `tools/package.sh` builds an unsigned installer for the machine it runs on (macOS `.dmg`, Windows `.msi` /
+setup `.exe`, Linux `.deb`); on Linux, `tools/package.sh --target windows-x64-gnu` cross-builds the Windows setup
+`.exe` with MinGW-w64 (see `tools/ffmpeg/README.md`). For development: `cd apps/desktop && pnpm install && pnpm tauri dev`.
+
+- **Home / Projects**: your projects with thumbnails (library: `~/Movies/OpenVideoEditor` on macOS,
+  `%USERPROFILE%\Videos\OpenVideoEditor` on Windows, `OVE_LIBRARY` to override). Start a blank project, drop footage,
+  or describe a video in the prompt box (the assistant starts on it).
+- **Editor**: import media (probed, thumbnailed, appended to Main / Audio); the viewer plays the composited timeline
+  (or one clip's source with the Source toggle); select, drag between tracks, trim edges with snapping, split (S),
+  duplicate (D), copy/paste, delete, undo/redo, zoom; right-click menus; `?` lists shortcuts.
+- **Inspector** for the selected clip: speed/reverse, transform, opacity, blend, crop, transitions; colour; volume and
+  fades; text style; caption segments.
+- **Panels**: Text (title styles), Captions (manual for now), Transitions, Effects (colour looks), Audio, Layout.
+- **Assistant**: bring your own Anthropic API key (stored in the OS credential store). It reads and edits the
+  timeline through `timeline.tsx`; each edit is one undo step; chats are saved in the project.
+- **Export**: MP4 (H.264 + AAC) at 720p / 1080p / 4K, 24–60 fps, with progress and cancel; `ove export` does the same
+  from the command line.
+- **Timeline exchange**: Export → "Timeline for another editor" writes FCPXML (Final Cut Pro, Resolve), XML
+  (Premiere Pro), CMX3600 EDL or OpenTimelineIO; the Media panel's timeline button imports them as new tracks.
+  `ove timeline export|import` does the same (`docs/cli/interchange.md`).
+- Every edit is a durable revision; `ove source print|apply` and agents see the same timeline.
+- **Command line and MCP for agents**: `ove project|media|audio|look|app|source|export|timeline …` (`ove docs`,
+  `ove docs agents` for the guide). While the app has a project open, `ove` edits go through it and appear in the
+  editor at once (undoable). `ove mcp` serves the same commands as MCP tools; `ove skills install` sets up Claude
+  Code / Codex (`claude mcp add openvideoeditor -- ove mcp`). Frames, contact sheets, scene cuts, silence and EBU R128
+  loudness are built in.
+- **Captions** transcribed on this computer (whisper models downloaded on first use) in 21 styles; **motion
+  graphics** as sandboxed TSX code items with 8 templates; 16 **text animations** and a 16-family font library;
+  41 **effects**, 24 **transitions**, 15 **layouts**, colour wheels, curves and LUTs.
+- **Generate** images, video, voice, music and sound effects with your own fal.ai / OpenAI / ElevenLabs keys:
+  the estimate shows first and nothing is spent without confirming; a placeholder fills in when the job is done.
+- **Templates** for common videos, **Settings** (keys, agents, shortcut rebinding, privacy), local crash reports
+  and an update check.
+- Not yet: GPU effects, subject masks, stock media search, voice cloning, signed installers and in-place updates
+  (need the owner's certificates).
+
 ## Docs
 
 - `docs/03-architecture-plan.md` — decided architecture, alternatives, roadmap of OpenSpec changes, engineering
@@ -33,4 +71,21 @@ openspec validate --all --strict
 Fully specified, in order: `add-desktop-shell-and-native-preview` (viewer gate R1), `add-project-document`,
 `add-timeline-projection`. Changes 4–16 are listed in the roadmap and get specified just before they start.
 
-Status: planning complete for changes 1–3. No code yet.
+Status: all roadmap changes have a first implementation (see each change's tasks for what is verified and what is
+left); changes 1–3 implemented, plus the render/export engine, editor workspace and assistant (v1 slices of
+changes 6–9) (see each change's `design.md` Results for what is verified and what still needs the
+macOS / Windows machines). Layout:
+
+```
+crates/ove-core        document model, ops, invariants, revisions          crates/ove-store   bundles, durable log, locking, library
+crates/ove-projection  timeline.tsx printer/parser/merge/verify            crates/ove-cli     `ove` command line
+crates/ove-media       probe + decode (FFmpeg)                             crates/ove-playback clock, transport, A/V sync
+crates/ove-gpu         wgpu viewer renderer                                crates/ove-bench   headless playback benchmark
+apps/desktop           Tauri 2 shell + React UI                            tools/ffmpeg       LGPL FFmpeg build
+```
+
+```
+cargo test -p ove-core -p ove-store -p ove-projection -p ove-cli -p ove-playback   # document core (no FFmpeg needed)
+source tools/ffmpeg/env.sh && cargo test --workspace                                # everything
+cd apps/desktop && pnpm install && pnpm tauri dev                                   # run the app
+```

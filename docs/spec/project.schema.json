@@ -1,0 +1,3958 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ove-project.schema.json",
+  "title": "Project document",
+  "description": "Generated from the ove-core field registry. Do not edit by hand (cargo run -p ove-core --bin ove-schema).",
+  "type": "object",
+  "required": [
+    "format",
+    "version",
+    "project",
+    "media"
+  ],
+  "properties": {
+    "format": {
+      "const": "ove-project"
+    },
+    "version": {
+      "const": 1
+    },
+    "project": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "stateUpdatedAt",
+        "aspectRatio",
+        "media",
+        "timelineItems",
+        "tracks"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "integer"
+        },
+        "updatedAt": {
+          "type": "integer"
+        },
+        "stateUpdatedAt": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "aspectRatio": {
+          "enum": [
+            "16:9",
+            "4:3",
+            "3:4",
+            "9:16",
+            "1:1",
+            "4:5"
+          ]
+        },
+        "media": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/mediaItem"
+          }
+        },
+        "tracks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/track"
+          }
+        },
+        "timelineItems": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/item"
+          }
+        }
+      }
+    },
+    "media": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/registryEntry"
+      }
+    }
+  },
+  "$defs": {
+    "track": {
+      "type": "object",
+      "required": [
+        "id",
+        "order",
+        "type"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique track id."
+        },
+        "name": {
+          "type": "string",
+          "description": "Display name."
+        },
+        "order": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Position; 0 is the top layer. Unique and contiguous."
+        },
+        "type": {
+          "enum": [
+            "video",
+            "audio",
+            "caption",
+            "adjustment",
+            "layout"
+          ],
+          "description": "Track type."
+        },
+        "locked": {
+          "type": "boolean",
+          "description": "Locked tracks cannot be edited in the GUI.",
+          "default": false
+        },
+        "visible": {
+          "type": "boolean",
+          "description": "Hidden tracks render nothing.",
+          "default": true
+        },
+        "muted": {
+          "type": "boolean",
+          "description": "Muted tracks play no audio.",
+          "default": false
+        }
+      }
+    },
+    "mediaItem": {
+      "type": "object",
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique media id."
+        },
+        "createdAt": {
+          "type": "integer",
+          "description": "ms since the epoch."
+        },
+        "addedAt": {
+          "type": "integer",
+          "description": "ms since the epoch."
+        },
+        "data": {
+          "description": "type, fileName, format, size, duration, width, height, frameRate, hasAudio, statuses, …"
+        }
+      }
+    },
+    "registryEntry": {
+      "type": "object",
+      "required": [
+        "mediaId",
+        "nativePath",
+        "ownedByBundle"
+      ],
+      "properties": {
+        "mediaId": {
+          "type": "string",
+          "description": "Id of the media item."
+        },
+        "nativePath": {
+          "type": "string",
+          "description": "Absolute path of the file, or relative to the bundle when owned."
+        },
+        "ownedByBundle": {
+          "type": "boolean",
+          "description": "The file lives in the bundle's media/ folder."
+        },
+        "probeStatus": {
+          "enum": [
+            "awaiting-probe",
+            "probed",
+            "failed"
+          ],
+          "description": "Probe state.",
+          "default": "awaiting-probe"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Last known file size in bytes."
+        },
+        "modifiedAt": {
+          "type": "integer",
+          "description": "Last known modification time, ms since the epoch."
+        }
+      }
+    },
+    "item": {
+      "oneOf": [
+        {
+          "title": "video item",
+          "type": "object",
+          "required": [
+            "id",
+            "trackId",
+            "type",
+            "startTime",
+            "endTime"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "Unique item id."
+            },
+            "trackId": {
+              "type": "string",
+              "description": "Id of the track the item is on."
+            },
+            "type": {
+              "const": "video"
+            },
+            "startTime": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Timeline start, seconds."
+            },
+            "endTime": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Timeline end, seconds (greater than startTime)."
+            },
+            "name": {
+              "type": "string",
+              "description": "Display name.",
+              "default": ""
+            },
+            "trimStart": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Seconds trimmed from the start of the source.",
+              "default": 0
+            },
+            "trimEnd": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Seconds trimmed from the end of the source.",
+              "default": 0
+            },
+            "mediaItemId": {
+              "type": "string",
+              "description": "Id of the media item the item plays."
+            },
+            "pending": {
+              "type": "boolean",
+              "description": "Placeholder awaiting generated or supplied media.",
+              "default": false
+            },
+            "pendingDescription": {
+              "type": "string",
+              "description": "What the pending placeholder should become."
+            },
+            "transform": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "number",
+                  "description": "Horizontal offset in pixels from the frame centre.",
+                  "default": 0
+                },
+                "y": {
+                  "type": "number",
+                  "description": "Vertical offset in pixels from the frame centre.",
+                  "default": 0
+                },
+                "scale": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "description": "Uniform scale factor.",
+                  "default": 1
+                },
+                "rotation": {
+                  "type": "number",
+                  "description": "Rotation in degrees, clockwise.",
+                  "default": 0
+                },
+                "flipX": {
+                  "type": "boolean",
+                  "description": "Mirror horizontally.",
+                  "default": false
+                }
+              },
+              "description": "Position, scale, rotation, flip."
+            },
+            "crop": {
+              "type": "object",
+              "properties": {
+                "top": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "maximum": 100.0,
+                  "description": "Percent of height removed from the top.",
+                  "default": 0
+                },
+                "right": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "maximum": 100.0,
+                  "description": "Percent of width removed from the right.",
+                  "default": 0
+                },
+                "bottom": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "maximum": 100.0,
+                  "description": "Percent of height removed from the bottom.",
+                  "default": 0
+                },
+                "left": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "maximum": 100.0,
+                  "description": "Percent of width removed from the left.",
+                  "default": 0
+                }
+              },
+              "description": "Crop in percent per edge."
+            },
+            "opacity": {
+              "type": "number",
+              "minimum": 0.0,
+              "maximum": 1.0,
+              "description": "Opacity.",
+              "default": 1
+            },
+            "hidden": {
+              "type": "boolean",
+              "description": "Hidden items render nothing.",
+              "default": false
+            },
+            "zIndex": {
+              "type": "number",
+              "description": "Stacking order within the track.",
+              "default": 0
+            },
+            "blendMode": {
+              "enum": [
+                "normal",
+                "multiply",
+                "screen",
+                "overlay",
+                "darken",
+                "lighten",
+                "color-dodge",
+                "color-burn",
+                "hard-light",
+                "soft-light",
+                "difference",
+                "exclusion",
+                "hue",
+                "saturation",
+                "color",
+                "luminosity"
+              ],
+              "description": "Blend mode.",
+              "default": "normal"
+            },
+            "borderRadius": {
+              "type": "number",
+              "minimum": 0.0,
+              "description": "Corner radius in pixels.",
+              "default": 0
+            },
+            "gaussianBlur": {
+              "type": "number",
+              "minimum": 0.0,
+              "description": "Blur radius in pixels.",
+              "default": 0
+            },
+            "keyframeTracks": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "property": {
+                    "enum": [
+                      "x",
+                      "y",
+                      "scale",
+                      "rotation",
+                      "opacity",
+                      "gaussianBlur",
+                      "borderRadius"
+                    ],
+                    "description": "Animated property."
+                  },
+                  "keyframes": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "time": {
+                          "type": "number",
+                          "minimum": 0,
+                          "description": "Seconds from the item's start."
+                        },
+                        "value": {
+                          "type": "number",
+                          "description": "Property value at that time."
+                        }
+                      }
+                    },
+                    "description": "Keyframes in time order."
+                  },
+                  "easing": {
+                    "enum": [
+                      "linear",
+                      "ease-in",
+                      "ease-out",
+                      "ease-in-out"
+                    ],
+                    "description": "Interpolation between keyframes.",
+                    "default": "linear"
+                  }
+                }
+              },
+              "description": "Animated properties."
+            },
+            "transitionIn": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "description": "Built-in transition type."
+                },
+                "presetId": {
+                  "type": "string",
+                  "description": "Transition preset id."
+                },
+                "duration": {
+                  "type": "number",
+                  "minimum": 0,
+                  "description": "Seconds."
+                },
+                "easing": {
+                  "enum": [
+                    "linear",
+                    "ease-in",
+                    "ease-out",
+                    "ease-in-out"
+                  ],
+                  "description": "Easing curve."
+                },
+                "direction": {
+                  "enum": [
+                    "left",
+                    "right",
+                    "up",
+                    "down"
+                  ],
+                  "description": "Direction of travel for wipe, push and fly."
+                }
+              },
+              "description": "Transition at the start."
+            },
+            "transitionOut": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "description": "Built-in transition type."
+                },
+                "presetId": {
+                  "type": "string",
+                  "description": "Transition preset id."
+                },
+                "duration": {
+                  "type": "number",
+                  "minimum": 0,
+                  "description": "Seconds."
+                },
+                "easing": {
+                  "enum": [
+                    "linear",
+                    "ease-in",
+                    "ease-out",
+                    "ease-in-out"
+                  ],
+                  "description": "Easing curve."
+                },
+                "direction": {
+                  "enum": [
+                    "left",
+                    "right",
+                    "up",
+                    "down"
+                  ],
+                  "description": "Direction of travel for wipe, push and fly."
+                }
+              },
+              "description": "Transition at the end."
+            },
+            "effects": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "description": "Effect instance id."
+                  },
+                  "type": {
+                    "type": "string",
+                    "description": "Effect preset type."
+                  }
+                }
+              },
+              "description": "Effect stack."
+            },
+            "layout": {
+              "type": "object",
+              "properties": {
+                "preset": {
+                  "enum": [
+                    "split-horizontal",
+                    "split-vertical",
+                    "3up-horizontal",
+                    "3up-vertical",
+                    "4up-horizontal",
+                    "4up-vertical",
+                    "grid-2x2",
+                    "pip-bottom-right",
+                    "pip-bottom-left",
+                    "pip-top-right",
+                    "pip-top-left",
+                    "hero-top",
+                    "hero-bottom",
+                    "hero-left",
+                    "hero-right"
+                  ],
+                  "description": "Layout preset."
+                },
+                "slot": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "description": "Slot index within the preset.",
+                  "default": 0
+                }
+              },
+              "description": "Layout slot the item fills (x, y, w, h from the preset)."
+            },
+            "captionComposition": {
+              "type": "object",
+              "properties": {
+                "mode": {
+                  "enum": [
+                    "front",
+                    "behind-subject"
+                  ],
+                  "description": "Draw in front of or behind the subject.",
+                  "default": "front"
+                },
+                "fallback": {
+                  "enum": [
+                    "front",
+                    "hide"
+                  ],
+                  "description": "When no subject matte is available.",
+                  "default": "front"
+                }
+              },
+              "description": "Caption depth compositing."
+            },
+            "autoReframe": {
+              "type": "boolean",
+              "description": "Fill the frame height with a centred crop when not transformed.",
+              "default": true
+            },
+            "colorGrading": {
+              "type": "object",
+              "properties": {
+                "exposure": {
+                  "type": "number",
+                  "description": "Exposure adjustment.",
+                  "default": 0
+                },
+                "brightness": {
+                  "type": "number",
+                  "description": "Brightness adjustment.",
+                  "default": 0
+                },
+                "contrast": {
+                  "type": "number",
+                  "description": "Contrast adjustment.",
+                  "default": 0
+                },
+                "highlights": {
+                  "type": "number",
+                  "description": "Highlights adjustment.",
+                  "default": 0
+                },
+                "shadows": {
+                  "type": "number",
+                  "description": "Shadows adjustment.",
+                  "default": 0
+                },
+                "temperature": {
+                  "type": "number",
+                  "description": "White-balance temperature shift.",
+                  "default": 0
+                },
+                "tint": {
+                  "type": "number",
+                  "description": "White-balance tint shift.",
+                  "default": 0
+                },
+                "saturation": {
+                  "type": "number",
+                  "description": "Saturation adjustment.",
+                  "default": 0
+                },
+                "vibrance": {
+                  "type": "number",
+                  "description": "Vibrance adjustment.",
+                  "default": 0
+                },
+                "gamma": {
+                  "type": "number",
+                  "description": "Gamma adjustment.",
+                  "default": 0
+                }
+              },
+              "description": "Basic colour adjustments."
+            },
+            "colorGrade": {
+              "type": "object",
+              "properties": {
+                "wheels": {
+                  "description": "Lift/gamma/gain/offset wheels, each {r,g,b,y}."
+                },
+                "curves": {
+                  "description": "master, red, green, blue, hueVsSat, hueVsHue, hueVsLum, lumVsSat curves."
+                },
+                "saturation": {
+                  "type": "number",
+                  "description": "Global saturation."
+                },
+                "lut": {
+                  "type": "object",
+                  "properties": {
+                    "preset": {
+                      "type": "string",
+                      "description": "LUT preset id."
+                    },
+                    "file": {
+                      "type": "string",
+                      "description": "Path to a .cube file (copied into the bundle on apply)."
+                    },
+                    "intensity": {
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0,
+                      "description": "Blend amount.",
+                      "default": 1
+                    },
+                    "stage": {
+                      "enum": [
+                        "input",
+                        "look"
+                      ],
+                      "description": "Where in the grade the LUT applies.",
+                      "default": "look"
+                    }
+                  },
+                  "description": "LUT applied in the grade."
+                },
+                "match": {
+                  "description": "Reference match; fitted on apply and replaced by concrete values."
+                }
+              },
+              "description": "Wheels, curves, LUT and match."
+            },
+            "volume": {
+              "type": "number",
+              "minimum": 0.0,
+              "maximum": 200.0,
+              "description": "Volume in percent.",
+              "default": 100
+            },
+            "muted": {
+              "type": "boolean",
+              "description": "Muted.",
+              "default": false
+            },
+            "audioFadeIn": {
+              "type": "object",
+              "properties": {
+                "duration": {
+                  "type": "number",
+                  "minimum": 0,
+                  "description": "Seconds."
+                },
+                "easing": {
+                  "enum": [
+                    "linear",
+                    "ease-in",
+                    "ease-out",
+                    "ease-in-out"
+                  ],
+                  "description": "Fade curve.",
+                  "default": "linear"
+                }
+              },
+              "description": "Audio fade at the start."
+            },
+            "audioFadeOut": {
+              "type": "object",
+              "properties": {
+                "duration": {
+                  "type": "number",
+                  "minimum": 0,
+                  "description": "Seconds."
+                },
+                "easing": {
+                  "enum": [
+                    "linear",
+                    "ease-in",
+                    "ease-out",
+                    "ease-in-out"
+                  ],
+                  "description": "Fade curve.",
+                  "default": "linear"
+                }
+              },
+              "description": "Audio fade at the end."
+            },
+            "playbackSpeed": {
+              "type": "number",
+              "minimum": 0.01,
+              "maximum": 100.0,
+              "description": "Playback speed factor.",
+              "default": 1
+            },
+            "playbackDirection": {
+              "enum": [
+                "forward",
+                "reverse"
+              ],
+              "description": "Playback direction.",
+              "default": "forward"
+            }
+          }
+        },
+        {
+          "title": "image item",
+          "type": "object",
+          "required": [
+            "id",
+            "trackId",
+            "type",
+            "startTime",
+            "endTime"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "Unique item id."
+            },
+            "trackId": {
+              "type": "string",
+              "description": "Id of the track the item is on."
+            },
+            "type": {
+              "const": "image"
+            },
+            "startTime": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Timeline start, seconds."
+            },
+            "endTime": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Timeline end, seconds (greater than startTime)."
+            },
+            "name": {
+              "type": "string",
+              "description": "Display name.",
+              "default": ""
+            },
+            "trimStart": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Seconds trimmed from the start of the source.",
+              "default": 0
+            },
+            "trimEnd": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Seconds trimmed from the end of the source.",
+              "default": 0
+            },
+            "mediaItemId": {
+              "type": "string",
+              "description": "Id of the media item the item plays."
+            },
+            "pending": {
+              "type": "boolean",
+              "description": "Placeholder awaiting generated or supplied media.",
+              "default": false
+            },
+            "pendingDescription": {
+              "type": "string",
+              "description": "What the pending placeholder should become."
+            },
+            "transform": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "number",
+                  "description": "Horizontal offset in pixels from the frame centre.",
+                  "default": 0
+                },
+                "y": {
+                  "type": "number",
+                  "description": "Vertical offset in pixels from the frame centre.",
+                  "default": 0
+                },
+                "scale": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "description": "Uniform scale factor.",
+                  "default": 1
+                },
+                "rotation": {
+                  "type": "number",
+                  "description": "Rotation in degrees, clockwise.",
+                  "default": 0
+                },
+                "flipX": {
+                  "type": "boolean",
+                  "description": "Mirror horizontally.",
+                  "default": false
+                }
+              },
+              "description": "Position, scale, rotation, flip."
+            },
+            "crop": {
+              "type": "object",
+              "properties": {
+                "top": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "maximum": 100.0,
+                  "description": "Percent of height removed from the top.",
+                  "default": 0
+                },
+                "right": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "maximum": 100.0,
+                  "description": "Percent of width removed from the right.",
+                  "default": 0
+                },
+                "bottom": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "maximum": 100.0,
+                  "description": "Percent of height removed from the bottom.",
+                  "default": 0
+                },
+                "left": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "maximum": 100.0,
+                  "description": "Percent of width removed from the left.",
+                  "default": 0
+                }
+              },
+              "description": "Crop in percent per edge."
+            },
+            "opacity": {
+              "type": "number",
+              "minimum": 0.0,
+              "maximum": 1.0,
+              "description": "Opacity.",
+              "default": 1
+            },
+            "hidden": {
+              "type": "boolean",
+              "description": "Hidden items render nothing.",
+              "default": false
+            },
+            "zIndex": {
+              "type": "number",
+              "description": "Stacking order within the track.",
+              "default": 0
+            },
+            "blendMode": {
+              "enum": [
+                "normal",
+                "multiply",
+                "screen",
+                "overlay",
+                "darken",
+                "lighten",
+                "color-dodge",
+                "color-burn",
+                "hard-light",
+                "soft-light",
+                "difference",
+                "exclusion",
+                "hue",
+                "saturation",
+                "color",
+                "luminosity"
+              ],
+              "description": "Blend mode.",
+              "default": "normal"
+            },
+            "borderRadius": {
+              "type": "number",
+              "minimum": 0.0,
+              "description": "Corner radius in pixels.",
+              "default": 0
+            },
+            "gaussianBlur": {
+              "type": "number",
+              "minimum": 0.0,
+              "description": "Blur radius in pixels.",
+              "default": 0
+            },
+            "keyframeTracks": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "property": {
+                    "enum": [
+                      "x",
+                      "y",
+                      "scale",
+                      "rotation",
+                      "opacity",
+                      "gaussianBlur",
+                      "borderRadius"
+                    ],
+                    "description": "Animated property."
+                  },
+                  "keyframes": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "time": {
+                          "type": "number",
+                          "minimum": 0,
+                          "description": "Seconds from the item's start."
+                        },
+                        "value": {
+                          "type": "number",
+                          "description": "Property value at that time."
+                        }
+                      }
+                    },
+                    "description": "Keyframes in time order."
+                  },
+                  "easing": {
+                    "enum": [
+                      "linear",
+                      "ease-in",
+                      "ease-out",
+                      "ease-in-out"
+                    ],
+                    "description": "Interpolation between keyframes.",
+                    "default": "linear"
+                  }
+                }
+              },
+              "description": "Animated properties."
+            },
+            "transitionIn": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "description": "Built-in transition type."
+                },
+                "presetId": {
+                  "type": "string",
+                  "description": "Transition preset id."
+                },
+                "duration": {
+                  "type": "number",
+                  "minimum": 0,
+                  "description": "Seconds."
+                },
+                "easing": {
+                  "enum": [
+                    "linear",
+                    "ease-in",
+                    "ease-out",
+                    "ease-in-out"
+                  ],
+                  "description": "Easing curve."
+                },
+                "direction": {
+                  "enum": [
+                    "left",
+                    "right",
+                    "up",
+                    "down"
+                  ],
+                  "description": "Direction of travel for wipe, push and fly."
+                }
+              },
+              "description": "Transition at the start."
+            },
+            "transitionOut": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "description": "Built-in transition type."
+                },
+                "presetId": {
+                  "type": "string",
+                  "description": "Transition preset id."
+                },
+                "duration": {
+                  "type": "number",
+                  "minimum": 0,
+                  "description": "Seconds."
+                },
+                "easing": {
+                  "enum": [
+                    "linear",
+                    "ease-in",
+                    "ease-out",
+                    "ease-in-out"
+                  ],
+                  "description": "Easing curve."
+                },
+                "direction": {
+                  "enum": [
+                    "left",
+                    "right",
+                    "up",
+                    "down"
+                  ],
+                  "description": "Direction of travel for wipe, push and fly."
+                }
+              },
+              "description": "Transition at the end."
+            },
+            "effects": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "description": "Effect instance id."
+                  },
+                  "type": {
+                    "type": "string",
+                    "description": "Effect preset type."
+                  }
+                }
+              },
+              "description": "Effect stack."
+            },
+            "layout": {
+              "type": "object",
+              "properties": {
+                "preset": {
+                  "enum": [
+                    "split-horizontal",
+                    "split-vertical",
+                    "3up-horizontal",
+                    "3up-vertical",
+                    "4up-horizontal",
+                    "4up-vertical",
+                    "grid-2x2",
+                    "pip-bottom-right",
+                    "pip-bottom-left",
+                    "pip-top-right",
+                    "pip-top-left",
+                    "hero-top",
+                    "hero-bottom",
+                    "hero-left",
+                    "hero-right"
+                  ],
+                  "description": "Layout preset."
+                },
+                "slot": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "description": "Slot index within the preset.",
+                  "default": 0
+                }
+              },
+              "description": "Layout slot the item fills (x, y, w, h from the preset)."
+            },
+            "captionComposition": {
+              "type": "object",
+              "properties": {
+                "mode": {
+                  "enum": [
+                    "front",
+                    "behind-subject"
+                  ],
+                  "description": "Draw in front of or behind the subject.",
+                  "default": "front"
+                },
+                "fallback": {
+                  "enum": [
+                    "front",
+                    "hide"
+                  ],
+                  "description": "When no subject matte is available.",
+                  "default": "front"
+                }
+              },
+              "description": "Caption depth compositing."
+            },
+            "autoReframe": {
+              "type": "boolean",
+              "description": "Fill the frame height with a centred crop when not transformed.",
+              "default": true
+            },
+            "colorGrading": {
+              "type": "object",
+              "properties": {
+                "exposure": {
+                  "type": "number",
+                  "description": "Exposure adjustment.",
+                  "default": 0
+                },
+                "brightness": {
+                  "type": "number",
+                  "description": "Brightness adjustment.",
+                  "default": 0
+                },
+                "contrast": {
+                  "type": "number",
+                  "description": "Contrast adjustment.",
+                  "default": 0
+                },
+                "highlights": {
+                  "type": "number",
+                  "description": "Highlights adjustment.",
+                  "default": 0
+                },
+                "shadows": {
+                  "type": "number",
+                  "description": "Shadows adjustment.",
+                  "default": 0
+                },
+                "temperature": {
+                  "type": "number",
+                  "description": "White-balance temperature shift.",
+                  "default": 0
+                },
+                "tint": {
+                  "type": "number",
+                  "description": "White-balance tint shift.",
+                  "default": 0
+                },
+                "saturation": {
+                  "type": "number",
+                  "description": "Saturation adjustment.",
+                  "default": 0
+                },
+                "vibrance": {
+                  "type": "number",
+                  "description": "Vibrance adjustment.",
+                  "default": 0
+                },
+                "gamma": {
+                  "type": "number",
+                  "description": "Gamma adjustment.",
+                  "default": 0
+                }
+              },
+              "description": "Basic colour adjustments."
+            },
+            "colorGrade": {
+              "type": "object",
+              "properties": {
+                "wheels": {
+                  "description": "Lift/gamma/gain/offset wheels, each {r,g,b,y}."
+                },
+                "curves": {
+                  "description": "master, red, green, blue, hueVsSat, hueVsHue, hueVsLum, lumVsSat curves."
+                },
+                "saturation": {
+                  "type": "number",
+                  "description": "Global saturation."
+                },
+                "lut": {
+                  "type": "object",
+                  "properties": {
+                    "preset": {
+                      "type": "string",
+                      "description": "LUT preset id."
+                    },
+                    "file": {
+                      "type": "string",
+                      "description": "Path to a .cube file (copied into the bundle on apply)."
+                    },
+                    "intensity": {
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0,
+                      "description": "Blend amount.",
+                      "default": 1
+                    },
+                    "stage": {
+                      "enum": [
+                        "input",
+                        "look"
+                      ],
+                      "description": "Where in the grade the LUT applies.",
+                      "default": "look"
+                    }
+                  },
+                  "description": "LUT applied in the grade."
+                },
+                "match": {
+                  "description": "Reference match; fitted on apply and replaced by concrete values."
+                }
+              },
+              "description": "Wheels, curves, LUT and match."
+            }
+          }
+        },
+        {
+          "title": "audio item",
+          "type": "object",
+          "required": [
+            "id",
+            "trackId",
+            "type",
+            "startTime",
+            "endTime"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "Unique item id."
+            },
+            "trackId": {
+              "type": "string",
+              "description": "Id of the track the item is on."
+            },
+            "type": {
+              "const": "audio"
+            },
+            "startTime": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Timeline start, seconds."
+            },
+            "endTime": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Timeline end, seconds (greater than startTime)."
+            },
+            "name": {
+              "type": "string",
+              "description": "Display name.",
+              "default": ""
+            },
+            "trimStart": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Seconds trimmed from the start of the source.",
+              "default": 0
+            },
+            "trimEnd": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Seconds trimmed from the end of the source.",
+              "default": 0
+            },
+            "mediaItemId": {
+              "type": "string",
+              "description": "Id of the media item the item plays."
+            },
+            "pending": {
+              "type": "boolean",
+              "description": "Placeholder awaiting generated or supplied media.",
+              "default": false
+            },
+            "pendingDescription": {
+              "type": "string",
+              "description": "What the pending placeholder should become."
+            },
+            "transform": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "number",
+                  "description": "Horizontal offset in pixels from the frame centre.",
+                  "default": 0
+                },
+                "y": {
+                  "type": "number",
+                  "description": "Vertical offset in pixels from the frame centre.",
+                  "default": 0
+                },
+                "scale": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "description": "Uniform scale factor.",
+                  "default": 1
+                },
+                "rotation": {
+                  "type": "number",
+                  "description": "Rotation in degrees, clockwise.",
+                  "default": 0
+                },
+                "flipX": {
+                  "type": "boolean",
+                  "description": "Mirror horizontally.",
+                  "default": false
+                }
+              },
+              "description": "Position, scale, rotation, flip."
+            },
+            "crop": {
+              "type": "object",
+              "properties": {
+                "top": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "maximum": 100.0,
+                  "description": "Percent of height removed from the top.",
+                  "default": 0
+                },
+                "right": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "maximum": 100.0,
+                  "description": "Percent of width removed from the right.",
+                  "default": 0
+                },
+                "bottom": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "maximum": 100.0,
+                  "description": "Percent of height removed from the bottom.",
+                  "default": 0
+                },
+                "left": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "maximum": 100.0,
+                  "description": "Percent of width removed from the left.",
+                  "default": 0
+                }
+              },
+              "description": "Crop in percent per edge."
+            },
+            "opacity": {
+              "type": "number",
+              "minimum": 0.0,
+              "maximum": 1.0,
+              "description": "Opacity.",
+              "default": 1
+            },
+            "hidden": {
+              "type": "boolean",
+              "description": "Hidden items render nothing.",
+              "default": false
+            },
+            "zIndex": {
+              "type": "number",
+              "description": "Stacking order within the track.",
+              "default": 0
+            },
+            "blendMode": {
+              "enum": [
+                "normal",
+                "multiply",
+                "screen",
+                "overlay",
+                "darken",
+                "lighten",
+                "color-dodge",
+                "color-burn",
+                "hard-light",
+                "soft-light",
+                "difference",
+                "exclusion",
+                "hue",
+                "saturation",
+                "color",
+                "luminosity"
+              ],
+              "description": "Blend mode.",
+              "default": "normal"
+            },
+            "borderRadius": {
+              "type": "number",
+              "minimum": 0.0,
+              "description": "Corner radius in pixels.",
+              "default": 0
+            },
+            "gaussianBlur": {
+              "type": "number",
+              "minimum": 0.0,
+              "description": "Blur radius in pixels.",
+              "default": 0
+            },
+            "keyframeTracks": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "property": {
+                    "enum": [
+                      "x",
+                      "y",
+                      "scale",
+                      "rotation",
+                      "opacity",
+                      "gaussianBlur",
+                      "borderRadius"
+                    ],
+                    "description": "Animated property."
+                  },
+                  "keyframes": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "time": {
+                          "type": "number",
+                          "minimum": 0,
+                          "description": "Seconds from the item's start."
+                        },
+                        "value": {
+                          "type": "number",
+                          "description": "Property value at that time."
+                        }
+                      }
+                    },
+                    "description": "Keyframes in time order."
+                  },
+                  "easing": {
+                    "enum": [
+                      "linear",
+                      "ease-in",
+                      "ease-out",
+                      "ease-in-out"
+                    ],
+                    "description": "Interpolation between keyframes.",
+                    "default": "linear"
+                  }
+                }
+              },
+              "description": "Animated properties."
+            },
+            "transitionIn": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "description": "Built-in transition type."
+                },
+                "presetId": {
+                  "type": "string",
+                  "description": "Transition preset id."
+                },
+                "duration": {
+                  "type": "number",
+                  "minimum": 0,
+                  "description": "Seconds."
+                },
+                "easing": {
+                  "enum": [
+                    "linear",
+                    "ease-in",
+                    "ease-out",
+                    "ease-in-out"
+                  ],
+                  "description": "Easing curve."
+                },
+                "direction": {
+                  "enum": [
+                    "left",
+                    "right",
+                    "up",
+                    "down"
+                  ],
+                  "description": "Direction of travel for wipe, push and fly."
+                }
+              },
+              "description": "Transition at the start."
+            },
+            "transitionOut": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "description": "Built-in transition type."
+                },
+                "presetId": {
+                  "type": "string",
+                  "description": "Transition preset id."
+                },
+                "duration": {
+                  "type": "number",
+                  "minimum": 0,
+                  "description": "Seconds."
+                },
+                "easing": {
+                  "enum": [
+                    "linear",
+                    "ease-in",
+                    "ease-out",
+                    "ease-in-out"
+                  ],
+                  "description": "Easing curve."
+                },
+                "direction": {
+                  "enum": [
+                    "left",
+                    "right",
+                    "up",
+                    "down"
+                  ],
+                  "description": "Direction of travel for wipe, push and fly."
+                }
+              },
+              "description": "Transition at the end."
+            },
+            "effects": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "description": "Effect instance id."
+                  },
+                  "type": {
+                    "type": "string",
+                    "description": "Effect preset type."
+                  }
+                }
+              },
+              "description": "Effect stack."
+            },
+            "layout": {
+              "type": "object",
+              "properties": {
+                "preset": {
+                  "enum": [
+                    "split-horizontal",
+                    "split-vertical",
+                    "3up-horizontal",
+                    "3up-vertical",
+                    "4up-horizontal",
+                    "4up-vertical",
+                    "grid-2x2",
+                    "pip-bottom-right",
+                    "pip-bottom-left",
+                    "pip-top-right",
+                    "pip-top-left",
+                    "hero-top",
+                    "hero-bottom",
+                    "hero-left",
+                    "hero-right"
+                  ],
+                  "description": "Layout preset."
+                },
+                "slot": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "description": "Slot index within the preset.",
+                  "default": 0
+                }
+              },
+              "description": "Layout slot the item fills (x, y, w, h from the preset)."
+            },
+            "captionComposition": {
+              "type": "object",
+              "properties": {
+                "mode": {
+                  "enum": [
+                    "front",
+                    "behind-subject"
+                  ],
+                  "description": "Draw in front of or behind the subject.",
+                  "default": "front"
+                },
+                "fallback": {
+                  "enum": [
+                    "front",
+                    "hide"
+                  ],
+                  "description": "When no subject matte is available.",
+                  "default": "front"
+                }
+              },
+              "description": "Caption depth compositing."
+            },
+            "autoReframe": {
+              "type": "boolean",
+              "description": "Fill the frame height with a centred crop when not transformed.",
+              "default": true
+            },
+            "volume": {
+              "type": "number",
+              "minimum": 0.0,
+              "maximum": 200.0,
+              "description": "Volume in percent.",
+              "default": 100
+            },
+            "muted": {
+              "type": "boolean",
+              "description": "Muted.",
+              "default": false
+            },
+            "audioFadeIn": {
+              "type": "object",
+              "properties": {
+                "duration": {
+                  "type": "number",
+                  "minimum": 0,
+                  "description": "Seconds."
+                },
+                "easing": {
+                  "enum": [
+                    "linear",
+                    "ease-in",
+                    "ease-out",
+                    "ease-in-out"
+                  ],
+                  "description": "Fade curve.",
+                  "default": "linear"
+                }
+              },
+              "description": "Audio fade at the start."
+            },
+            "audioFadeOut": {
+              "type": "object",
+              "properties": {
+                "duration": {
+                  "type": "number",
+                  "minimum": 0,
+                  "description": "Seconds."
+                },
+                "easing": {
+                  "enum": [
+                    "linear",
+                    "ease-in",
+                    "ease-out",
+                    "ease-in-out"
+                  ],
+                  "description": "Fade curve.",
+                  "default": "linear"
+                }
+              },
+              "description": "Audio fade at the end."
+            },
+            "playbackSpeed": {
+              "type": "number",
+              "minimum": 0.01,
+              "maximum": 100.0,
+              "description": "Playback speed factor.",
+              "default": 1
+            },
+            "playbackDirection": {
+              "enum": [
+                "forward",
+                "reverse"
+              ],
+              "description": "Playback direction.",
+              "default": "forward"
+            }
+          }
+        },
+        {
+          "title": "text item",
+          "type": "object",
+          "required": [
+            "id",
+            "trackId",
+            "type",
+            "startTime",
+            "endTime"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "Unique item id."
+            },
+            "trackId": {
+              "type": "string",
+              "description": "Id of the track the item is on."
+            },
+            "type": {
+              "const": "text"
+            },
+            "startTime": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Timeline start, seconds."
+            },
+            "endTime": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Timeline end, seconds (greater than startTime)."
+            },
+            "name": {
+              "type": "string",
+              "description": "Display name.",
+              "default": ""
+            },
+            "trimStart": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Seconds trimmed from the start of the source.",
+              "default": 0
+            },
+            "trimEnd": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Seconds trimmed from the end of the source.",
+              "default": 0
+            },
+            "mediaItemId": {
+              "type": "string",
+              "description": "Id of the media item the item plays."
+            },
+            "pending": {
+              "type": "boolean",
+              "description": "Placeholder awaiting generated or supplied media.",
+              "default": false
+            },
+            "pendingDescription": {
+              "type": "string",
+              "description": "What the pending placeholder should become."
+            },
+            "textContent": {
+              "type": "string",
+              "description": "The text."
+            },
+            "fontFamily": {
+              "type": "string",
+              "description": "Font family."
+            },
+            "fontSize": {
+              "type": "number",
+              "minimum": 0.0,
+              "description": "Font size in pixels."
+            },
+            "fontWeight": {
+              "description": "Font weight (number or keyword)."
+            },
+            "fontStyle": {
+              "enum": [
+                "normal",
+                "italic"
+              ],
+              "description": "Font style.",
+              "default": "normal"
+            },
+            "color": {
+              "type": "string",
+              "description": "Text colour."
+            },
+            "textAlign": {
+              "enum": [
+                "left",
+                "center",
+                "right",
+                "justify"
+              ],
+              "description": "Alignment.",
+              "default": "center"
+            },
+            "lineHeight": {
+              "type": "number",
+              "minimum": 0.0,
+              "description": "Line height multiplier."
+            },
+            "letterSpacing": {
+              "type": "number",
+              "description": "Letter spacing in pixels."
+            },
+            "strokeColor": {
+              "type": "string",
+              "description": "Outline colour."
+            },
+            "strokeWidth": {
+              "type": "number",
+              "minimum": 0.0,
+              "description": "Outline width in pixels."
+            },
+            "shadowColor": {
+              "type": "string",
+              "description": "Shadow colour."
+            },
+            "shadowBlur": {
+              "type": "number",
+              "minimum": 0.0,
+              "description": "Shadow blur in pixels."
+            },
+            "shadowOffsetX": {
+              "type": "number",
+              "description": "Shadow x offset in pixels."
+            },
+            "shadowOffsetY": {
+              "type": "number",
+              "description": "Shadow y offset in pixels."
+            },
+            "backgroundColor": {
+              "type": "string",
+              "description": "Background box colour."
+            },
+            "backgroundOpacity": {
+              "type": "number",
+              "minimum": 0.0,
+              "maximum": 1.0,
+              "description": "Background box opacity."
+            },
+            "backgroundPadding": {
+              "type": "number",
+              "minimum": 0.0,
+              "description": "Background box padding in pixels."
+            },
+            "textAnimation": {
+              "type": "object",
+              "properties": {
+                "preset": {
+                  "type": "string",
+                  "description": "Text animation preset id."
+                }
+              },
+              "description": "Text animation preset and parameters."
+            },
+            "transform": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "number",
+                  "description": "Horizontal offset in pixels from the frame centre.",
+                  "default": 0
+                },
+                "y": {
+                  "type": "number",
+                  "description": "Vertical offset in pixels from the frame centre.",
+                  "default": 0
+                },
+                "scale": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "description": "Uniform scale factor.",
+                  "default": 1
+                },
+                "rotation": {
+                  "type": "number",
+                  "description": "Rotation in degrees, clockwise.",
+                  "default": 0
+                },
+                "flipX": {
+                  "type": "boolean",
+                  "description": "Mirror horizontally.",
+                  "default": false
+                }
+              },
+              "description": "Position, scale, rotation, flip."
+            },
+            "crop": {
+              "type": "object",
+              "properties": {
+                "top": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "maximum": 100.0,
+                  "description": "Percent of height removed from the top.",
+                  "default": 0
+                },
+                "right": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "maximum": 100.0,
+                  "description": "Percent of width removed from the right.",
+                  "default": 0
+                },
+                "bottom": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "maximum": 100.0,
+                  "description": "Percent of height removed from the bottom.",
+                  "default": 0
+                },
+                "left": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "maximum": 100.0,
+                  "description": "Percent of width removed from the left.",
+                  "default": 0
+                }
+              },
+              "description": "Crop in percent per edge."
+            },
+            "opacity": {
+              "type": "number",
+              "minimum": 0.0,
+              "maximum": 1.0,
+              "description": "Opacity.",
+              "default": 1
+            },
+            "hidden": {
+              "type": "boolean",
+              "description": "Hidden items render nothing.",
+              "default": false
+            },
+            "zIndex": {
+              "type": "number",
+              "description": "Stacking order within the track.",
+              "default": 0
+            },
+            "blendMode": {
+              "enum": [
+                "normal",
+                "multiply",
+                "screen",
+                "overlay",
+                "darken",
+                "lighten",
+                "color-dodge",
+                "color-burn",
+                "hard-light",
+                "soft-light",
+                "difference",
+                "exclusion",
+                "hue",
+                "saturation",
+                "color",
+                "luminosity"
+              ],
+              "description": "Blend mode.",
+              "default": "normal"
+            },
+            "borderRadius": {
+              "type": "number",
+              "minimum": 0.0,
+              "description": "Corner radius in pixels.",
+              "default": 0
+            },
+            "gaussianBlur": {
+              "type": "number",
+              "minimum": 0.0,
+              "description": "Blur radius in pixels.",
+              "default": 0
+            },
+            "keyframeTracks": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "property": {
+                    "enum": [
+                      "x",
+                      "y",
+                      "scale",
+                      "rotation",
+                      "opacity",
+                      "gaussianBlur",
+                      "borderRadius"
+                    ],
+                    "description": "Animated property."
+                  },
+                  "keyframes": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "time": {
+                          "type": "number",
+                          "minimum": 0,
+                          "description": "Seconds from the item's start."
+                        },
+                        "value": {
+                          "type": "number",
+                          "description": "Property value at that time."
+                        }
+                      }
+                    },
+                    "description": "Keyframes in time order."
+                  },
+                  "easing": {
+                    "enum": [
+                      "linear",
+                      "ease-in",
+                      "ease-out",
+                      "ease-in-out"
+                    ],
+                    "description": "Interpolation between keyframes.",
+                    "default": "linear"
+                  }
+                }
+              },
+              "description": "Animated properties."
+            },
+            "transitionIn": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "description": "Built-in transition type."
+                },
+                "presetId": {
+                  "type": "string",
+                  "description": "Transition preset id."
+                },
+                "duration": {
+                  "type": "number",
+                  "minimum": 0,
+                  "description": "Seconds."
+                },
+                "easing": {
+                  "enum": [
+                    "linear",
+                    "ease-in",
+                    "ease-out",
+                    "ease-in-out"
+                  ],
+                  "description": "Easing curve."
+                },
+                "direction": {
+                  "enum": [
+                    "left",
+                    "right",
+                    "up",
+                    "down"
+                  ],
+                  "description": "Direction of travel for wipe, push and fly."
+                }
+              },
+              "description": "Transition at the start."
+            },
+            "transitionOut": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "description": "Built-in transition type."
+                },
+                "presetId": {
+                  "type": "string",
+                  "description": "Transition preset id."
+                },
+                "duration": {
+                  "type": "number",
+                  "minimum": 0,
+                  "description": "Seconds."
+                },
+                "easing": {
+                  "enum": [
+                    "linear",
+                    "ease-in",
+                    "ease-out",
+                    "ease-in-out"
+                  ],
+                  "description": "Easing curve."
+                },
+                "direction": {
+                  "enum": [
+                    "left",
+                    "right",
+                    "up",
+                    "down"
+                  ],
+                  "description": "Direction of travel for wipe, push and fly."
+                }
+              },
+              "description": "Transition at the end."
+            },
+            "effects": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "description": "Effect instance id."
+                  },
+                  "type": {
+                    "type": "string",
+                    "description": "Effect preset type."
+                  }
+                }
+              },
+              "description": "Effect stack."
+            },
+            "layout": {
+              "type": "object",
+              "properties": {
+                "preset": {
+                  "enum": [
+                    "split-horizontal",
+                    "split-vertical",
+                    "3up-horizontal",
+                    "3up-vertical",
+                    "4up-horizontal",
+                    "4up-vertical",
+                    "grid-2x2",
+                    "pip-bottom-right",
+                    "pip-bottom-left",
+                    "pip-top-right",
+                    "pip-top-left",
+                    "hero-top",
+                    "hero-bottom",
+                    "hero-left",
+                    "hero-right"
+                  ],
+                  "description": "Layout preset."
+                },
+                "slot": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "description": "Slot index within the preset.",
+                  "default": 0
+                }
+              },
+              "description": "Layout slot the item fills (x, y, w, h from the preset)."
+            },
+            "captionComposition": {
+              "type": "object",
+              "properties": {
+                "mode": {
+                  "enum": [
+                    "front",
+                    "behind-subject"
+                  ],
+                  "description": "Draw in front of or behind the subject.",
+                  "default": "front"
+                },
+                "fallback": {
+                  "enum": [
+                    "front",
+                    "hide"
+                  ],
+                  "description": "When no subject matte is available.",
+                  "default": "front"
+                }
+              },
+              "description": "Caption depth compositing."
+            },
+            "autoReframe": {
+              "type": "boolean",
+              "description": "Fill the frame height with a centred crop when not transformed.",
+              "default": true
+            }
+          }
+        },
+        {
+          "title": "caption item",
+          "type": "object",
+          "required": [
+            "id",
+            "trackId",
+            "type",
+            "startTime",
+            "endTime"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "Unique item id."
+            },
+            "trackId": {
+              "type": "string",
+              "description": "Id of the track the item is on."
+            },
+            "type": {
+              "const": "caption"
+            },
+            "startTime": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Timeline start, seconds."
+            },
+            "endTime": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Timeline end, seconds (greater than startTime)."
+            },
+            "name": {
+              "type": "string",
+              "description": "Display name.",
+              "default": ""
+            },
+            "trimStart": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Seconds trimmed from the start of the source.",
+              "default": 0
+            },
+            "trimEnd": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Seconds trimmed from the end of the source.",
+              "default": 0
+            },
+            "mediaItemId": {
+              "type": "string",
+              "description": "Id of the media item the item plays."
+            },
+            "pending": {
+              "type": "boolean",
+              "description": "Placeholder awaiting generated or supplied media.",
+              "default": false
+            },
+            "pendingDescription": {
+              "type": "string",
+              "description": "What the pending placeholder should become."
+            },
+            "captionText": {
+              "type": "string",
+              "description": "Full caption text."
+            },
+            "captionSegments": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "description": "Segment id."
+                  },
+                  "text": {
+                    "type": "string",
+                    "description": "Segment text."
+                  },
+                  "startTime": {
+                    "type": "number",
+                    "minimum": 0,
+                    "description": "Seconds, item-relative."
+                  },
+                  "endTime": {
+                    "type": "number",
+                    "minimum": 0,
+                    "description": "Seconds, item-relative."
+                  },
+                  "wordTimings": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "word": {
+                          "type": "string",
+                          "description": "The word."
+                        },
+                        "start": {
+                          "type": "number",
+                          "minimum": 0,
+                          "description": "Seconds."
+                        },
+                        "end": {
+                          "type": "number",
+                          "minimum": 0,
+                          "description": "Seconds."
+                        }
+                      }
+                    },
+                    "description": "Per-word timings."
+                  }
+                }
+              },
+              "description": "Timed segments with word timings."
+            },
+            "captionPresetId": {
+              "type": "string",
+              "description": "Caption style preset."
+            },
+            "captionPosition": {
+              "description": "Caption position."
+            },
+            "captionFontSize": {
+              "type": "number",
+              "minimum": 0.0,
+              "description": "Font size in pixels."
+            },
+            "captionFontFamily": {
+              "type": "string",
+              "description": "Font family."
+            },
+            "captionTextColor": {
+              "type": "string",
+              "description": "Text colour."
+            },
+            "captionHighlightColor": {
+              "type": "string",
+              "description": "Active-word highlight colour."
+            },
+            "transform": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "number",
+                  "description": "Horizontal offset in pixels from the frame centre.",
+                  "default": 0
+                },
+                "y": {
+                  "type": "number",
+                  "description": "Vertical offset in pixels from the frame centre.",
+                  "default": 0
+                },
+                "scale": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "description": "Uniform scale factor.",
+                  "default": 1
+                },
+                "rotation": {
+                  "type": "number",
+                  "description": "Rotation in degrees, clockwise.",
+                  "default": 0
+                },
+                "flipX": {
+                  "type": "boolean",
+                  "description": "Mirror horizontally.",
+                  "default": false
+                }
+              },
+              "description": "Position, scale, rotation, flip."
+            },
+            "crop": {
+              "type": "object",
+              "properties": {
+                "top": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "maximum": 100.0,
+                  "description": "Percent of height removed from the top.",
+                  "default": 0
+                },
+                "right": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "maximum": 100.0,
+                  "description": "Percent of width removed from the right.",
+                  "default": 0
+                },
+                "bottom": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "maximum": 100.0,
+                  "description": "Percent of height removed from the bottom.",
+                  "default": 0
+                },
+                "left": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "maximum": 100.0,
+                  "description": "Percent of width removed from the left.",
+                  "default": 0
+                }
+              },
+              "description": "Crop in percent per edge."
+            },
+            "opacity": {
+              "type": "number",
+              "minimum": 0.0,
+              "maximum": 1.0,
+              "description": "Opacity.",
+              "default": 1
+            },
+            "hidden": {
+              "type": "boolean",
+              "description": "Hidden items render nothing.",
+              "default": false
+            },
+            "zIndex": {
+              "type": "number",
+              "description": "Stacking order within the track.",
+              "default": 0
+            },
+            "blendMode": {
+              "enum": [
+                "normal",
+                "multiply",
+                "screen",
+                "overlay",
+                "darken",
+                "lighten",
+                "color-dodge",
+                "color-burn",
+                "hard-light",
+                "soft-light",
+                "difference",
+                "exclusion",
+                "hue",
+                "saturation",
+                "color",
+                "luminosity"
+              ],
+              "description": "Blend mode.",
+              "default": "normal"
+            },
+            "borderRadius": {
+              "type": "number",
+              "minimum": 0.0,
+              "description": "Corner radius in pixels.",
+              "default": 0
+            },
+            "gaussianBlur": {
+              "type": "number",
+              "minimum": 0.0,
+              "description": "Blur radius in pixels.",
+              "default": 0
+            },
+            "keyframeTracks": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "property": {
+                    "enum": [
+                      "x",
+                      "y",
+                      "scale",
+                      "rotation",
+                      "opacity",
+                      "gaussianBlur",
+                      "borderRadius"
+                    ],
+                    "description": "Animated property."
+                  },
+                  "keyframes": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "time": {
+                          "type": "number",
+                          "minimum": 0,
+                          "description": "Seconds from the item's start."
+                        },
+                        "value": {
+                          "type": "number",
+                          "description": "Property value at that time."
+                        }
+                      }
+                    },
+                    "description": "Keyframes in time order."
+                  },
+                  "easing": {
+                    "enum": [
+                      "linear",
+                      "ease-in",
+                      "ease-out",
+                      "ease-in-out"
+                    ],
+                    "description": "Interpolation between keyframes.",
+                    "default": "linear"
+                  }
+                }
+              },
+              "description": "Animated properties."
+            },
+            "transitionIn": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "description": "Built-in transition type."
+                },
+                "presetId": {
+                  "type": "string",
+                  "description": "Transition preset id."
+                },
+                "duration": {
+                  "type": "number",
+                  "minimum": 0,
+                  "description": "Seconds."
+                },
+                "easing": {
+                  "enum": [
+                    "linear",
+                    "ease-in",
+                    "ease-out",
+                    "ease-in-out"
+                  ],
+                  "description": "Easing curve."
+                },
+                "direction": {
+                  "enum": [
+                    "left",
+                    "right",
+                    "up",
+                    "down"
+                  ],
+                  "description": "Direction of travel for wipe, push and fly."
+                }
+              },
+              "description": "Transition at the start."
+            },
+            "transitionOut": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "description": "Built-in transition type."
+                },
+                "presetId": {
+                  "type": "string",
+                  "description": "Transition preset id."
+                },
+                "duration": {
+                  "type": "number",
+                  "minimum": 0,
+                  "description": "Seconds."
+                },
+                "easing": {
+                  "enum": [
+                    "linear",
+                    "ease-in",
+                    "ease-out",
+                    "ease-in-out"
+                  ],
+                  "description": "Easing curve."
+                },
+                "direction": {
+                  "enum": [
+                    "left",
+                    "right",
+                    "up",
+                    "down"
+                  ],
+                  "description": "Direction of travel for wipe, push and fly."
+                }
+              },
+              "description": "Transition at the end."
+            },
+            "effects": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "description": "Effect instance id."
+                  },
+                  "type": {
+                    "type": "string",
+                    "description": "Effect preset type."
+                  }
+                }
+              },
+              "description": "Effect stack."
+            },
+            "layout": {
+              "type": "object",
+              "properties": {
+                "preset": {
+                  "enum": [
+                    "split-horizontal",
+                    "split-vertical",
+                    "3up-horizontal",
+                    "3up-vertical",
+                    "4up-horizontal",
+                    "4up-vertical",
+                    "grid-2x2",
+                    "pip-bottom-right",
+                    "pip-bottom-left",
+                    "pip-top-right",
+                    "pip-top-left",
+                    "hero-top",
+                    "hero-bottom",
+                    "hero-left",
+                    "hero-right"
+                  ],
+                  "description": "Layout preset."
+                },
+                "slot": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "description": "Slot index within the preset.",
+                  "default": 0
+                }
+              },
+              "description": "Layout slot the item fills (x, y, w, h from the preset)."
+            },
+            "captionComposition": {
+              "type": "object",
+              "properties": {
+                "mode": {
+                  "enum": [
+                    "front",
+                    "behind-subject"
+                  ],
+                  "description": "Draw in front of or behind the subject.",
+                  "default": "front"
+                },
+                "fallback": {
+                  "enum": [
+                    "front",
+                    "hide"
+                  ],
+                  "description": "When no subject matte is available.",
+                  "default": "front"
+                }
+              },
+              "description": "Caption depth compositing."
+            },
+            "autoReframe": {
+              "type": "boolean",
+              "description": "Fill the frame height with a centred crop when not transformed.",
+              "default": true
+            }
+          }
+        },
+        {
+          "title": "code item",
+          "type": "object",
+          "required": [
+            "id",
+            "trackId",
+            "type",
+            "startTime",
+            "endTime"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "Unique item id."
+            },
+            "trackId": {
+              "type": "string",
+              "description": "Id of the track the item is on."
+            },
+            "type": {
+              "const": "code"
+            },
+            "startTime": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Timeline start, seconds."
+            },
+            "endTime": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Timeline end, seconds (greater than startTime)."
+            },
+            "name": {
+              "type": "string",
+              "description": "Display name.",
+              "default": ""
+            },
+            "trimStart": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Seconds trimmed from the start of the source.",
+              "default": 0
+            },
+            "trimEnd": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Seconds trimmed from the end of the source.",
+              "default": 0
+            },
+            "mediaItemId": {
+              "type": "string",
+              "description": "Id of the media item the item plays."
+            },
+            "pending": {
+              "type": "boolean",
+              "description": "Placeholder awaiting generated or supplied media.",
+              "default": false
+            },
+            "pendingDescription": {
+              "type": "string",
+              "description": "What the pending placeholder should become."
+            },
+            "codeComposition": {
+              "type": "object",
+              "properties": {
+                "source": {
+                  "type": "string",
+                  "description": "JSX source: a pure function of {time, width, height, assets}."
+                },
+                "template": {
+                  "type": "string",
+                  "description": "Template id (instead of source)."
+                },
+                "props": {
+                  "description": "Template props."
+                },
+                "width": {
+                  "type": "number",
+                  "minimum": 1.0,
+                  "description": "Composition width in pixels."
+                },
+                "height": {
+                  "type": "number",
+                  "minimum": 1.0,
+                  "description": "Composition height in pixels."
+                },
+                "assets": {
+                  "description": "Named assets: name → src or {src, in, loop}."
+                }
+              },
+              "description": "Motion-graphics composition (pure JSX of {time, width, height, assets})."
+            },
+            "transform": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "number",
+                  "description": "Horizontal offset in pixels from the frame centre.",
+                  "default": 0
+                },
+                "y": {
+                  "type": "number",
+                  "description": "Vertical offset in pixels from the frame centre.",
+                  "default": 0
+                },
+                "scale": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "description": "Uniform scale factor.",
+                  "default": 1
+                },
+                "rotation": {
+                  "type": "number",
+                  "description": "Rotation in degrees, clockwise.",
+                  "default": 0
+                },
+                "flipX": {
+                  "type": "boolean",
+                  "description": "Mirror horizontally.",
+                  "default": false
+                }
+              },
+              "description": "Position, scale, rotation, flip."
+            },
+            "crop": {
+              "type": "object",
+              "properties": {
+                "top": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "maximum": 100.0,
+                  "description": "Percent of height removed from the top.",
+                  "default": 0
+                },
+                "right": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "maximum": 100.0,
+                  "description": "Percent of width removed from the right.",
+                  "default": 0
+                },
+                "bottom": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "maximum": 100.0,
+                  "description": "Percent of height removed from the bottom.",
+                  "default": 0
+                },
+                "left": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "maximum": 100.0,
+                  "description": "Percent of width removed from the left.",
+                  "default": 0
+                }
+              },
+              "description": "Crop in percent per edge."
+            },
+            "opacity": {
+              "type": "number",
+              "minimum": 0.0,
+              "maximum": 1.0,
+              "description": "Opacity.",
+              "default": 1
+            },
+            "hidden": {
+              "type": "boolean",
+              "description": "Hidden items render nothing.",
+              "default": false
+            },
+            "zIndex": {
+              "type": "number",
+              "description": "Stacking order within the track.",
+              "default": 0
+            },
+            "blendMode": {
+              "enum": [
+                "normal",
+                "multiply",
+                "screen",
+                "overlay",
+                "darken",
+                "lighten",
+                "color-dodge",
+                "color-burn",
+                "hard-light",
+                "soft-light",
+                "difference",
+                "exclusion",
+                "hue",
+                "saturation",
+                "color",
+                "luminosity"
+              ],
+              "description": "Blend mode.",
+              "default": "normal"
+            },
+            "borderRadius": {
+              "type": "number",
+              "minimum": 0.0,
+              "description": "Corner radius in pixels.",
+              "default": 0
+            },
+            "gaussianBlur": {
+              "type": "number",
+              "minimum": 0.0,
+              "description": "Blur radius in pixels.",
+              "default": 0
+            },
+            "keyframeTracks": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "property": {
+                    "enum": [
+                      "x",
+                      "y",
+                      "scale",
+                      "rotation",
+                      "opacity",
+                      "gaussianBlur",
+                      "borderRadius"
+                    ],
+                    "description": "Animated property."
+                  },
+                  "keyframes": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "time": {
+                          "type": "number",
+                          "minimum": 0,
+                          "description": "Seconds from the item's start."
+                        },
+                        "value": {
+                          "type": "number",
+                          "description": "Property value at that time."
+                        }
+                      }
+                    },
+                    "description": "Keyframes in time order."
+                  },
+                  "easing": {
+                    "enum": [
+                      "linear",
+                      "ease-in",
+                      "ease-out",
+                      "ease-in-out"
+                    ],
+                    "description": "Interpolation between keyframes.",
+                    "default": "linear"
+                  }
+                }
+              },
+              "description": "Animated properties."
+            },
+            "transitionIn": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "description": "Built-in transition type."
+                },
+                "presetId": {
+                  "type": "string",
+                  "description": "Transition preset id."
+                },
+                "duration": {
+                  "type": "number",
+                  "minimum": 0,
+                  "description": "Seconds."
+                },
+                "easing": {
+                  "enum": [
+                    "linear",
+                    "ease-in",
+                    "ease-out",
+                    "ease-in-out"
+                  ],
+                  "description": "Easing curve."
+                },
+                "direction": {
+                  "enum": [
+                    "left",
+                    "right",
+                    "up",
+                    "down"
+                  ],
+                  "description": "Direction of travel for wipe, push and fly."
+                }
+              },
+              "description": "Transition at the start."
+            },
+            "transitionOut": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "description": "Built-in transition type."
+                },
+                "presetId": {
+                  "type": "string",
+                  "description": "Transition preset id."
+                },
+                "duration": {
+                  "type": "number",
+                  "minimum": 0,
+                  "description": "Seconds."
+                },
+                "easing": {
+                  "enum": [
+                    "linear",
+                    "ease-in",
+                    "ease-out",
+                    "ease-in-out"
+                  ],
+                  "description": "Easing curve."
+                },
+                "direction": {
+                  "enum": [
+                    "left",
+                    "right",
+                    "up",
+                    "down"
+                  ],
+                  "description": "Direction of travel for wipe, push and fly."
+                }
+              },
+              "description": "Transition at the end."
+            },
+            "effects": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "description": "Effect instance id."
+                  },
+                  "type": {
+                    "type": "string",
+                    "description": "Effect preset type."
+                  }
+                }
+              },
+              "description": "Effect stack."
+            },
+            "layout": {
+              "type": "object",
+              "properties": {
+                "preset": {
+                  "enum": [
+                    "split-horizontal",
+                    "split-vertical",
+                    "3up-horizontal",
+                    "3up-vertical",
+                    "4up-horizontal",
+                    "4up-vertical",
+                    "grid-2x2",
+                    "pip-bottom-right",
+                    "pip-bottom-left",
+                    "pip-top-right",
+                    "pip-top-left",
+                    "hero-top",
+                    "hero-bottom",
+                    "hero-left",
+                    "hero-right"
+                  ],
+                  "description": "Layout preset."
+                },
+                "slot": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "description": "Slot index within the preset.",
+                  "default": 0
+                }
+              },
+              "description": "Layout slot the item fills (x, y, w, h from the preset)."
+            },
+            "captionComposition": {
+              "type": "object",
+              "properties": {
+                "mode": {
+                  "enum": [
+                    "front",
+                    "behind-subject"
+                  ],
+                  "description": "Draw in front of or behind the subject.",
+                  "default": "front"
+                },
+                "fallback": {
+                  "enum": [
+                    "front",
+                    "hide"
+                  ],
+                  "description": "When no subject matte is available.",
+                  "default": "front"
+                }
+              },
+              "description": "Caption depth compositing."
+            },
+            "autoReframe": {
+              "type": "boolean",
+              "description": "Fill the frame height with a centred crop when not transformed.",
+              "default": true
+            }
+          }
+        },
+        {
+          "title": "adjustment item",
+          "type": "object",
+          "required": [
+            "id",
+            "trackId",
+            "type",
+            "startTime",
+            "endTime"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "Unique item id."
+            },
+            "trackId": {
+              "type": "string",
+              "description": "Id of the track the item is on."
+            },
+            "type": {
+              "const": "adjustment"
+            },
+            "startTime": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Timeline start, seconds."
+            },
+            "endTime": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Timeline end, seconds (greater than startTime)."
+            },
+            "name": {
+              "type": "string",
+              "description": "Display name.",
+              "default": ""
+            },
+            "trimStart": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Seconds trimmed from the start of the source.",
+              "default": 0
+            },
+            "trimEnd": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Seconds trimmed from the end of the source.",
+              "default": 0
+            },
+            "mediaItemId": {
+              "type": "string",
+              "description": "Id of the media item the item plays."
+            },
+            "pending": {
+              "type": "boolean",
+              "description": "Placeholder awaiting generated or supplied media.",
+              "default": false
+            },
+            "pendingDescription": {
+              "type": "string",
+              "description": "What the pending placeholder should become."
+            },
+            "adjustmentKind": {
+              "type": "string",
+              "description": "Kind of adjustment layer."
+            },
+            "lutPresetId": {
+              "type": "string",
+              "description": "LUT preset id."
+            },
+            "lutIntensity": {
+              "type": "number",
+              "minimum": 0.0,
+              "maximum": 1.0,
+              "description": "LUT blend amount.",
+              "default": 1
+            },
+            "transform": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "number",
+                  "description": "Horizontal offset in pixels from the frame centre.",
+                  "default": 0
+                },
+                "y": {
+                  "type": "number",
+                  "description": "Vertical offset in pixels from the frame centre.",
+                  "default": 0
+                },
+                "scale": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "description": "Uniform scale factor.",
+                  "default": 1
+                },
+                "rotation": {
+                  "type": "number",
+                  "description": "Rotation in degrees, clockwise.",
+                  "default": 0
+                },
+                "flipX": {
+                  "type": "boolean",
+                  "description": "Mirror horizontally.",
+                  "default": false
+                }
+              },
+              "description": "Position, scale, rotation, flip."
+            },
+            "crop": {
+              "type": "object",
+              "properties": {
+                "top": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "maximum": 100.0,
+                  "description": "Percent of height removed from the top.",
+                  "default": 0
+                },
+                "right": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "maximum": 100.0,
+                  "description": "Percent of width removed from the right.",
+                  "default": 0
+                },
+                "bottom": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "maximum": 100.0,
+                  "description": "Percent of height removed from the bottom.",
+                  "default": 0
+                },
+                "left": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "maximum": 100.0,
+                  "description": "Percent of width removed from the left.",
+                  "default": 0
+                }
+              },
+              "description": "Crop in percent per edge."
+            },
+            "opacity": {
+              "type": "number",
+              "minimum": 0.0,
+              "maximum": 1.0,
+              "description": "Opacity.",
+              "default": 1
+            },
+            "hidden": {
+              "type": "boolean",
+              "description": "Hidden items render nothing.",
+              "default": false
+            },
+            "zIndex": {
+              "type": "number",
+              "description": "Stacking order within the track.",
+              "default": 0
+            },
+            "blendMode": {
+              "enum": [
+                "normal",
+                "multiply",
+                "screen",
+                "overlay",
+                "darken",
+                "lighten",
+                "color-dodge",
+                "color-burn",
+                "hard-light",
+                "soft-light",
+                "difference",
+                "exclusion",
+                "hue",
+                "saturation",
+                "color",
+                "luminosity"
+              ],
+              "description": "Blend mode.",
+              "default": "normal"
+            },
+            "borderRadius": {
+              "type": "number",
+              "minimum": 0.0,
+              "description": "Corner radius in pixels.",
+              "default": 0
+            },
+            "gaussianBlur": {
+              "type": "number",
+              "minimum": 0.0,
+              "description": "Blur radius in pixels.",
+              "default": 0
+            },
+            "keyframeTracks": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "property": {
+                    "enum": [
+                      "x",
+                      "y",
+                      "scale",
+                      "rotation",
+                      "opacity",
+                      "gaussianBlur",
+                      "borderRadius"
+                    ],
+                    "description": "Animated property."
+                  },
+                  "keyframes": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "time": {
+                          "type": "number",
+                          "minimum": 0,
+                          "description": "Seconds from the item's start."
+                        },
+                        "value": {
+                          "type": "number",
+                          "description": "Property value at that time."
+                        }
+                      }
+                    },
+                    "description": "Keyframes in time order."
+                  },
+                  "easing": {
+                    "enum": [
+                      "linear",
+                      "ease-in",
+                      "ease-out",
+                      "ease-in-out"
+                    ],
+                    "description": "Interpolation between keyframes.",
+                    "default": "linear"
+                  }
+                }
+              },
+              "description": "Animated properties."
+            },
+            "transitionIn": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "description": "Built-in transition type."
+                },
+                "presetId": {
+                  "type": "string",
+                  "description": "Transition preset id."
+                },
+                "duration": {
+                  "type": "number",
+                  "minimum": 0,
+                  "description": "Seconds."
+                },
+                "easing": {
+                  "enum": [
+                    "linear",
+                    "ease-in",
+                    "ease-out",
+                    "ease-in-out"
+                  ],
+                  "description": "Easing curve."
+                },
+                "direction": {
+                  "enum": [
+                    "left",
+                    "right",
+                    "up",
+                    "down"
+                  ],
+                  "description": "Direction of travel for wipe, push and fly."
+                }
+              },
+              "description": "Transition at the start."
+            },
+            "transitionOut": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "description": "Built-in transition type."
+                },
+                "presetId": {
+                  "type": "string",
+                  "description": "Transition preset id."
+                },
+                "duration": {
+                  "type": "number",
+                  "minimum": 0,
+                  "description": "Seconds."
+                },
+                "easing": {
+                  "enum": [
+                    "linear",
+                    "ease-in",
+                    "ease-out",
+                    "ease-in-out"
+                  ],
+                  "description": "Easing curve."
+                },
+                "direction": {
+                  "enum": [
+                    "left",
+                    "right",
+                    "up",
+                    "down"
+                  ],
+                  "description": "Direction of travel for wipe, push and fly."
+                }
+              },
+              "description": "Transition at the end."
+            },
+            "effects": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "description": "Effect instance id."
+                  },
+                  "type": {
+                    "type": "string",
+                    "description": "Effect preset type."
+                  }
+                }
+              },
+              "description": "Effect stack."
+            },
+            "layout": {
+              "type": "object",
+              "properties": {
+                "preset": {
+                  "enum": [
+                    "split-horizontal",
+                    "split-vertical",
+                    "3up-horizontal",
+                    "3up-vertical",
+                    "4up-horizontal",
+                    "4up-vertical",
+                    "grid-2x2",
+                    "pip-bottom-right",
+                    "pip-bottom-left",
+                    "pip-top-right",
+                    "pip-top-left",
+                    "hero-top",
+                    "hero-bottom",
+                    "hero-left",
+                    "hero-right"
+                  ],
+                  "description": "Layout preset."
+                },
+                "slot": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "description": "Slot index within the preset.",
+                  "default": 0
+                }
+              },
+              "description": "Layout slot the item fills (x, y, w, h from the preset)."
+            },
+            "captionComposition": {
+              "type": "object",
+              "properties": {
+                "mode": {
+                  "enum": [
+                    "front",
+                    "behind-subject"
+                  ],
+                  "description": "Draw in front of or behind the subject.",
+                  "default": "front"
+                },
+                "fallback": {
+                  "enum": [
+                    "front",
+                    "hide"
+                  ],
+                  "description": "When no subject matte is available.",
+                  "default": "front"
+                }
+              },
+              "description": "Caption depth compositing."
+            },
+            "autoReframe": {
+              "type": "boolean",
+              "description": "Fill the frame height with a centred crop when not transformed.",
+              "default": true
+            },
+            "colorGrading": {
+              "type": "object",
+              "properties": {
+                "exposure": {
+                  "type": "number",
+                  "description": "Exposure adjustment.",
+                  "default": 0
+                },
+                "brightness": {
+                  "type": "number",
+                  "description": "Brightness adjustment.",
+                  "default": 0
+                },
+                "contrast": {
+                  "type": "number",
+                  "description": "Contrast adjustment.",
+                  "default": 0
+                },
+                "highlights": {
+                  "type": "number",
+                  "description": "Highlights adjustment.",
+                  "default": 0
+                },
+                "shadows": {
+                  "type": "number",
+                  "description": "Shadows adjustment.",
+                  "default": 0
+                },
+                "temperature": {
+                  "type": "number",
+                  "description": "White-balance temperature shift.",
+                  "default": 0
+                },
+                "tint": {
+                  "type": "number",
+                  "description": "White-balance tint shift.",
+                  "default": 0
+                },
+                "saturation": {
+                  "type": "number",
+                  "description": "Saturation adjustment.",
+                  "default": 0
+                },
+                "vibrance": {
+                  "type": "number",
+                  "description": "Vibrance adjustment.",
+                  "default": 0
+                },
+                "gamma": {
+                  "type": "number",
+                  "description": "Gamma adjustment.",
+                  "default": 0
+                }
+              },
+              "description": "Basic colour adjustments."
+            },
+            "colorGrade": {
+              "type": "object",
+              "properties": {
+                "wheels": {
+                  "description": "Lift/gamma/gain/offset wheels, each {r,g,b,y}."
+                },
+                "curves": {
+                  "description": "master, red, green, blue, hueVsSat, hueVsHue, hueVsLum, lumVsSat curves."
+                },
+                "saturation": {
+                  "type": "number",
+                  "description": "Global saturation."
+                },
+                "lut": {
+                  "type": "object",
+                  "properties": {
+                    "preset": {
+                      "type": "string",
+                      "description": "LUT preset id."
+                    },
+                    "file": {
+                      "type": "string",
+                      "description": "Path to a .cube file (copied into the bundle on apply)."
+                    },
+                    "intensity": {
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 1.0,
+                      "description": "Blend amount.",
+                      "default": 1
+                    },
+                    "stage": {
+                      "enum": [
+                        "input",
+                        "look"
+                      ],
+                      "description": "Where in the grade the LUT applies.",
+                      "default": "look"
+                    }
+                  },
+                  "description": "LUT applied in the grade."
+                },
+                "match": {
+                  "description": "Reference match; fitted on apply and replaced by concrete values."
+                }
+              },
+              "description": "Wheels, curves, LUT and match."
+            }
+          }
+        },
+        {
+          "title": "shader item",
+          "type": "object",
+          "required": [
+            "id",
+            "trackId",
+            "type",
+            "startTime",
+            "endTime"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "Unique item id."
+            },
+            "trackId": {
+              "type": "string",
+              "description": "Id of the track the item is on."
+            },
+            "type": {
+              "const": "shader"
+            },
+            "startTime": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Timeline start, seconds."
+            },
+            "endTime": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Timeline end, seconds (greater than startTime)."
+            },
+            "name": {
+              "type": "string",
+              "description": "Display name.",
+              "default": ""
+            },
+            "trimStart": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Seconds trimmed from the start of the source.",
+              "default": 0
+            },
+            "trimEnd": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Seconds trimmed from the end of the source.",
+              "default": 0
+            },
+            "mediaItemId": {
+              "type": "string",
+              "description": "Id of the media item the item plays."
+            },
+            "pending": {
+              "type": "boolean",
+              "description": "Placeholder awaiting generated or supplied media.",
+              "default": false
+            },
+            "pendingDescription": {
+              "type": "string",
+              "description": "What the pending placeholder should become."
+            },
+            "shaderComposition": {
+              "type": "object",
+              "properties": {
+                "source": {
+                  "type": "string",
+                  "description": "Shader source."
+                },
+                "template": {
+                  "type": "string",
+                  "description": "Shader template id (instead of source)."
+                },
+                "params": {
+                  "description": "Parameter values."
+                },
+                "controls": {
+                  "description": "Control definitions {label, min, max, step, format, toggle}."
+                },
+                "amount": {
+                  "type": "number",
+                  "description": "Overall amount."
+                },
+                "fadeIn": {
+                  "type": "number",
+                  "minimum": 0,
+                  "description": "Seconds."
+                },
+                "fadeOut": {
+                  "type": "number",
+                  "minimum": 0,
+                  "description": "Seconds."
+                },
+                "region": {
+                  "enum": [
+                    "all",
+                    "subject",
+                    "background"
+                  ],
+                  "description": "Where the shader applies."
+                },
+                "defaults": {
+                  "description": "Template defaults."
+                }
+              },
+              "description": "Shader layer definition."
+            },
+            "transform": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "number",
+                  "description": "Horizontal offset in pixels from the frame centre.",
+                  "default": 0
+                },
+                "y": {
+                  "type": "number",
+                  "description": "Vertical offset in pixels from the frame centre.",
+                  "default": 0
+                },
+                "scale": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "description": "Uniform scale factor.",
+                  "default": 1
+                },
+                "rotation": {
+                  "type": "number",
+                  "description": "Rotation in degrees, clockwise.",
+                  "default": 0
+                },
+                "flipX": {
+                  "type": "boolean",
+                  "description": "Mirror horizontally.",
+                  "default": false
+                }
+              },
+              "description": "Position, scale, rotation, flip."
+            },
+            "crop": {
+              "type": "object",
+              "properties": {
+                "top": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "maximum": 100.0,
+                  "description": "Percent of height removed from the top.",
+                  "default": 0
+                },
+                "right": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "maximum": 100.0,
+                  "description": "Percent of width removed from the right.",
+                  "default": 0
+                },
+                "bottom": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "maximum": 100.0,
+                  "description": "Percent of height removed from the bottom.",
+                  "default": 0
+                },
+                "left": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "maximum": 100.0,
+                  "description": "Percent of width removed from the left.",
+                  "default": 0
+                }
+              },
+              "description": "Crop in percent per edge."
+            },
+            "opacity": {
+              "type": "number",
+              "minimum": 0.0,
+              "maximum": 1.0,
+              "description": "Opacity.",
+              "default": 1
+            },
+            "hidden": {
+              "type": "boolean",
+              "description": "Hidden items render nothing.",
+              "default": false
+            },
+            "zIndex": {
+              "type": "number",
+              "description": "Stacking order within the track.",
+              "default": 0
+            },
+            "blendMode": {
+              "enum": [
+                "normal",
+                "multiply",
+                "screen",
+                "overlay",
+                "darken",
+                "lighten",
+                "color-dodge",
+                "color-burn",
+                "hard-light",
+                "soft-light",
+                "difference",
+                "exclusion",
+                "hue",
+                "saturation",
+                "color",
+                "luminosity"
+              ],
+              "description": "Blend mode.",
+              "default": "normal"
+            },
+            "borderRadius": {
+              "type": "number",
+              "minimum": 0.0,
+              "description": "Corner radius in pixels.",
+              "default": 0
+            },
+            "gaussianBlur": {
+              "type": "number",
+              "minimum": 0.0,
+              "description": "Blur radius in pixels.",
+              "default": 0
+            },
+            "keyframeTracks": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "property": {
+                    "enum": [
+                      "x",
+                      "y",
+                      "scale",
+                      "rotation",
+                      "opacity",
+                      "gaussianBlur",
+                      "borderRadius"
+                    ],
+                    "description": "Animated property."
+                  },
+                  "keyframes": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "time": {
+                          "type": "number",
+                          "minimum": 0,
+                          "description": "Seconds from the item's start."
+                        },
+                        "value": {
+                          "type": "number",
+                          "description": "Property value at that time."
+                        }
+                      }
+                    },
+                    "description": "Keyframes in time order."
+                  },
+                  "easing": {
+                    "enum": [
+                      "linear",
+                      "ease-in",
+                      "ease-out",
+                      "ease-in-out"
+                    ],
+                    "description": "Interpolation between keyframes.",
+                    "default": "linear"
+                  }
+                }
+              },
+              "description": "Animated properties."
+            },
+            "transitionIn": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "description": "Built-in transition type."
+                },
+                "presetId": {
+                  "type": "string",
+                  "description": "Transition preset id."
+                },
+                "duration": {
+                  "type": "number",
+                  "minimum": 0,
+                  "description": "Seconds."
+                },
+                "easing": {
+                  "enum": [
+                    "linear",
+                    "ease-in",
+                    "ease-out",
+                    "ease-in-out"
+                  ],
+                  "description": "Easing curve."
+                },
+                "direction": {
+                  "enum": [
+                    "left",
+                    "right",
+                    "up",
+                    "down"
+                  ],
+                  "description": "Direction of travel for wipe, push and fly."
+                }
+              },
+              "description": "Transition at the start."
+            },
+            "transitionOut": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "description": "Built-in transition type."
+                },
+                "presetId": {
+                  "type": "string",
+                  "description": "Transition preset id."
+                },
+                "duration": {
+                  "type": "number",
+                  "minimum": 0,
+                  "description": "Seconds."
+                },
+                "easing": {
+                  "enum": [
+                    "linear",
+                    "ease-in",
+                    "ease-out",
+                    "ease-in-out"
+                  ],
+                  "description": "Easing curve."
+                },
+                "direction": {
+                  "enum": [
+                    "left",
+                    "right",
+                    "up",
+                    "down"
+                  ],
+                  "description": "Direction of travel for wipe, push and fly."
+                }
+              },
+              "description": "Transition at the end."
+            },
+            "effects": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "description": "Effect instance id."
+                  },
+                  "type": {
+                    "type": "string",
+                    "description": "Effect preset type."
+                  }
+                }
+              },
+              "description": "Effect stack."
+            },
+            "layout": {
+              "type": "object",
+              "properties": {
+                "preset": {
+                  "enum": [
+                    "split-horizontal",
+                    "split-vertical",
+                    "3up-horizontal",
+                    "3up-vertical",
+                    "4up-horizontal",
+                    "4up-vertical",
+                    "grid-2x2",
+                    "pip-bottom-right",
+                    "pip-bottom-left",
+                    "pip-top-right",
+                    "pip-top-left",
+                    "hero-top",
+                    "hero-bottom",
+                    "hero-left",
+                    "hero-right"
+                  ],
+                  "description": "Layout preset."
+                },
+                "slot": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "description": "Slot index within the preset.",
+                  "default": 0
+                }
+              },
+              "description": "Layout slot the item fills (x, y, w, h from the preset)."
+            },
+            "captionComposition": {
+              "type": "object",
+              "properties": {
+                "mode": {
+                  "enum": [
+                    "front",
+                    "behind-subject"
+                  ],
+                  "description": "Draw in front of or behind the subject.",
+                  "default": "front"
+                },
+                "fallback": {
+                  "enum": [
+                    "front",
+                    "hide"
+                  ],
+                  "description": "When no subject matte is available.",
+                  "default": "front"
+                }
+              },
+              "description": "Caption depth compositing."
+            },
+            "autoReframe": {
+              "type": "boolean",
+              "description": "Fill the frame height with a centred crop when not transformed.",
+              "default": true
+            }
+          }
+        }
+      ]
+    }
+  }
+}

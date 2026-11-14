@@ -1,0 +1,1 @@
+[{"op":"updateItem","id":"i_vid","set":{"opacity":0.5}},{"op":"removeItems","ids":["i_text"]}]

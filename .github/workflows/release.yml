@@ -1,0 +1,316 @@
+name: Release build
+
+# Unsigned installers for testers (signing/notarisation arrive with change 16).
+# Run manually for a test build, or push a tag `v<version>` (e.g. v0.1.0-alpha.1) to also publish a draft
+# pre-release whose notes come from docs/releases/<version>.md.
+#
+# Runs on GitHub-hosted runners (free for public repositories); OVE_RUNNER_* variables can point jobs elsewhere.
+# Windows: cross-built on Ubuntu with MinGW-w64 (NSIS -setup.exe), smoke-tested under Wine, then installed and tested
+# on a real Windows machine. macOS: built and smoke-tested on an Apple-silicon Mac (set OVE_RELEASE_MACOS to `false`
+# to skip it).
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+    # Dry runs: work branches that change what ships (code, packaging, the libraries) build and smoke-test the
+    # installers without publishing.
+    branches: ["claude/**"]
+    paths: [".github/workflows/release.yml", "crates/**", "apps/desktop/**", "Cargo.toml", "Cargo.lock", ".cargo/**",
+            "tools/package.sh", "tools/notices.sh", "tools/notices/**", "tools/ffmpeg/**", "tools/cross/**",
+            "tools/macos/**", "tools/smoke-cli.sh", "tools/preview-check.sh", "about.toml", ".gitattributes"]
+
+concurrency:
+  group: release-${{ github.ref }}
+  # A newer push to a work branch replaces its dry run; a tagged release is never cancelled.
+  cancel-in-progress: ${{ startsWith(github.ref, 'refs/heads/claude/') }}
+
+permissions:
+  contents: read
+
+jobs:
+  package-macos:
+    if: vars.OVE_RELEASE_MACOS != 'false'
+    runs-on: ${{ fromJSON(vars.OVE_RUNNER_MACOS || '"macos-15"') }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      # Installs rustup on the runner if it is missing; the version matches rust-toolchain.toml.
+      - uses: dtolnay/rust-toolchain@1.97.0
+        with:
+          components: rustfmt, clippy
+      # Tagged releases build from a clean state; dry runs reuse the cache.
+      - uses: Swatinem/rust-cache@v2
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        with:
+          prefix-key: v1-rust
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: prerequisites (ffmpeg CLI is only for generating test media)
+        run: brew install dav1d nasm pkg-config ffmpeg
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-about
+      - name: package
+        run: tools/package.sh
+      - name: smoke test of the ove command line inside the app
+        run: |
+          python3 tests/media/media.py generate
+          app=$(ls -d target/release/bundle/macos/*.app | head -1)
+          tools/smoke-cli.sh "$app/Contents/MacOS/ove"
+      - name: the app starts and stays up
+        run: |
+          app=$(ls -d target/release/bundle/macos/*.app | head -1)
+          exe=$(ls "$app/Contents/MacOS/" | grep -v '^ove$' | head -1)
+          "$app/Contents/MacOS/$exe" > "$RUNNER_TEMP/app-macos.log" 2>&1 &
+          pid=$!
+          sleep 25
+          kill -0 "$pid" || { echo "::error::the app exited early"; tail -50 "$RUNNER_TEMP/app-macos.log"; exit 1; }
+          screencapture -x "$RUNNER_TEMP/app-macos.png" || true
+          kill "$pid"
+          tail -20 "$RUNNER_TEMP/app-macos.log"
+          if grep -E "panicked|ERROR" "$RUNNER_TEMP/app-macos.log"; then echo "::error::errors in the app log"; exit 1; fi
+      # A capture of the real screen with a magenta clip open: frame counters cannot tell whether the picture shows.
+      - name: the viewer shows the picture (the default viewer, on the real screen)
+        run: |
+          app=$(ls -d target/release/bundle/macos/*.app | head -1)
+          exe=$(ls "$app/Contents/MacOS/" | grep -v '^ove$' | head -1)
+          tools/preview-check.sh "$app/Contents/MacOS/ove" "$app/Contents/MacOS/$exe" "$RUNNER_TEMP/preview/macos-default.png"
+      - name: the stream viewer on macOS (for information; not the default)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: |
+          app=$(ls -d target/release/bundle/macos/*.app | head -1)
+          exe=$(ls "$app/Contents/MacOS/" | grep -v '^ove$' | head -1)
+          tools/preview-check.sh "$app/Contents/MacOS/ove" "$app/Contents/MacOS/$exe" "$RUNNER_TEMP/preview/macos-stream.png" stream
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: preview-macos
+          path: ${{ runner.temp }}/preview
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-app-screenshot
+          path: ${{ runner.temp }}/app-macos.*
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installers-macos
+          if-no-files-found: error
+          path: target/release/bundle/dmg/*.dmg
+
+  package-windows:
+    name: package-windows (cross-built on Linux)
+    # Needs a Linux runner with at least 5 GiB of memory (compiling the windows crate alone peaks near 2.7 GB). Point
+    # OVE_RUNNER_PACKAGE at one (a JSON label array) when the default Linux runners are smaller.
+    runs-on: ${{ fromJSON(vars.OVE_RUNNER_PACKAGE || vars.OVE_RUNNER_LINUX || '"ubuntu-24.04"') }}
+    env:
+      CARGO_BUILD_JOBS: 2
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.97.0
+        with:
+          components: rustfmt, clippy
+          targets: x86_64-pc-windows-gnu
+      # Tagged releases build from a clean state; dry runs reuse the cache.
+      - uses: Swatinem/rust-cache@v2
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        with:
+          prefix-key: v1-rust
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: runner resources
+        run: |
+          nproc
+          free -m
+          # The container's own memory limit (what actually kills a build), if cgroups expose it.
+          df -h . | tail -1
+          # The memory this job may use: the container limit if there is one, else the machine's.
+          limit=$(cat /sys/fs/cgroup/memory.max 2>/dev/null || cat /sys/fs/cgroup/memory/memory.limit_in_bytes 2>/dev/null || echo max)
+          total=$(( $(awk '/^MemTotal:/ {print $2}' /proc/meminfo) * 1024 ))
+          case "$limit" in max|"") limit=$total ;; esac
+          [ "$limit" -lt "$total" ] || limit=$total
+          echo "memory available to this job: $(( limit / 1048576 )) MiB"
+          if [ "$limit" -lt $(( 5 * 1073741824 )) ]; then
+            echo "::error::This runner allows $(( limit / 1048576 )) MiB; the Windows release build needs at least 5 GiB. Set the repository variable OVE_RUNNER_PACKAGE to the labels of a larger Linux runner (docs/ci-runners.md)."
+            exit 1
+          fi
+      - name: prerequisites (MinGW-w64, NSIS, Wine)
+        run: |
+          pkgs="gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 mingw-w64-tools nasm meson ninja-build pkg-config cmake clang
+            libclang-dev nsis wine wine64 p7zip-full ffmpeg"
+          if command -v apt-get >/dev/null && sudo -n true 2>/dev/null; then
+            sudo apt-get update && sudo apt-get install -y $pkgs
+          else
+            echo "No passwordless apt on this runner; expecting these packages to be installed: $pkgs"
+          fi
+      - uses: actions/cache@v4
+        with:
+          path: tools/ffmpeg/out/windows-x64-gnu
+          key: ffmpeg-windows-x64-gnu-${{ hashFiles('tools/ffmpeg/*.sh') }}
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-about
+      - name: package (FFmpeg, ove sidecar, app, NSIS installer)
+        run: tools/package.sh --target windows-x64-gnu
+      - name: test media (generated with the runner's ffmpeg CLI; test-only)
+        run: python3 tests/media/media.py generate
+      - name: smoke test of the installed ove.exe under Wine
+        run: |
+          # The installer's payload as it lands in the install folder (7-Zip reads NSIS archives).
+          rm -rf "$RUNNER_TEMP/ove-windows"
+          7z x -y -o"$RUNNER_TEMP/ove-windows" target/x86_64-pc-windows-gnu/release/bundle/nsis/*-setup.exe > /dev/null
+          ls -l "$RUNNER_TEMP/ove-windows"
+          tools/cross/wine-smoke.sh "$RUNNER_TEMP/ove-windows"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installers-windows
+          if-no-files-found: error
+          path: target/x86_64-pc-windows-gnu/release/bundle/nsis/*-setup.exe
+      # Test media for the real-Windows check (the generator uses POSIX file locks, so it runs here).
+      - uses: actions/upload-artifact@v4
+        with:
+          name: test-media
+          path: tests/media/files
+          retention-days: 3
+
+  smoke-windows:
+    name: install and test on real Windows
+    needs: package-windows
+    runs-on: ${{ fromJSON(vars.OVE_RUNNER_WINDOWS || '"windows-2025"') }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: installers-windows
+          path: installer
+      - uses: actions/download-artifact@v4
+        with:
+          name: test-media
+          path: tests/media/files
+      - name: install silently (per-user NSIS install)
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem installer\*-setup.exe | Select-Object -First 1
+          Start-Process -FilePath $setup.FullName -ArgumentList '/S' -Wait
+          $exe = Get-ChildItem -Path $env:LOCALAPPDATA, $env:ProgramFiles -Recurse -Filter ove-desktop.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $exe) { throw "ove-desktop.exe not found after install" }
+          "OVE_DIR=$($exe.DirectoryName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Get-ChildItem $exe.DirectoryName | Format-Table Name, Length
+      - name: ove command line on Windows (import, decode, export, timeline exchange)
+        run: |
+          choco install -y ffmpeg > /dev/null
+          tools/smoke-cli.sh "$(cygpath -u "$OVE_DIR")/ove.exe"
+      - name: display resolution (the runner's default 1024x768 is smaller than the app's window)
+        shell: pwsh
+        continue-on-error: true
+        run: Set-DisplayResolution -Width 1920 -Height 1080 -Force
+      - name: the app starts and stays up
+        shell: pwsh
+        run: |
+          $app = Start-Process -FilePath "$env:OVE_DIR\ove-desktop.exe" -PassThru
+          Start-Sleep -Seconds 25
+          if ($app.HasExited) {
+            Get-ChildItem -Path $env:LOCALAPPDATA, $env:APPDATA -Recurse -Filter 'ove*.log' -ErrorAction SilentlyContinue |
+              ForEach-Object { Get-Content $_.FullName -Tail 40 }
+            throw "the app exited early with code $($app.ExitCode)"
+          }
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+          [System.Drawing.Graphics]::FromImage($bmp).CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+          $bmp.Save("$env:RUNNER_TEMP\app-windows.png")
+          Stop-Process -Id $app.Id
+          $logs = Get-ChildItem -Path $env:LOCALAPPDATA, $env:APPDATA -Recurse -Filter 'ove*.log' -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($logs) { Get-Content $logs.FullName -Tail 40 }
+      - name: the viewer shows the picture (the default viewer, on the real screen)
+        shell: bash
+        run: |
+          dir="$(cygpath -u "$OVE_DIR")"
+          tools/preview-check.sh "$dir/ove.exe" "$dir/ove-desktop.exe" "$(cygpath -u "$RUNNER_TEMP")/preview/windows-default.png"
+      - name: the native viewer on Windows (for information; not the default)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          dir="$(cygpath -u "$OVE_DIR")"
+          tools/preview-check.sh "$dir/ove.exe" "$dir/ove-desktop.exe" "$(cygpath -u "$RUNNER_TEMP")/preview/windows-below.png" below
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: preview-windows
+          path: ${{ runner.temp }}/preview
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-app-screenshot
+          path: ${{ runner.temp }}/app-windows.png
+          if-no-files-found: ignore
+
+  ci:
+    # The full CI suite (every OS, every crate, UI, app end-to-end) on the tagged commit; nothing publishes unless it
+    # passes. Branch dry runs skip it: CI already runs on every push.
+    if: startsWith(github.ref, 'refs/tags/v')
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    # Only for tags: a draft pre-release with the installers that were built and checksums. A person reviews and
+    # publishes it. Needs the Windows installer; macOS is added when its job succeeded.
+    # Publishes only when everything passed: CI on every OS, the Windows installer and its real-Windows test, and the
+    # macOS build and its tests (unless OVE_RELEASE_MACOS is `false`).
+    if: >-
+      always() && startsWith(github.ref, 'refs/tags/v') && needs.ci.result == 'success'
+      && needs.package-windows.result == 'success' && needs.smoke-windows.result == 'success'
+      && (needs.package-macos.result == 'success' || vars.OVE_RELEASE_MACOS == 'false')
+    needs: [ci, package-windows, smoke-windows, package-macos]
+    runs-on: ${{ fromJSON(vars.OVE_RUNNER_LINUX || '"ubuntu-24.04"') }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: installers-*
+          path: dist
+          merge-multiple: true
+      - name: draft pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          notes="docs/releases/${TAG#v}.md"
+          test -f "$notes" || { echo "missing release notes $notes"; exit 1; }
+          cp "$notes" "$RUNNER_TEMP/notes.md"
+          missing=()
+          ls dist/*-setup.exe > /dev/null 2>&1 || missing+=("Windows")
+          ls dist/*.dmg > /dev/null 2>&1 || missing+=("macOS")
+          if [ ${#missing[@]} -gt 0 ]; then
+            printf '\n## Not in this build\n\nNo installer for: %s. It follows in a later build.\n' "${missing[*]}" \
+              >> "$RUNNER_TEMP/notes.md"
+          fi
+          # LGPL: the exact FFmpeg source and the scripts that build it travel with every release.
+          curl -fsSL -o dist/ffmpeg-9.0.2.tar.xz https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz
+          echo "8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e  dist/ffmpeg-9.0.2.tar.xz" | sha256sum -c -
+          tar -czf dist/ffmpeg-build-scripts.tar.gz tools/ffmpeg/build.sh tools/ffmpeg/env.sh tools/ffmpeg/check-license.sh \
+            tools/ffmpeg/README.md tools/cross
+          (cd dist && sha256sum * > SHA256SUMS.txt)
+          gh release create "$TAG" dist/* --draft --prerelease --verify-tag \
+            --title "OpenVideoEditor ${TAG#v}" --notes-file "$RUNNER_TEMP/notes.md"

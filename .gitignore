@@ -1,1 +1,15 @@
-.DS_Store
+/target
+/target-*/
+node_modules/
+dist/
+*.log
+/tests/media/files/
+.claude/worktrees/
+/tools/ffmpeg/out/
+/tools/ffmpeg/.work/
+apps/desktop/src-tauri/tauri.bundle.generated.json
+
+# Sidecar binaries copied in by tools/package.sh.
+/apps/desktop/src-tauri/binaries/
+apps/desktop/src-tauri/licenses/generated/
+__pycache__/

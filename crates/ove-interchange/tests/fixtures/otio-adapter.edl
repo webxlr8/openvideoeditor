@@ -1,0 +1,15 @@
+TITLE: Cut
+
+001  Day20120 V     C        00:00:01:15 00:00:05:15 00:00:00:00 00:00:04:00
+* FROM CLIP NAME:  Intro
+* FROM CLIP: file:///Volumes/Footage/Day%201%20take%20%232.mov
+* OTIO TRUNCATED REEL NAME FROM: Day%201%20take%20%232.mov
+002  brollmp4 V     C        00:00:00:00 00:00:01:00 00:00:04:00 00:00:06:00
+M2   Fast		60.0			00:00:00:00
+* FROM CLIP NAME:  Fast
+* FROM CLIP: file:///Volumes/Footage/broll.mp4
+* OTIO TRUNCATED REEL NAME FROM: broll.mp4
+003  Day20120 V     C        00:00:12:00 00:00:15:00 00:00:07:00 00:00:10:00
+* FROM CLIP NAME:  Outro
+* FROM CLIP: file:///Volumes/Footage/Day%201%20take%20%232.mov
+* OTIO TRUNCATED REEL NAME FROM: Day%201%20take%20%232.mov

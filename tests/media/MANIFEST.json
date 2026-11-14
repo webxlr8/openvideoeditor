@@ -1,0 +1,139 @@
+{
+  "about": "Media matrix for decode/playback tests. Files live in tests/media/files (gitignored); generate with `python3 tests/media/media.py generate`. 'real' entries are owner-provided camera originals: {name, description, format, url, sha256}.",
+  "generatedWith": "ffmpeg version 6.1.1-3ubuntu5 Copyright (c) 2000-2023 the FFmpeg developers",
+  "synthetic": [
+    {
+      "name": "h264_longgop.mp4",
+      "description": "H.264 High long-GOP (GOP 60, 3 B-frames) 30 fps with AAC stereo",
+      "format": "MP4 / H.264",
+      "sha256": "015a87a0ecd62d8b5a5b2d40bf02b4d1d464fba0be86663bdc8ec814cf4c7a94"
+    },
+    {
+      "name": "h264_60fps.mov",
+      "description": "H.264 Main 60 fps in MOV, no audio",
+      "format": "MOV / H.264 60p",
+      "sha256": "09583a871998f3e0e90f01c7741ecf49c9fe78b0e35febdeb0804d7fbbd9ae94"
+    },
+    {
+      "name": "h264_4k60.mp4",
+      "description": "H.264 High 3840x2160 60 fps (1 s, GOP 30) \u2014 4K60 decode and seek at full size",
+      "format": "MP4 / H.264 4K60",
+      "sha256": "477fcaf86954581f07517e07f6ffd7a46a5441a2a9f6fdc231edf4f970f02e74"
+    },
+    {
+      "name": "hevc_hdr_vfr.mov",
+      "description": "Phone-like HEVC Main10 HDR (BT.2020 PQ tags), variable frame rate, AAC",
+      "format": "MOV / HEVC HDR VFR",
+      "sha256": "edf05b1ff7e2a669ec2beb1aefaaccd92d9a46cbdfd5436f87540d4496bfce37"
+    },
+    {
+      "name": "hevc_hlg_patches.mov",
+      "description": "iPhone-like HEVC Main10 HLG (BT.2020, ARIB STD-B67): grey card 38 %, skin tone, reference white 75 %",
+      "format": "MOV / HEVC HLG",
+      "sha256": "f22c4f320e0595f7b9ba006b2b5c7c2a069116edc2fc9731c75b9cea85ef0b30"
+    },
+    {
+      "name": "hevc_pq_patches.mov",
+      "description": "HEVC Main10 PQ (BT.2020, SMPTE ST 2084): grey card 26 cd/m2, skin tone, reference white 203 cd/m2",
+      "format": "MOV / HEVC PQ",
+      "sha256": "8c79526614c4b993345fd0598567fded48921a2a15834fcb9d94e1a227de6d16"
+    },
+    {
+      "name": "hevc_main10_420.mp4",
+      "description": "HEVC Main10 4:2:0 10-bit, hvc1 tag",
+      "format": "MP4 / HEVC 10-bit 4:2:0",
+      "sha256": "fc4952c1635491c1b594487d2a80fd47ef04e21e73e334e3abe861ce2730cc67"
+    },
+    {
+      "name": "hevc_main422_10.mov",
+      "description": "HEVC Main 4:2:2 10-bit (not hardware-decodable on many GPUs)",
+      "format": "MOV / HEVC 10-bit 4:2:2",
+      "sha256": "00e1503a857d5953244da4cd1cd64bb168d16250ec4723a9e0de9fd14768ed9b"
+    },
+    {
+      "name": "prores_proxy.mov",
+      "description": "ProRes 422 Proxy",
+      "format": "MOV / ProRes 422 Proxy",
+      "sha256": "9167063053504c7f73ef8b3525e4781f9554e0550dad9c06b39fe6e9291fb5ac"
+    },
+    {
+      "name": "prores_lt.mov",
+      "description": "ProRes 422 LT",
+      "format": "MOV / ProRes 422 LT",
+      "sha256": "421d6f55ba87dcf9e136ca94035b4c47439a551686f81339751fbd3981a7a5e1"
+    },
+    {
+      "name": "prores_hq.mov",
+      "description": "ProRes 422 HQ with 24-bit PCM audio",
+      "format": "MOV / ProRes 422 HQ",
+      "sha256": "0e118d1ef7967c0f4f7db776cd1b4a5d8cca76a36d6369d283beb2f91498ca03"
+    },
+    {
+      "name": "prores_4444.mov",
+      "description": "ProRes 4444 with alpha",
+      "format": "MOV / ProRes 4444",
+      "sha256": "5eadf81884a79b6d7a0d5146ee5f54efa0cdb04bbeefea71839613dc730b515b"
+    },
+    {
+      "name": "dnxhr_hq.mxf",
+      "description": "DNxHR HQ 4:2:2 8-bit in MXF OP1a, 25 fps, PCM audio",
+      "format": "MXF / DNxHR HQ",
+      "sha256": "66c3751e901b0601eedd347eb5f5b5c41dc165564120d8ea3315714709453374"
+    },
+    {
+      "name": "av1.mkv",
+      "description": "AV1 in Matroska",
+      "format": "MKV / AV1",
+      "sha256": "28a6d16685054a95e45ba1e8ffa8f92e733a8a68fad876123ac688a35e1de47c"
+    },
+    {
+      "name": "vp9_opus.webm",
+      "description": "VP9 with Opus audio",
+      "format": "WebM / VP9 + Opus",
+      "sha256": "00d6335ed22c9bfa47b7c498e5fbfc4913d454feac7317ce958fc468c6dc8d28"
+    },
+    {
+      "name": "vfr_phone.mp4",
+      "description": "Variable frame rate (irregular timestamps, phone-like 600 timescale) H.264 with AAC",
+      "format": "MP4 / H.264 VFR",
+      "sha256": "c5f711dd3fb536a41b5ac52afd77be616c8052e5e0ab2449796b31b1a99f7590"
+    },
+    {
+      "name": "audio_aac.m4a",
+      "description": "AAC-LC stereo 44.1 kHz",
+      "format": "M4A / AAC",
+      "sha256": "5051cd8abe9ebca5673ab0194c183cf976a296ebedd24cf0147431879a19814a"
+    },
+    {
+      "name": "audio_pcm.wav",
+      "description": "PCM s16 stereo 44.1 kHz",
+      "format": "WAV / PCM",
+      "sha256": "4e9e029040d3cf648ec3878c847189bf48a4dde12c8305f7aa37657f8fb14c64"
+    },
+    {
+      "name": "audio_alac.m4a",
+      "description": "ALAC stereo 48 kHz",
+      "format": "M4A / ALAC",
+      "sha256": "67d916691b144f9d905fdf3db8521bdf9bd3ad4747513bbcdece28f92581afed"
+    },
+    {
+      "name": "audio_opus.mka",
+      "description": "Opus stereo 48 kHz",
+      "format": "MKA / Opus",
+      "sha256": "68619a69fbf35970551fdd0c37b735bb4dd43a8605b140e96bcdcd2a49d84ba9"
+    },
+    {
+      "name": "truncated_faststart.mp4",
+      "description": "H.264 with moov at front, cut at 45% (opens, ends early)",
+      "format": "truncated",
+      "sha256": "b2a1bcd561dab802d0c324bd6851457da80a6d1bd7d41a8a5179e9f53d5a3e93"
+    },
+    {
+      "name": "truncated_nomoov.mp4",
+      "description": "H.264 with moov at end, cut at 50% (cannot be opened)",
+      "format": "truncated",
+      "sha256": "d2401cab21e0c6d585b6a3bb3a291f70c07e014038cfdf0c640385d2093b8975"
+    }
+  ],
+  "real": []
+}

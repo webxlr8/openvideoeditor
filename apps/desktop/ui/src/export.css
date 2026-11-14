@@ -1,0 +1,120 @@
+/* Export dialog and the Timeline/Source viewer toggle. */
+.xp-seg {
+  display: inline-flex;
+  padding: 2px;
+  gap: 2px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg-2);
+}
+.xp-seg button {
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.xp-seg button:hover:not(:disabled) {
+  color: var(--text);
+}
+.xp-seg button.on {
+  color: var(--text);
+  background: var(--bg-4);
+}
+.xp-modal {
+  width: min(460px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.xp-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.xp-field > .xp-seg {
+  align-self: flex-start;
+}
+.xp-field > span:first-child {
+  font-size: 12px;
+  color: var(--muted);
+}
+.xp-dest {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.xp-dest-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg-1);
+  font-size: 12px;
+}
+.xp-progress {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.xp-progress::before {
+  content: "";
+  height: 6px;
+  border-radius: 3px;
+  background: var(--bg-4);
+}
+.xp-progress-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--accent);
+  transition: width 0.2s linear;
+}
+.xp-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.xp-result p {
+  margin: 0 0 16px;
+}
+.xp-error {
+  color: var(--danger);
+}
+.xp-report {
+  margin: 0 0 16px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-1);
+  user-select: text;
+}
+.xp-report h4 {
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+.xp-report ul {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.xp-report p {
+  margin: 8px 0 0;
+}
+.xp-open {
+  height: 28px;
+}
+
+.xp-kind {
+  align-self: flex-start;
+  margin-bottom: 4px;
+}
