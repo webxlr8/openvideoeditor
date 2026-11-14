@@ -31,10 +31,17 @@ mkdir -p "$WORK/lib" "$(dirname "$OUT")"
 LIB="$(native "$WORK/lib")"
 ove() { "$OVE" --library "$LIB" "$@"; }
 stop_app() {
-  if [ "$OS" = windows ]; then taskkill //F //IM "$(basename "$APP")" > /dev/null 2>&1 || true
+  if [ "$OS" = windows ]; then
+    taskkill //F //IM "$(basename "$APP")" > /dev/null 2>&1 || true
+    # taskkill returns before Windows closes the app's files; wait so the clean-up can delete them.
+    for _ in $(seq 1 20); do
+      tasklist //FI "IMAGENAME eq $(basename "$APP")" 2> /dev/null | grep -qi "$(basename "$APP")" || break
+      sleep 0.5
+    done
   elif [ -n "${pid:-}" ]; then kill "$pid" 2> /dev/null || true; fi
 }
-trap 'stop_app; rm -rf "$WORK"' EXIT
+# A file that is still locked must not turn a passed check into a failure.
+trap 'stop_app; rm -rf "$WORK" 2> /dev/null || true' EXIT
 
 ffmpeg -hide_banner -loglevel error -y -f lavfi -i "color=c=0xFF00FF:s=640x360:r=30:d=4" \
   -c:v libx264 -pix_fmt yuv420p "$WORK/magenta.mp4"
