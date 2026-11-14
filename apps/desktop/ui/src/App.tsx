@@ -21,6 +21,10 @@ import {
 } from "./ExportDialog";
 import { Home } from "./Home";
 import { fire, logError, runCommand, setErrorSink, unlisten } from "./notify";
+import { Checklist } from "./onboarding/Checklist";
+import type { HelpActions } from "./onboarding/HelpMenu";
+import { useOnboarding } from "./onboarding/useOnboarding";
+import { Welcome } from "./onboarding/Welcome";
 import { EDIT_ACTIONS, keyToAction } from "./keys";
 import {
   templateAspect,
@@ -214,6 +218,27 @@ export function App() {
     },
     [preview, showError, showTimeline],
   );
+
+  // Onboarding: the welcome on a first run, the getting-started row, and what Help reopens.
+  const onboarding = useOnboarding(project);
+  /** "Try the sample": a new copy of the sample project, opened in the editor. */
+  const trySample = useCallback(
+    () => runCommand(commands.createSampleProject(), openProjectView, showError),
+    [openProjectView, showError],
+  );
+  const { showWelcome, setChecklistClosed } = onboarding;
+  const help = useMemo<HelpActions>(
+    () => ({
+      gettingStarted: () => setChecklistClosed(false),
+      welcome: showWelcome,
+      sample: trySample,
+    }),
+    [setChecklistClosed, showWelcome, trySample],
+  );
+  const checklistOpen =
+    !!onboarding.state &&
+    !onboarding.state.checklistClosed &&
+    !onboarding.welcomeOpen;
 
   /** Adds a timeline file (FCPXML, XML, EDL, OTIO) to the open project. */
   const importTimelineFile = useCallback(async () => {
@@ -488,13 +513,15 @@ export function App() {
   }, [route, transport, run]);
 
   return (
-    <div className="app">
+    <div className={`app${checklistOpen ? " has-checklist" : ""}`}>
       {route === "home" ? (
         <ErrorBoundary region="Home" className="home">
           <Home
             projects={projects}
             onError={showError}
             onOpenFile={() => fire(importInto(null))}
+            onSample={trySample}
+            help={help}
             onBlank={() =>
               runCommand(
                 commands.createProject("Untitled Project", null),
@@ -539,6 +566,7 @@ export function App() {
           onImportTimeline={() => fire(importTimelineFile())}
           onError={showError}
           onHome={() => fire(goHome())}
+          help={help}
           onSeek={seekTimeline}
           onSelect={(item, offset, mode) => {
             if (!item) setSelection([]);
@@ -567,6 +595,12 @@ export function App() {
           }
         />
       )}
+      {checklistOpen && onboarding.state && (
+        <Checklist
+          done={onboarding.state.stepsDone}
+          onClose={() => setChecklistClosed(true)}
+        />
+      )}
       {exporting && project && (
         <ErrorBoundary
           region="Export"
@@ -578,6 +612,27 @@ export function App() {
             aspect={project.aspectRatio}
             onClose={() => setExporting(false)}
             onError={showError}
+          />
+        </ErrorBoundary>
+      )}
+      {/* Until the native side says whether this is a first run, nothing of Home shows (no flash before the
+          welcome). */}
+      {onboarding.state === null && (
+        <div className="onboarding-cover" data-testid="onboarding-loading" />
+      )}
+      {onboarding.welcomeOpen && (
+        <ErrorBoundary
+          region="The welcome"
+          className="welcome"
+          onClose={onboarding.skipWelcome}
+        >
+          <Welcome
+            assistant={onboarding.state?.assistant}
+            onSkip={onboarding.skipWelcome}
+            onFinish={(assistant, sample) => {
+              onboarding.finishWelcome(assistant);
+              if (sample) trySample();
+            }}
           />
         </ErrorBoundary>
       )}

@@ -38,6 +38,7 @@ const SECTIONS = [
   { id: "about", label: "About & updates" },
 ] as const;
 type Section = (typeof SECTIONS)[number]["id"];
+export type SettingsSection = Section;
 
 function Copyable({ text }: { text: string }) {
   const [done, setDone] = useState(false);
@@ -271,8 +272,15 @@ function ShortcutsSection() {
   );
 }
 
-export function Settings({ onError }: { onError: (e: AppError) => void }) {
-  const [section, setSection] = useState<Section>("library");
+export function Settings({
+  onError,
+  initialSection = "library",
+}: {
+  onError: (e: AppError) => void;
+  /** The section shown first (Help → Keyboard shortcuts opens on Shortcuts). */
+  initialSection?: Section;
+}) {
+  const [section, setSection] = useState<Section>(initialSection);
   const [info, setInfo] = useState<AppInfo_Serialize | null>(null);
   const [catalog, setCatalog] = useState<Catalog>({ models: [], keys: [] });
   const [agent, setAgent] = useState<AgentStatus_Serialize | null>(null);

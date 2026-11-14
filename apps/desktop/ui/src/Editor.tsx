@@ -38,6 +38,7 @@ import {
 import { MotionPanel } from "./Motion";
 import { GeneratePanel } from "./Generate";
 import { HistoryPanel } from "./HistoryPanel";
+import { type HelpActions, HelpMenu } from "./onboarding/HelpMenu";
 import { Shortcuts } from "./Shortcuts";
 import { type SelectMode, Timeline } from "./Timeline";
 
@@ -90,6 +91,7 @@ export function Editor({
   onError,
   onHome,
   onSeek,
+  help: helpActions,
   timelineMode = false,
   barExtras,
 }: {
@@ -105,6 +107,8 @@ export function Editor({
   onImportTimeline?: () => void;
   onError: (e: AppError) => void;
   onHome: () => void;
+  /** What the Help entry reopens (the welcome, the checklist, the sample). */
+  help?: HelpActions;
   /** Shows the composited timeline at a time in seconds (the assistant's `seek_viewer`). */
   onSeek?: (seconds: number) => void;
   project: ProjectView_Serialize | null;
@@ -400,6 +404,7 @@ export function Editor({
           snap={snap}
           setSnap={setSnap}
           onHelp={() => setHelp(true)}
+          help={helpActions}
           onHistory={() => setHistoryOpen(true)}
         />
         {layout.timelineOpen ? (
@@ -707,6 +712,7 @@ function TransportBar({
   snap,
   setSnap,
   onHelp,
+  help,
   onHistory,
 }: {
   playback: PlaybackState;
@@ -722,7 +728,9 @@ function TransportBar({
   setZoom: (z: number | null) => void;
   snap: boolean;
   setSnap: (v: boolean) => void;
+  /** Shows the keyboard shortcuts. */
   onHelp: () => void;
+  help?: HelpActions;
   onHistory: () => void;
 }) {
   const pps = zoom ?? fitPps;
@@ -928,14 +936,7 @@ function TransportBar({
         >
           <Icon name="chat" size={16} />
         </button>
-        <button
-          className="icon-btn"
-          title="Keyboard shortcuts (?)"
-          data-testid="shortcuts"
-          onClick={onHelp}
-        >
-          <Icon name="keyboard" size={16} />
-        </button>
+        <HelpMenu variant="icon" actions={help} onShortcuts={onHelp} />
       </div>
     </div>
   );
