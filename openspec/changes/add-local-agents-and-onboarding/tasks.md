@@ -26,10 +26,8 @@
       Verified: `onboarding.rs` unit tests (missing file, corrupt file, round trip, fields missing, skip rules, no
       configuration folder); the app end-to-end first-run flow reads `onboarding.json` from the app's configuration
       folder and restarts the app.
-- [ ] 2.2 Welcome: three screens, Skip on each, the assistant picker from 1.4.
-      Verified, except the picker: three screens, Skip on each, no key field, the privacy text, no return after
-      finish or skip (`onboarding/Onboarding.test.tsx`, first-run flow). Still to do: the picker from 1.4 goes
-      inside `onboarding/AssistantStep.tsx`, which offers "I'll edit by hand" and "Use an API key" until then.
+- [x] 2.2 Welcome: three screens, Skip on each, the assistant picker from 1.4 with the assistants' logos. Verified:
+      `onboarding/Onboarding.test.tsx`; the app end-to-end first-run flow; a screenshot of the assistant screen.
 - [x] 2.3 Sample project: media made for the app and shipped as a resource; "Try the sample" copies it into the
       library with a cut, a title, captions and a transition.
       Verified: `sample.rs` unit tests (two clips, title, captions, dissolve, the clip decodes with the app's
@@ -66,7 +64,8 @@
 
 ## 4. After
 
-- [ ] 4.1 Vendor artwork in the icon slots where the vendor's terms allow it.
+- [x] 4.1 The assistants' own logos (owner's decision, 14 November 2026), from LobeHub's icon set (MIT), with a
+      trademark notice in the app's licences. Verified: `agents/Agents.test.tsx`; screenshot.
 - [ ] 4.2 Connect buttons for Codex, OpenCode, Hermes, Kimi and Grok as each command is checked against a real
       install.
 - [ ] 4.3 Release notes and the in-app "What's new", with the changed privacy text (the assistant sees frames and

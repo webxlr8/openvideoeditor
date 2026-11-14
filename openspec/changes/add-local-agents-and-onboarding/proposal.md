@@ -47,11 +47,12 @@ Two things stop a new person from getting value out of the app:
   claude.ai login or rate limits in their products without approval, and its help centre says third-party apps draw
   from a signed-in person's plan. Starting the person's own installed agent sits between the two. The agent is
   supported; the wording in marketing waits for Anthropic's answer.
-- **Vendor logos.** OpenAI's brand guidelines allow its marks only under its guidelines and require approval for
-  co-branding; the other vendors' terms are unchecked. The app ships neutral icons of its own in a slot that takes the
-  vendor's artwork once its terms are confirmed.
 
 ## Decided
+
+- **The assistants' own logos (owner, 14 November 2026).** The app shows each assistant's logo to identify it. The
+  drawings come from LobeHub's icon set (MIT); the app's licences say whose trademarks they are and that showing them
+  is not an endorsement.
 
 - **Frames and everything to the agent (owner, 14 November 2026).** The product is agent first. The agent sees frames,
   sound measurements and transcripts of the open project by default. The privacy text in the app and in the release

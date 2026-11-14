@@ -33,10 +33,10 @@ in"), and the agent is marked **Needs sign-in** until a session succeeds.
 
 ## D3. Icons
 
-Each entry has an icon slot. Until a vendor's brand terms are confirmed the slot holds a neutral icon drawn for this
-app: the agent's initial on a rounded square in a colour of ours. A vendor's own artwork replaces it by adding one
-file to `apps/desktop/ui/src/agents/icons/` and one line to the entry; nothing else changes. The app's own name and
-icon are always more prominent than any agent's.
+Each agent is shown with its own logo on a neutral tile (`ui/src/agents/logos.tsx`, generated from LobeHub's icon
+set, MIT). The licences that ship with the app name the trademark owners and say that showing a logo is not an
+endorsement. An entry without a logo (the built-in assistant on an API key, or an agent whose logo is removed) gets a
+lettered tile drawn for this app. The app's own name and icon are always more prominent than any agent's.
 
 ## D4. Connect (agent in its own terminal)
 

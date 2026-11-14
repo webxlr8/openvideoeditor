@@ -10,8 +10,13 @@ import { AgentIcon } from "./AgentIcon";
 /** `null` is "I'll edit by hand"; `"api-key"` is the built-in assistant on the person's own key. */
 export type AssistantChoice = string | null;
 
+/** The version number out of what the program printed ("2.1.325 (Claude Code)" → "2.1.325"). */
+function versionNumber(printed: string): string {
+  return /\d+(?:\.\d+)+/.exec(printed)?.[0] ?? printed;
+}
+
 export function stateText(a: AgentInfo): string {
-  if (a.state === "ready") return a.version ? `Ready · ${a.version}` : "Ready";
+  if (a.state === "ready") return a.version ? `Ready · ${versionNumber(a.version)}` : "Ready";
   if (a.state === "found") return "Installed";
   return "Not installed";
 }
@@ -50,7 +55,9 @@ export function AssistantPicker({
     };
   }, [given]);
 
-  const agents = given ?? found;
+  // Installed assistants first, each group in the list's own order.
+  const all = given ?? found;
+  const agents = all && [...all.filter((a) => a.state !== "notInstalled"), ...all.filter((a) => a.state === "notInstalled")];
   return (
     <div className="assistant-picker" role="radiogroup" aria-label="Assistant" data-testid="assistant-picker">
       {agents === null && <p className="muted small">Looking for assistants on this computer…</p>}

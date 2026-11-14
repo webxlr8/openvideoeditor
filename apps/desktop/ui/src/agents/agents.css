@@ -10,6 +10,11 @@
   letter-spacing: -0.02em;
   line-height: 1;
 }
+.agent-icon.logo {
+  border-color: var(--bg-4);
+  background: var(--bg-1);
+  color: var(--text);
+}
 .assistant-picker {
   display: flex;
   flex-direction: column;

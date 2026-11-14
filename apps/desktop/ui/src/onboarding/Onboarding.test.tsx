@@ -39,9 +39,9 @@ describe("welcome", () => {
 
     // Pick an assistant: by hand is chosen until the person picks something else.
     expect(screen.getByTestId("welcome-screen-assistant")).toBeTruthy();
-    expect(screen.getByTestId("assistant-option-none").getAttribute("aria-checked")).toBe("true");
-    fireEvent.click(screen.getByTestId("assistant-option-api-key"));
-    expect(screen.getByTestId("assistant-option-api-key").getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByTestId("assistant-none").getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(screen.getByTestId("assistant-api-key"));
+    expect(screen.getByTestId("assistant-api-key").getAttribute("aria-checked")).toBe("true");
     fireEvent.click(screen.getByTestId("welcome-next"));
 
     // Privacy: what stays, what the assistant sees, and that nothing is sent without one.
@@ -55,7 +55,7 @@ describe("welcome", () => {
 
     // Back keeps the choice.
     fireEvent.click(screen.getByTestId("welcome-back"));
-    expect(screen.getByTestId("assistant-option-api-key").getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByTestId("assistant-api-key").getAttribute("aria-checked")).toBe("true");
     fireEvent.click(screen.getByTestId("welcome-next"));
     fireEvent.click(screen.getByTestId("welcome-done"));
 
@@ -382,8 +382,8 @@ describe("help", () => {
     fireEvent.click(screen.getByTestId("help-welcome"));
     await screen.findByTestId("welcome");
     fireEvent.click(screen.getByTestId("welcome-next"));
-    expect(screen.getByTestId("assistant-option-api-key").getAttribute("aria-checked")).toBe("true");
-    fireEvent.click(screen.getByTestId("assistant-option-none"));
+    expect(screen.getByTestId("assistant-api-key").getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(screen.getByTestId("assistant-none"));
     fireEvent.click(screen.getByTestId("welcome-next"));
     expect(screen.getByTestId("welcome-choice").textContent).toBe("You chose to edit by hand.");
     fireEvent.click(screen.getByTestId("welcome-done"));

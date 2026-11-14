@@ -31,9 +31,10 @@ describe("AssistantPicker", () => {
     expect(screen.getByTestId("assistant-codex").textContent).toContain("Installed");
     expect(screen.getByTestId("assistant-grok").textContent).toContain("Not installed");
     for (const id of ["claude", "codex", "grok", "api-key"]) expect(screen.getByTestId(`agent-icon-${id}`)).toBeTruthy();
-    // The icons are told apart.
-    const letters = ["claude", "codex", "grok"].map((id) => screen.getByTestId(`agent-icon-${id}`).textContent);
-    expect(new Set(letters).size).toBe(3);
+    // Each agent shows its own logo; the built-in assistant has a lettered tile.
+    const drawings = ["claude", "codex", "grok"].map((id) => screen.getByTestId(`agent-logo-${id}`).innerHTML);
+    expect(new Set(drawings).size).toBe(3);
+    expect(screen.getByTestId("agent-icon-api-key").textContent).toBe("API");
 
     expect(screen.getByTestId<HTMLButtonElement>("assistant-grok").disabled).toBe(true);
     fireEvent.click(screen.getByTestId("assistant-claude"));
@@ -51,6 +52,9 @@ describe("AssistantPicker", () => {
     render(<AssistantPicker value="codex" onChange={() => undefined} />);
     const codex = await screen.findByTestId("assistant-codex");
     expect(codex.getAttribute("aria-checked")).toBe("true");
+    // Only the version number of what the program printed ("codex-cli 0.169.0") is shown.
+    expect(codex.textContent).toContain("Ready · 0.169.0");
+    expect(codex.textContent).not.toContain("codex-cli");
     expect(screen.getByTestId<HTMLButtonElement>("assistant-claude").disabled).toBe(true);
     expect(screen.getAllByRole("radio").length).toBe(8);
   });

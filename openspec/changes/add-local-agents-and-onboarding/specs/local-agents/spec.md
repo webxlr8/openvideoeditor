@@ -40,12 +40,12 @@ SHALL remain available as a choice.
 - **THEN** the chat panel offers that agent and does not show the key form
 
 ### Requirement: Icons
-Every agent SHALL be shown with an icon. The app SHALL ship icons of its own and SHALL use a vendor's artwork only
-from the agent entry's icon slot.
+Every agent SHALL be shown with its own logo, and the app's licences SHALL name the trademark owners. An entry
+without a logo SHALL get an icon drawn for this app.
 
 #### Scenario: Icons
-- **WHEN** the picker is shown before any vendor artwork is added
-- **THEN** every agent has a distinct icon drawn for this app
+- **WHEN** the picker is shown
+- **THEN** each of the six agents shows its own logo and the built-in assistant shows a lettered icon
 
 ### Requirement: Connect
 For an agent whose command has been checked against a real install, Connect SHALL install the editing guide and
