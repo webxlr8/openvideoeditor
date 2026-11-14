@@ -1,7 +1,7 @@
 // The welcome: three screens before Home on a first launch (what the app does, pick an assistant, privacy), each
 // with Skip. It never asks for a key. Help → "Show the welcome again" opens the same thing later.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AssistantStep } from "./AssistantStep";
 import "./onboarding.css";
 
@@ -29,8 +29,9 @@ export function Welcome({
   useEffect(() => primary.current?.focus(), [step]);
 
   // The window under the welcome (Home, or the editor when it is shown again) must not act on keys meant for it:
-  // keys pressed with the focus outside the welcome stop here. Escape skips.
-  useEffect(() => {
+  // keys pressed with the focus outside the welcome stop here. Escape skips. In place as soon as the welcome is on
+  // screen (a layout effect), so no key slips through before it.
+  useLayoutEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (root.current?.contains(e.target as Node)) return;
       e.stopPropagation();

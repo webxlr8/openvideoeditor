@@ -274,6 +274,14 @@ export const FLOWS = [
       assert.equal(app.welcomeShown, false, "the welcome does not return at the next launch");
       assert.equal(await app.count("checklist"), 0, "the closed checklist stays closed");
       assert.ok((await app.invoke("onboarding_state")).stepsDone.includes("cut"));
+      // Home has the Help entry too, with the same four things.
+      await app.click("nav-home");
+      await app.click("help");
+      for (const entry of ["getting-started", "welcome", "sample", "shortcuts"]) await app.find(`help-${entry}`);
+      await sleep(250); // a painted frame for the capture
+      await app.saveArtefacts(ctx.out, "home-help");
+      await app.click("help-shortcuts");
+      await app.find("bind-split"); // Settings, on Shortcuts
       // A second copy from Home: the first keeps its split.
       await app.click("nav-home");
       await app.click("home-sample");

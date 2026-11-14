@@ -363,6 +363,12 @@ describe("help", () => {
     await screen.findByTestId("settings");
     expect(screen.getByTestId("set-shortcuts").className).toContain("active");
     expect(screen.getByTestId("bind-split")).toBeTruthy();
+    // Asked again while Settings shows another section: Shortcuts again.
+    fireEvent.click(screen.getByTestId("set-about"));
+    expect(screen.getByTestId("set-about").className).toContain("active");
+    fireEvent.click(screen.getByTestId("help"));
+    fireEvent.click(screen.getByTestId("help-shortcuts"));
+    await waitFor(() => expect(screen.getByTestId("set-shortcuts").className).toContain("active"));
     // Settings from the sidebar still opens on its first section.
     fireEvent.click(screen.getByTestId("nav-settings"));
     await waitFor(() => expect(screen.getByTestId("set-library").className).toContain("active"));

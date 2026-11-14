@@ -88,8 +88,16 @@ export function Home({
     "home" | "projects" | "settings" | "templates"
   >("home");
   const [dialog, setDialog] = useState<"changelog" | "feedback" | null>(null);
-  /** The Settings section to open on (Help → Keyboard shortcuts goes straight to Shortcuts). */
-  const [section, setSection] = useState<SettingsSection>("library");
+  /** The Settings section to open on (Help → Keyboard shortcuts goes straight to Shortcuts), and how many times
+   * Settings was asked for: asking again shows that section even when Settings is already open on another. */
+  const [settings, setSettings] = useState<{ section: SettingsSection; asked: number }>({
+    section: "library",
+    asked: 0,
+  });
+  const openSettings = (section: SettingsSection) => {
+    setSettings((s) => ({ section, asked: s.asked + 1 }));
+    setPage("settings");
+  };
   const [query, setQuery] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
@@ -163,10 +171,7 @@ export function Home({
           <HelpMenu
             variant="nav"
             actions={help}
-            onShortcuts={() => {
-              setSection("shortcuts");
-              setPage("settings");
-            }}
+            onShortcuts={() => openSettings("shortcuts")}
           />
           {FOOTER.map((n) => (
             <button
@@ -175,10 +180,8 @@ export function Home({
               aria-current={n.id === page ? "page" : undefined}
               data-testid={`nav-${n.id}`}
               onClick={() => {
-                if (n.id === "settings") {
-                  setSection("library");
-                  setPage("settings");
-                } else setDialog(n.id === "changelog" ? "changelog" : "feedback");
+                if (n.id === "settings") openSettings("library");
+                else setDialog(n.id === "changelog" ? "changelog" : "feedback");
               }}
             >
               <Icon name={n.icon} size={16} /> {n.label}
@@ -226,8 +229,8 @@ export function Home({
         <main className="home-main settings-page">
           <ErrorBoundary region="Settings" className="settings">
             <Settings
-              key={section}
-              initialSection={section}
+              key={settings.asked}
+              initialSection={settings.section}
               onError={onError ?? reportError}
             />
           </ErrorBoundary>
