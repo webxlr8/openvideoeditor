@@ -53,7 +53,12 @@ export class AppSession {
     this.driver = null;
   }
 
-  async start() {
+  /**
+   * Launches the app. On a first run (no onboarding state in the app's configuration folder) the welcome covers
+   * Home: it is skipped here, as a person who wants to get on would, unless `dismissWelcome` is false (the
+   * first-run flow walks it). `welcomeShown` records whether this launch showed it.
+   */
+  async start({ dismissWelcome = true } = {}) {
     const caps = {
       browserName: "wry",
       "tauri:options": { application: this.opts.application },
@@ -68,6 +73,14 @@ export class AppSession {
     );
     await this.driver.executeScript(PAGE_HOOKS);
     this.info = await this.invoke("app_info");
+    // The window is covered until the native side has said whether this is a first run.
+    await this.waitGone("onboarding-loading", 30000);
+    this.welcomeShown = await this.exists("welcome");
+    if (this.welcomeShown && dismissWelcome) {
+      this.opts.log("  (first run: the welcome was skipped)");
+      await this.click("welcome-skip");
+      await this.waitGone("welcome");
+    }
     return this;
   }
 

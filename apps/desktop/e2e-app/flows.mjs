@@ -1,10 +1,11 @@
 // The user flows. Each flow starts on Home in a running app, makes its own project, and checks real outcomes: the
 // project the native side holds (through the UI's own bridge), files in the bundle, files written by exports.
+// The first flow is the exception: it starts where a new person does, on the welcome.
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 
-import { Key } from "./lib/session.mjs";
+import { Key, sleep } from "./lib/session.mjs";
 import { WINDOWS, bundleItems, captureScreen, ffprobe, makeSpeech, revisionFiles } from "./lib/support.mjs";
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -82,6 +83,42 @@ async function litViewerPixels(app) {
     return lit;`);
 }
 
+/**
+ * After `act` (something that moves the playhead or changes the picture) the viewer presents a new frame and, where
+ * frames are streamed into the page, the canvas shows a real picture, not black.
+ */
+async function expectViewerFrame(ctx, act) {
+  const { app } = ctx;
+  const presented = async () => (await app.invoke("diagnostics")).viewer.presentedFrames;
+  const before = await presented();
+  await act();
+  await app.waitFor(async () => (await presented()) > before, "the viewer to present a frame", 30000);
+  // Asked now, not at launch: the native viewer attaches some seconds after the window appears.
+  const backend = (await app.invoke("app_info")).viewerBackend;
+  if (backend === "stream") {
+    await app.waitFor(async () => (await litViewerPixels(app)) > 20, "a rendered frame in the viewer canvas", 30000);
+  } else {
+    // WebDriver cannot see a native surface under the page (the release workflow checks it on the real screen,
+    // tools/preview-check.sh).
+    ctx.log(`    native viewer (${backend}): checked through the presented-frame count`);
+  }
+}
+
+/** Whether a step of the getting-started row is ticked. */
+async function stepDone(app, step) {
+  return (await (await app.find(`checklist-step-${step}`)).getAttribute("data-done")) === "true";
+}
+
+/** Every file named `name` under `dir`. */
+function filesNamed(dir, name) {
+  if (!fs.existsSync(dir)) return [];
+  return fs
+    .readdirSync(dir, { recursive: true })
+    .map(String)
+    .filter((f) => path.basename(f) === name)
+    .map((f) => path.join(dir, f));
+}
+
 /** Opens a project from Home's project grid by name. */
 async function openFromHome(app, name) {
   await goHome(app);
@@ -117,6 +154,140 @@ function shape(view) {
 // Flows
 
 export const FLOWS = [
+  {
+    name: "first run: the welcome's three screens, Try the sample, a picture in the viewer, Cut ticked by a split",
+    // The runner leaves the welcome up for this flow.
+    firstRun: true,
+    async run(ctx) {
+      let { app } = ctx;
+      const clean = await app.exists("welcome");
+      if (clean) {
+        assert.equal((await app.invoke("onboarding_state")).welcome, "pending", "no onboarding state yet");
+        ctx.log("    clean profile: the welcome is shown before Home");
+      } else {
+        // A profile that has run the app before (a developer's Windows machine): the same screens from Help.
+        ctx.log("    not a clean profile: the welcome is reopened from Help");
+        await goHome(app);
+        await app.click("help");
+        await app.click("help-welcome");
+      }
+
+      // Three screens, Skip on each, and nothing to type a key into.
+      const noFields = async () =>
+        assert.equal(
+          await app.count('[data-testid="welcome"] input, [data-testid="welcome"] textarea'),
+          0,
+          "no key is asked for",
+        );
+      for (const [n, screen] of ["what", "assistant", "privacy"].entries()) {
+        if (n > 0) await app.click("welcome-next");
+        await app.find(`welcome-screen-${screen}`);
+        await app.find("welcome-skip");
+        await noFields();
+        await sleep(250); // a painted frame for the capture
+        await app.saveArtefacts(ctx.out, `welcome-${n + 1}-${screen}`);
+      }
+      const privacy = (await app.text("welcome-privacy")).replace(/\s+/g, " ");
+      assert.match(privacy, /Media files stay on this computer/);
+      assert.match(privacy, /timeline, frames of your video, sound measurements and transcripts go to that assistant's provider/);
+      assert.match(privacy, /Nothing is sent when no assistant is chosen/);
+      assert.equal(await app.count("welcome-next"), 0, "the third screen is the last");
+
+      // Try the sample: the editor opens a project that already holds a cut, a title, captions and a transition.
+      await app.click("welcome-sample");
+      await app.find("editor");
+      await app.waitGone("welcome");
+      let view = await app.waitFor(async () => {
+        const p = await app.project();
+        return p && p.name.startsWith("Sample project") ? p : null;
+      }, "the sample project to open", 30000);
+      assert.equal(path.dirname(fs.realpathSync.native(view.bundle)), ctx.library, "the sample is a project in the library");
+      const clip = path.join(view.bundle, "media", "sample-clip.mp4");
+      assert.ok(fs.existsSync(clip) && fs.statSync(clip).size > 100000, "the project has its own copy of the clip");
+      const [first, second] = mainClips(view);
+      assert.equal(mainClips(view).length, 2, "a cut: two clips on Main");
+      assert.equal(first.mediaId, second.mediaId, "both from the sample clip");
+      assert.ok(second.trimStart > first.end - first.start, "part of the source is cut out");
+      assert.ok(second.transitionIn > 0, "a transition at the cut");
+      assert.equal(view.items.filter((i) => i.kind === "text").length, 1, "a title");
+      assert.ok(view.items.filter((i) => i.kind === "caption").length >= 2, "captions");
+      assert.equal(view.media[0].status, "online");
+      await app.waitFor(async () => (await app.count("clip")) === view.items.length, "the sample's clips on the timeline");
+      await app.waitFor(async () => (await app.project()).media[0].thumbnail, "a thumbnail of the sample clip", 30000);
+      // The viewer shows the sample's picture.
+      await expectViewerFrame(ctx, () => clickClip(app, first.id, 0.5));
+      assert.equal(await app.count("region-error"), 0);
+      await app.saveArtefacts(ctx.out, "sample-project");
+      if (clean) assert.equal((await app.invoke("onboarding_state")).welcome, "finished");
+
+      // The guided first edit: the row is there (reopened from Help when an earlier run closed it), and what the
+      // sample already holds ticked nothing.
+      if (!(await app.exists("checklist"))) {
+        await app.click("help");
+        await app.click("help-getting-started");
+      }
+      await app.find("checklist");
+      if (clean) {
+        for (const s of ["import", "cut", "title", "captions", "export"]) {
+          assert.equal(await stepDone(app, s), false, `${s} is not ticked yet`);
+        }
+      }
+      // Cut: split the second clip where it is clicked. Nothing else is pressed.
+      await clickClip(app, second.id, 0.5);
+      await app.click("split");
+      view = await app.waitFor(async () => {
+        const p = await app.project();
+        return mainClips(p).length === 3 ? p : null;
+      }, "the split");
+      await app.waitFor(() => stepDone(app, "cut"), "Cut to be ticked by the split");
+      assert.ok((await app.invoke("onboarding_state")).stepsDone.includes("cut"), "the tick is in the native state");
+      ctx.log(`    getting started: ${await app.text("checklist-count")} after the split`);
+
+      // Closed, then back from Help with the same tick.
+      await app.click("checklist-close");
+      await app.waitGone("checklist");
+      await app.click("help");
+      await app.click("help-getting-started");
+      await app.find("checklist");
+      assert.equal(await stepDone(app, "cut"), true, "Cut is still ticked after closing and reopening");
+      // Help also lists the shortcuts.
+      await app.click("help");
+      await app.click("help-shortcuts");
+      await app.find("shortcuts-overlay");
+      await app.keys(Key.ESCAPE);
+      await app.waitGone("shortcuts-overlay");
+      // Left closed: the other flows run as for a person who is past the first edit.
+      await app.click("checklist-close");
+      await app.waitGone("checklist");
+
+      // The state is the app's own file, and the next launch does not show the welcome again.
+      if (clean && !WINDOWS) {
+        // The runner's fresh home (Windows keeps the real profile folders).
+        const files = filesNamed(path.join(ctx.work, "home"), "onboarding.json");
+        assert.equal(files.length, 1, `onboarding.json in the app's configuration folder: ${files}`);
+        const saved = JSON.parse(fs.readFileSync(files[0], "utf8"));
+        assert.equal(saved.welcome, "finished");
+        assert.ok(saved.stepsDone.includes("cut") && saved.checklistClosed === true, JSON.stringify(saved));
+      }
+      await ctx.restart();
+      app = ctx.app;
+      assert.equal(app.welcomeShown, false, "the welcome does not return at the next launch");
+      assert.equal(await app.count("checklist"), 0, "the closed checklist stays closed");
+      assert.ok((await app.invoke("onboarding_state")).stepsDone.includes("cut"));
+      // A second copy from Home: the first keeps its split.
+      await app.click("nav-home");
+      await app.click("home-sample");
+      await app.find("editor");
+      const copy = await app.waitFor(async () => {
+        const p = await app.project();
+        return p && p.bundle !== view.bundle && p.name.startsWith("Sample project") ? p : null;
+      }, "a second copy of the sample", 30000);
+      assert.equal(mainClips(copy).length, 2, "the second copy is the sample as shipped");
+      const firstCopy = bundleItems(view.bundle).filter((i) => i.trackId === "t_main");
+      assert.equal(firstCopy.length, 3, "the first copy keeps its split");
+    },
+  },
+
   {
     name: "home: renders; What's new and Send feedback open and close; project search",
     async run(ctx) {
@@ -418,21 +589,8 @@ export const FLOWS = [
         return (p.items.find((i) => i.id === second.id)?.transitionIn ?? 0) > 0 ? p : null;
       }, "a dissolve between the clips");
       assert.equal((await detail(app, second.id)).transitionIn?.type, "dissolve");
-      // The viewer shows the composited timeline at the cut: the viewer presents a new frame (and, where frames are
-      // streamed into the page, the canvas shows a real picture, not black), and no error card.
-      const presented = async () => (await app.invoke("diagnostics")).viewer.presentedFrames;
-      const before = await presented();
-      await clickClip(app, first.id, 0.9);
-      await app.waitFor(async () => (await presented()) > before, "the viewer to present a frame", 30000);
-      // Asked now, not at launch: the native viewer attaches some seconds after the window appears.
-      const backend = (await app.invoke("app_info")).viewerBackend;
-      if (backend === "stream") {
-        await app.waitFor(async () => (await litViewerPixels(app)) > 20, "a rendered frame in the viewer canvas", 30000);
-      } else {
-        // WebDriver cannot see a native surface under the page (the release workflow checks it on the real screen,
-        // tools/preview-check.sh).
-        ctx.log(`    native viewer (${backend}): checked through the presented-frame count`);
-      }
+      // The viewer shows the composited timeline at the cut, and no error card.
+      await expectViewerFrame(ctx, () => clickClip(app, first.id, 0.9));
       // Windows: a capture of the real screen, kept with the artefacts.
       const shot = captureScreen(path.join(ctx.out, "viewer-screen.png"));
       if (shot) ctx.log(`    screen capture: ${shot}`);

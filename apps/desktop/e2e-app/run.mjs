@@ -21,6 +21,10 @@
 //   OVE_E2E_OUT            artefacts folder (default apps/desktop/e2e-app/artefacts): screenshots, page sources and
 //                          the app log of failed flows, plus the full app log, driver logs and summary.json
 //   OVE_WHISPER_MODEL_DIR  speech models (cache it in CI; default <tmp>/ove-e2e-models)
+// First run
+//   The first flow walks the welcome a new person sees. Linux gives the app a fresh home, so it is always a first
+//   run there; elsewhere the flow reopens the welcome from Help when the profile is not new. Every other launch
+//   skips the welcome if it shows (lib/session.mjs).
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -206,7 +210,7 @@ try {
       if (!ctx.app?.alive) {
         if (appRunning(APP_EXE)) killApp(APP_EXE);
         try {
-          ctx.app = await newSession().start();
+          ctx.app = await newSession().start({ dismissWelcome: !flow.firstRun });
           launchFailures = 0;
         } catch (e) {
           launchFailures += 1;
