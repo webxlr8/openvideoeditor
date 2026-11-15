@@ -9,6 +9,7 @@ members = [
     "crates/ove-generate",
     "crates/ove-interchange",
     "crates/ove-agent",
+    "crates/ove-agents",
     "crates/ove-media",
     "crates/ove-playback",
     "crates/ove-gpu",
@@ -29,6 +30,7 @@ default-members = [
     "crates/ove-projection",
     "crates/ove-cli",
     "crates/ove-agent",
+    "crates/ove-agents",
     "crates/ove-guard",
     "crates/ove-playback",
 ]

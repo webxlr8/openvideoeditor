@@ -203,7 +203,7 @@ fn secs(us: i64) -> f64 {
 }
 
 /// Runs `f` with the library (opened on first use), holding its lock.
-fn with_library<T>(p: &Projects, f: impl FnOnce(&Library) -> AppResult<T>) -> AppResult<T> {
+pub(crate) fn with_library<T>(p: &Projects, f: impl FnOnce(&Library) -> AppResult<T>) -> AppResult<T> {
     let mut g = lock(&p.library)?;
     let lib = match g.take() {
         Some(lib) => lib,

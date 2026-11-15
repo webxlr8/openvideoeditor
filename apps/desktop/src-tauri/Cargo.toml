@@ -28,6 +28,7 @@ memory-stats = "1.2.0"
 os_info = "3.15.0"
 ove-gpu = { version = "0.1.0", path = "../../../crates/ove-gpu" }
 ove-agent = { path = "../../../crates/ove-agent" }
+ove-agents = { path = "../../../crates/ove-agents" }
 ove-control = { path = "../../../crates/ove-control" }
 ove-core = { path = "../../../crates/ove-core" }
 ove-generate = { path = "../../../crates/ove-generate" }

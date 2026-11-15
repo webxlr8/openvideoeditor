@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import type { AppError, ProjectSummary_Serialize } from "./bindings";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { reportError } from "./notify";
-import { Settings } from "./Settings";
+import { type HelpActions, HelpMenu } from "./onboarding/HelpMenu";
+import { Settings, type SettingsSection } from "./Settings";
 import { FeedbackDialog, WhatsNew } from "./Support";
 import { MOD } from "./keys";
 import {
@@ -56,10 +57,16 @@ export function Home({
   onPrompt,
   onTemplate,
   onError,
+  onSample,
+  help,
 }: {
   projects: ProjectSummary_Serialize[];
   onOpenFile: () => void;
   onBlank: () => void;
+  /** Opens a new copy of the sample project. */
+  onSample?: () => void;
+  /** What the Help entry reopens (the welcome, the checklist, the sample). */
+  help?: HelpActions;
   onOpenProject: (bundle: string) => void;
   /** Starts a new project and hands the description to the assistant. */
   onPrompt?: (text: string) => void;
@@ -81,6 +88,16 @@ export function Home({
     "home" | "projects" | "settings" | "templates"
   >("home");
   const [dialog, setDialog] = useState<"changelog" | "feedback" | null>(null);
+  /** The Settings section to open on (Help → Keyboard shortcuts goes straight to Shortcuts), and how many times
+   * Settings was asked for: asking again shows that section even when Settings is already open on another. */
+  const [settings, setSettings] = useState<{ section: SettingsSection; asked: number }>({
+    section: "library",
+    asked: 0,
+  });
+  const openSettings = (section: SettingsSection) => {
+    setSettings((s) => ({ section, asked: s.asked + 1 }));
+    setPage("settings");
+  };
   const [query, setQuery] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
@@ -151,17 +168,21 @@ export function Home({
           ))}
         </nav>
         <div className="sidebar-footer">
+          <HelpMenu
+            variant="nav"
+            actions={help}
+            onShortcuts={() => openSettings("shortcuts")}
+          />
           {FOOTER.map((n) => (
             <button
               key={n.id}
               className={`nav-item${n.id === page ? " active" : ""}`}
               aria-current={n.id === page ? "page" : undefined}
               data-testid={`nav-${n.id}`}
-              onClick={() =>
-                n.id === "settings"
-                  ? setPage("settings")
-                  : setDialog(n.id === "changelog" ? "changelog" : "feedback")
-              }
+              onClick={() => {
+                if (n.id === "settings") openSettings("library");
+                else setDialog(n.id === "changelog" ? "changelog" : "feedback");
+              }}
             >
               <Icon name={n.icon} size={16} /> {n.label}
             </button>
@@ -207,7 +228,11 @@ export function Home({
       ) : page === "settings" ? (
         <main className="home-main settings-page">
           <ErrorBoundary region="Settings" className="settings">
-            <Settings onError={onError ?? reportError} />
+            <Settings
+              key={settings.asked}
+              initialSection={settings.section}
+              onError={onError ?? reportError}
+            />
           </ErrorBoundary>
         </main>
       ) : page === "projects" ? (
@@ -271,6 +296,16 @@ export function Home({
               />
               <div className="prompt-row">
                 <span className="grow" />
+                {onSample && (
+                  <button
+                    className="btn"
+                    title="Open a short sample project to try things on"
+                    onClick={onSample}
+                    data-testid="home-sample"
+                  >
+                    Try the sample
+                  </button>
+                )}
                 <button
                   className="btn"
                   onClick={onBlank}

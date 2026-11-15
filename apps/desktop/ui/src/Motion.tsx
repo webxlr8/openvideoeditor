@@ -6,6 +6,7 @@ import type { FontFamily, ItemView_Serialize, ProjectView_Serialize } from "./bi
 import { type EditResult, type Fields, addItems, firstTrack, snapToFrame, updateItems } from "./edit";
 import { Icon } from "./icons";
 import { fire } from "./notify";
+import { PanelHint } from "./onboarding/PanelHint";
 import {
   type AnimPhase,
   type CheckReport,
@@ -267,9 +268,20 @@ export function MotionPanel({ project, playhead, onEdit, onSelect }: MotionPanel
   const track = firstTrack(project, "video", "t_text");
   const start = snapToFrame(playhead);
   const code = project.items.filter((i) => i.kind === "code");
+  const first = templates[0];
   return (
     <>
-      <p className="muted panel-note">Animated graphics drawn from code. Add one at the playhead, then edit its props or code in the Code tab.</p>
+      {code.length === 0 && track && first ? (
+        <PanelHint
+          panel="motion"
+          action={`Add “${first.name}”`}
+          onAction={() => onEdit(addItems([templateItem(first, track, start)], `add ${first.name.toLowerCase()}`))}
+        >
+          Motion graphics are animated titles and shapes, drawn from code you can edit.
+        </PanelHint>
+      ) : (
+        <p className="muted panel-note">Animated graphics drawn from code. Add one at the playhead, then edit its props or code in the Code tab.</p>
+      )}
       <h5 className="panel-sub">Templates</h5>
       <div className="preset-grid motion-grid">
         {templates.map((t) => (

@@ -21,6 +21,7 @@ import { addItems, firstTrack, itemDetail, snapToFrame, updateItem } from "./edi
 import type { PanelProps } from "./Panels";
 import { Icon } from "./icons";
 import { fire, runCommand, unlisten } from "./notify";
+import { PanelHint } from "./onboarding/PanelHint";
 import "./CaptionsPanel.css";
 
 type Job = { stage: string; fraction: number; message: string } | null;
@@ -31,7 +32,7 @@ const fmt = (t: number) => {
   return `${m}:${s.toFixed(1).padStart(4, "0")}`;
 };
 
-export function CaptionsPanel({ project, playhead, selection, onEdit, onSelect, onError }: PanelProps) {
+export function CaptionsPanel({ project, playhead, selection, onEdit, onSelect, onError, onImport }: PanelProps) {
   const presets = useCaptionPresets();
   const [models, setModels] = useState<CaptionModel[]>([]);
   const [model, setModel] = useState("base");
@@ -102,6 +103,15 @@ export function CaptionsPanel({ project, playhead, selection, onEdit, onSelect, 
   const track = firstTrack(project, "caption", "t_captions");
   return (
     <div className="captions-panel">
+      {captions.length === 0 && !busy && (
+        <PanelHint
+          panel="captions"
+          action={hasClips ? "Make captions" : "Import media"}
+          onAction={hasClips ? () => fire(generate(), onError) : onImport}
+        >
+          Captions put the spoken words on screen, in time with the sound.
+        </PanelHint>
+      )}
       <section className="cap-auto" data-testid="caption-auto">
         <h5 className="panel-sub">Auto captions</h5>
         <p className="muted panel-note">Transcribed on this computer: your audio never leaves it.</p>

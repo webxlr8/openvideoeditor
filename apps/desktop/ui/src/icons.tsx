@@ -48,6 +48,8 @@ const paths = {
   magnet: "M6 4v8a6 6 0 0 0 12 0V4h-4v8a2 2 0 0 1-4 0V4zM6 8h4M14 8h4",
   copy: "M8 8h11v11H8zM5 16V5h11",
   camera: "M4 8h3l2-3h6l2 3h3v11H4zM12 16a3 3 0 1 0 0-6 3 3 0 0 0 0 6z",
+  help: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM9.6 9.4a2.5 2.5 0 1 1 3.6 2.3c-.7.4-1.2.9-1.2 1.8M12 16.8h.01",
+  check: "M5 12.5l4.5 4.5L19 7.5",
 } as const;
 
 export type IconName = keyof typeof paths;

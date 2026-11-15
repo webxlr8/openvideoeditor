@@ -38,6 +38,8 @@ import {
 import { MotionPanel } from "./Motion";
 import { GeneratePanel } from "./Generate";
 import { HistoryPanel } from "./HistoryPanel";
+import { type HelpActions, HelpMenu } from "./onboarding/HelpMenu";
+import { PanelHint } from "./onboarding/PanelHint";
 import { Shortcuts } from "./Shortcuts";
 import { type SelectMode, Timeline } from "./Timeline";
 
@@ -90,6 +92,7 @@ export function Editor({
   onError,
   onHome,
   onSeek,
+  help: helpActions,
   timelineMode = false,
   barExtras,
 }: {
@@ -105,6 +108,8 @@ export function Editor({
   onImportTimeline?: () => void;
   onError: (e: AppError) => void;
   onHome: () => void;
+  /** What the Help entry reopens (the welcome, the checklist, the sample). */
+  help?: HelpActions;
   /** Shows the composited timeline at a time in seconds (the assistant's `seek_viewer`). */
   onSeek?: (seconds: number) => void;
   project: ProjectView_Serialize | null;
@@ -265,6 +270,12 @@ export function Editor({
         onEdit,
         onSelect: (i) => onSelect(i),
         onError,
+        onImport,
+        // Selected from a panel's hint: the panel stays, as when a rail button is pressed with a clip selected.
+        onPick: (i) => {
+          setClosedFor(i.id);
+          onSelect(i);
+        },
       }
     : null;
   const projectBar = project && (
@@ -400,6 +411,7 @@ export function Editor({
           snap={snap}
           setSnap={setSnap}
           onHelp={() => setHelp(true)}
+          help={helpActions}
           onHistory={() => setHistoryOpen(true)}
         />
         {layout.timelineOpen ? (
@@ -609,13 +621,19 @@ function SidePanel({
                 </div>
               </button>
             ))}
-            {media.length === 0 && (
-              <p className="muted">
-                {query
-                  ? "No media matches."
-                  : "No media yet. Import files or drop them on the window."}
-              </p>
-            )}
+            {media.length === 0 &&
+              (query ? (
+                <p className="muted">No media matches.</p>
+              ) : (
+                <PanelHint
+                  panel="media"
+                  action="Import media"
+                  onAction={onImport}
+                >
+                  The video, sound and picture files of this project are kept
+                  here. You can also drop files on the window.
+                </PanelHint>
+              ))}
           </div>
         </>
       ) : panelProps ? (
@@ -707,6 +725,7 @@ function TransportBar({
   snap,
   setSnap,
   onHelp,
+  help,
   onHistory,
 }: {
   playback: PlaybackState;
@@ -722,7 +741,9 @@ function TransportBar({
   setZoom: (z: number | null) => void;
   snap: boolean;
   setSnap: (v: boolean) => void;
+  /** Shows the keyboard shortcuts. */
   onHelp: () => void;
+  help?: HelpActions;
   onHistory: () => void;
 }) {
   const pps = zoom ?? fitPps;
@@ -928,14 +949,7 @@ function TransportBar({
         >
           <Icon name="chat" size={16} />
         </button>
-        <button
-          className="icon-btn"
-          title="Keyboard shortcuts (?)"
-          data-testid="shortcuts"
-          onClick={onHelp}
-        >
-          <Icon name="keyboard" size={16} />
-        </button>
+        <HelpMenu variant="icon" actions={help} onShortcuts={onHelp} />
       </div>
     </div>
   );

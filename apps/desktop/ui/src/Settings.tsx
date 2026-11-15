@@ -11,6 +11,7 @@ import type {
   KeyCheck,
   UpdateInfo_Serialize as UpdateInfo,
 } from "./bindings";
+import { AgentsSection } from "./agents/AgentsSection";
 import { commands } from "./bridge";
 import { AssistantDataList } from "./ChatPanel";
 import { copyText } from "./clipboard";
@@ -37,6 +38,7 @@ const SECTIONS = [
   { id: "about", label: "About & updates" },
 ] as const;
 type Section = (typeof SECTIONS)[number]["id"];
+export type SettingsSection = Section;
 
 function Copyable({ text }: { text: string }) {
   const [done, setDone] = useState(false);
@@ -270,8 +272,15 @@ function ShortcutsSection() {
   );
 }
 
-export function Settings({ onError }: { onError: (e: AppError) => void }) {
-  const [section, setSection] = useState<Section>("library");
+export function Settings({
+  onError,
+  initialSection = "library",
+}: {
+  onError: (e: AppError) => void;
+  /** The section shown first (Help → Keyboard shortcuts opens on Shortcuts). */
+  initialSection?: Section;
+}) {
+  const [section, setSection] = useState<Section>(initialSection);
   const [info, setInfo] = useState<AppInfo_Serialize | null>(null);
   const [catalog, setCatalog] = useState<Catalog>({ models: [], keys: [] });
   const [agent, setAgent] = useState<AgentStatus_Serialize | null>(null);
@@ -483,7 +492,14 @@ export function Settings({ onError }: { onError: (e: AppError) => void }) {
               While a project is open here, their edits appear in the editor at
               once and can be undone.
             </p>
-            <h4>Give an agent the editing guide</h4>
+            <h4>Assistants on this computer</h4>
+            <p className="muted small">
+              Connect gives an installed assistant the editing guide and the
+              editing tools, through the assistant's own command. The app
+              never sees an assistant's sign-in.
+            </p>
+            <AgentsSection onError={onError} />
+            <h4>By hand: give an agent the editing guide</h4>
             <Copyable text="ove skills install" />
             <h4>Connect the MCP server</h4>
             <Copyable text="claude mcp add openvideoeditor -- ove mcp" />

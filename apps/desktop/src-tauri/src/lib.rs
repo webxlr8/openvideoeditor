@@ -1,6 +1,7 @@
 //! Desktop shell: window, single instance and open-file routing, typed bridge, logs and crash
 //! containment, the native viewer, and playback through ove-media / ove-playback (change 1).
 
+pub mod agents;
 pub mod assistant;
 pub mod captions;
 pub mod commands;
@@ -15,7 +16,9 @@ pub mod interchange;
 pub mod logging;
 pub mod media;
 pub mod motion;
+pub mod onboarding;
 pub mod projects;
+pub mod sample;
 pub mod scripted_dialogs;
 pub mod support;
 pub mod timeline;
@@ -101,6 +104,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
     tauri_specta::Builder::<tauri::Wry>::new()
         .commands(collect_commands![
             commands::app_info,
+            agents::detect_agents,
+            agents::connect_agent,
             commands::take_pending_open_paths,
             commands::open_media,
             commands::open_media_dialog,
@@ -201,6 +206,10 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             fx::import_lut,
             fx::match_color,
             fx::color_scopes,
+            // Onboarding: the welcome and checklist state, and the sample project.
+            onboarding::onboarding_state,
+            onboarding::onboarding_update,
+            sample::create_sample_project,
         ])
         .events(collect_events![
             PlaybackChanged,
@@ -557,6 +566,7 @@ pub fn run() -> ExitCode {
             // The command line / MCP server reach the app through the control link.
             control::start(&handle);
             app.manage(generation::Generation::default());
+            app.manage(onboarding::Onboarding::new(app.path().app_config_dir().ok()));
 
             create_main_window(app)?;
             if let Some(window) = app.get_webview_window("main") {

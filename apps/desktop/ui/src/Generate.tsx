@@ -7,6 +7,7 @@ import { commands, events } from "./bridge";
 import type { AppError, KeyCheck } from "./bindings";
 import { Icon } from "./icons";
 import { fire, reportError, runCommand, unlisten } from "./notify";
+import { PanelHint } from "./onboarding/PanelHint";
 import type { PanelProps } from "./Panels";
 
 export type GenKind = "image" | "video" | "voice" | "music" | "sfx";
@@ -384,6 +385,15 @@ export function GeneratePanel({ project, playhead, onError }: PanelProps) {
           </button>
         ))}
       </div>
+      {jobs.length === 0 && !prompt && (
+        <PanelHint
+          panel="generate"
+          action="Try an example"
+          onAction={() => setPrompt(PLACEHOLDER[kind])}
+        >
+          Generate makes pictures, video, voice and music from a description, with your own provider keys.
+        </PanelHint>
+      )}
       <p className="muted small">{KINDS.find((k) => k.id === kind)?.hint}</p>
       {key && !key.hasKey && (
         <KeyEntry status={key} onSaved={setCatalog} onError={fail} />

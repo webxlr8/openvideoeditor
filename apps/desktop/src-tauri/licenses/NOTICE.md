@@ -37,6 +37,13 @@ The interface uses React, React DOM and their scheduler (MIT, © Meta Platforms,
 JavaScript API (MIT or Apache-2.0, © Tauri Programme within The Commons Conservancy). Their licence files are in
 `generated/js/`.
 
+## Assistant logos
+
+The logos of Claude, Codex, OpenCode, Hermes, Kimi and Grok are shown to identify the assistants the app can work
+with. They are trademarks of their owners (Anthropic, OpenAI, Anomaly, Nous Research, Moonshot AI, xAI); showing
+them does not mean those companies endorse or are affiliated with this app. The drawings come from LobeHub's icon
+set (MIT, © 2023 LobeHub; licence: `lobehub-icons-MIT.txt`).
+
 ## Speech recognition
 
 Captions use whisper.cpp and ggml (MIT, © The ggml authors), compiled into the app (licence:

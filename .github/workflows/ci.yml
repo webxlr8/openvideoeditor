@@ -156,6 +156,8 @@ jobs:
       # Tests make fixtures with a full ffmpeg CLI (lavfi, libx264): the one test media was generated with, named
       # explicitly because env.sh puts the LGPL build's folder (whose test CLI has neither) first on PATH on Windows.
       - name: fixture ffmpeg
+        # Also after a failed step: the tests below run then too, and need it.
+        if: ${{ !cancelled() }}
         run: |
           fixture="$(command -v ffmpeg)"
           if command -v cygpath >/dev/null; then fixture="$(cygpath -w "$fixture")"; fi
