@@ -1,16 +1,19 @@
-//! Speech models: whisper.cpp ggml files downloaded on first use into the app's data directory, verified by sha256.
-//! Models are never shipped in the installer.
+//! Speech models: whisper.cpp ggml files, installed through the shared model store (`ove-models`) on first use and
+//! verified by size and SHA-256. Models are never shipped in the installer.
+//!
+//! Files saved by earlier versions directly in `<data dir>/models` are adopted in place the first time they are
+//! needed: hashed once and recorded in the store, so nothing downloads again.
 
-use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 
+use ove_models::manifest::{WHISPER, WhisperPin};
+use ove_models::{ModelError, Store, UrlOverride};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
 use crate::error::{Result, TranscribeError};
 
-/// Available models (multilingual). Sizes and hashes are those published in the whisper.cpp model repository.
+/// Available models (multilingual).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Model {
@@ -34,28 +37,30 @@ impl Model {
         Model::ALL.into_iter().find(|m| m.id() == s)
     }
 
-    pub fn file_name(self) -> &'static str {
+    /// The pinned file in the model store's catalog.
+    fn pin(self) -> &'static WhisperPin {
         match self {
-            Model::Tiny => "ggml-tiny.bin",
-            Model::Base => "ggml-base.bin",
-            Model::Small => "ggml-small.bin",
+            Model::Tiny => &WHISPER[0],
+            Model::Base => &WHISPER[1],
+            Model::Small => &WHISPER[2],
         }
+    }
+
+    /// The model store id (`whisper-base`, …).
+    pub fn store_id(self) -> &'static str {
+        self.pin().id
+    }
+
+    pub fn file_name(self) -> &'static str {
+        self.pin().file
     }
 
     pub fn size_bytes(self) -> u64 {
-        match self {
-            Model::Tiny => 77_691_713,
-            Model::Base => 147_951_465,
-            Model::Small => 487_601_967,
-        }
+        self.pin().bytes
     }
 
     pub fn sha256(self) -> &'static str {
-        match self {
-            Model::Tiny => "be07e048e1e599ad46341c8d2a135645097a538221678b7acdd1b1919c6e1b21",
-            Model::Base => "60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe",
-            Model::Small => "1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b",
-        }
+        self.pin().sha256
     }
 
     /// Short description for the UI.
@@ -67,76 +72,90 @@ impl Model {
         }
     }
 
+    /// Where the file is fetched from: the pinned commit, `OVE_WHISPER_MODEL_URL/<file>`, or the store mirror.
     pub fn url(self) -> String {
-        let base = std::env::var("OVE_WHISPER_MODEL_URL")
-            .unwrap_or_else(|_| "https://huggingface.co/ggerganov/whisper.cpp/resolve/main".into());
-        format!("{}/{}", base.trim_end_matches('/'), self.file_name())
+        let m = self.pin().manifest();
+        store_for(Path::new(".")).url_for(&m, &m.files[0])
     }
 }
 
-/// Where models live: `OVE_WHISPER_MODEL_DIR`, else `<data dir>/models`.
+/// Where models live: `OVE_WHISPER_MODEL_DIR`, else `<data dir>/models` (the model store's root).
 pub fn model_dir(data_dir: &Path) -> PathBuf {
     std::env::var_os("OVE_WHISPER_MODEL_DIR").map(PathBuf::from).unwrap_or_else(|| data_dir.join("models"))
 }
 
+/// The model store at `dir`. `OVE_WHISPER_MODEL_URL` (a folder of ggml files) still overrides the download location.
+pub fn store_for(dir: &Path) -> Store {
+    let flat = std::env::var("OVE_WHISPER_MODEL_URL").ok().filter(|s| !s.is_empty()).map(UrlOverride::Flat);
+    let store = Store::open(dir);
+    if flat.is_some() { store.with_url_override(flat) } else { store }
+}
+
+/// The model's file: where the store has it, else where it would be found from an earlier version.
 pub fn model_path(dir: &Path, m: Model) -> PathBuf {
+    store_for(dir).file_path(m.store_id(), m.file_name()).unwrap_or_else(|| legacy_path(dir, m))
+}
+
+/// Where earlier versions saved the file.
+fn legacy_path(dir: &Path, m: Model) -> PathBuf {
     dir.join(m.file_name())
 }
 
-/// True when the model file is present with the expected size (the hash was checked when it was downloaded).
-pub fn is_installed(dir: &Path, m: Model) -> bool {
-    std::fs::metadata(model_path(dir, m)).is_ok_and(|md| md.len() == m.size_bytes())
+fn legacy_present(dir: &Path, m: Model) -> bool {
+    std::fs::metadata(legacy_path(dir, m)).is_ok_and(|md| md.len() == m.size_bytes())
 }
 
-/// Downloads a model if it is missing. `progress(done, total)` is called as bytes arrive; `cancel` stops the
-/// download (the partial file is removed). The file is verified by sha256 before it is moved into place.
+/// True when the model is installed in the store, or present from an earlier version with the expected size (its
+/// hash is checked when it is first used).
+pub fn is_installed(dir: &Path, m: Model) -> bool {
+    store_for(dir).is_installed(m.store_id()) || legacy_present(dir, m)
+}
+
+/// Installs a model if it is missing. `progress(done, total)` is called as bytes arrive; `cancel` stops the
+/// download (the partial file is removed). Files are verified by SHA-256 before they become visible.
 pub fn ensure_model(dir: &Path, m: Model, progress: &mut dyn FnMut(u64, u64), cancel: &AtomicBool) -> Result<PathBuf> {
-    let path = model_path(dir, m);
-    if is_installed(dir, m) {
-        progress(m.size_bytes(), m.size_bytes());
-        return Ok(path);
+    let store = store_for(dir);
+    if !store.is_installed(m.store_id()) && legacy_present(dir, m) {
+        store.adopt_in_place(m.store_id(), dir).map_err(|e| from_store(m, e))?;
     }
-    std::fs::create_dir_all(dir).map_err(|e| TranscribeError::Io(format!("create {}: {e}", dir.display())))?;
-    let part = dir.join(format!("{}.part", m.file_name()));
-    let result = (|| {
-        let resp =
-            ove_guard::http::agent().get(&m.url()).timeout(std::time::Duration::from_secs(600)).call().map_err(
-                |e| TranscribeError::Download(format!("could not download the {} speech model: {e}", m.id())),
-            )?;
-        let total = resp.header("content-length").and_then(|v| v.parse().ok()).unwrap_or(m.size_bytes());
-        let mut reader = resp.into_reader();
-        let mut file =
-            std::fs::File::create(&part).map_err(|e| TranscribeError::Io(format!("write {}: {e}", part.display())))?;
-        let mut hasher = Sha256::new();
-        let mut buf = vec![0u8; 1 << 16];
-        let mut done = 0u64;
-        loop {
-            if cancel.load(Ordering::Relaxed) {
-                return Err(TranscribeError::Cancelled);
-            }
-            let n =
-                reader.read(&mut buf).map_err(|e| TranscribeError::Download(format!("download interrupted: {e}")))?;
-            if n == 0 {
-                break;
-            }
-            hasher.update(&buf[..n]);
-            file.write_all(&buf[..n]).map_err(|e| TranscribeError::Io(format!("write model: {e}")))?;
-            done += n as u64;
-            progress(done, total);
+    let out = store.install(m.store_id(), &mut |p| progress(p.done, p.total), cancel).map_err(|e| from_store(m, e))?;
+    out.paths.into_iter().next().ok_or_else(|| TranscribeError::Io("the speech model has no file".into()))
+}
+
+fn from_store(m: Model, e: ModelError) -> TranscribeError {
+    match e {
+        ModelError::Cancelled => TranscribeError::Cancelled,
+        ModelError::Io(s) => TranscribeError::Io(s),
+        ModelError::Corrupt { .. } => TranscribeError::Download(format!(
+            "the downloaded {} model is damaged (checksum mismatch); try again",
+            m.id()
+        )),
+        ModelError::Download(s) => {
+            TranscribeError::Download(format!("could not download the {} speech model: {s}", m.id()))
         }
-        file.sync_all().map_err(|e| TranscribeError::Io(format!("write model: {e}")))?;
-        let got = format!("{:x}", hasher.finalize());
-        if got != m.sha256() {
-            return Err(TranscribeError::Download(format!(
-                "the downloaded {} model is damaged (checksum mismatch); try again",
-                m.id()
-            )));
-        }
-        std::fs::rename(&part, &path).map_err(|e| TranscribeError::Io(format!("install model: {e}")))?;
-        Ok(path.clone())
-    })();
-    if result.is_err() {
-        let _ = std::fs::remove_file(&part);
+        other => TranscribeError::Download(other.to_string()),
     }
-    result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pins_match_the_store_catalog() {
+        for m in Model::ALL {
+            let man = ove_models::manifest::find(m.store_id()).unwrap();
+            assert_eq!(man.files.len(), 1);
+            assert_eq!(man.files[0].name, m.file_name());
+            assert_eq!(man.files[0].bytes, m.size_bytes());
+            assert_eq!(man.files[0].sha256, m.sha256());
+        }
+    }
+
+    #[test]
+    fn missing_model_is_not_installed_and_paths_fall_back_to_the_old_place() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(!is_installed(dir.path(), Model::Tiny));
+        assert_eq!(model_path(dir.path(), Model::Tiny), dir.path().join("ggml-tiny.bin"));
+    }
 }

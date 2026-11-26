@@ -19,6 +19,7 @@ members = [
     "crates/ove-analyze",
     "crates/ove-graphics",
     "crates/ove-guard",
+    "crates/ove-models",
     "apps/desktop/src-tauri",
 ]
 default-members = [
@@ -32,6 +33,7 @@ default-members = [
     "crates/ove-agent",
     "crates/ove-agents",
     "crates/ove-guard",
+    "crates/ove-models",
     "crates/ove-playback",
 ]
 

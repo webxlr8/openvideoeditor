@@ -13,13 +13,18 @@
 
 ## 2. Manifests, downloader and store
 
-- [ ] 2.1 Create crate `ove-models` with the manifest type and compiled-in manifests; verify unit tests reject a
+- [x] 2.1 Create crate `ove-models` with the manifest type and compiled-in manifests; verify unit tests reject a
       manifest with a moving-branch URL or a missing hash.
-- [ ] 2.2 Implement the downloader (Range resume, streaming hash, partial file, rename, space check, cancel); verify
+      Done: `crates/ove-models/src/manifest.rs` tests; the whisper URLs now name commit 5359861c.
+- [x] 2.2 Implement the downloader (Range resume, streaming hash, partial file, rename, space check, cancel); verify
       tests against a local HTTP server: good, corrupt, interrupted-then-resumed, no-space and cancel cases.
-- [ ] 2.3 Implement the store layout and `installed.json`, and adopt existing whisper files in place; verify an upgrade
+      Done: `crates/ove-models/tests/store.rs` (12 tests, cancel measured under 1 s).
+- [x] 2.3 Implement the store layout and `installed.json`, and adopt existing whisper files in place; verify an upgrade
       test with whisper files present does not download and captions still run.
-- [ ] 2.4 Move `ove-transcribe` model handling onto `ove-models`; verify the existing transcribe tests pass unchanged.
+      Done: `crates/ove-transcribe/tests/upgrade.rs` (run with `--ignored` and the tiny model; passed on Windows).
+- [x] 2.4 Move `ove-transcribe` model handling onto `ove-models`; verify the existing transcribe tests pass unchanged.
+      Done: unit tests pass; `tests/speech.rs` is unchanged (it is ignored without espeak-ng); `tests/windows.rs`
+      needs the Unix-only media fixture script, so it was not run on this Windows machine.
 - [ ] 2.5 Document the store and manifests in `docs/cli/models.md`; verify the docs' examples run in the CLI tests.
 
 ## 3. Inference adapter and worker

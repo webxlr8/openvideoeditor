@@ -4233,6 +4233,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "ove-models"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "ove-guard",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror 2.0.21",
+ "ureq",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "ove-playback"
 version = "0.1.0"
 dependencies = [
@@ -4300,14 +4315,13 @@ dependencies = [
 name = "ove-transcribe"
 version = "0.1.0"
 dependencies = [
- "ove-guard",
  "ove-media",
+ "ove-models",
  "serde",
  "serde_json",
  "sha2",
  "tempfile",
  "thiserror 2.0.21",
- "ureq",
  "whisper-rs",
 ]
 
