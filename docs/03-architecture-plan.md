@@ -120,6 +120,38 @@ so they build on what earlier changes actually delivered.
 Changes 1 and 2 can run in parallel. Change 16 starts early in parallel (signing and update plumbing are needed for
 beta testers) and finishes last.
 
+### 4.1 Beyond v1: agent-native editing depth (changes 17+)
+
+A competitive review (2026-11) produced 22 more changes. All are specified and pass `openspec validate --strict`; each
+`design.md` lists the owner decisions it assumes under Open Questions. Waves run in order; changes in a wave can run in
+parallel unless they share a hot file (`ove-core/src/schema.rs`, `ove-projection/src/merge.rs`,
+`ove-cli/src/mcp.rs`, `ui/src/Timeline.tsx`, `ove-render/src/eval.rs`), which are taken in the order listed.
+
+| Wave | Change | Depends on | Gate / exit |
+|---|---|---|---|
+| 0 | fix-render-and-edit-correctness | — | 16 blend modes render; split/trim keep frames, keyframes, captions; LGPL encoder set; paid jobs resume |
+| 1 | unify-agent-tool-layer | 0 | One tool registry for in-app, MCP and pinned agents; actor-scoped undo; spend confirmation |
+| 1 | add-background-tasks-and-media-derivatives | — | Scheduler with budgets and pause; content ids; skim sheets; proxies |
+| 1 | add-edit-planners-and-links | 0 | `ove-edit` planners as one revision each; links; time-map rebase in merge |
+| 1 | add-model-runtime | — | Shared downloader; runtime chosen by measurement; installer size unchanged |
+| 2 | add-transcript-editing | edit planners, model runtime | Remove words / dead air as one revision with dry-run diff |
+| 2 | add-audio-mixing-and-monitoring | — | Volume keyframes, waveforms, meters, scrub, real ducking, loudness presets |
+| 2 | add-agent-skills-and-connectors | tool layer | Skill store and catalog; Claude Desktop and Cursor connectors |
+| 2 | extend-export-formats-and-queue | — | HEVC/ProRes/DNxHR/VP9; restart-safe queue; save range as media |
+| 2 | add-gpu-compositor-and-scopes | 0 | GPU parity with CPU oracle; chroma key; scopes; `inspect_color` |
+| 3 | add-audio-intelligence | model runtime, scheduler | Sync < 1 ms with drift; beats; denoise |
+| 3 | add-semantic-media-search | model runtime, scheduler | Recall@k on labelled set; search hits paste into `timeline.tsx` |
+| 3 | add-markers-keyframe-lanes-and-versions | edit planners | Markers with review status; keyframe lanes; named versions |
+| 3 | add-agent-chat-context-and-activity | tool layer | Mentions as TSX excerpts; live agent activity on the timeline |
+| 3 | extend-ai-generation-actions | export queue, tool layer | Signed catalog; per-clip AI actions as takes; AI transitions |
+| 3 | add-viewer-interaction-and-text-fills | GPU compositor | Handles with shared geometry; text fills and tilt; Lottie |
+| 3 | add-preferences-i18n-and-keymaps | — | Live language switch; 7 locales; keymap presets |
+| 4 | add-timelines-nesting-and-multicam | edit planners, markers, audio intelligence | Per-timeline files; nests keep ids; multicam angle switch |
+| 4 | add-speakers-and-caption-tools | transcript editing | Local diarization; caption controls; SRT/VTT |
+| 4 | add-color-management-and-subject-mattes | GPU compositor | Working/output spaces; HDR export; subject mattes |
+| 4 | improve-interchange-and-packaging | export queue | Resolve/FCP FCPXML targets; package export |
+| 4 | add-workspace-modes-and-background-access | preferences | Layouts; tray mode with headless open; onboarding v2 |
+
 ## 5. Engineering standards (apply to every change)
 
 - CI on macOS (Apple silicon) and Windows 11 x64 runners for every PR: fmt, clippy `-D warnings`, tests, cargo-deny

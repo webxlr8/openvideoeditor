@@ -1,0 +1,47 @@
+# Tasks: add-model-runtime
+
+## 1. Runtime spike
+
+- [ ] 1.1 Export Silero VAD and Beat This (small) to ONNX with our own scripts and record their weight licences; verify
+      each export matches the reference implementation (max absolute logit difference < 1e-3 on 3 fixtures).
+- [ ] 1.2 Run both models under the dynamically loaded ONNX runtime and the pure-Rust runtime on macOS and Windows;
+      verify and record in design.md Results: loads yes/no, parity, real-time factor, peak RSS, added binary size.
+- [ ] 1.3 Record the decision (D4) with the numbers; verify the owner signs off in the change notes.
+
+## 2. Manifests, downloader and store
+
+- [ ] 2.1 Create crate `ove-models` with the manifest type and compiled-in manifests; verify unit tests reject a
+      manifest with a moving-branch URL or a missing hash.
+- [ ] 2.2 Implement the downloader (Range resume, streaming hash, partial file, rename, space check, cancel); verify
+      tests against a local HTTP server: good, corrupt, interrupted-then-resumed, no-space and cancel cases.
+- [ ] 2.3 Implement the store layout and `installed.json`, and adopt existing whisper files in place; verify an upgrade
+      test with whisper files present does not download and captions still run.
+- [ ] 2.4 Move `ove-transcribe` model handling onto `ove-models`; verify the existing transcribe tests pass unchanged.
+- [ ] 2.5 Document the store and manifests in `docs/cli/models.md`; verify the docs' examples run in the CLI tests.
+
+## 3. Inference adapter and worker
+
+- [ ] 3.1 Implement the inference trait for the chosen runtime (and the second runtime if D4 keeps both); verify the
+      two spike models run through it with recorded parity.
+- [ ] 3.2 Implement `ove model-worker` with the stdio protocol, lazy load, 120 s idle exit and restart on crash; verify
+      tests: idle exit, killed worker fails the job and the next job succeeds, 256×256×3 tensor round trip ≤ 2 ms.
+- [ ] 3.3 Implement on-demand download of the native runtime library (if chosen) through the consent gate; verify a
+      clean-profile test reports "runtime not installed" and installs after consent.
+
+## 4. Consent and surfaces
+
+- [ ] 4.1 Implement the consent gate (`NeedsConsent` over 50 MB, origin-aware); verify an MCP call for a large model
+      returns the result and downloads nothing, and a small model downloads with progress.
+- [ ] 4.2 Add `ove models list|install|remove` with `--json` and `--yes`; verify CLI tests for success and refusal paths
+      and exit codes.
+- [ ] 4.3 Add MCP `list_models_local`; verify an MCP contract test.
+- [ ] 4.4 Add Settings → Storage "Models" (list, sizes, Remove, wait-while-in-use); verify a UI test removes a model
+      and the feature then reports it missing.
+
+## 5. Integration checks
+
+- [ ] 5.1 Clean-profile run in the built app on macOS and Windows: install a small and a large model with consent, run
+      inference, remove both; verify the flows work and record download and load times in Results.
+- [ ] 5.2 Memory: with a large model loaded and then idle for 2 minutes, measure editor and worker RSS on both
+      machines; verify the editor grows ≤ 50 MB during use and the worker has exited after idle.
+- [ ] 5.3 Installer size: verify the installer is unchanged within 1 MB of the previous release on both platforms.
