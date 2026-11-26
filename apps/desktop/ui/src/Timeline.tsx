@@ -3,12 +3,12 @@
 // Snapping to the playhead and clip edges is on by default. Every gesture commits one revision on release.
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { ItemView_Serialize, ProjectView_Serialize } from "./bindings";
+import type { Ghost, ItemView_Serialize, ProjectView_Serialize } from "./bindings";
 import { commands } from "./bridge";
-import { type EditResult, addItems, firstTrack, trackAccepts, updateItem, updateItems, snapToFrame } from "./edit";
+import { type EditResult, TIMELINE_FPS, addItems, firstTrack, linkDrift, trackAccepts, updateItem, updateItems, snapToFrame } from "./edit";
 import { Icon, type IconName } from "./icons";
 import { ContextMenu, type MenuItem } from "./Menu";
-import { MOD } from "./keys";
+import { MOD, type Tool } from "./keys";
 
 export const HEADER_W = 188;
 const ROW_H = 41;
@@ -33,6 +33,10 @@ export interface TimelineProps {
   onFitWidth?: (pxPerSecond: number) => void;
   /** Items to mark (what an assistant turn changed, while the chat's "Show" is on). */
   highlight?: string[];
+  /** The tool mode (select when absent). */
+  tool?: Tool;
+  /** Marked in and out points, seconds. */
+  range?: { in: number | null; out: number | null };
 }
 
 type Drag =
@@ -51,10 +55,15 @@ function fmtTick(s: number) {
 
 export function Timeline(props: TimelineProps) {
   const { project, selection, playhead, zoom, snap, onSelect, onScrub, onEdit, onCopy, onPaste, canPaste, onFitWidth, highlight } = props;
+  const tool = props.tool ?? "select";
+  const range = props.range ?? { in: null, out: null };
   const scroller = useRef<HTMLDivElement>(null);
   const rows = useRef<HTMLDivElement>(null);
   const [viewW, setViewW] = useState(1000);
   const [drag, setDrag] = useState<Drag | null>(null);
+  // Where the planner would put the items a drag also moves (link partners), shown as ghosts while the drag is held.
+  const [ghosts, setGhosts] = useState<Ghost[]>([]);
+  const previewSeq = useRef(0);
   const [menu, setMenu] = useState<{ at: { x: number; y: number }; items: MenuItem[] } | null>(null);
   const items = project?.items ?? [];
   const tracks = project?.tracks ?? [];
@@ -68,6 +77,9 @@ export function Timeline(props: TimelineProps) {
   }, []);
 
   const total = Math.max(10, (project?.durationSeconds ?? 0) * 1.15, playhead + 1);
+  const drift = linkDrift(items, project?.fps ?? TIMELINE_FPS);
+  const linkCount = new Map<string, number>();
+  for (const i of items) if (i.link) linkCount.set(i.link, (linkCount.get(i.link) ?? 0) + 1);
   const fitPps = Math.max(1, viewW - HEADER_W) / total;
   const pps = zoom ?? fitPps;
   const contentW = Math.max(viewW, HEADER_W + total * pps);
@@ -129,6 +141,16 @@ export function Timeline(props: TimelineProps) {
   const startMove = (e: React.PointerEvent, item: ItemView_Serialize) => {
     if (e.button !== 0) return;
     e.stopPropagation();
+    if (tool === "blade") {
+      // The blade cuts where it is clicked (and the clip's link partners with it).
+      const t = snapToFrame(timeAt(e.clientX));
+      if (t > (item.start ?? 0) && t < (item.end ?? 0)) onEdit(commands.splitItem(item.id, t));
+      return;
+    }
+    if (tool === "trim") {
+      startSlip(e, item);
+      return;
+    }
     const additive = e.shiftKey || e.metaKey || e.ctrlKey;
     if (additive) {
       onSelect(item, undefined, "toggle");
@@ -146,12 +168,26 @@ export function Timeline(props: TimelineProps) {
       if (Math.abs(dx) > 3 || Math.abs(dy) > 6) {
         last = { kind: "move", id: item.id, dx, dy, ids: group };
         setDrag(last);
+        if (group.length === 1 && item.link) {
+          // Ask the planner what the move does to the link group; the latest answer wins.
+          const seq = ++previewSeq.current;
+          const start = snapToFrame((item.start ?? 0) + dx / pps);
+          const request = { op: "move", item: item.id, start, linked: !ev.altKey, crossfade: true };
+          commands.editPreview(JSON.stringify(request)).then(
+            (r) => {
+              if (seq === previewSeq.current && r.status === "ok") setGhosts(r.data.ghosts.filter((g) => g.id !== item.id));
+            },
+            () => undefined, // A failed preview only means no ghost.
+          );
+        }
       }
     };
     const up = (ev: PointerEvent) => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
       setDrag(null);
+      previewSeq.current++;
+      setGhosts([]);
       if (!last) return;
       const raw = (item.start ?? 0) + (ev.clientX - x0) / pps;
       // Snap the start, or the end if that is closer to a snap point.
@@ -172,8 +208,30 @@ export function Timeline(props: TimelineProps) {
           });
         onEdit(updateItems(edits, `move ${edits.length} items`));
       } else if (Math.abs(delta) > 1e-6 || changeTrack) {
-        onEdit(commands.moveItem(item.id, start, changeTrack));
+        // Alt moves this item alone, out of its link group's sync.
+        onEdit(commands.moveItem(item.id, start, changeTrack, ev.altKey ? false : null));
       }
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
+  /** Trim tool: dragging a clip slips its source (content follows the pointer); Alt-drag slides it between its
+   * neighbours. */
+  const startSlip = (e: React.PointerEvent, item: ItemView_Serialize) => {
+    onSelect(item);
+    const x0 = e.clientX;
+    let moved = false;
+    const move = (ev: PointerEvent) => {
+      if (Math.abs(ev.clientX - x0) > 3) moved = true;
+    };
+    const up = (ev: PointerEvent) => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      if (!moved) return;
+      const dt = (ev.clientX - x0) / pps;
+      const request = ev.altKey ? { op: "slide", item: item.id, delta: dt } : { op: "slip", item: item.id, delta: -dt };
+      onEdit(commands.editPlan(JSON.stringify(request)));
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
@@ -196,7 +254,18 @@ export function Timeline(props: TimelineProps) {
       if (!moved) return;
       const base = edge === "start" ? (item.start ?? 0) : (item.end ?? 0);
       const t = snapTime(base + (ev.clientX - x0) / pps, [item.id]);
-      onEdit(commands.trimItem(item.id, edge, snapToFrame(t)));
+      // Trim tool: an edit point between two touching clips rolls (both edges move together).
+      const neighbour =
+        tool === "trim"
+          ? items.find((o) => o.trackId === item.trackId && o.id !== item.id && Math.abs((edge === "start" ? (o.end ?? 0) : (o.start ?? 0)) - base) < 1e-6)
+          : undefined;
+      if (neighbour) {
+        const [left, right] = edge === "start" ? [neighbour.id, item.id] : [item.id, neighbour.id];
+        onEdit(commands.editPlan(JSON.stringify({ op: "roll", left, right, to: snapToFrame(t), linked: !ev.altKey })));
+        return;
+      }
+      // Alt trims this side only (a J or L cut).
+      onEdit(commands.trimItem(item.id, edge, snapToFrame(t), ev.altKey ? false : null));
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
@@ -266,10 +335,21 @@ export function Timeline(props: TimelineProps) {
   };
 
   return (
-    <div className="timeline" data-testid="timeline">
+    <div className={`timeline tool-${tool}`} data-testid="timeline" data-tool={tool}>
       <div className="tl-scroll" ref={scroller}>
         <div className="tl-content" style={{ width: contentW }}>
           <div className="ruler" onPointerDown={(e) => seekAt(e.clientX)} data-testid="ruler">
+            {range.in !== null && <span className="range-in" data-testid="range-in" style={{ left: HEADER_W + x(range.in) }} />}
+            {range.out !== null && <span className="range-out" data-testid="range-out" style={{ left: HEADER_W + x(range.out) }} />}
+            {range.in !== null && range.out !== null && range.out > range.in && (
+              <span
+                className="range-mark"
+                data-testid="range"
+                data-in={range.in}
+                data-out={range.out}
+                style={{ left: HEADER_W + x(range.in), width: x(range.out - range.in) }}
+              />
+            )}
             <div className="ruler-head small">{fmtTime(playhead)}</div>
             <div className="ruler-ticks">
               {ticks.map((s) => (
@@ -311,6 +391,17 @@ export function Timeline(props: TimelineProps) {
                   onPointerDown={(e) => (e.target === e.currentTarget && e.button === 0 ? seekAt(e.clientX) : undefined)}
                   onContextMenu={(e) => laneMenu(e, t.id, t.kind)}
                 >
+                  {ghosts
+                    .filter((g) => g.trackId === t.id)
+                    .map((g) => (
+                      <div
+                        key={`ghost-${g.id}`}
+                        className="clip-ghost"
+                        data-testid="ghost"
+                        data-id={g.id}
+                        style={{ left: x(g.start ?? 0), width: Math.max(4, x((g.end ?? 0) - (g.start ?? 0))) }}
+                      />
+                    ))}
                   {items
                     .filter((i) => i.trackId === t.id)
                     .map((i) => {
@@ -336,6 +427,17 @@ export function Timeline(props: TimelineProps) {
                             {i.muted && <Icon name="mute" size={11} />} {i.kind === "text" || i.kind === "caption" ? (i.text ?? i.name) : i.name}
                             {(i.speed ?? 1) !== 1 && <em className="speed-tag"> {i.speed}×</em>}
                           </span>
+                          {i.link && (linkCount.get(i.link) ?? 0) > 1 && (
+                            <span className="link-badge" data-testid="link-badge" title="Linked: moves, trims and deletes with its partner (Alt edits this side only)">
+                              <Icon name="link" size={11} />
+                            </span>
+                          )}
+                          {drift.has(i.id) && (
+                            <span className="drift-chip" data-testid="drift-chip" title="Out of sync with the items it is linked to">
+                              {drift.get(i.id)! > 0 ? "+" : ""}
+                              {drift.get(i.id)}f
+                            </span>
+                          )}
                           {sel && (
                             <>
                               <span className="trim trim-start" data-testid="trim-start" onPointerDown={(e) => startTrim(e, i, "start")} />

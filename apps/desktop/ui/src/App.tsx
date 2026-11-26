@@ -11,6 +11,7 @@ import type {
 } from "./bindings";
 import { commands, events } from "./bridge";
 import { setPendingDraft } from "./ChatPanel";
+import { setTimelineFps } from "./edit";
 import { Editor, type Layout } from "./Editor";
 import { ErrorBoundary } from "./ErrorBoundary";
 import {
@@ -89,6 +90,8 @@ function projectNameFrom(text: string): string {
 export function App() {
   const [route, setRoute] = useState<"home" | "editor">("home");
   const [project, setProject] = useState<ProjectView_Serialize | null>(null);
+  // Edits snap to the open timeline's frame grid.
+  setTimelineFps(project?.fps);
   const [projects, setProjects] = useState<ProjectSummary_Serialize[]>([]);
   const [selection, setSelection] = useState<string[]>([]);
   const [media, setMedia] = useState<MediaInfo_Serialize | null>(null);

@@ -45,10 +45,18 @@ export const commands = {
 	projectView: () => typedError<ProjectView_Serialize | null, AppError>(__TAURI_INVOKE("project_view")),
 	importMedia: (paths: string[]) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("import_media", { paths })),
 	importMediaDialog: () => typedError<ProjectView_Serialize | null, AppError>(__TAURI_INVOKE("import_media_dialog")),
-	/**  Moves an item to a new start time (and optionally another track), keeping its duration. */
-	moveItem: (id: string, start: number | null, trackId: string | null) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("move_item", { id, start, trackId })),
+	/**
+	 *  Moves an item to a new start time (and optionally another track), keeping its duration. Linked items move with
+	 *  it unless `linked` is false (Alt in the timeline). Landing on another item is allowed (the overlap plays as a
+	 *  crossfade).
+	 */
+	moveItem: (id: string, start: number | null, trackId: string | null, linked: boolean | null) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("move_item", { id, start, trackId, linked })),
 	removeItems: (ids: string[]) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("remove_items", { ids })),
-	/**  Splits a clip at a timeline time (seconds): the left part keeps the id, the right part is a new item. */
+	/**
+	 *  Splits a clip at a timeline time (seconds): the left part keeps the id, the right part is a new item. Linked
+	 *  items are split at the same time. Speed, reverse playback, keyframes, caption segments, fades and transitions are
+	 *  carried over so both parts look and sound exactly like the uncut clip.
+	 */
 	splitItem: (id: string, at: number | null) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("split_item", { id, at })),
 	setAspectRatio: (aspect: string) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("set_aspect_ratio", { aspect })),
 	renameProject: (name: string) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("rename_project", { name })),
@@ -130,8 +138,19 @@ export const commands = {
 	 *  relative timing and tracks. Items whose track no longer exists go to the first track of the same kind.
 	 */
 	pasteItems: (itemsJson: string, at: number | null) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("paste_items", { itemsJson, at })),
-	/**  Trims an item's start or end edge to `time` (seconds on the timeline). */
-	trimItem: (id: string, edge: string, time: number | null) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("trim_item", { id, edge, time })),
+	/**
+	 *  Trims an item's start or end edge to `time` (seconds on the timeline), keeping the source in sync and within the
+	 *  source. Linked items trim with it unless `linked` is false (Alt in the timeline: a J or L cut). The trimmed edge
+	 *  may overlap a neighbour (an overlap plays as a crossfade).
+	 */
+	trimItem: (id: string, edge: string, time: number | null, linked: boolean | null) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("trim_item", { id, edge, time, linked })),
+	/**
+	 *  Applies one edit verb (an `ove-edit` request as JSON: `{"op": "rippleDelete", "items": ["…"]}`, times in seconds)
+	 *  as one revision. A refusal is the error and changes nothing.
+	 */
+	editPlan: (request: string) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("edit_plan", { request })),
+	/**  Plans an edit verb without applying it (no revision): what a drag would do while it is held. */
+	editPreview: (request: string) => typedError<EditPreview_Serialize, AppError>(__TAURI_INVOKE("edit_preview", { request })),
 	/**  Adds a track. Video/caption/adjustment/layout tracks go on top, audio tracks at the bottom. */
 	addTrack: (kind: string, name: string) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("add_track", { kind, name })),
 	renameTrack: (id: string, name: string) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("rename_track", { id, name })),
@@ -541,6 +560,44 @@ export type Diagnostics_Serialize = {
 	audioAvailable: boolean,
 };
 
+/**
+ *  What an edit would do, without doing it: the items it adds or changes at their new place (for ghost
+ *  rendering), the items it removes, the items that stopped at a limit, or why it would be refused.
+ */
+export type EditPreview = EditPreview_Serialize | EditPreview_Deserialize;
+
+/**
+ *  What an edit would do, without doing it: the items it adds or changes at their new place (for ghost
+ *  rendering), the items it removes, the items that stopped at a limit, or why it would be refused.
+ */
+export type EditPreview_Deserialize = {
+	summary: string,
+	ghosts: Ghost[],
+	removed: string[],
+	limited: string[],
+	refusal?: EditRefusal | null,
+};
+
+/**
+ *  What an edit would do, without doing it: the items it adds or changes at their new place (for ghost
+ *  rendering), the items it removes, the items that stopped at a limit, or why it would be refused.
+ */
+export type EditPreview_Serialize = {
+	summary: string,
+	ghosts: Ghost[],
+	removed: string[],
+	limited: string[],
+	refusal: EditRefusal | null,
+};
+
+/**  Why an edit would be refused. */
+export type EditRefusal = {
+	code: string,
+	/**  Items to outline. */
+	culprits: string[],
+	message: string,
+};
+
 /**  Machine-readable error category. The UI switches on this; `message` is shown to the user. */
 export type ErrorCode = "not_found" | "unsupported" | "corrupt" | "media_offline" | "no_media" | "invalid_argument" | "worker_panic" | "gpu" | "io" | "internal";
 
@@ -619,6 +676,14 @@ export type FontFamily = {
 /**  A job changed (started, finished, failed). Payload: the job as JSON. */
 export type GenerationUpdated = string;
 
+/**  An item where an edit would put it. */
+export type Ghost = {
+	id: string,
+	trackId: string,
+	start: number | null,
+	end: number | null,
+};
+
 /**  One revision in the history panel. */
 export type HistoryRow = {
 	rev: number | null,
@@ -653,6 +718,8 @@ export type ItemView_Deserialize = {
 	transitionIn: number | null,
 	transitionOut: number | null,
 	speed: number | null,
+	/**  Link group value, when the item is linked. */
+	link?: string | null,
 };
 
 export type ItemView_Serialize = {
@@ -673,6 +740,8 @@ export type ItemView_Serialize = {
 	transitionIn: number | null,
 	transitionOut: number | null,
 	speed: number | null,
+	/**  Link group value, when the item is linked. */
+	link: string | null,
 };
 
 /**  The result of trying the saved key with a real (free) request. */
@@ -892,6 +961,8 @@ export type ProjectView_Deserialize = {
 	bundle: string,
 	rev: number | null,
 	aspectRatio: string,
+	/**  Timeline frame rate (edits snap to its frame grid). */
+	fps: number | null,
 	durationSeconds: number | null,
 	canUndo: boolean,
 	canRedo: boolean,
@@ -908,6 +979,8 @@ export type ProjectView_Serialize = {
 	bundle: string,
 	rev: number | null,
 	aspectRatio: string,
+	/**  Timeline frame rate (edits snap to its frame grid). */
+	fps: number | null,
 	durationSeconds: number | null,
 	canUndo: boolean,
 	canRedo: boolean,
@@ -998,6 +1071,8 @@ export type TrackView = {
 	locked: boolean,
 	visible: boolean,
 	muted: boolean,
+	/**  Ripple edits on other tracks shift this track too. */
+	syncLock: boolean,
 };
 
 /**  Transport commands sent by the UI (buttons and keys). */

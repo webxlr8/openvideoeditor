@@ -271,13 +271,13 @@ pub fn print(doc: &Document, ctx: &PrintContext) -> String {
     let names = media_names(doc);
     let mut out = header(doc, ctx, &names);
     out.push_str("export default (\n");
-    element(
-        &mut out,
-        "  ",
-        "timeline",
-        &[("aspect".into(), attr_value(&Value::String(doc.project.aspect_ratio.clone())))],
-        false,
-    );
+    let mut timeline_attrs = vec![("aspect".to_string(), attr_value(&Value::String(doc.project.aspect_ratio.clone())))];
+    if let Some(fps) = doc.project.extra.get("fps").map(normal::canon)
+        && schema::project_field("fps").is_some_and(|f| !schema::is_default(f, &fps))
+    {
+        timeline_attrs.push(("fps".into(), attr_value(&fps)));
+    }
+    element(&mut out, "  ", "timeline", &timeline_attrs, false);
     for t in &doc.project.tracks {
         let t = normal::track(t);
         let mut attrs = vec![

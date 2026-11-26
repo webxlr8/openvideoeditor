@@ -22,6 +22,19 @@ describe("timeline viewer", () => {
     await waitFor(() => expect(calls.filter((c) => c === "openTimeline").length).toBe(2));
   });
 
+  it("steps one frame per 40 ms on a 25 fps timeline", async () => {
+    window.__oveMock!.fps = 25;
+    try {
+      await openEditor();
+      await waitFor(() => expect(window.__oveMock!.calls).toContain("openTimeline"));
+      for (let i = 0; i < 25; i++) fireEvent.keyDown(window, { key: "ArrowRight" });
+      // 25 steps of 40 ms make one second.
+      await waitFor(() => expect(screen.getByTestId("timecode").textContent).toBe("00:00:01:00"));
+    } finally {
+      window.__oveMock!.fps = undefined;
+    }
+  });
+
   it("drives the timeline transport", async () => {
     await openEditor();
     fireEvent.keyDown(window, { key: "End" });

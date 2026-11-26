@@ -1,0 +1,10 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc cf0345480305cb2cb7cfc35e2144b4689f561404a12c32ce717367a62f2a00ac # shrinks to items = [(1, 32, false), (0, 5, false)], a = 0, l = 2, editor = false
+cc eaa30aad7784e1632772f69620f537d9b48a09fad3cbeeee1f9c0a99f7c84cb4 # shrinks to items = [(0, 5, false), (0, 5, false)], music_sync = false, kind = 2, pick = 1, target = 1, frames = -1, new_at = None
+cc 907b04e9fca992c53fd97b326b96aac7941ec6662894ec0f3b9522145712ebad # shrinks to items = [(1, 15, false), (2, 19, false), (2, 38, false), (13, 50, false), (22, 14, false), (20, 5, false)], a = 189, l = 8, editor = false
+cc c142590d429dcc1214285b22db794a923db11633ad3d86c30978351af9e80ee8 # shrinks to items = [(0, 5, false), (0, 5, false), (0, 5, false), (0, 5, false)], music_sync = false, kind = 2, pick = 5, target = 4, frames = 1, new_at = None

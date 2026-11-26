@@ -9,7 +9,9 @@ use serde::Serialize;
 use ove_core::model::Document;
 use ove_core::ops::{Op, apply_batch};
 
-use crate::merge::{Conflict, Prefer, Removed, merge};
+use ove_core::timemap::Ripple;
+
+use crate::merge::{Conflict, Prefer, Removed, merge_rebased};
 use crate::parse::{Diagnostic, Pos, Severity, parse};
 use crate::read::{Resolve, read};
 
@@ -58,6 +60,9 @@ pub struct Plan {
     pub conflicts: Vec<Conflict>,
     pub removed: Vec<Removed>,
     pub warnings: Vec<Diagnostic>,
+    /// Items left alone in their link group by this apply (their partners were removed).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub orphaned_links: Vec<String>,
 }
 
 impl Plan {
@@ -134,8 +139,24 @@ fn at(pos: Option<&Pos>, code: &str, message: String) -> Diagnostic {
     Diagnostic { severity: Severity::Error, line: p.line.max(1), column: p.column.max(1), code: code.into(), message }
 }
 
+/// Items that were in a link group of two or more in `before` and are alone in their group in `after`.
+fn orphaned_links(before: &Document, after: &Document) -> Vec<String> {
+    let was = crate::verify::link_groups(before);
+    crate::verify::link_groups(after)
+        .into_iter()
+        .filter(|(link, members)| members.len() == 1 && was.get(link).is_some_and(|w| w.len() > 1))
+        .flat_map(|(_, members)| members.into_iter().map(|m| m.id.clone()))
+        .collect()
+}
+
 /// Checks a projection and plans its apply. `Err` means nothing may change.
 pub fn plan(input: &ApplyInput) -> Result<Plan, Refusal> {
+    plan_rebased(input, &|_| Vec::new())
+}
+
+/// [`plan`] with rebase over ripple edits: `ripples_since(rev)` returns the ripples committed after the
+/// projection's base revision, oldest first (see [`crate::merge::merge_rebased`]).
+pub fn plan_rebased(input: &ApplyInput, ripples_since: &dyn Fn(i64) -> Vec<Ripple>) -> Result<Plan, Refusal> {
     let parsed = parse(input.text);
     let mut diags = parsed.diagnostics.clone();
     let rev = match &parsed.rev {
@@ -170,7 +191,8 @@ pub fn plan(input: &ApplyInput) -> Result<Plan, Refusal> {
     if diags.iter().any(Diagnostic::is_error) {
         return Err(refuse("check.failed", "the projection has errors; nothing was applied", diags));
     }
-    let merged = merge(&base, input.current, &model, input.prefer, input.now_ms);
+    let ripples = if rev < input.current.project.rev { ripples_since(rev) } else { Vec::new() };
+    let merged = merge_rebased(&base, input.current, &model, input.prefer, input.now_ms, &ripples);
     let ops = ove_core::diff::diff_documents(input.current, &merged.target);
     if !ops.is_empty()
         && let Err(e) = apply_batch(input.current, &ops)
@@ -191,7 +213,9 @@ pub fn plan(input: &ApplyInput) -> Result<Plan, Refusal> {
         return Err(refuse("check.failed", "the result would be invalid; nothing was applied", errs));
     }
     let warnings: Vec<Diagnostic> = diags.into_iter().filter(|d| !d.is_error()).collect();
+    let orphaned_links = orphaned_links(input.current, &merged.target);
     Ok(Plan {
+        orphaned_links,
         base_rev: rev,
         counts: counts(&ops),
         ops,

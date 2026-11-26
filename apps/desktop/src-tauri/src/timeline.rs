@@ -11,12 +11,17 @@ use ove_core::model::Document;
 use ove_playback::{FrameSource, PresentableFrame, SourcePoll};
 use ove_render::{Renderer, Rgba};
 
-/// Preview frame rate and height of the composited timeline.
-pub const TIMELINE_FPS: f64 = 30.0;
+/// Preview height of the composited timeline. The preview frame rate is the timeline's own (`fps`, default 30).
 pub const PREVIEW_HEIGHT: u32 = 540;
 
-pub fn frame_us(i: i64) -> i64 {
-    (i as f64 * 1_000_000.0 / TIMELINE_FPS).round() as i64
+/// Start of frame `i` on the timeline's frame grid.
+pub fn frame_us(i: i64, fps: f64) -> i64 {
+    ove_core::time::frame_time(i, fps)
+}
+
+/// The frame showing at `t_us`.
+fn frame_at(t_us: i64, fps: f64) -> i64 {
+    ((t_us as f64 * fps / 1e6) + 1e-6).floor() as i64
 }
 
 #[derive(Debug, Clone)]
@@ -83,6 +88,7 @@ fn render_loop(
 ) {
     let mut renderer = Renderer::new(Some(&bundle), PREVIEW_HEIGHT);
     let end = doc.duration();
+    let fps = doc.fps();
     let mut gen_now = 0u64;
     let mut next: Option<i64> = Some(0);
     loop {
@@ -91,7 +97,7 @@ fn render_loop(
             match ctl.try_recv() {
                 Ok(Ctl::Seek(t, g)) => {
                     gen_now = g;
-                    next = Some(((t as f64 * TIMELINE_FPS / 1e6) + 1e-6).floor() as i64);
+                    next = Some(frame_at(t, fps));
                 }
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => return,
@@ -101,14 +107,14 @@ fn render_loop(
             match ctl.recv_timeout(Duration::from_millis(50)) {
                 Ok(Ctl::Seek(t, g)) => {
                     gen_now = g;
-                    next = Some(((t as f64 * TIMELINE_FPS / 1e6) + 1e-6).floor() as i64);
+                    next = Some(frame_at(t, fps));
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
                 Err(_) => return,
             }
             continue;
         };
-        let pts = frame_us(i);
+        let pts = frame_us(i, fps);
         if pts >= end.max(1) {
             done.store(gen_now + 1, Ordering::SeqCst);
             next = None;
@@ -117,7 +123,8 @@ fn render_loop(
         let started = std::time::Instant::now();
         let image = Arc::new(renderer.render(&doc, pts));
         render_ms.store(started.elapsed().as_millis() as u64, Ordering::Relaxed);
-        let mut frame = TimelineFrame { generation: gen_now, pts_us: pts, duration_us: frame_us(i + 1) - pts, image };
+        let mut frame =
+            TimelineFrame { generation: gen_now, pts_us: pts, duration_us: frame_us(i + 1, fps) - pts, image };
         // Hand it over, but give way to a seek while the queue is full.
         loop {
             match out.try_send(frame) {

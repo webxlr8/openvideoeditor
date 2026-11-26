@@ -1760,6 +1760,59 @@ button.preset-card:disabled {
   font-style: normal;
   color: #ffd84d;
 }
+.timeline.tool-blade .clip {
+  cursor: crosshair;
+}
+.timeline.tool-trim .clip {
+  cursor: ew-resize;
+}
+.ruler {
+  position: relative;
+}
+.ruler .range-mark {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(90, 170, 255, 0.25);
+  pointer-events: none;
+}
+.ruler .range-in,
+.ruler .range-out {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: #5aaaff;
+  pointer-events: none;
+}
+.clip-ghost {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  border: 1px dashed rgba(255, 255, 255, 0.7);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  pointer-events: none;
+}
+.clip .link-badge {
+  position: absolute;
+  right: 4px;
+  top: 3px;
+  opacity: 0.8;
+  pointer-events: none;
+}
+.clip .drift-chip {
+  position: absolute;
+  right: 18px;
+  top: 2px;
+  padding: 0 4px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #1a1a1a;
+  background: #ff6b5a;
+  pointer-events: none;
+}
 .zoom-group {
   display: flex;
   align-items: center;

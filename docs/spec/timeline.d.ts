@@ -9,6 +9,8 @@ type TrackKind = "video" | "audio" | "caption" | "adjustment" | "layout";
 
 interface TimelineProps {
   aspect?: Aspect;
+  /** Timeline frame rate; edits snap to its frame grid. */
+  fps?: number;
   children?: unknown;
 }
 
@@ -23,6 +25,8 @@ interface TrackProps {
   visible?: boolean;
   /** Muted tracks play no audio. */
   muted?: boolean;
+  /** Ripple edits on other tracks shift this track's items too. */
+  syncLock?: boolean;
   children?: unknown;
   [attribute: string]: unknown;
 }
@@ -50,6 +54,8 @@ interface ClipProps extends ItemBase {
   pending?: boolean;
   /** What the pending placeholder should become. */
   pendingDescription?: string;
+  /** Link group: items with the same value move, trim, slip and delete together. */
+  link?: string;
   /** Position, scale, rotation, flip. */
   transform?: { x?: number; y?: number; scale?: number; rotation?: number; flipX?: boolean; [key: string]: unknown };
   /** Crop in percent per edge. */
@@ -109,6 +115,8 @@ interface ImageProps extends ItemBase {
   pending?: boolean;
   /** What the pending placeholder should become. */
   pendingDescription?: string;
+  /** Link group: items with the same value move, trim, slip and delete together. */
+  link?: string;
   /** Position, scale, rotation, flip. */
   transform?: { x?: number; y?: number; scale?: number; rotation?: number; flipX?: boolean; [key: string]: unknown };
   /** Crop in percent per edge. */
@@ -156,6 +164,8 @@ interface AudioProps extends ItemBase {
   pending?: boolean;
   /** What the pending placeholder should become. */
   pendingDescription?: string;
+  /** Link group: items with the same value move, trim, slip and delete together. */
+  link?: string;
   /** Position, scale, rotation, flip. */
   transform?: { x?: number; y?: number; scale?: number; rotation?: number; flipX?: boolean; [key: string]: unknown };
   /** Crop in percent per edge. */
@@ -211,6 +221,8 @@ interface TextProps extends ItemBase {
   pending?: boolean;
   /** What the pending placeholder should become. */
   pendingDescription?: string;
+  /** Link group: items with the same value move, trim, slip and delete together. */
+  link?: string;
   /** The text. */
   textContent?: string;
   /** Font family. */
@@ -292,6 +304,8 @@ interface CaptionProps extends ItemBase {
   pending?: boolean;
   /** What the pending placeholder should become. */
   pendingDescription?: string;
+  /** Link group: items with the same value move, trim, slip and delete together. */
+  link?: string;
   /** Full caption text. */
   captionText?: string;
   /** Timed segments with word timings. */
@@ -351,6 +365,8 @@ interface CodeProps extends ItemBase {
   pending?: boolean;
   /** What the pending placeholder should become. */
   pendingDescription?: string;
+  /** Link group: items with the same value move, trim, slip and delete together. */
+  link?: string;
   /** Motion-graphics composition (pure JSX of {time, width, height, assets}). */
   codeComposition?: { source?: string; template?: string; props?: unknown; width?: number; height?: number; assets?: unknown; [key: string]: unknown };
   /** Position, scale, rotation, flip. */
@@ -396,6 +412,8 @@ interface AdjustmentProps extends ItemBase {
   pending?: boolean;
   /** What the pending placeholder should become. */
   pendingDescription?: string;
+  /** Link group: items with the same value move, trim, slip and delete together. */
+  link?: string;
   /** Kind of adjustment layer. */
   adjustmentKind?: string;
   /** LUT preset id. */
@@ -449,6 +467,8 @@ interface ShaderProps extends ItemBase {
   pending?: boolean;
   /** What the pending placeholder should become. */
   pendingDescription?: string;
+  /** Link group: items with the same value move, trim, slip and delete together. */
+  link?: string;
   /** Shader layer definition. */
   shaderComposition?: { source?: string; template?: string; params?: unknown; controls?: unknown; amount?: number; fadeIn?: Seconds; fadeOut?: Seconds; region?: "all" | "subject" | "background"; defaults?: unknown; [key: string]: unknown };
   /** Position, scale, rotation, flip. */

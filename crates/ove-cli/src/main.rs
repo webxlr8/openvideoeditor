@@ -10,6 +10,7 @@ mod analyze;
 mod app;
 mod common;
 mod docs;
+mod edit;
 mod generate;
 mod mcp;
 mod media;
@@ -106,6 +107,9 @@ enum Cmd {
         #[command(subcommand)]
         cmd: SourceCmd,
     },
+    /// Edit verbs: split, trim, ripple-trim, ripple-delete, delete, insert, overwrite, lift, extract, close-gap, slip,
+    /// slide, roll, move. One revision each; --dry-run prints the plan only.
+    Edit(edit::EditArgs),
     /// Report problems: overlaps, gaps, clips past their source, missing media, pending items.
     Verify { project: String },
     /// List revisions, oldest first.
@@ -271,14 +275,17 @@ fn plan_for(p: &Project, text: &str, prefer: Prefer) -> Result<Plan, Refusal> {
             message: format!("the projection's base revision {rev} is not available ({e})"),
         })
     };
-    ove_projection::plan(&ApplyInput {
-        text,
-        current: p.doc(),
-        base_for: &base_for,
-        bundle: Some(p.bundle()),
-        prefer,
-        now_ms: ove_core::Clock::now_ms(&ove_core::SystemClock),
-    })
+    ove_projection::plan_rebased(
+        &ApplyInput {
+            text,
+            current: p.doc(),
+            base_for: &base_for,
+            bundle: Some(p.bundle()),
+            prefer,
+            now_ms: ove_core::Clock::now_ms(&ove_core::SystemClock),
+        },
+        &|rev| p.ripples_since(rev),
+    )
 }
 
 fn plan_json(p: &Plan) -> Value {
@@ -379,6 +386,7 @@ fn run(cli: &Cli, source: Source) -> Out {
             };
             Ok((v, text))
         }),
+        Cmd::Edit(a) => edit::run(&ctx, a),
         Cmd::Verify { project } => {
             let p = ctx.read(project)?;
             let offline: BTreeSet<String> = media_status(p.bundle(), p.doc())

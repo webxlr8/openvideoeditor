@@ -129,6 +129,25 @@ pub static TOOLS: &[Tool] = &[
         images: None,
     },
     Tool {
+        name: "edit_timeline",
+        about: "Run one edit verb as one revision (one undo step): split, trim, rippleTrim, rippleDelete, delete, insert, overwrite, lift, extract, closeGap, slip, slide, roll, move. Later items ripple on sync-locked tracks, linked items edit together, times snap to the frame grid. `request` is JSON, e.g. {\"op\":\"rippleDelete\",\"tracks\":[\"a1\"],\"ranges\":[{\"start\":12.3,\"end\":14}]} (seconds). Returns the plan; a refusal names a code and the culprit item ids. With `rev`, a request made against an older revision is moved through the ripples made since.",
+        read_only: false,
+        cmd: &["edit", "request"],
+        args: &[
+            PROJECT,
+            Arg {
+                name: "request",
+                kind: Kind::Str,
+                required: true,
+                flag: Some("--request"),
+                about: "The edit request as JSON (see `docs` topic `timeline`)",
+            },
+            flag("rev", Kind::Int, "--rev", "Revision the request was made against (default: the current one)"),
+            flag("preview", Kind::Bool, "--dry-run", "Return the plan without applying it"),
+        ],
+        images: None,
+    },
+    Tool {
         name: "verify_timeline",
         about: "Report problems: overlaps, gaps, clips past the end of their source, missing media, pending placeholders.",
         read_only: true,
