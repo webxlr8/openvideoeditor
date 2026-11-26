@@ -88,6 +88,12 @@ Alternatives considered:
 
 The printed line is the exact text the next `oldText` anchor needs.
 
+Field names in the receipt JSON: `changed` and `removed` already meant "a revision was made" (true/false) and "how
+many items were removed" in the command line's `--json` output, so the lists are `changedItems` (`{id, text}`, where
+`text` is the item's printed element, one line or the lines of an element written one attribute per line),
+`moreChanged` (the count beyond 30), `removedItems` (`{id, name}`, as before), `shifted` and `trackOrderChanged`. An
+item that only moved as part of a shift rule is not listed in `changedItems`.
+
 Alternatives considered:
 - Return the whole new print. Rejected: large on long projects.
 - Return field-level JSON diffs. Rejected: the agent would have to rebuild the TSX text from them before its next edit.
@@ -219,6 +225,7 @@ Additive. Old bundles open unchanged. The MCP whole-file `source` mode stays. Th
 - Unchanged tests: `crates/ove-agent/tests/agent.rs` 14 passed (1 ignored, live API), `crates/ove-cli/tests/*` all
   passed, including `media.rs` with fixtures made by a full FFmpeg CLI (`OVE_FIXTURE_FFMPEG`).
 - Implementation notes:
+  - The in-app list grew to 10 tools with `undo_my_changes` (group 3); the golden file pins it.
   - `BundleCtx` takes a project's write lock; `LinkCtx` adds the control link (edits to a project the app holds go
     through the app, with the 3-attempt retry on `rev.changed`); `AppCtx` runs on the app's open project through an
     `AppHost` the desktop implements.
@@ -228,3 +235,44 @@ Additive. Old bundles open unchanged. The MCP whole-file `source` mode stays. Th
     and the closest names.
   - `verify_timeline` refuses with `verify.failed` when there are errors on every surface (the in-app assistant
     used to get them as a normal result); the findings are in the refusal.
+
+### Group 2: edit contract and receipts (Windows 11 x64)
+
+- Rebase property test (`crates/ove-tools/tests/edits.rs`, `stale_edits_match_a_manual_rebase`): 2,000 cases, each
+  with 0–5 person edits (moves, renames, text changes, including the same field the agent changes) between the
+  agent's print and its edit; every case gives the same items and tracks as setting the agent's values on the
+  current document. Run time 354 s in a debug build (each case creates a project bundle on disk).
+- `ove-bench` case `stale-apply` (release build, 5,000 items on 5 tracks, one text edit against rev − 10, 7 runs,
+  median):
+
+  | Where the project is | Printed rev cached | Not cached |
+  |---|---|---|
+  | Held open, as the app holds it (`AppCtx`) | 112 ms | 181 ms |
+  | Opened and closed per call (`BundleCtx`, headless `ove mcp`) | 207 ms | 260 ms |
+
+  The 150 ms budget is met for the app and for the usual agent case (the agent printed the revision in this
+  session). Headless calls also pay for opening the bundle and for the snapshot written when it closes; keeping
+  bundles open across calls in `ove mcp` is the next step if that path needs the same budget. Before the document
+  cache, the held and cached case measured 468 ms: the base document was rebuilt from the revision log (48 ms) and
+  the whole timeline was printed again for the receipt (31 ms) on every call. Now the last 16 revisions' printed
+  text and documents are cached per project, and the receipt prints only the changed items.
+- Scripted 50-edit MCP session on a 60-item project (`crates/ove-cli/tests/mcp_edits.rs`): text edits anchored on
+  the receipts' lines sent 20,457 bytes; resending the whole file sent 398,267 bytes: 19.5× fewer.
+
+### Group 3: actor attribution and scoped undo
+
+- `RevisionRecord.actor` is optional (`serde(default)`, not written when empty), so records from earlier releases
+  read as before. An actor kind written by a newer build reads as `other` instead of making the record unreadable.
+- Selective undo lives in `ove-store` (`Project::undo_selected`): the inverse operations of the chosen revisions,
+  newest first, applied as one revision. A later revision outside the set that touched the same object field (or
+  added or removed the object) refuses it with the conflicting items. "Undo this turn" in the app uses it.
+- Agents: `undo_timeline` undoes the session's latest change that is not undone yet; a revision of another actor is
+  refused with `undo.notYours`. `undo_my_changes` takes scope `session` or `turn`; scope `any` is refused for agents
+  (`undo.scope`) and reached from the command line as `ove undo <project> --any --session <id>`. The command line's
+  plain `ove undo` keeps its meaning (latest revision, whoever made it, or back to `rev`): it is the person's own
+  command.
+- Sessions: each `ove mcp` process is one session (`mcp-<time>-<pid>`), with the client name from `initialize`;
+  the in-app assistant's session is the chat and its turn the turn id; the control link accepts actors of kind
+  `cli` and `mcp` only.
+- The fuzz target `revision_record` is in the nightly fuzz matrix; it was compiled here but not run (no nightly
+  toolchain with cargo-fuzz on this machine).

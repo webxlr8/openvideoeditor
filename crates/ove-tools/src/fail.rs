@@ -39,6 +39,8 @@ impl std::fmt::Display for Fail {
     }
 }
 
+impl std::error::Error for Fail {}
+
 impl From<StoreError> for Fail {
     fn from(e: StoreError) -> Self {
         Fail::new(e.code(), e.to_string())

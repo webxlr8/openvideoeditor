@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use ove_core::model::Document;
 use ove_core::ops::Op;
-use ove_core::revision::Source;
+use ove_core::revision::{Actor, Source};
 use ove_store::Library;
 use ove_store::project::Project;
 use serde_json::Value;
@@ -51,6 +51,9 @@ pub trait Editor {
     /// Returns to the state of revision `target` as a new revision (source `undo`): `Some((rev, summary))`, or `None`
     /// when already there.
     fn restore(&mut self, target: i64) -> Result<Option<(i64, String)>, Fail>;
+    /// Reverts the revisions `revs` as one new revision (source `undo`), keeping every other change; refused with
+    /// `undo.conflict` when later changes touched the same fields.
+    fn undo_selected(&mut self, revs: &[i64], summary: String) -> Result<i64, Fail>;
     /// Records the warnings listed in the next printed header.
     fn set_diagnostics(&mut self, lines: Vec<String>) -> Result<(), Fail>;
     /// True when the edit goes through the running app.
@@ -73,6 +76,12 @@ pub trait ToolCtx {
     fn surface(&self) -> Surface;
     /// The revision source of edits made here.
     fn source(&self) -> Source;
+    /// Who makes the edits made here (recorded on each revision).
+    fn actor(&self) -> Option<Actor> {
+        None
+    }
+    /// The client's name, from MCP `initialize`.
+    fn set_client(&mut self, _name: &str) {}
     /// The bundle of the project a call names; `None` means the session's project (the open one in the app, or the
     /// one a session is bound to). Refused when there is none or when the session may not use that project.
     fn bundle(&mut self, project: Option<&str>) -> Result<PathBuf, Fail>;
@@ -137,6 +146,7 @@ pub fn via(w: &dyn Editor) -> &'static str {
 pub struct LocalEditor<'a> {
     pub project: &'a mut Project,
     pub source: Source,
+    pub actor: Option<Actor>,
 }
 
 impl Editor for LocalEditor<'_> {
@@ -144,13 +154,40 @@ impl Editor for LocalEditor<'_> {
         self.project
     }
     fn apply(&mut self, ops: Vec<Op>, summary: String) -> Result<i64, Fail> {
-        self.project.apply(ops, self.source, Some(summary))?;
+        self.project.apply_as(ops, self.source, Some(summary), self.actor.clone())?;
         Ok(self.project.rev())
+    }
+    fn undo_selected(&mut self, revs: &[i64], summary: String) -> Result<i64, Fail> {
+        undo_on(self.project, revs, summary, self.actor.clone())
     }
     fn restore(&mut self, target: i64) -> Result<Option<(i64, String)>, Fail> {
         Ok(self.project.restore_as(target, Source::Undo)?.map(|c| (c.record.rev, c.record.summary)))
     }
     fn set_diagnostics(&mut self, lines: Vec<String>) -> Result<(), Fail> {
         Ok(self.project.set_diagnostics(lines)?)
+    }
+}
+
+/// Selective undo on a project this process holds, with the refusal agents see.
+pub fn undo_on(p: &mut Project, revs: &[i64], summary: String, actor: Option<Actor>) -> Result<i64, Fail> {
+    use ove_store::undo::UndoError;
+    match p.undo_selected(revs, Source::Undo, summary, actor) {
+        Ok(c) => Ok(c.record.rev),
+        Err(UndoError::Nothing) => Err(Fail::new("undo.nothing", "There is nothing to undo.")),
+        Err(UndoError::Store(e)) => Err(e.into()),
+        Err(UndoError::Conflict(c)) => {
+            let items: Vec<String> = c
+                .iter()
+                .map(|x| {
+                    let what = x.item.as_deref().unwrap_or(&x.object);
+                    format!("{what} {} (changed later in rev {}: {})", x.field, x.rev, x.summary)
+                })
+                .collect();
+            Err(Fail::new(
+                "undo.conflict",
+                format!("Not undone: later changes touched the same fields: {}", items.join("; ")),
+            )
+            .details(serde_json::json!({"conflicts": c})))
+        }
     }
 }

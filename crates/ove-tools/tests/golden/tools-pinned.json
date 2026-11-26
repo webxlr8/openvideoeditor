@@ -206,7 +206,7 @@
     },
     {
       "name": "undo_timeline",
-      "description": "Undo your most recent change (only while it is still the latest change in the project), or return to the state of revision `rev`, as a new revision.",
+      "description": "Undo your most recent change that is not undone yet (or your revision `rev`) as a new revision. Only your own changes are undone; edits the person or other agents made meanwhile stay. Refused with undo.conflict, listing the items, when a later change touched the same fields.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -216,7 +216,7 @@
           },
           "rev": {
             "type": "integer",
-            "description": "Revision to return to"
+            "description": "One of your revisions to undo (default: your latest)"
           }
         },
         "required": [],
@@ -908,6 +908,38 @@
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "undo_my_changes",
+      "description": "Undo every change of this session (scope session, the default) or of one turn (scope turn) as one new revision, keeping everyone else's edits. Refused with undo.conflict, listing the items, when a later change by someone else touched the same fields.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "session",
+              "turn"
+            ],
+            "description": "session (default) or turn"
+          },
+          "turn": {
+            "type": "string",
+            "description": "The turn id (default: the current turn)"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
         "openWorldHint": false
       }
     }

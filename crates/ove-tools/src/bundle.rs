@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use ove_core::ops::Op;
-use ove_core::revision::Source;
+use ove_core::revision::{Actor, Source};
 use ove_store::Library;
 use ove_store::project::{Mode, Project};
 use serde_json::{Value, json};
@@ -41,6 +41,8 @@ pub struct BundleCtx {
     pub surface: Surface,
     pub source: Source,
     pub binding: Binding,
+    /// Recorded on every revision made here.
+    pub actor: Option<Actor>,
 }
 
 impl BundleCtx {
@@ -53,7 +55,14 @@ impl BundleCtx {
             }
             None => ove_store::library::resolve_library(None)?,
         };
-        Ok(BundleCtx { lib: Library::open(&root, clock())?, root, surface, source, binding: Binding::default() })
+        Ok(BundleCtx {
+            lib: Library::open(&root, clock())?,
+            root,
+            surface,
+            source,
+            binding: Binding::default(),
+            actor: None,
+        })
     }
 
     /// The bundle of a project by name, id or path.
@@ -98,7 +107,7 @@ impl BundleCtx {
         f: &mut dyn FnMut(&mut dyn Editor) -> Result<(), Fail>,
     ) -> Result<(), Fail> {
         let mut p = Project::open(bundle, Mode::Write, clock())?;
-        f(&mut LocalEditor { project: &mut p, source: self.source })?;
+        f(&mut LocalEditor { project: &mut p, source: self.source, actor: self.actor.clone() })?;
         p.flush_projection();
         p.close()?;
         Ok(())
@@ -111,6 +120,14 @@ impl ToolCtx for BundleCtx {
     }
     fn source(&self) -> Source {
         self.source
+    }
+    fn actor(&self) -> Option<Actor> {
+        self.actor.clone()
+    }
+    fn set_client(&mut self, name: &str) {
+        if let Some(a) = &mut self.actor {
+            a.client = Some(name.to_string());
+        }
     }
     fn bundle(&mut self, project: Option<&str>) -> Result<PathBuf, Fail> {
         self.resolve(project)
@@ -134,6 +151,7 @@ struct AppEditor {
     view: Project,
     root: PathBuf,
     source: Source,
+    actor: Option<Actor>,
 }
 
 impl AppEditor {
@@ -154,8 +172,15 @@ impl Editor for AppEditor {
             "ops": ops,
             "summary": summary,
             "source": self.source,
+            "actor": self.actor,
         });
         let v = ove_control::call(&self.root, "apply", params, Duration::from_secs(30))?;
+        self.reload()?;
+        Ok(v.get("rev").and_then(Value::as_i64).unwrap_or_else(|| self.view.rev()))
+    }
+    fn undo_selected(&mut self, revs: &[i64], summary: String) -> Result<i64, Fail> {
+        let params = json!({"bundle": self.view.bundle(), "revs": revs, "summary": summary, "actor": self.actor});
+        let v = ove_control::call(&self.root, "undo", params, Duration::from_secs(30))?;
         self.reload()?;
         Ok(v.get("rev").and_then(Value::as_i64).unwrap_or_else(|| self.view.rev()))
     }
@@ -214,6 +239,12 @@ impl ToolCtx for LinkCtx {
     fn source(&self) -> Source {
         self.inner.source
     }
+    fn actor(&self) -> Option<Actor> {
+        self.inner.actor.clone()
+    }
+    fn set_client(&mut self, name: &str) {
+        self.inner.set_client(name);
+    }
     fn bundle(&mut self, project: Option<&str>) -> Result<PathBuf, Fail> {
         self.inner.resolve(project)
     }
@@ -226,7 +257,11 @@ impl ToolCtx for LinkCtx {
         loop {
             let r = match Project::open(bundle, Mode::Write, clock()) {
                 Ok(mut p) => {
-                    let r = f(&mut LocalEditor { project: &mut p, source: self.inner.source });
+                    let r = f(&mut LocalEditor {
+                        project: &mut p,
+                        source: self.inner.source,
+                        actor: self.inner.actor.clone(),
+                    });
                     if r.is_ok() {
                         p.flush_projection();
                         p.close()?;
@@ -238,6 +273,7 @@ impl ToolCtx for LinkCtx {
                         view: Project::open(bundle, Mode::ReadOnly, clock())?,
                         root: self.inner.root.clone(),
                         source: self.inner.source,
+                        actor: self.inner.actor.clone(),
                     };
                     f(&mut w)
                 }

@@ -4046,10 +4046,14 @@ version = "0.1.0"
 dependencies = [
  "jsonschema",
  "libc",
+ "ove-core",
  "ove-media",
  "ove-playback",
+ "ove-store",
+ "ove-tools",
  "serde",
  "serde_json",
+ "tempfile",
  "windows-sys 0.61.2",
 ]
 
@@ -4313,6 +4317,7 @@ dependencies = [
  "ove-projection",
  "ove-render",
  "ove-store",
+ "proptest",
  "serde",
  "serde_json",
  "tempfile",

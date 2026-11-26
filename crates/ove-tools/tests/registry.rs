@@ -85,7 +85,7 @@ fn each_context_runs_a_read_only_tool_on_a_fixture_bundle() {
     // The app's context works on the open project; `project` may name it or be left out.
     let mut p = Project::open(&bundle, Mode::Write, clock()).unwrap();
     let mut host = ProjectHost { project: &mut p };
-    let mut app = AppCtx { host: &mut host, source: Source::Agent, surface: Surface::Mcp };
+    let mut app = AppCtx { host: &mut host, source: Source::Agent, surface: Surface::Mcp, actor: None };
     assert_eq!(call(&mut app, "show_project", read), from_bundle);
     assert_eq!(call(&mut app, "show_project", json!({})), from_bundle);
     let other = ove_tools::call(&mut app, "show_project", &args(json!({"project": "Other"}))).unwrap_err();

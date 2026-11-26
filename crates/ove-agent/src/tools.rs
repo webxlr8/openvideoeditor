@@ -35,6 +35,8 @@ pub trait ToolHost: Send {
     fn run_tool(&mut self, _tool: &'static ToolSpec, _args: &Map<String, Value>) -> Option<Result<String, String>> {
         None
     }
+    /// A turn starts: the chat (the assistant's session) and turn its edits are recorded under.
+    fn begin_turn(&mut self, _chat_id: &str, _turn_id: &str) {}
     /// Project revisions committed by tool calls since the last call (the turn records them so it can be reviewed
     /// and undone as a whole).
     fn take_revisions(&mut self) -> Vec<i64> {

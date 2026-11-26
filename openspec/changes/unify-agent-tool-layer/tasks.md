@@ -15,14 +15,14 @@
 
 ## 2. Edit contract and receipts
 
-- [ ] 2.1 Add the text-edit mode to MCP `apply_timeline`, and keep whole-file mode. Verify with integration tests for
+- [x] 2.1 Add the text-edit mode to MCP `apply_timeline`, and keep whole-file mode. Verify with integration tests for
       both modes, including the `edit.anchor` refusal.
-- [ ] 2.2 Make stale `rev` edits print the old revision, apply the edits, then 3-way merge, with an LRU of 16 printed
+- [x] 2.2 Make stale `rev` edits print the old revision, apply the edits, then 3-way merge, with an LRU of 16 printed
       revisions. Verify:
       - a property test (2,000 cases): edits against rev N−k, with concurrent GUI ops in between, give the same document
         as a manual rebase;
       - an `ove-bench` case on 5,000 items: apply against rev − 10 in ≤ 150 ms. Record the number in Results.
-- [ ] 2.3 Extend the apply plan and receipt with `changed` (printed lines), `removed`, `shifted`, `trackOrderChanged`
+- [x] 2.3 Extend the apply plan and receipt with `changed` (printed lines), `removed`, `shifted`, `trackOrderChanged`
       and `rev`. Verify:
       - golden receipts;
       - a test that every returned line is a valid old-text anchor for the next edit;
@@ -30,7 +30,7 @@
 
 ## 3. Actor attribution and scoped undo
 
-- [ ] 3.1 Add the optional `actor` to the revision record, and fill it from the control link, `ove mcp` (`--turn`,
+- [x] 3.1 Add the optional `actor` to the revision record, and fill it from the control link, `ove mcp` (`--turn`,
       client name) and the in-app assistant. Verify:
       - a migration test that opens bundles from the previous release;
       - a fuzz target for the record decoder that runs in CI.
@@ -38,7 +38,7 @@
       CLI with `--any`). Make `undo_timeline` default to mine for agents, and add `undo_my_changes`. Verify:
       - integration tests for the person-edits-survive and conflict-refused scenarios;
       - "Undo this turn" still works in the app's e2e test.
-- [ ] 3.3 Show the actor (kind and client name) per revision in the History panel. Verify: a UI test where a revision
+- [x] 3.3 Show the actor (kind and client name) per revision in the History panel. Verify: a UI test where a revision
       made over MCP shows the client name.
 
 ## 4. Session binding

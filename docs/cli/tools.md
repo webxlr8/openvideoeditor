@@ -43,6 +43,36 @@ Each `oldText` must occur exactly once in the printed timeline of `rev`. An `old
 with `edit.anchor`, and one that occurs more than once with `edit.ambiguous`; `details.index` names the edit. A whole
 replacement file (`source`) is the second mode.
 
+## Receipts
+
+`apply_timeline` returns, besides the counts, conflicts and warnings:
+
+- `rev`: the new revision. The next text edit can use it with the lines below, without printing again.
+- `changedItems`: `{id, text}` for each added or changed item (at most 30; `moreChanged` counts the rest). `text` is
+  the item's printed element, exactly as `print_timeline` prints it, so it can be the `oldText` of the next edit.
+- `removedItems`: `{id, name}` for each removed item.
+- `shifted`: one `{track, from, by, count}` rule for each group of 3 or more items on one track that moved by the
+  same amount (in seconds); those items are not listed one by one.
+- `trackOrderChanged`: whether the order of tracks changed.
+
+Text edits may be made against an older `rev`: they are applied to the text printed for that revision and merged
+onto the current document, so edits the person made meanwhile stay. Only a real conflict is reported in
+`conflicts` (with `prefer: "editor"` the person's value is kept).
+
+## Undo
+
+Every revision records its actor: the kind (user, assistant, cli, mcp, template, generation), and the session, turn
+and client name when known. Agents undo only their own changes:
+
+- `undo_timeline` undoes the session's latest change that is not undone yet (or the session's revision `rev`).
+- `undo_my_changes` undoes all of the session's changes (`scope: "session"`) or one turn's (`scope: "turn"`) as one
+  revision.
+
+Both keep every other change. When a later change by someone else touched the same fields, they refuse with
+`undo.conflict` and list the items in `details.conflicts`. Naming a revision of another actor is refused with
+`undo.notYours`. People can undo any session's changes from the command line with
+`ove undo <project> --any --session <id>`.
+
 ## Examples
 
 ```sh
@@ -93,4 +123,5 @@ ove source print Nope                              # exit 1
 | `docs` |  | mcp, pinned | read | `topic`? |
 | `check_code` |  | in-app, mcp, pinned | read | `project`? `composition` `duration`? |
 | `ask_user` |  | in-app | read | `question` `options`? |
+| `undo_my_changes` |  | in-app, mcp, pinned | destructive | `project`? `scope`? `turn`? |
 <!-- tools:end -->

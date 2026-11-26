@@ -19,12 +19,14 @@ While another process has the project open for writing, `source apply` and `undo
 | `ove source check <project> [file] [--prefer file\|editor]` | Parse, validate and plan an apply without changing anything. `file` defaults to the bundle's `timeline.tsx`; `-` reads stdin. |
 | `ove source apply <project> [file] [--prefer file\|editor]` | Merge the file onto the current document as one revision (none if nothing changed). |
 | `ove verify <project>` | Lints: overlaps, gaps on the main track, clips past their source, missing/offline media, pending items. Exit 1 when any finding is an error. |
-| `ove history <project>` | Revisions, oldest first: rev, source, summary. |
-| `ove undo <project> [rev]` | Revert the latest revision, or return to revision `rev`, as a new revision (source `undo`). |
+| `ove history <project>` | Revisions, oldest first: rev, source, summary, and who made it (actor kind and client name) when recorded. |
+| `ove undo <project> [rev]` | Revert the latest revision, whoever made it, or return to revision `rev`, as a new revision (source `undo`). |
+| `ove undo <project> --any --session <id> [--turn <id>] [--kind mcp]` | Revert only that agent session's (or turn's) changes as one revision, keeping everyone else's. Refused with `undo.conflict` when a later change touched the same fields. |
 
 ## JSON shapes
 
-`source apply --json`:
+`source apply --json` (receipt fields `changedItems`, `moreChanged`, `shifted` and `trackOrderChanged` are described
+in `ove docs tools`):
 
 ```json
 {"baseRev": 1762000000000, "added": 1, "updated": 2, "removed": 1,
@@ -39,7 +41,9 @@ While another process has the project open for writing, `source apply` and `undo
 
 `verify --json`: `{"rev", "count", "findings": [{"lint", "severity", "itemIds", "message"}]}`.
 
-`history --json`: `{"rev", "revisions": [{"rev", "parent", "time", "source", "summary", "opCount"}]}`.
+`history --json`: `{"rev", "revisions": [{"rev", "parent", "time", "source", "summary", "opCount", "actor"?}]}`, where `actor` is
+`{"kind", "session"?, "turn"?, "client"?}` (kind: user, assistant, cli, mcp, template or generation). Revisions saved
+before actors were recorded have no `actor`.
 
 `undo --json`: `{"rev", "changed", "target"}`.
 

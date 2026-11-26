@@ -13,7 +13,7 @@ import type {
   AgentLimits_Serialize,
   AgentStatus_Serialize,
   AgentUiEvent_Serialize,
-  HistoryRow,
+  HistoryRow_Serialize,
   SpendView,
   AppError,
   AutoCaptionRequest_Deserialize,
@@ -689,7 +689,7 @@ function createMock(): {
   let project: ProjectView_Serialize | null = null;
   let undoStack: ProjectView_Serialize[] = [];
   let redoStack: ProjectView_Serialize[] = [];
-  let history: { row: HistoryRow; before: ProjectView_Serialize | null }[] =
+  let history: { row: HistoryRow_Serialize; before: ProjectView_Serialize | null }[] =
     [];
   let seq = 0;
   const WHO: Record<string, string> = {
@@ -718,6 +718,7 @@ function createMock(): {
             : (WHO[source] ?? "You"),
         summary,
         canRestore: before !== null,
+        client: null,
       },
       before,
     });

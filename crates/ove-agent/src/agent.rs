@@ -326,6 +326,7 @@ pub fn run_turn(
     let started = Instant::now();
     let io = |e: std::io::Error| ApiError::new("chat.io", format!("Couldn't save the conversation: {e}"));
     let turn_id = new_turn_id();
+    host.begin_turn(chat_id, &turn_id);
     store
         .append(
             chat_id,

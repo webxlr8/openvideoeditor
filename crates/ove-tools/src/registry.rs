@@ -18,6 +18,7 @@ const MEDIA: Arg = req("media", Str, "Media id, file name or path");
 const EDITS: &str = r#"{"type": "array", "items": {"type": "object", "properties": {"oldText": {"type": "string"}, "newText": {"type": "string"}}, "required": ["oldText", "newText"], "additionalProperties": false}}"#;
 const PREFER: &str = r#"{"type": "string", "enum": ["file", "editor"]}"#;
 const OBJECT: &str = r#"{"type": "object"}"#;
+const SCOPE: &str = r#"{"type": "string", "enum": ["session", "turn"]}"#;
 const OPTIONS: &str = r#"{"type": "array", "items": {"type": "string"}, "maxItems": 4}"#;
 
 pub static TOOLS: &[ToolSpec] = &[
@@ -132,8 +133,8 @@ pub static TOOLS: &[ToolSpec] = &[
     ToolSpec {
         name: "undo_timeline",
         aliases: &["undo_last"],
-        about: "Undo your most recent change (only while it is still the latest change in the project), or return to the state of revision `rev`, as a new revision.",
-        args: &[PROJECT, arg("rev", Int, "Revision to return to")],
+        about: "Undo your most recent change that is not undone yet (or your revision `rev`) as a new revision. Only your own changes are undone; edits the person or other agents made meanwhile stay. Refused with undo.conflict, listing the items, when a later change touched the same fields.",
+        args: &[PROJECT, arg("rev", Int, "One of your revisions to undo (default: your latest)")],
         annotations: DESTRUCTIVE,
         surfaces: AGENTS,
         run: timeline::undo_timeline,
@@ -456,5 +457,21 @@ pub static TOOLS: &[ToolSpec] = &[
         surfaces: IN_APP,
         run: code::ask_user,
         model: ModelText::Text,
+    },
+    ToolSpec {
+        name: "undo_my_changes",
+        aliases: &[],
+        about: "Undo every change of this session (scope session, the default) or of one turn (scope turn) as one new revision, keeping everyone else's edits. Refused with undo.conflict, listing the items, when a later change by someone else touched the same fields.",
+        args: &[
+            PROJECT,
+            arg("scope", Json(SCOPE), "session (default) or turn"),
+            arg("turn", Str, "The turn id (default: the current turn)"),
+            cli("session", Str, "With scope any: the session whose changes to undo"),
+            cli("kind", Str, "With scope any: the session's actor kind (default mcp)"),
+        ],
+        annotations: DESTRUCTIVE,
+        surfaces: AGENTS,
+        run: timeline::undo_my_changes,
+        model: ModelText::Json,
     },
 ];

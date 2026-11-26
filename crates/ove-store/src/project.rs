@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 use ove_core::migrate::{self, Opened};
 use ove_core::model::Document;
 use ove_core::ops::Op;
-use ove_core::revision::{Clock, Prepared, RevisionRecord, Session, Source};
+use ove_core::revision::{Actor, Clock, Prepared, RevisionRecord, Session, Source};
 use ove_core::schema::Issue;
 
 use crate::bundle::BUNDLE_DIRS;
@@ -53,6 +53,9 @@ pub struct HistoryEntry {
     pub source: Source,
     pub summary: String,
     pub op_count: usize,
+    /// Who made it (none for revisions recorded before actors were).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub actor: Option<Actor>,
 }
 
 /// Result of a committed batch.
@@ -322,8 +325,20 @@ impl Project {
 
     /// Validates, durably records and commits a batch. Returns only after the record is on disk.
     pub fn apply(&mut self, ops: Vec<Op>, source: Source, summary: Option<String>) -> Result<Committed> {
+        self.apply_as(ops, source, summary, None)
+    }
+
+    /// [`Project::apply`], recording who made the revision.
+    pub fn apply_as(
+        &mut self,
+        ops: Vec<Op>,
+        source: Source,
+        summary: Option<String>,
+        actor: Option<Actor>,
+    ) -> Result<Committed> {
         self.ensure_writable()?;
-        let prepared = self.session.prepare(ops, source, summary, self.clock.as_ref())?;
+        let mut prepared = self.session.prepare(ops, source, summary, self.clock.as_ref())?;
+        prepared.record.actor = actor;
         self.commit_prepared(prepared)
     }
 
@@ -449,9 +464,15 @@ impl Project {
                 source: r.source,
                 summary: r.summary,
                 op_count: r.ops.len(),
+                actor: r.actor,
             });
         }
         Ok(out)
+    }
+
+    /// Retained revision records up to the current revision, oldest first.
+    pub fn records(&self) -> Result<Vec<RevisionRecord>> {
+        self.records.keys().filter(|r| **r <= self.rev()).map(|r| read_record(&self.bundle, *r)).collect()
     }
 
     /// The latest revision record, if any is retained.

@@ -10,6 +10,7 @@
 pub mod app;
 pub mod bundle;
 pub mod ctx;
+pub mod edits;
 pub mod fail;
 pub mod receipt;
 pub mod registry;

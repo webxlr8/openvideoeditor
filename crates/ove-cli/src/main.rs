@@ -106,8 +106,22 @@ enum Cmd {
     Verify { project: String },
     /// List revisions, oldest first.
     History { project: String },
-    /// Revert the latest revision, or return to revision REV, as a new revision.
-    Undo { project: String, rev: Option<i64> },
+    /// Revert the latest revision, or return to revision REV, as a new revision. With --any and --session (or
+    /// --turn), revert only that agent session's (or turn's) changes, keeping everyone else's.
+    Undo {
+        project: String,
+        rev: Option<i64>,
+        /// Undo another actor's changes: the session (and turn) named by --session / --turn.
+        #[arg(long, requires = "session")]
+        any: bool,
+        #[arg(long)]
+        session: Option<String>,
+        #[arg(long)]
+        turn: Option<String>,
+        /// The session's actor kind (mcp, assistant, cli).
+        #[arg(long)]
+        kind: Option<String>,
+    },
     /// Render the timeline to an MP4 file (H.264 + AAC). With --json, progress is printed as JSON lines.
     Export {
         project: String,
@@ -282,7 +296,22 @@ fn run(cli: &Cli, source: Source) -> Out {
         }
         Cmd::Verify { project } => ctx.tool("verify_timeline", json!({"project": project})),
         Cmd::History { project } => ctx.tool("timeline_history", json!({"project": project})),
-        Cmd::Undo { project, rev } => ctx.tool("undo_timeline", json!({"project": project, "rev": rev})),
+        Cmd::Undo { project, rev, any, session, turn, kind } => {
+            if session.is_some() || turn.is_some() {
+                if !any {
+                    return Err(Fail::new(
+                        "argument.invalid",
+                        "--session and --turn undo another actor's changes: add --any",
+                    ));
+                }
+                ctx.tool(
+                    "undo_my_changes",
+                    json!({"project": project, "scope": "any", "session": session, "turn": turn, "kind": kind}),
+                )
+            } else {
+                ctx.tool("undo_timeline", json!({"project": project, "rev": rev}))
+            }
+        }
         Cmd::Export { project, out, height, fps } => {
             ctx.tool("export_video", json!({"project": project, "out": out, "height": height, "fps": fps}))
         }

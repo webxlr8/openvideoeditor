@@ -11,7 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [read_json, apply_batch, parse_projection]
+        target: [read_json, apply_batch, parse_projection, revision_record]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@nightly

@@ -1010,6 +1010,8 @@ pub struct HistoryRow {
     pub summary: String,
     /// The project as it was before this revision can still be rebuilt (older ones may have been pruned).
     pub can_restore: bool,
+    /// The agent client that made it (an MCP client's name, such as claude-code), when recorded.
+    pub client: Option<String>,
 }
 
 /// Who a revision is attributed to, as far as its record tells.
@@ -1038,6 +1040,7 @@ pub fn history_rows(p: &Project, limit: usize) -> AppResult<Vec<HistoryRow>> {
             source: h.source.as_str().into(),
             who: who(h.source, &h.summary).into(),
             can_restore: p.is_retained(h.parent),
+            client: h.actor.as_ref().and_then(|a| a.client.clone()),
             summary: h.summary,
         })
         .collect();

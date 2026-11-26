@@ -36,6 +36,65 @@ impl Source {
     }
 }
 
+/// What kind of actor made a revision.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ActorKind {
+    /// A person in the editor.
+    #[default]
+    User,
+    /// The in-app assistant.
+    Assistant,
+    /// The `ove` command line.
+    Cli,
+    /// An agent over MCP.
+    Mcp,
+    Template,
+    Generation,
+    /// A kind written by a newer build.
+    #[serde(other)]
+    Other,
+}
+
+impl ActorKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ActorKind::User => "user",
+            ActorKind::Assistant => "assistant",
+            ActorKind::Cli => "cli",
+            ActorKind::Mcp => "mcp",
+            ActorKind::Template => "template",
+            ActorKind::Generation => "generation",
+            ActorKind::Other => "other",
+        }
+    }
+}
+
+/// Who made a revision: the kind, and the session, turn and client name when known.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Actor {
+    #[serde(default)]
+    pub kind: ActorKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client: Option<String>,
+}
+
+impl Actor {
+    pub fn new(kind: ActorKind) -> Actor {
+        Actor { kind, ..Actor::default() }
+    }
+
+    /// True when both name the same session (and the same kind of actor).
+    pub fn same_session(&self, other: &Actor) -> bool {
+        self.kind == other.kind && self.session.is_some() && self.session == other.session
+    }
+}
+
 /// One committed batch, as stored in `.revs/<rev>.json`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -48,6 +107,9 @@ pub struct RevisionRecord {
     pub summary: String,
     pub ops: Vec<Op>,
     pub inverse: Vec<Op>,
+    /// Who made it. Records written before actors were recorded have none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actor: Option<Actor>,
 }
 
 /// Source of wall-clock time, injectable for tests.
@@ -161,6 +223,7 @@ impl Session {
                 summary,
                 ops,
                 inverse: applied.inverse,
+                actor: None,
             },
             warnings: applied.warnings,
             kind,
@@ -270,6 +333,26 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn records_without_an_actor_read_as_none_and_actors_round_trip() {
+        let old = r#"{"rev":2,"parent":1,"time":2,"source":"mcp","summary":"x","ops":[],"inverse":[]}"#;
+        let r: RevisionRecord = serde_json::from_str(old).unwrap();
+        assert_eq!(r.actor, None);
+        assert!(!serde_json::to_string(&r).unwrap().contains("actor"), "no actor is written as no field");
+        let mut r2 = r.clone();
+        r2.actor = Some(Actor {
+            kind: ActorKind::Mcp,
+            session: Some("s1".into()),
+            turn: None,
+            client: Some("claude-code".into()),
+        });
+        let text = serde_json::to_string(&r2).unwrap();
+        assert!(text.contains(r#""actor":{"kind":"mcp","session":"s1","client":"claude-code"}"#), "{text}");
+        assert_eq!(serde_json::from_str::<RevisionRecord>(&text).unwrap(), r2);
+        // A kind from a newer build still reads (the record stays readable).
+        assert_eq!(serde_json::from_str::<Actor>(r#"{"kind":"robot"}"#).unwrap().kind, ActorKind::Other);
+    }
 
     #[test]
     fn rev_is_monotonic_with_frozen_and_backwards_clock() {

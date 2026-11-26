@@ -3,7 +3,7 @@
 
 use std::path::{Path, PathBuf};
 
-use ove_core::revision::Source;
+use ove_core::revision::{Actor, ActorKind, Source};
 use ove_store::Library;
 use ove_store::project::Project;
 use serde_json::Value;
@@ -32,12 +32,25 @@ pub struct AppCtx<'a> {
     pub host: &'a mut dyn AppHost,
     pub source: Source,
     pub surface: Surface,
+    /// Recorded on every revision made here.
+    pub actor: Option<Actor>,
 }
 
 impl<'a> AppCtx<'a> {
     /// The in-app assistant's context (source `agent`).
     pub fn assistant(host: &'a mut dyn AppHost) -> AppCtx<'a> {
-        AppCtx { host, source: Source::Agent, surface: Surface::InApp }
+        AppCtx { host, source: Source::Agent, surface: Surface::InApp, actor: None }
+    }
+
+    /// The in-app assistant's context in a chat (`session`) and turn.
+    pub fn assistant_in(host: &'a mut dyn AppHost, session: &str, turn: &str) -> AppCtx<'a> {
+        let actor = Actor {
+            kind: ActorKind::Assistant,
+            session: Some(session.to_string()),
+            turn: Some(turn.to_string()),
+            client: None,
+        };
+        AppCtx { host, source: Source::Agent, surface: Surface::InApp, actor: Some(actor) }
     }
 
     fn open_bundle(&mut self) -> Result<PathBuf, Fail> {
@@ -70,6 +83,9 @@ impl ToolCtx for AppCtx<'_> {
     fn source(&self) -> Source {
         self.source
     }
+    fn actor(&self) -> Option<Actor> {
+        self.actor.clone()
+    }
     fn bundle(&mut self, project: Option<&str>) -> Result<PathBuf, Fail> {
         let mut found = None;
         self.host.with_open(false, &mut |p| {
@@ -97,8 +113,8 @@ impl ToolCtx for AppCtx<'_> {
     }
     fn edit(&mut self, bundle: &Path, f: &mut dyn FnMut(&mut dyn Editor) -> Result<(), Fail>) -> Result<(), Fail> {
         self.check(bundle)?;
-        let source = self.source;
-        self.host.with_open(true, &mut |p| f(&mut LocalEditor { project: p, source }))
+        let (source, actor) = (self.source, self.actor.clone());
+        self.host.with_open(true, &mut |p| f(&mut LocalEditor { project: p, source, actor: actor.clone() }))
     }
     fn app(&mut self, method: &str, params: Value) -> Result<Value, Fail> {
         self.host.app(method, params)

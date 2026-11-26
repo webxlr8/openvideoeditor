@@ -50,7 +50,9 @@ in seconds. Every change is one revision: the user can undo it in the app, and `
 
 Over MCP (`ove mcp`) the same steps are tools: `print_timeline`, then `apply_timeline` with text edits instead of a
 file — `{"project": "Demo", "rev": <rev from the header>, "edits": [{"oldText": "…", "newText": "…"}]}`. Each
-`oldText` must occur exactly once in the printed text; `newText: ""` deletes. `ove docs tools` lists every tool.
+`oldText` must occur exactly once in the printed text; `newText: ""` deletes. The receipt returns the new `rev` and
+the printed lines of what changed, so the next edit needs no new print. `undo_timeline` undoes only your own latest
+change; `undo_my_changes` undoes all of this session's changes. `ove docs tools` lists every tool.
 
 ## Media
 

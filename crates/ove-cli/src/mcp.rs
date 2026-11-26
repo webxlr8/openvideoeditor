@@ -5,7 +5,7 @@
 use std::io::{BufRead, Write};
 use std::path::Path;
 
-use ove_core::revision::Source;
+use ove_core::revision::{Actor, ActorKind, Source};
 use ove_tools::{LinkCtx, Surface, ToolCtx};
 use serde_json::{Map, Value, json};
 
@@ -44,6 +44,9 @@ const PROTOCOLS: [&str; 3] = ["2025-06-18", "2025-03-26", "2024-11-05"];
 /// Serves MCP on stdin/stdout until stdin closes.
 pub fn serve(library: Option<&Path>) -> std::io::Result<()> {
     let mut ctx = LinkCtx::open(library, Surface::Mcp, Source::Mcp).map_err(|f| std::io::Error::other(f.message))?;
+    // Every revision this session makes records it, so its undo touches only its own changes.
+    let session = format!("mcp-{:x}-{:x}", ove_tools::fail::now_ms(), std::process::id());
+    ctx.inner.actor = Some(Actor { kind: ActorKind::Mcp, session: Some(session), turn: None, client: None });
     let stdin = std::io::stdin();
     let mut stdout = std::io::stdout().lock();
     for line in stdin.lock().lines() {
@@ -74,6 +77,9 @@ pub fn handle(msg: &Value, ctx: &mut dyn ToolCtx) -> Option<Value> {
     let surface = ctx.surface();
     let result = match method {
         "initialize" => {
+            if let Some(name) = params.pointer("/clientInfo/name").and_then(Value::as_str) {
+                ctx.set_client(name);
+            }
             let asked = params.get("protocolVersion").and_then(Value::as_str).unwrap_or(PROTOCOLS[0]);
             let version = if PROTOCOLS.contains(&asked) { asked } else { PROTOCOLS[0] };
             Ok(json!({

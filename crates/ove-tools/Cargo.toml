@@ -30,6 +30,7 @@ graphics = ["dep:ove-graphics"]
 media = ["graphics", "dep:ove-analyze", "dep:ove-media", "dep:ove-render"]
 
 [dev-dependencies]
+proptest = "1.12"
 tempfile = "3"
 
 [lints]

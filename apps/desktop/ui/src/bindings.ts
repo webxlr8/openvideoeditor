@@ -55,7 +55,7 @@ export const commands = {
 	setTrackFlag: (id: string, flag: string, value: boolean) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("set_track_flag", { id, flag, value })),
 	undo: () => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("undo")),
 	/**  The open project's revisions, newest first (the history panel). */
-	projectHistory: () => typedError<HistoryRow[], AppError>(__TAURI_INVOKE("project_history")),
+	projectHistory: () => typedError<HistoryRow_Serialize[], AppError>(__TAURI_INVOKE("project_history")),
 	/**  "Restore to before this": one new revision with the project as it was before `rev`. */
 	restoreBefore: (rev: number | null) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("restore_before", { rev })),
 	redo: () => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("redo")),
@@ -620,7 +620,10 @@ export type FontFamily = {
 export type GenerationUpdated = string;
 
 /**  One revision in the history panel. */
-export type HistoryRow = {
+export type HistoryRow = HistoryRow_Serialize | HistoryRow_Deserialize;
+
+/**  One revision in the history panel. */
+export type HistoryRow_Deserialize = {
 	rev: number | null,
 	/**  ms since the epoch. */
 	time: number | null,
@@ -631,6 +634,24 @@ export type HistoryRow = {
 	summary: string,
 	/**  The project as it was before this revision can still be rebuilt (older ones may have been pruned). */
 	canRestore: boolean,
+	/**  The agent client that made it (an MCP client's name, such as claude-code), when recorded. */
+	client?: string | null,
+};
+
+/**  One revision in the history panel. */
+export type HistoryRow_Serialize = {
+	rev: number | null,
+	/**  ms since the epoch. */
+	time: number | null,
+	/**  The recorded source: gui, cli, mcp, agent, migration, undo, redo or restore. */
+	source: string,
+	/**  Who made it, in words: You, Assistant, Command line, MCP, Template, Generation, App update. */
+	who: string,
+	summary: string,
+	/**  The project as it was before this revision can still be rebuilt (older ones may have been pruned). */
+	canRestore: boolean,
+	/**  The agent client that made it (an MCP client's name, such as claude-code), when recorded. */
+	client: string | null,
 };
 
 export type ItemView = ItemView_Serialize | ItemView_Deserialize;
