@@ -316,7 +316,17 @@ impl Session {
                 (Some(mid), None) if mid.as_i64() == Some(id) => {
                     if let Some(e) = msg.get("error") {
                         let code = e.get("code").and_then(Value::as_i64).unwrap_or(0);
-                        let message = e.get("message").and_then(Value::as_str).unwrap_or("error").to_string();
+                        let mut message = e.get("message").and_then(Value::as_str).unwrap_or("error").to_string();
+                        // Agents put the useful part in `data` ("Internal error" alone says nothing).
+                        let details =
+                            e.pointer("/data/details").and_then(Value::as_str).map(str::to_string).or_else(|| {
+                                e.get("data")
+                                    .filter(|d| !d.is_null())
+                                    .map(|d| d.as_str().map_or(d.to_string(), str::to_string))
+                            });
+                        if let Some(d) = details.filter(|d| !d.trim().is_empty()) {
+                            message = format!("{message}: {}", d.trim().chars().take(600).collect::<String>());
+                        }
                         return Err(if code == -32000 || looks_like_sign_in(&message) {
                             AcpError::SignIn { message }
                         } else {
