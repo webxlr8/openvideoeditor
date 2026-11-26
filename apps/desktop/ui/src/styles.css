@@ -1692,6 +1692,9 @@ button.preset-card:disabled {
   position: relative;
   height: 100%;
   overflow: auto;
+  /* The vertical scrollbar comes and goes with the track count; without a reserved gutter the width changes with it,
+     Fit zoom rescales and every clip moves under the pointer (a trim grab could land on the lane instead). */
+  scrollbar-gutter: stable;
 }
 .tl-content {
   position: relative;
