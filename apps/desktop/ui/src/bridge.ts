@@ -14,6 +14,7 @@ import type {
   VersionChange,
   VersionView_Serialize,
   AgentInfo_Serialize,
+  CliStatus_Serialize,
   LibraryChoice_Serialize,
   AgentLimits_Deserialize,
   AgentLimits_Serialize,
@@ -1466,6 +1467,14 @@ function createMock(): {
   let turn: { stop: boolean; answer?: (a: string) => void } | null = null;
   // The chips of the message being sent (agentSendContext hands them to agentSend).
   let pendingMentions: MentionChip[] = [];
+  /** Whether a new terminal finds `ove` (Settings → Agents & command line). */
+  let cliOnPath = false;
+  const cliNow = (): CliStatus_Serialize => ({
+    program: "/mock/app/ove",
+    onPath: cliOnPath,
+    canInstall: true,
+    instruction: null,
+  });
   /** The library chosen in Settings (`null`: the default). */
   let chosenLibrary: string | null = null;
   const libraryNow = (): LibraryChoice_Serialize => ({
@@ -1669,6 +1678,12 @@ function createMock(): {
         libraryDir: "/mock/library",
       }),
     libraryChoice: () => ok<LibraryChoice_Serialize>(libraryNow()),
+    cliStatus: () => ok<CliStatus_Serialize>(cliNow()),
+    cliInstall: (install: boolean) => {
+      track(`cliInstall:${install}`);
+      cliOnPath = install;
+      return ok<CliStatus_Serialize>(cliNow());
+    },
     setLibrary: (path: string | null) => {
       track(`setLibrary:${path ?? "default"}`);
       if (project) return fail("invalid_argument", "Close the project to change the library.");

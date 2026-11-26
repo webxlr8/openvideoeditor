@@ -3,6 +3,7 @@
 
 import { useEffect, useState } from "react";
 import type {
+  CliStatus_Serialize,
   LibraryChoice_Serialize,
   AgentLimits_Serialize,
   AgentStatus_Serialize,
@@ -340,6 +341,10 @@ export function Settings({
   const [section, setSection] = useState<Section>(initialSection);
   const [info, setInfo] = useState<AppInfo_Serialize | null>(null);
   const [library, setLibrary] = useState<LibraryChoice_Serialize | null>(null);
+  const [cli, setCli] = useState<CliStatus_Serialize | null>(null);
+  useEffect(() => {
+    runCommand(commands.cliStatus(), setCli, onError);
+  }, [onError]);
   const [libraryNote, setLibraryNote] = useState<string | null>(null);
   useEffect(() => {
     runCommand(commands.libraryChoice(), setLibrary, onError);
@@ -623,6 +628,33 @@ export function Settings({
               configuration works in either.
             </p>
             <ConnectorsSection onError={onError} />
+            <h4>The command line in new terminals</h4>
+            <div className="set-row" data-testid="cli-row">
+              <span className="small">
+                {cli === null
+                  ? "…"
+                  : cli.onPath
+                    ? "A new terminal finds ove."
+                    : "A new terminal does not find ove yet."}
+              </span>
+              {cli?.canInstall && (
+                <button
+                  className="btn"
+                  data-testid="cli-install"
+                  onClick={() =>
+                    runCommand(commands.cliInstall(!cli.onPath), setCli, onError)
+                  }
+                >
+                  {cli.onPath ? "Remove from PATH" : "Add to PATH"}
+                </button>
+              )}
+            </div>
+            {cli?.instruction && !cli.onPath && (
+              <>
+                <p className="muted small">Run this once in Terminal:</p>
+                <Copyable text={cli.instruction} />
+              </>
+            )}
             <h4>By hand: give an agent the editing guide</h4>
             <Copyable text="ove skills install" />
             <h4>Connect the MCP server</h4>

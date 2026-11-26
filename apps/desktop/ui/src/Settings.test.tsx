@@ -16,6 +16,17 @@ beforeEach(() => {
 });
 
 describe("settings", () => {
+  it("puts the command line on the search path and takes it off again", async () => {
+    await openSettings("agents");
+    expect((await screen.findByTestId("cli-row")).textContent).toContain("does not find ove yet");
+    fireEvent.click(screen.getByTestId("cli-install"));
+    await waitFor(() => expect(screen.getByTestId("cli-row").textContent).toContain("A new terminal finds ove."));
+    expect(screen.getByTestId("cli-install").textContent).toBe("Remove from PATH");
+    fireEvent.click(screen.getByTestId("cli-install"));
+    await waitFor(() => expect(screen.getByTestId("cli-install").textContent).toBe("Add to PATH"));
+    expect(window.__oveMock!.calls).toEqual(expect.arrayContaining(["cliInstall:true", "cliInstall:false"]));
+  });
+
   it("chooses another library folder and goes back to the default", async () => {
     window.__oveMock!.libraryFolderAnswer = "D:/Projects/Video";
     await openSettings("library");
