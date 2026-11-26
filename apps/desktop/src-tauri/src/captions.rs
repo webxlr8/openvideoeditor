@@ -94,6 +94,38 @@ fn end_job() {
     *relock(job()) = None;
 }
 
+/// Ends a captions job when dropped, however its task ends (result, error, panic, or cancelled before it started):
+/// frees the job slot and sends the final `done` event.
+struct JobEnd {
+    app: AppHandle,
+    cancel: Arc<AtomicBool>,
+    end: Option<CaptionJobProgress>,
+}
+
+impl Drop for JobEnd {
+    fn drop(&mut self) {
+        let end = self.end.take().unwrap_or_else(|| {
+            if self.cancel.load(Ordering::SeqCst) {
+                finished_with(ove_transcribe::TranscribeError::Cancelled)
+            } else {
+                CaptionJobProgress {
+                    stage: "done".into(),
+                    done: true,
+                    error: Some("Captions stopped because of an internal error. Details are in the log.".into()),
+                    ..Default::default()
+                }
+            }
+        });
+        end_job();
+        let _ = end.emit(&self.app);
+    }
+}
+
+/// Memory a transcription is planned with: the model loaded, plus decoding and recognition buffers.
+fn transcription_mem(model: Model) -> u64 {
+    model.size_bytes() * 2 + 128 * 1024 * 1024
+}
+
 /// The speech models (none ship with the app; each downloads on first use).
 #[tauri::command]
 #[specta::specta]
@@ -401,13 +433,26 @@ pub async fn auto_caption(app: AppHandle, request: AutoCaptionRequest) -> AppRes
         let clips = source_clips(&doc, &bundle, &request.item_ids)?;
         let cancel = start_job()?;
         let language = request.language.clone().filter(|l| !l.is_empty() && l != "auto");
-        crate::worker::spawn_contained("captions", move || {
+        let spec = ove_tasks::TaskSpec::new(
+            "captions",
+            format!("Captions ({} clip{})", clips.len(), if clips.len() == 1 { "" } else { "s" }),
+            ove_tasks::Priority::Analysis,
+            ove_tasks::Class::Inference,
+        )
+        .project(crate::tasks::project_key(&bundle))
+        .memory(transcription_mem(model));
+        let token = ove_tasks::CancelToken::from_shared(cancel.clone());
+        let tasks = state.tasks.clone();
+        let mut finish = JobEnd { app: app.clone(), cancel: cancel.clone(), end: None };
+        tasks.submit_with(spec, token, move |ctx| {
             let started = std::time::Instant::now();
             let run = || -> Result<(usize, String), ove_transcribe::TranscribeError> {
                 let model_path = ensure(&app, model, &cancel)?;
                 let mut words = Vec::new();
                 let mut detected = String::new();
                 for (i, clip) in clips.iter().enumerate() {
+                    // Between clips: stops when cancelled, waits while background work is paused.
+                    ctx.checkpoint().map_err(|_| ove_transcribe::TranscribeError::Cancelled)?;
                     match transcript_for(
                         &app,
                         &bundle,
@@ -446,7 +491,13 @@ pub async fn auto_caption(app: AppHandle, request: AutoCaptionRequest) -> AppRes
                 }
                 Ok((n, detected))
             };
-            let end = match run() {
+            let result = run();
+            let outcome = match &result {
+                Ok(_) => Ok(()),
+                Err(ove_transcribe::TranscribeError::Cancelled) => Err(ove_tasks::TaskError::Cancelled),
+                Err(e) => Err(ove_tasks::TaskError::Failed(e.to_string())),
+            };
+            finish.end = Some(match result {
                 Ok((n, language)) => {
                     tracing::info!(captions = n, seconds = started.elapsed().as_secs_f64(), "auto captions finished");
                     CaptionJobProgress {
@@ -464,11 +515,11 @@ pub async fn auto_caption(app: AppHandle, request: AutoCaptionRequest) -> AppRes
                     tracing::warn!(error = %e, "auto captions did not finish");
                     finished_with(e)
                 }
-            };
-            end_job();
-            let _ = end.emit(&app);
-        })
-        .map_err(|e| AppError::new(ErrorCode::Internal, e.to_string()))?;
+            });
+            // `finish` drops here (or while unwinding): frees the slot and sends the final event.
+            drop(finish);
+            outcome
+        });
         Ok(())
     })
     .await

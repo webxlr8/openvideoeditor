@@ -357,6 +357,8 @@ pub struct MediaCache {
     links: HashMap<String, (String, LinkView)>,
     /// media id → thumbnail data URL (`None`: there was no thumbnail file when last looked).
     thumbs: HashMap<String, Option<String>>,
+    /// Media whose missing thumbnail was queued once already (a file that cannot be thumbnailed is not retried).
+    thumbs_queued: BTreeSet<String>,
 }
 
 impl MediaCache {
@@ -415,6 +417,10 @@ impl MediaCache {
             self.links.insert(id, (key, l));
         }
         for (id, t) in thumbs {
+            // A thumbnail task may have finished after this check looked for the file.
+            if t.is_none() && self.thumbs.get(&id).is_some_and(Option::is_some) {
+                continue;
+            }
             changed |= self.thumbs.get(&id).cloned().flatten() != t;
             self.thumbs.insert(id, t);
         }
@@ -462,22 +468,44 @@ fn refresh_once(app: &AppHandle, state: &AppState) {
         c.select(&bundle);
         c.thumbs.iter().filter(|(_, t)| t.is_some()).map(|(id, _)| id.clone()).collect()
     };
-    let links = media_status(&bundle, &doc)
+    let links: Vec<(String, String, LinkView)> = media_status(&bundle, &doc)
         .into_iter()
         .filter_map(|s| {
             let key = link_key(doc.registry.get(&s.media_id)?);
             Some((s.media_id, key, LinkView { path: s.path.display().to_string(), state: s.state }))
         })
         .collect();
-    let thumbs = doc
+    let thumbs: Vec<(String, Option<String>)> = doc
         .project
         .media
         .keys()
         .filter(|id| !have_thumb.contains(*id))
         .map(|id| (id.clone(), thumbnail_data_url(&bundle, id)))
         .collect();
+    // Thumbnails are derived data: one that is missing (a cleared cache, an older project) is made again.
+    let missing: Vec<(String, PathBuf, i64)> = {
+        let mut c = relock(&state.projects.media);
+        let online: BTreeSet<&str> =
+            links.iter().filter(|(_, _, l)| l.state == MediaState::Online).map(|(id, _, _)| id.as_str()).collect();
+        thumbs
+            .iter()
+            .filter(|(id, t)| t.is_none() && online.contains(id.as_str()))
+            .filter_map(|(id, _)| {
+                let data = doc.project.media.get(id)?.fields.get("data")?;
+                (data.get("type").and_then(Value::as_str) == Some("video")).then_some(())?;
+                let e = doc.registry.get(id)?;
+                let dur = data.get("duration").and_then(ove_core::time::json_to_micros).unwrap_or(1_000_000);
+                c.thumbs_queued
+                    .insert(id.clone())
+                    .then(|| (id.clone(), resolve_media_path(&bundle, &e.native_path), dur))
+            })
+            .collect()
+    };
     // Released before the project is locked: the lock order is project, then media cache.
     let changed = relock(&state.projects.media).store(&bundle, links, thumbs);
+    if !missing.is_empty() {
+        queue_thumbnails(app, &bundle, missing);
+    }
     if changed
         && let Ok(g) = lock(&state.projects.open)
         && let Some(p) = g.as_ref().filter(|p| p.bundle() == bundle)
@@ -756,12 +784,14 @@ struct Probed {
     entry: Value,
     id: String,
     name: String,
+    path: PathBuf,
     duration_us: i64,
     video: bool,
 }
 
-/// Probes files, registers their records and makes thumbnails. Slow (decoding), so it runs outside the project's
-/// turn: edits made meanwhile are not held up.
+/// Probes files (as interactive background tasks, several at once) and builds their records. Thumbnails come later,
+/// as derivative tasks, once the files are in the project ([`queue_thumbnails`]). Runs outside the project's turn:
+/// edits made meanwhile are not held up.
 fn probe_paths(state: &AppState, paths: &[String], now: i64) -> AppResult<(PathBuf, Vec<Probed>, Vec<String>)> {
     let bundle = {
         let g = lock(&state.projects.open)?;
@@ -769,38 +799,74 @@ fn probe_paths(state: &AppState, paths: &[String], now: i64) -> AppResult<(PathB
             g.as_ref().ok_or_else(|| AppError::new(ErrorCode::InvalidArgument, "Open or create a project first."))?;
         p.bundle().to_path_buf()
     };
+    let project = crate::tasks::project_key(&bundle);
+    let (probed, errors) = probed_records(crate::tasks::probe_all(&state.tasks, &project, paths), now);
+    for f in probed.iter().filter(|f| !f.video) {
+        relock(&state.projects.media).put_thumbnail(&bundle, &f.id, None);
+    }
+    Ok((bundle, probed, errors))
+}
+
+/// Records for every file that probed, and the error text of every one that did not.
+fn probed_records(
+    results: Vec<(PathBuf, Result<ove_media::MediaInfo, String>)>,
+    now: i64,
+) -> (Vec<Probed>, Vec<String>) {
     let mut probed = Vec::new();
     let mut errors = Vec::new();
-    for (n, path) in paths.iter().enumerate() {
-        let pb = PathBuf::from(path);
-        let canonical = dunce::canonicalize(&pb).unwrap_or(pb.clone());
-        let name = canonical.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-        if let Err(e) = crate::engine::precheck(&canonical) {
-            errors.push(e.message);
-            continue;
-        }
-        let info = match ove_media::probe(&canonical) {
+    for (n, (canonical, result)) in results.into_iter().enumerate() {
+        let info = match result {
             Ok(i) => i,
             Err(e) => {
-                errors.push(format!("“{name}” can't be read: {e}."));
+                errors.push(e);
                 continue;
             }
         };
+        let name = canonical.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
         let id = format!("m_{:x}_{n}", now);
         let (media, entry, duration_us) = media_records(&canonical, &info, &id, now);
-        if info.video.is_some() {
-            let out = thumbs_dir(&bundle).join(format!("{id}.png"));
-            if make_thumbnail(&canonical, &out, duration_us).is_none() {
-                tracing::warn!(path, "no thumbnail");
-            }
-            // Read once here; views reuse it.
-            relock(&state.projects.media).put_thumbnail(&bundle, &id, thumbnail_data_url(&bundle, &id));
-        } else {
-            relock(&state.projects.media).put_thumbnail(&bundle, &id, None);
-        }
-        probed.push(Probed { media, entry, id, name, duration_us, video: info.video.is_some() });
+        probed.push(Probed { media, entry, id, name, path: canonical, duration_us, video: info.video.is_some() });
     }
-    Ok((bundle, probed, errors))
+    (probed, errors)
+}
+
+/// Queues a thumbnail task for each video file; each finished thumbnail shows in the media panel (views go out at
+/// most four times a second while thumbnails arrive).
+fn queue_thumbnails(app: &AppHandle, bundle: &Path, files: Vec<(String, PathBuf, i64)>) {
+    let state = app.state::<AppState>();
+    let project = crate::tasks::project_key(bundle);
+    for (id, source, duration_us) in files {
+        let out = thumbs_dir(bundle).join(format!("{id}.png"));
+        let (a, b) = (app.clone(), bundle.to_path_buf());
+        crate::tasks::queue_thumbnail(&state.tasks, &project, source, out, duration_us, move |made| {
+            let state = a.state::<AppState>();
+            let url = if made { thumbnail_data_url(&b, &id) } else { None };
+            relock(&state.projects.media).put_thumbnail(&b, &id, url);
+            emit_view_soon(&a);
+        });
+    }
+}
+
+/// Sends the open project's view shortly, once for a burst of changes (thumbnails arriving).
+fn emit_view_soon(app: &AppHandle) {
+    static PENDING: AtomicBool = AtomicBool::new(false);
+    if PENDING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let a = app.clone();
+    let spawned = std::thread::Builder::new().name("view-soon".into()).spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(250));
+        PENDING.store(false, Ordering::SeqCst);
+        let state = a.state::<AppState>();
+        if let Ok(g) = lock(&state.projects.open)
+            && let Some(p) = g.as_ref()
+        {
+            let _ = ProjectChanged(Some(cached_view(&a, &state, p))).emit(&a);
+        }
+    });
+    if spawned.is_err() {
+        PENDING.store(false, Ordering::SeqCst);
+    }
 }
 
 /// Appends probed files to the Main track (audio-only files to the Audio track) as one revision.
@@ -817,7 +883,20 @@ fn add_probed(
     if p.bundle() != bundle {
         return Err(AppError::new(ErrorCode::InvalidArgument, "The project changed while the files were read."));
     }
-    let doc = p.doc();
+    let ops = import_ops(p.doc(), probed, now);
+    let count = ops.len() / 2;
+    let summary = format!(
+        "{}import {count} file{}",
+        if source == Source::Agent { "assistant: " } else { "" },
+        if count == 1 { "" } else { "s" }
+    );
+    let p = commit_as(&mut g, ops, &summary, source)?;
+    emit_view(app, Some(p)).ok_or_else(|| AppError::new(ErrorCode::Internal, "No project is open."))
+}
+
+/// The ops that add probed files: each file's media record and a clip at the end of the Main track (audio-only
+/// files on the Audio track).
+fn import_ops(doc: &ove_core::Document, probed: Vec<Probed>, now: i64) -> Vec<Op> {
     let known: BTreeSet<&str> = doc.registry.values().map(|e| e.native_path.as_str()).collect();
     let track_end = |track: &str| doc.items_on_track(track).iter().map(|i| i.end).max().unwrap_or(0);
     let (mut main_end, mut audio_end) = (track_end("t_main"), track_end("t_audio"));
@@ -840,14 +919,7 @@ fn add_probed(
                 "name": f.name, "mediaItemId": f.id}),
         });
     }
-    let count = ops.len() / 2;
-    let summary = format!(
-        "{}import {count} file{}",
-        if source == Source::Agent { "assistant: " } else { "" },
-        if count == 1 { "" } else { "s" }
-    );
-    let p = commit_as(&mut g, ops, &summary, source)?;
-    emit_view(app, Some(p)).ok_or_else(|| AppError::new(ErrorCode::Internal, "No project is open."))
+    ops
 }
 
 #[tauri::command]
@@ -862,8 +934,12 @@ pub(crate) async fn import_paths(app: AppHandle, paths: Vec<String>, source: Sou
     let a = app.clone();
     let (bundle, probed, errors) =
         worker::blocking("import_media", move || probe_paths(&a.state::<AppState>(), &paths, now)).await?;
-    let v =
-        serial(&app, "import_media", move |app, state| add_probed(app, state, &bundle, probed, now, source)).await?;
+    let thumbs: Vec<(String, PathBuf, i64)> =
+        probed.iter().filter(|f| f.video).map(|f| (f.id.clone(), f.path.clone(), f.duration_us)).collect();
+    let b = bundle.clone();
+    let v = serial(&app, "import_media", move |app, state| add_probed(app, state, &b, probed, now, source)).await?;
+    // The files are listed now; thumbnails follow as their tasks finish.
+    queue_thumbnails(&app, &bundle, thumbs);
     if !errors.is_empty() {
         let _ = crate::AppErrorRaised(AppError::new(ErrorCode::Unsupported, errors.join(" "))).emit(&app);
     }
@@ -1115,6 +1191,61 @@ pub async fn redo(app: AppHandle) -> AppResult<ProjectView> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Import of 200 files: probes run as tasks and the files go into the project as one revision before any
+    /// thumbnail exists; thumbnails then appear as their tasks finish.
+    #[test]
+    fn large_import_lists_every_file_at_once_and_thumbnails_follow() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = crate::tasks::testing::video(dir.path(), "source.mp4");
+        let media = dir.path().join("media");
+        std::fs::create_dir_all(&media).unwrap();
+        let paths: Vec<String> = (0..200)
+            .map(|i| {
+                let p = media.join(format!("clip_{i:03}.mp4"));
+                std::fs::copy(&source, &p).unwrap();
+                p.display().to_string()
+            })
+            .collect();
+        let bundle = dir.path().join("Import.ove");
+        let tasks = crate::tasks::testing::scheduler();
+        let project = crate::tasks::project_key(&bundle);
+
+        let t = std::time::Instant::now();
+        let (probed, errors) = probed_records(crate::tasks::probe_all(&tasks, &project, &paths), 1);
+        let probe_time = t.elapsed();
+        assert!(errors.is_empty(), "{errors:?}");
+        assert_eq!(probed.len(), 200);
+        let thumbs: Vec<(String, PathBuf, i64)> =
+            probed.iter().filter(|f| f.video).map(|f| (f.id.clone(), f.path.clone(), f.duration_us)).collect();
+        let empty = ove_core::Document::new("p", "Import", 1);
+        let doc = ove_core::ops::apply_batch(&empty, &default_tracks()).unwrap().doc;
+        let ops = import_ops(&doc, probed, 1);
+        let after = ove_core::ops::apply_batch(&doc, &ops).unwrap().doc;
+        assert_eq!(after.project.media.len(), 200, "every file listed in one revision");
+        assert_eq!(after.items_on_track("t_main").len(), 200);
+        let list_time = t.elapsed();
+        assert!(!thumbs_dir(&bundle).exists(), "listed before any thumbnail exists");
+
+        let made = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        for (id, src, dur) in thumbs {
+            let m = made.clone();
+            let out = thumbs_dir(&bundle).join(format!("{id}.png"));
+            crate::tasks::queue_thumbnail(&tasks, &project, src, out, dur, move |ok| {
+                assert!(ok);
+                m.fetch_add(1, Ordering::SeqCst);
+            });
+        }
+        let first = made.load(Ordering::SeqCst);
+        let w = tasks.wait(&ove_tasks::TaskFilter::default(), std::time::Duration::from_secs(120));
+        assert!(w.done, "{w:?}");
+        let thumb_time = t.elapsed() - list_time;
+        assert!(first < 200, "thumbnails arrive after the list, as tasks finish ({first} were ready at once)");
+        assert_eq!(made.load(Ordering::SeqCst), 200);
+        let files = std::fs::read_dir(thumbs_dir(&bundle)).unwrap().count();
+        assert_eq!(files, 200, "one PNG per file and no part files left");
+        println!("200-file import: probes {probe_time:?}, listed at {list_time:?}, thumbnails took {thumb_time:?}");
+    }
 
     fn open_project(lib: &Library) -> Projects {
         let mut p = lib.create("Trip").unwrap();

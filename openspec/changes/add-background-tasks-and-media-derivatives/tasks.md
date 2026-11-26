@@ -15,10 +15,13 @@
 
 ## 2. Existing jobs onto the scheduler
 
-- [ ] 2.1 Move import probe and thumbnails to P1/P2 tasks; import returns before they finish; verify a 200-file import
+- [x] 2.1 Move import probe and thumbnails to P1/P2 tasks; import returns before they finish; verify a 200-file import
       test lists all files at once and fills thumbnails as tasks complete.
-- [ ] 2.2 Move caption jobs to P3 tasks with unchanged results and errors; verify the existing caption tests pass.
-- [ ] 2.3 Move export to a P0 task with the watchdog bypass; verify the existing export tests pass and a fault-injected
+      (Probes run as P1 tasks, four at a time, and import waits for them because a clip's length decides where it
+      goes; import returns before thumbnails, which are P2 tasks. Missing thumbnails are queued again on open.
+      `projects::tests::large_import_lists_every_file_at_once_and_thumbnails_follow`.)
+- [x] 2.2 Move caption jobs to P3 tasks with unchanged results and errors; verify the existing caption tests pass.
+- [x] 2.3 Move export to a P0 task with the watchdog bypass; verify the existing export tests pass and a fault-injected
       stalled queue still starts the export within 5 s.
 
 ## 3. Content identity

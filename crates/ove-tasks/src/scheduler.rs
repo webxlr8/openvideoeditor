@@ -215,6 +215,17 @@ impl Scheduler {
         spec: TaskSpec,
         job: impl FnOnce(&TaskCtx) -> Result<(), TaskError> + Send + 'static,
     ) -> TaskId {
+        self.submit_with(spec, CancelToken::new(), job)
+    }
+
+    /// Like [`Scheduler::submit`], with a cancel token the caller keeps (for jobs that already have their own cancel
+    /// button). Cancelling the token cancels the task; cancelling the task sets the token.
+    pub fn submit_with(
+        &self,
+        spec: TaskSpec,
+        cancel: CancelToken,
+        job: impl FnOnce(&TaskCtx) -> Result<(), TaskError> + Send + 'static,
+    ) -> TaskId {
         let inner = &self.inner;
         let (id, watchdog, slot) = {
             let mut st = inner.lock();
@@ -227,8 +238,7 @@ impl Scheduler {
             let id = st.next_id;
             st.next_id += 1;
             st.seq += 1;
-            let slot =
-                Arc::new(Slot { claimed: AtomicBool::new(false), cancel: CancelToken::new(), job: Mutex::new(None) });
+            let slot = Arc::new(Slot { claimed: AtomicBool::new(false), cancel, job: Mutex::new(None) });
             *relock(&slot.job) = Some(Box::new(job));
             let entry = Entry {
                 priority: spec.priority,
@@ -269,19 +279,23 @@ impl Scheduler {
     /// checkpoint. Returns false when the task is unknown or already finished.
     pub fn cancel(&self, id: TaskId) -> bool {
         let inner = &self.inner;
-        let found = {
+        let dropped = {
             let mut st = inner.lock();
             let Some(e) = st.tasks.get(&id) else { return false };
             e.slot.cancel.cancel();
+            let mut dropped = None;
             if e.phase == Phase::Queued
                 && e.slot.claimed.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_ok()
             {
+                dropped = relock(&e.slot.job).take();
                 inner.finish_locked(&mut st, id, Err(TaskError::Cancelled));
             }
-            true
+            dropped
         };
+        // The job never ran; whatever it owns is released outside the lock.
+        drop(dropped);
         inner.cv.notify_all();
-        found
+        true
     }
 
     /// Cancels every unfinished task matching `filter`; returns how many.
@@ -548,6 +562,27 @@ fn dispatch(weak: Weak<Inner>) {
         let mut st = inner.lock();
         if st.shutdown {
             return;
+        }
+        // Queued tasks whose own token was cancelled end without running.
+        let mut dropped: Vec<Job> = vec![];
+        let cancelled: Vec<TaskId> = st
+            .tasks
+            .iter()
+            .filter(|(_, e)| e.phase == Phase::Queued && e.slot.cancel.is_cancelled())
+            .map(|(&id, _)| id)
+            .collect();
+        for id in cancelled {
+            let Some(e) = st.tasks.get(&id) else { continue };
+            if e.slot.claimed.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
+                dropped.extend(relock(&e.slot.job).take());
+                inner.finish_locked(&mut st, id, Err(TaskError::Cancelled));
+            }
+        }
+        if !dropped.is_empty() {
+            drop(st);
+            drop(dropped);
+            inner.cv.notify_all();
+            continue;
         }
         let mut resumed = false;
         while !st.stalled {

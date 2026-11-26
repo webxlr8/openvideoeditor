@@ -4124,6 +4124,7 @@ dependencies = [
  "ove-playback",
  "ove-render",
  "ove-store",
+ "ove-tasks",
  "ove-transcribe",
  "png",
  "raw-window-handle",

@@ -101,3 +101,29 @@ opened in an older build ignore the new field (unknown fields round-trip).
 
 (Filled in during apply: export start latency under load, dropped frames during 4K playback with indexing running,
 cancel latency, skim first-tile latency, proxy encode speed, idle RAM with an empty queue — both reference machines.)
+
+Scheduler core, measured by `cargo test -p ove-tasks` on the Windows 11 x64 development machine (debug build, test
+profile). These are unit-level numbers with test tasks that check in every 5–10 ms; the built-app numbers on the
+reference machines are still open (tasks 7.1–7.3).
+
+| Measure | Result | Target |
+|---|---|---|
+| Cancel of a running task to its finished state | 2.8 ms | ≤ 200 ms |
+| Playback pause to the task reported paused | 1.5 ms | ≤ 200 ms |
+| Export start while an analysis task holds the only decode slot | 4.8 ms | ≤ 1 s |
+| Export start through the watchdog with a stalled queue (300 ms watchdog in the test, 5 s in the app) | ≈ 300 ms | watchdog + margin |
+| Progress events from a task reporting every millisecond for 1 s | 4–5 | ≤ 4 per second (+ the first) |
+| Analysis task under continuous interactive load (simulated clock) | starts at 600 s | ≤ 10 min |
+
+Existing jobs on the scheduler, measured by `cargo test -p ove-desktop` on the same machine (160×90 test clips made by
+our own exporter):
+
+| Measure | Result |
+|---|---|
+| 200-file import: all probes (P1 tasks, 4 at a time) | 145 ms |
+| 200-file import: every file in the document (one revision) | 147 ms after start, before any thumbnail |
+| 200-file import: all 200 thumbnails (P2 tasks, 2 decode sessions) | 2.3 s after the list |
+| Export with a stalled queue, 5 s watchdog | done after 5.14 s, marked as bypassed |
+
+Import waits for its probes: a clip's length decides where it goes on the timeline, and probes are quick. Probes carry
+a 2 s watchdog so a paused or busy queue never holds an import up. Thumbnails are not awaited.

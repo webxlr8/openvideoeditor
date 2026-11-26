@@ -21,6 +21,7 @@ pub mod projects;
 pub mod sample;
 pub mod scripted_dialogs;
 pub mod support;
+pub mod tasks;
 pub mod timeline;
 pub mod transport;
 pub mod viewer;
@@ -83,6 +84,8 @@ pub struct AppState {
     pub ui_ready: AtomicBool,
     pub gpu_summary: Arc<Mutex<Option<String>>>,
     pub log_dir: Option<PathBuf>,
+    /// Background work: probes, thumbnails, captions, export.
+    pub tasks: ove_tasks::Scheduler,
 }
 
 impl AppState {
@@ -549,6 +552,8 @@ pub fn run() -> ExitCode {
             let engine = engine::spawn(handle.clone(), viewer_tx.clone())?;
 
             app.manage(stream);
+            let background = tasks::new_scheduler();
+            tasks::follow_playback(&handle, &background);
             app.manage(AppState {
                 engine,
                 projects: projects::Projects::default(),
@@ -561,6 +566,7 @@ pub fn run() -> ExitCode {
                 ui_ready: AtomicBool::new(false),
                 gpu_summary,
                 log_dir,
+                tasks: background,
             });
 
             // The command line / MCP server reach the app through the control link.

@@ -32,6 +32,11 @@ impl CancelToken {
         &self.0
     }
 
+    /// A token over an existing flag (a job's own cancel button keeps working).
+    pub fn from_shared(flag: Arc<AtomicBool>) -> Self {
+        CancelToken(flag)
+    }
+
     /// The shared flag, for code that keeps an `Arc<AtomicBool>`.
     pub fn shared(&self) -> Arc<AtomicBool> {
         self.0.clone()

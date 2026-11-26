@@ -378,3 +378,25 @@ fn dropping_the_scheduler_cancels_running_work() {
     drop(s);
     within(Duration::from_secs(1), || stopped.load(Ordering::SeqCst) == 1).expect("the task stopped");
 }
+
+#[test]
+fn a_callers_token_cancels_a_queued_task_without_running_it() {
+    let s = scheduler_with(|l| l.decode = 1);
+    let blocker = s.submit(spec("index", Priority::Analysis, Class::Decode), steps(2000));
+    let token = ove_tasks::CancelToken::new();
+    let ran = Arc::new(AtomicUsize::new(0));
+    let r = ran.clone();
+    let id = s.submit_with(spec("export", Priority::Derivative, Class::Decode), token.clone(), move |_| {
+        r.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    });
+    token.cancel();
+    assert_eq!(s.wait_task(id, Duration::from_secs(2)).unwrap().state, TaskState::Cancelled);
+    assert_eq!(ran.load(Ordering::SeqCst), 0);
+    // Cancelling the task sets the caller's token too.
+    let token2 = ove_tasks::CancelToken::new();
+    let id2 = s.submit_with(spec("export", Priority::Derivative, Class::Decode), token2.clone(), |_| Ok(()));
+    s.cancel(id2);
+    assert!(token2.is_cancelled());
+    s.cancel(blocker);
+}
