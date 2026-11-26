@@ -137,6 +137,8 @@ pub struct ViewerHooks {
 
 struct ViewerThread {
     renderer: Option<ViewerRenderer>,
+    /// The device has been opened (or failed to open); see [`ViewerThread::ensure_renderer`].
+    gpu_tried: bool,
     seek_started: Arc<Mutex<Option<Instant>>>,
     surface: Option<ViewerSurface>,
     rect: ViewerRect,
@@ -158,20 +160,19 @@ pub fn spawn(
     gpu_ready: Sender<String>,
 ) -> std::io::Result<std::thread::JoinHandle<()>> {
     std::thread::Builder::new().name("viewer".into()).spawn(move || {
-        let renderer = match GpuContext::new(GpuOptions { allow_software: true }) {
-            Ok(ctx) => {
-                let summary = ctx.summary().to_string();
+        // Only the adapter here, for the startup log and diagnostics; the device opens with the first frame
+        // (`ensure_renderer`), so screens without video do not hold it.
+        let gpu_tried = match GpuContext::probe(GpuOptions { allow_software: true }) {
+            Ok(summary) => {
+                let summary = summary.to_string();
                 let _ = gpu_ready.send(summary.clone());
-                {
-                    let mut s = relock(&stats);
-                    s.gpu_adapter = Some(summary);
-                }
-                Some(ViewerRenderer::new(ctx))
+                relock(&stats).gpu_adapter = Some(summary);
+                false
             }
             Err(e) => {
                 tracing::error!("GPU unavailable, viewer uses the CPU fallback: {e}");
                 let _ = gpu_ready.send(format!("none ({e})"));
-                None
+                true
             }
         };
         {
@@ -179,7 +180,8 @@ pub fn spawn(
             s.backend = Some(ViewerBackend::Stream);
         }
         let mut t = ViewerThread {
-            renderer,
+            renderer: None,
+            gpu_tried,
             seek_started,
             surface: None,
             rect: ViewerRect::hidden(),
@@ -205,6 +207,7 @@ impl ViewerThread {
     fn handle(&mut self, msg: ViewerMsg) {
         match msg {
             ViewerMsg::Frame(frame) => {
+                self.ensure_renderer();
                 if let Some(r) = self.renderer.as_mut()
                     && let Err(e) = r.recover_if_lost(None).and_then(|_| r.upload(&frame))
                 {
@@ -240,7 +243,26 @@ impl ViewerThread {
         }
     }
 
+    /// Opens the GPU device on first use. With a discrete GPU on Windows the device holds about 250 MB of private
+    /// memory, so Home and the other screens without video do without it. Tried once: after a failure the viewer
+    /// stays on the CPU fallback.
+    fn ensure_renderer(&mut self) {
+        if self.gpu_tried {
+            return;
+        }
+        self.gpu_tried = true;
+        let started = Instant::now();
+        match GpuContext::new(GpuOptions { allow_software: true }) {
+            Ok(ctx) => {
+                self.renderer = Some(ViewerRenderer::new(ctx));
+                tracing::info!(elapsed_ms = started.elapsed().as_millis() as u64, "viewer GPU device opened");
+            }
+            Err(e) => tracing::error!("GPU unavailable, viewer uses the CPU fallback: {e}"),
+        }
+    }
+
     fn attach(&mut self, target: SendTarget, backend: ViewerBackend) {
+        self.ensure_renderer();
         let Some(renderer) = &self.renderer else {
             tracing::warn!("no GPU: native layer not used, staying on the stream presenter");
             (self.hooks.on_backend)(ViewerBackend::Stream);
@@ -322,8 +344,13 @@ impl ViewerThread {
                     }
                     Err(e) => tracing::warn!("stream render failed: {e}"),
                 }
-            } else if let Some(frame) = &self.last_frame {
-                let rgba = ove_gpu::cpu::compose_letterboxed(frame, w, h, [0, 0, 0, 255]);
+            } else {
+                // No GPU device yet (it opens with the first frame) or none at all: the CPU letterbox, or black at the
+                // viewer's size until there is a frame, as the GPU path presents it.
+                let rgba = match &self.last_frame {
+                    Some(frame) => ove_gpu::cpu::compose_letterboxed(frame, w, h, [0, 0, 0, 255]),
+                    None => [0u8, 0, 0, 255].repeat(w as usize * h as usize),
+                };
                 let seq = self.stream.publish(w, h, rgba);
                 published = Some((seq, w, h));
             }

@@ -72,6 +72,37 @@ pub struct GpuContext {
     pub generation: u64,
 }
 
+/// A hardware adapter (high performance), else the software one when `options` allow it.
+fn select_adapter(
+    instance: &wgpu::Instance,
+    surface: Option<&wgpu::Surface<'_>>,
+    options: &GpuOptions,
+) -> Result<wgpu::Adapter, GpuError> {
+    let request = |force_fallback_adapter| {
+        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::HighPerformance,
+            force_fallback_adapter,
+            compatible_surface: surface,
+            ..Default::default()
+        }))
+    };
+    match request(false) {
+        Ok(a) => Ok(a),
+        Err(e) if options.allow_software => request(true).map_err(|e2| GpuError::NoAdapter(format!("{e}; {e2}"))),
+        Err(e) => Err(GpuError::NoAdapter(e.to_string())),
+    }
+}
+
+fn summary_of(adapter: &wgpu::Adapter) -> AdapterSummary {
+    let info = adapter.get_info();
+    AdapterSummary {
+        name: info.name,
+        backend: format!("{:?}", info.backend),
+        device_type: format!("{:?}", info.device_type),
+        driver: if info.driver_info.is_empty() { info.driver } else { info.driver_info },
+    }
+}
+
 impl GpuContext {
     /// Opens the GPU, preferring a hardware adapter.
     pub fn new(options: GpuOptions) -> Result<Self, GpuError> {
@@ -106,21 +137,7 @@ impl GpuContext {
         options: GpuOptions,
         generation: u64,
     ) -> Result<Self, GpuError> {
-        let request = |force_fallback_adapter| {
-            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::HighPerformance,
-                force_fallback_adapter,
-                compatible_surface: surface,
-                ..Default::default()
-            }))
-        };
-        let adapter = match request(false) {
-            Ok(a) => a,
-            Err(e) if options.allow_software => {
-                request(true).map_err(|e2| GpuError::NoAdapter(format!("{e}; {e2}")))?
-            }
-            Err(e) => return Err(GpuError::NoAdapter(e.to_string())),
-        };
+        let adapter = select_adapter(&instance, surface, &options)?;
         Self::with_adapter(instance, adapter, options, generation)
     }
 
@@ -156,13 +173,17 @@ impl GpuContext {
     }
 
     pub fn summary(&self) -> AdapterSummary {
-        let info = self.adapter.get_info();
-        AdapterSummary {
-            name: info.name,
-            backend: format!("{:?}", info.backend),
-            device_type: format!("{:?}", info.device_type),
-            driver: if info.driver_info.is_empty() { info.driver } else { info.driver_info },
-        }
+        summary_of(&self.adapter)
+    }
+
+    /// The adapter [`GpuContext::new`] would open, without creating a device. Much cheaper: on Windows with an NVIDIA
+    /// driver the device costs about 100 MB of working set and 250 MB of private memory, the adapter about 50 MB.
+    pub fn probe(options: GpuOptions) -> Result<AdapterSummary, GpuError> {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: backends(),
+            ..wgpu::InstanceDescriptor::new_without_display_handle()
+        });
+        select_adapter(&instance, None, &options).map(|a| summary_of(&a))
     }
 
     pub fn is_lost(&self) -> bool {
