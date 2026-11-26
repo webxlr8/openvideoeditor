@@ -2,6 +2,7 @@
 // project the native side holds (through the UI's own bridge), files in the bundle, files written by exports.
 // The first flow is the exception: it starts where a new person does, on the welcome.
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -639,6 +640,15 @@ export const FLOWS = [
       const words = caps.map((c) => c.text ?? "").join(" ").toLowerCase();
       assert.match(words, /welcome|captions|computer|video/, `recognised words: ${words}`);
       await app.waitFor(async () => (await app.count('[data-testid="clip"].kind-caption')) === caps.length, "caption items on the timeline");
+      // The transcript the assistants read: through the command line and the running app (the pinned MCP server's
+      // `transcript` tool runs the same command), from the transcript the captions left in the project.
+      const out = execFileSync(ctx.ove, ["--library", ctx.library, "--json", "media", "transcript", "Captions E2E", "speech.wav"], {
+        encoding: "utf8",
+        env: process.env,
+      });
+      const said = JSON.parse(out).text.toLowerCase();
+      assert.match(said, /^speech\.wav \(/, said);
+      assert.match(said, /\d+\.\d\d-\d+\.\d\d: .*(welcome|captions|computer|video)/, said);
     },
   },
 

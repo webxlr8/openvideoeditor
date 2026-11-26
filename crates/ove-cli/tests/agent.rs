@@ -274,7 +274,9 @@ fn a_pinned_session_sees_and_edits_one_project_only() {
 
     let tools = m.request("tools/list", json!({}))["result"]["tools"].as_array().unwrap().clone();
     let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
-    for n in ["print_timeline", "apply_timeline", "look", "grab_frame", "measure_loudness", "detect_silence"] {
+    for n in
+        ["print_timeline", "apply_timeline", "look", "grab_frame", "measure_loudness", "detect_silence", "transcript"]
+    {
         assert!(names.contains(&n), "{n} is offered");
     }
     for n in [
@@ -323,6 +325,9 @@ fn a_pinned_session_sees_and_edits_one_project_only() {
     let r = m.call("measure_loudness", json!({"media": "../secret.mp4"}));
     assert_eq!(r["structuredContent"]["error"]["code"], "media.notInProject", "{r}");
 
+    // The transcript comes from the app (it has the speech models).
+    let r = m.call("transcript", json!({"media": "nothing"}));
+    assert_eq!(r["isError"], true, "{r}");
     // A turn's edits go through the app; with the app not running nothing is written to the bundle.
     let text = printed["structuredContent"]["text"].as_str().unwrap().replacen("name=\"Title\"", "name=\"T2\"", 1);
     let r = m.call("apply_timeline", json!({ "source": text }));

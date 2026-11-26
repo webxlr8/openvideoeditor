@@ -416,7 +416,11 @@ impl ToolHost for DesktopHost {
     fn see(&mut self, req: &ove_agent::tools::SeeRequest) -> Result<ove_agent::tools::ToolOut, String> {
         // A copy of the document: decoding and rendering must not hold the project while the editor works.
         let (doc, bundle) = self.with_project(|p| Ok((p.doc().clone(), p.bundle().to_path_buf())), false)?;
-        crate::seeing::see(&doc, &bundle, req)
+        let env = crate::seeing::SeeEnv {
+            models_dir: Some(ove_transcribe::models::model_dir(&crate::captions::data_dir(&self.app))),
+            cancel: Some(self.cancel.clone()),
+        };
+        crate::seeing::see_with(&doc, &bundle, req, &env)
     }
     fn seek_viewer(&mut self, seconds: f64) -> Result<String, String> {
         let _ = AgentUiEvent::Seek { seconds }.emit(&self.app);

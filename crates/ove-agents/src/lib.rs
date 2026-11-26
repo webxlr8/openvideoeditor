@@ -44,6 +44,7 @@ pub const APP_TOOLS: &[&str] = &[
     "waveform_image",
     "detect_silence",
     "measure_loudness",
+    "transcript",
     "look",
     "app_context",
     "seek",

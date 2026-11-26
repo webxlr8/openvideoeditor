@@ -56,6 +56,18 @@ pub enum MediaCmd {
     },
     /// Container, streams, codecs, duration and frame rate of a media item or any file.
     Probe { project: String, media: String },
+    /// What is said in a media item, as timed sentences (needs the app, which has the speech models, with the project
+    /// open).
+    Transcript {
+        project: String,
+        media: String,
+        /// Start in seconds of the source.
+        #[arg(long, default_value_t = 0.0)]
+        from: f64,
+        /// End in seconds of the source (default: the end).
+        #[arg(long)]
+        to: Option<f64>,
+    },
     /// Decode one frame to a PNG.
     Grab {
         project: String,
@@ -490,6 +502,12 @@ pub fn run(ctx: &Ctx, cmd: &MediaCmd) -> Out {
             )
         }
         MediaCmd::Scenes { project, media, threshold } => crate::analyze::scenes(ctx, project, media, *threshold),
+        MediaCmd::Transcript { project, media, from, to } => {
+            let bundle = ctx.find(project)?;
+            let v = ctx.app("transcript", json!({"bundle": bundle, "media": media, "from": from, "to": to}))?;
+            let text = v.get("text").and_then(Value::as_str).unwrap_or_default().to_string();
+            Ok((json!({"text": text}), text))
+        }
         MediaCmd::Probe { project, media } => {
             let file = media_or_file(ctx, project, media)?;
             let v = probe_json(&file)?;

@@ -156,6 +156,8 @@ const ctx = {
   log,
   work,
   library,
+  /** The command line next to the app (the in-app chat's MCP server). */
+  ove: path.join(path.dirname(APP), exe("ove")),
   dialogs,
   media,
   out: OUT,

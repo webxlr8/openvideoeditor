@@ -3,6 +3,8 @@
 //! server gives a local agent; media is named within the project only, never by a path.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use ove_agent::tools::{MAX_IMAGE, SeeRequest, ToolOut};
 use ove_core::Document;
@@ -43,9 +45,68 @@ fn err(e: ove_analyze::Error) -> String {
     e.to_string()
 }
 
+/// What a seeing request may use besides the project: where speech models are, and the turn's Stop.
+#[derive(Default, Clone)]
+pub struct SeeEnv {
+    pub models_dir: Option<PathBuf>,
+    pub cancel: Option<Arc<AtomicBool>>,
+}
+
+/// Most lines a transcript answer holds; the rest is asked for with `from`.
+const TRANSCRIPT_LINES: usize = 300;
+
+/// The cached transcript of `file`, or one made now with an installed speech model (the largest one).
+fn transcript_of(bundle: &Path, file: &Path, env: &SeeEnv) -> Result<ove_transcribe::Transcript, String> {
+    if let Some(t) = ove_transcribe::cache::load_any(bundle, file) {
+        return Ok(t);
+    }
+    use ove_transcribe::models::{self, Model};
+    let dir = env.models_dir.as_deref().ok_or("No speech model is available here.")?;
+    let model = [Model::Small, Model::Base, Model::Tiny].into_iter().find(|m| models::is_installed(dir, *m)).ok_or(
+        "No speech model is installed yet. Ask the person to make captions once (Captions panel), which downloads one.",
+    )?;
+    let opts = ove_transcribe::Options { model_name: model.id().into(), ..Default::default() };
+    let cancel = env.cancel.clone().unwrap_or_default();
+    let t = ove_transcribe::transcribe_file(&models::model_path(dir, model), file, &opts, |_| {}, cancel)
+        .map_err(|e| format!("Transcribing failed: {e}"))?;
+    ove_transcribe::cache::store(bundle, &ove_transcribe::cache::key(file, model.id(), None), &t);
+    Ok(t)
+}
+
+/// Timed sentences of `t` between `from` and `to` seconds, at most [`TRANSCRIPT_LINES`].
+fn transcript_text(media: &str, t: &ove_transcribe::Transcript, from: f64, to: Option<f64>) -> String {
+    let (lo, hi) = ((from * 1e6) as i64, to.map_or(i64::MAX, |t| (t * 1e6) as i64));
+    let words: Vec<_> = t.words.iter().filter(|w| w.end_us > lo && w.start_us < hi).cloned().collect();
+    let segs =
+        ove_transcribe::segment(&words, &ove_transcribe::SegmentOptions { max_chars: 120, ..Default::default() });
+    let mut lines: Vec<String> = segs
+        .iter()
+        .take(TRANSCRIPT_LINES)
+        .map(|s| format!("{:.2}-{:.2}: {}", s.start_us as f64 / 1e6, s.end_us as f64 / 1e6, s.text.trim()))
+        .collect();
+    if segs.len() > TRANSCRIPT_LINES {
+        let next = segs[TRANSCRIPT_LINES].start_us as f64 / 1e6;
+        lines.push(format!("(more: call transcript again with from={next:.2})"));
+    }
+    if lines.is_empty() {
+        lines.push("(no speech in this range)".into());
+    }
+    format!("{media} ({}, {} words in all):\n{}", t.language, t.words.len(), lines.join("\n"))
+}
+
 /// Answers one seeing request over the project `doc` in `bundle`.
 pub fn see(doc: &Document, bundle: &Path, req: &SeeRequest) -> Result<ToolOut, String> {
+    see_with(doc, bundle, req, &SeeEnv::default())
+}
+
+/// [`see`], with speech models and Stop for the transcript.
+pub fn see_with(doc: &Document, bundle: &Path, req: &SeeRequest, env: &SeeEnv) -> Result<ToolOut, String> {
     match req {
+        SeeRequest::Transcript { media, from, to } => {
+            let file = media_file(doc, bundle, media)?;
+            let t = transcript_of(bundle, &file, env)?;
+            Ok(ToolOut { text: transcript_text(media, &t, *from, *to), images: vec![] })
+        }
         SeeRequest::Look { times, count, width, stats } => {
             let times = if times.is_empty() { ove_analyze::timeline_times(doc, *count, None) } else { times.clone() };
             if times.is_empty() {
@@ -132,6 +193,42 @@ mod tests {
         assert!(img.width.max(img.height) <= MAX_IMAGE, "{}x{}", img.width, img.height);
         let v: serde_json::Value = serde_json::from_str(&out.text).unwrap();
         assert!(v["frames"][0]["stats"].is_object(), "{v}");
+    }
+
+    #[test]
+    fn transcripts_read_as_timed_sentences_in_a_range() {
+        let w = |text: &str, s: f64, e: f64| ove_transcribe::Word {
+            text: text.into(),
+            start_us: (s * 1e6) as i64,
+            end_us: (e * 1e6) as i64,
+            confidence: 0.9,
+        };
+        let t = ove_transcribe::Transcript {
+            language: "en".into(),
+            model: "base".into(),
+            words: vec![w("Hello", 0.5, 0.9), w("there.", 0.9, 1.3), w("Second", 5.0, 5.4), w("take.", 5.4, 5.9)],
+            duration_us: 6_000_000,
+        };
+        let all = transcript_text("interview", &t, 0.0, None);
+        assert!(all.contains("0.50-1.30: Hello there."), "{all}");
+        assert!(all.contains("5.00-5.90: Second take."), "{all}");
+        let later = transcript_text("interview", &t, 4.0, None);
+        assert!(!later.contains("Hello") && later.contains("Second"), "{later}");
+        assert!(transcript_text("interview", &t, 2.0, Some(3.0)).contains("(no speech in this range)"));
+    }
+
+    #[test]
+    fn a_transcript_needs_a_cached_one_or_a_model() {
+        let (d, p) = project();
+        let e = see_with(
+            p.doc(),
+            p.bundle(),
+            &SeeRequest::Transcript { media: "nothing".into(), from: 0.0, to: None },
+            &SeeEnv::default(),
+        )
+        .unwrap_err();
+        assert!(e.contains("No media"), "{e}");
+        let _ = d;
     }
 
     #[test]

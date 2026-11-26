@@ -29,6 +29,8 @@ pub enum SeeRequest {
     Silence { media: String, threshold_db: f64, min_seconds: f64 },
     /// Integrated loudness (LUFS), range and true peak of a media item.
     Loudness { media: String },
+    /// What is said in a media item, as timed sentences between `from` and `to` seconds of the source.
+    Transcript { media: String, from: f64, to: Option<f64> },
 }
 
 /// What a tool returns: text for the model and, for seeing tools, pictures (PNG).
@@ -204,6 +206,15 @@ pub fn definitions() -> Vec<Value> {
             }, "required": ["media"], "additionalProperties": false}
         }),
         json!({
+            "name": "transcript",
+            "description": "What is said in a media item of the project, as timed sentences (source seconds). Use it to find the takes, quotes and pauses to cut. Transcribes on this computer the first time (it can take a while); later calls are instant.",
+            "input_schema": {"type": "object", "properties": {
+                "media": {"type": "string"},
+                "from": {"type": "number", "minimum": 0, "description": "Start in seconds of the source (default 0)."},
+                "to": {"type": "number", "exclusiveMinimum": 0, "description": "End in seconds of the source (default: the end)."}
+            }, "required": ["media"], "additionalProperties": false}
+        }),
+        json!({
             "name": "ask_user",
             "description": "Ask the user a question when a choice is genuinely theirs (style, which take, what to cut). Offer 2-4 short options when you can. Blocks until they answer.",
             "input_schema": {"type": "object", "properties": {
@@ -228,6 +239,7 @@ pub fn label(name: &str, input: &Value) -> String {
         "look" => "Looking at the timeline".into(),
         "grab_frame" | "filmstrip" => "Looking at a clip".into(),
         "audio_levels" | "detect_silence" | "measure_loudness" => "Listening to a clip".into(),
+        "transcript" => "Reading what is said".into(),
         "print_timeline" => "Reading the timeline".into(),
         "apply_timeline" => {
             let n = input["edits"].as_array().map(|a| a.len()).unwrap_or(0);
@@ -342,6 +354,15 @@ pub fn dispatch_full(host: &mut dyn ToolHost, tool_use_id: &str, name: &str, inp
         "measure_loudness" => {
             only_keys(input, &["media"])?;
             Some(SeeRequest::Loudness { media: media_arg(input)? })
+        }
+        "transcript" => {
+            only_keys(input, &["media", "from", "to"])?;
+            let from = num_arg(input, "from", 0.0, |t| t >= 0.0)?;
+            let to = match input.get("to") {
+                None | Some(Value::Null) => None,
+                Some(_) => Some(num_arg(input, "to", 0.0, |t| t > from)?),
+            };
+            Some(SeeRequest::Transcript { media: media_arg(input)?, from, to })
         }
         _ => None,
     };

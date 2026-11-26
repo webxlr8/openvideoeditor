@@ -204,6 +204,19 @@ pub static TOOLS: &[Tool] = &[
         images: None,
     },
     Tool {
+        name: "transcript",
+        about: "What is said in a media item of the project, as timed sentences (source seconds). Needs the app open on the project; transcribes on this computer the first time.",
+        read_only: true,
+        cmd: &["media", "transcript"],
+        args: &[
+            PROJECT,
+            pos("media", Kind::Str, "Media id or file name"),
+            flag("from", Kind::Num, "--from", "Start in seconds of the source (default 0)"),
+            flag("to", Kind::Num, "--to", "End in seconds of the source (default: the end)"),
+        ],
+        images: None,
+    },
+    Tool {
         name: "grab_frame",
         about: "Decode one frame of a media item or file; returns it as an image.",
         read_only: true,

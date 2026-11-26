@@ -182,6 +182,28 @@ fn handle(app: &AppHandle, method: &str, params: Value) -> Result<Value, ove_con
                 None => json!({"rev": null}),
             })
         }
+        // What is said in a media item of the open project (`ove media transcript`, the pinned MCP server's
+        // `transcript`): the app has the speech models.
+        "transcript" => {
+            let media =
+                params.get("media").and_then(Value::as_str).ok_or_else(|| refusal("argument.missing", "media"))?;
+            let from = params.get("from").and_then(Value::as_f64).unwrap_or(0.0);
+            let to = params.get("to").and_then(Value::as_f64);
+            let state = app.state::<AppState>();
+            let (doc, bundle) = {
+                let mut g = lock(&state.projects.open).map_err(|e| refusal("app.busy", e.message))?;
+                let p = check_open(g.as_mut(), &params)?;
+                (p.doc().clone(), p.bundle().to_path_buf())
+            };
+            let env = crate::seeing::SeeEnv {
+                models_dir: Some(ove_transcribe::models::model_dir(&crate::captions::data_dir(app))),
+                cancel: None,
+            };
+            let req = ove_agent::tools::SeeRequest::Transcript { media: media.into(), from, to };
+            let out =
+                crate::seeing::see_with(&doc, &bundle, &req, &env).map_err(|e| refusal("transcript.failed", e))?;
+            Ok(json!({"text": out.text}))
+        }
         other => Err(refusal("method.unknown", format!("unknown method {other}"))),
     }
 }

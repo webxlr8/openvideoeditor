@@ -46,6 +46,28 @@ pub fn load(bundle: &Path, key: &str) -> Option<Transcript> {
     serde_json::from_slice(&std::fs::read(path(bundle, key)).ok()?).ok()
 }
 
+/// A cached transcript of `media` made with any model and language (the largest model first, then the newest file).
+pub fn load_any(bundle: &Path, media: &Path) -> Option<Transcript> {
+    let id = key(media, "", None);
+    let id = id.split('-').next()?.to_string();
+    let dir = bundle.join("cache").join("transcripts");
+    let rank =
+        |name: &str| ["small", "base", "tiny"].iter().position(|m| name.contains(&format!("-{m}-"))).unwrap_or(3);
+    let mut found: Vec<(usize, std::time::SystemTime, PathBuf)> = std::fs::read_dir(&dir)
+        .ok()?
+        .flatten()
+        .filter_map(|e| {
+            let name = e.file_name().to_string_lossy().to_string();
+            (name.starts_with(&format!("{id}-")) && name.ends_with(".json")).then(|| {
+                let modified = e.metadata().and_then(|m| m.modified()).unwrap_or(std::time::UNIX_EPOCH);
+                (rank(&name), modified, e.path())
+            })
+        })
+        .collect();
+    found.sort_by(|a, b| a.0.cmp(&b.0).then(b.1.cmp(&a.1)));
+    found.iter().find_map(|(_, _, p)| serde_json::from_slice(&std::fs::read(p).ok()?).ok())
+}
+
 pub fn store(bundle: &Path, key: &str, t: &Transcript) {
     let p = path(bundle, key);
     if let Some(dir) = p.parent() {
@@ -60,6 +82,21 @@ pub fn store(bundle: &Path, key: &str, t: &Transcript) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn any_cached_transcript_of_a_file_is_found_largest_model_first() {
+        let d = tempfile::tempdir().unwrap();
+        let media = d.path().join("clip.wav");
+        std::fs::write(&media, b"RIFF").unwrap();
+        let other = d.path().join("other.wav");
+        std::fs::write(&other, b"RIFFF").unwrap();
+        let t = |model: &str| Transcript { language: "en".into(), model: model.into(), words: vec![], duration_us: 1 };
+        assert!(load_any(d.path(), &media).is_none());
+        store(d.path(), &key(&media, "tiny", None), &t("tiny"));
+        store(d.path(), &key(&media, "base", Some("en")), &t("base"));
+        store(d.path(), &key(&other, "small", None), &t("small"));
+        assert_eq!(load_any(d.path(), &media).unwrap().model, "base", "base before tiny; another file's ignored");
+    }
 
     #[test]
     fn identity_is_a_fixed_function_of_its_inputs() {
