@@ -144,6 +144,13 @@ export const commands = {
 	 *  may overlap a neighbour (an overlap plays as a crossfade).
 	 */
 	trimItem: (id: string, edge: string, time: number | null, linked: boolean | null) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("trim_item", { id, edge, time, linked })),
+	/**
+	 *  Applies one edit verb (an `ove-edit` request as JSON: `{"op": "rippleDelete", "items": ["…"]}`, times in seconds)
+	 *  as one revision. A refusal is the error and changes nothing.
+	 */
+	editPlan: (request: string) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("edit_plan", { request })),
+	/**  Plans an edit verb without applying it (no revision): what a drag would do while it is held. */
+	editPreview: (request: string) => typedError<EditPreview_Serialize, AppError>(__TAURI_INVOKE("edit_preview", { request })),
 	/**  Adds a track. Video/caption/adjustment/layout tracks go on top, audio tracks at the bottom. */
 	addTrack: (kind: string, name: string) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("add_track", { kind, name })),
 	renameTrack: (id: string, name: string) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("rename_track", { id, name })),
@@ -553,6 +560,44 @@ export type Diagnostics_Serialize = {
 	audioAvailable: boolean,
 };
 
+/**
+ *  What an edit would do, without doing it: the items it adds or changes at their new place (for ghost
+ *  rendering), the items it removes, the items that stopped at a limit, or why it would be refused.
+ */
+export type EditPreview = EditPreview_Serialize | EditPreview_Deserialize;
+
+/**
+ *  What an edit would do, without doing it: the items it adds or changes at their new place (for ghost
+ *  rendering), the items it removes, the items that stopped at a limit, or why it would be refused.
+ */
+export type EditPreview_Deserialize = {
+	summary: string,
+	ghosts: Ghost[],
+	removed: string[],
+	limited: string[],
+	refusal?: EditRefusal | null,
+};
+
+/**
+ *  What an edit would do, without doing it: the items it adds or changes at their new place (for ghost
+ *  rendering), the items it removes, the items that stopped at a limit, or why it would be refused.
+ */
+export type EditPreview_Serialize = {
+	summary: string,
+	ghosts: Ghost[],
+	removed: string[],
+	limited: string[],
+	refusal: EditRefusal | null,
+};
+
+/**  Why an edit would be refused. */
+export type EditRefusal = {
+	code: string,
+	/**  Items to outline. */
+	culprits: string[],
+	message: string,
+};
+
 /**  Machine-readable error category. The UI switches on this; `message` is shown to the user. */
 export type ErrorCode = "not_found" | "unsupported" | "corrupt" | "media_offline" | "no_media" | "invalid_argument" | "worker_panic" | "gpu" | "io" | "internal";
 
@@ -630,6 +675,14 @@ export type FontFamily = {
 
 /**  A job changed (started, finished, failed). Payload: the job as JSON. */
 export type GenerationUpdated = string;
+
+/**  An item where an edit would put it. */
+export type Ghost = {
+	id: string,
+	trackId: string,
+	start: number | null,
+	end: number | null,
+};
 
 /**  One revision in the history panel. */
 export type HistoryRow = {

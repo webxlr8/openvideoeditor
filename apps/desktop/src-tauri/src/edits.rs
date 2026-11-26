@@ -8,9 +8,10 @@ use ove_core::Item;
 use ove_core::ops::Op;
 use ove_core::time::{Micros, json_to_micros, micros_to_json, secs_to_micros};
 use ove_store::project::Project;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
-use tauri::AppHandle;
+use specta::Type;
+use tauri::{AppHandle, Manager};
 
 use crate::AppState;
 use crate::error::{AppError, AppResult, ErrorCode};
@@ -269,6 +270,93 @@ pub(crate) fn plan_and_apply(app: &AppHandle, state: &AppState, req: ove_edit::R
     crate::projects::emit_view(app, Some(p)).ok_or_else(|| AppError::new(ErrorCode::Internal, "No project is open."))
 }
 
+fn parse_request(json: &str) -> AppResult<ove_edit::Request> {
+    parse(json, "the edit request")
+}
+
+/// Applies one edit verb (an `ove-edit` request as JSON: `{"op": "rippleDelete", "items": ["…"]}`, times in seconds)
+/// as one revision. A refusal is the error and changes nothing.
+#[tauri::command]
+#[specta::specta]
+pub async fn edit_plan(app: AppHandle, request: String) -> AppResult<ProjectView> {
+    let req = parse_request(&request)?;
+    serial(&app, "edit_plan", move |app, state| plan_and_apply(app, state, req)).await
+}
+
+/// An item where an edit would put it.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct Ghost {
+    pub id: String,
+    pub track_id: String,
+    pub start: f64,
+    pub end: f64,
+}
+
+/// Why an edit would be refused.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct EditRefusal {
+    pub code: String,
+    /// Items to outline.
+    pub culprits: Vec<String>,
+    pub message: String,
+}
+
+/// What an edit would do, without doing it: the items it adds or changes at their new place (for ghost
+/// rendering), the items it removes, the items that stopped at a limit, or why it would be refused.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct EditPreview {
+    pub summary: String,
+    pub ghosts: Vec<Ghost>,
+    pub removed: Vec<String>,
+    pub limited: Vec<String>,
+    pub refusal: Option<EditRefusal>,
+}
+
+/// Plans an edit verb without applying it (no revision): what a drag would do while it is held.
+#[tauri::command]
+#[specta::specta]
+pub async fn edit_preview(app: AppHandle, request: String) -> AppResult<EditPreview> {
+    let req = parse_request(&request)?;
+    crate::worker::blocking("edit_preview", move || {
+        let state = app.state::<AppState>();
+        with_project(&state, |p| Ok(preview(p.doc(), &req)))
+    })
+    .await
+}
+
+/// The preview of a request on a document.
+pub fn preview(doc: &ove_core::Document, req: &ove_edit::Request) -> EditPreview {
+    let secs = |us: Micros| us as f64 / 1e6;
+    match ove_edit::plan_with(doc, req, &mut new_item_id) {
+        Err(r) => EditPreview {
+            summary: String::new(),
+            ghosts: vec![],
+            removed: vec![],
+            limited: vec![],
+            refusal: Some(EditRefusal { code: r.code, culprits: r.culprits, message: r.message }),
+        },
+        Ok(plan) => {
+            let mut ghosts = Vec::new();
+            let mut removed = Vec::new();
+            for id in &plan.touched {
+                match plan.result.item(id) {
+                    Some(it) => ghosts.push(Ghost {
+                        id: id.clone(),
+                        track_id: it.track_id.clone(),
+                        start: secs(it.start),
+                        end: secs(it.end),
+                    }),
+                    None => removed.push(id.clone()),
+                }
+            }
+            EditPreview { summary: plan.summary, ghosts, removed, limited: plan.limited, refusal: None }
+        }
+    }
+}
+
 /// Trims an item's start or end edge to `time` (seconds on the timeline), keeping the source in sync and within the
 /// source. Linked items trim with it unless `linked` is false (Alt in the timeline: a J or L cut). The trimmed edge
 /// may overlap a neighbour (an overlap plays as a crossfade).
@@ -357,6 +445,36 @@ mod tests {
     use super::*;
     use ove_core::revision::Source;
     use ove_store::Library;
+
+    #[test]
+    fn preview_shows_where_items_go_and_changes_nothing() {
+        let mut d = ove_core::Document::new("p", "Preview", 1);
+        d = ove_core::ops::apply_batch(
+            &d,
+            &[
+                Op::AddTrack { track: json!({"id": "v", "name": "V", "order": 0, "type": "video"}) },
+                Op::AddTrack { track: json!({"id": "a", "name": "A", "order": 1, "type": "audio"}) },
+                Op::AddItem {
+                    item: json!({"id": "x", "trackId": "v", "type": "text", "startTime": 0, "endTime": 2, "link": "L"}),
+                },
+                Op::AddItem {
+                    item: json!({"id": "y", "trackId": "a", "type": "text", "startTime": 0, "endTime": 2, "link": "L"}),
+                },
+            ],
+        )
+        .unwrap()
+        .doc;
+        let before = d.clone();
+        let req: ove_edit::Request = serde_json::from_value(json!({"op": "move", "item": "x", "start": 3})).unwrap();
+        let p = preview(&d, &req);
+        assert!(p.refusal.is_none());
+        let mut ghosts: Vec<(String, f64)> = p.ghosts.iter().map(|g| (g.id.clone(), g.start)).collect();
+        ghosts.sort_by(|a, b| a.0.cmp(&b.0));
+        assert_eq!(ghosts, vec![("x".to_string(), 3.0), ("y".to_string(), 3.0)]);
+        assert_eq!(d, before);
+        let req: ove_edit::Request = serde_json::from_value(json!({"op": "split", "items": ["x"], "at": 9})).unwrap();
+        assert_eq!(preview(&d, &req).refusal.unwrap().code, "edit.outside");
+    }
 
     #[test]
     fn copies_get_their_own_link_group() {

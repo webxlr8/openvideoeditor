@@ -198,3 +198,13 @@ Measured on the Windows 11 x64 development machine (not a reference machine), 20
 - The assistant's own `edit_timeline` tool is not added here: the assistant's tool table is being replaced by the
   shared tool registry (`unify-agent-tool-layer`), which can register this verb from `ove-edit` directly.
 
+**Group 5, Tauri commands and ghosts (5.1).**
+- `edit_plan(request)` applies any planner request (JSON, as on the CLI) as one revision; `edit_preview(request)`
+  plans it on a worker thread and returns ghosts (the touched items at their new place), removed ids, limited ids,
+  or the refusal (code, culprits, message), with no revision. Desktop test
+  `preview_shows_where_items_go_and_changes_nothing`.
+- While a linked clip is dragged, the timeline asks for a preview of the move (the latest answer wins; Alt previews
+  the unlinked move) and draws its partners' new places as dashed ghosts. UI test: dragging a linked video shows a
+  ghost on the Audio lane for its partner, the project revision is unchanged during the drag, and the ghost goes on
+  release.
+

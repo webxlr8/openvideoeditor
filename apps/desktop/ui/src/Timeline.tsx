@@ -3,7 +3,7 @@
 // Snapping to the playhead and clip edges is on by default. Every gesture commits one revision on release.
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { ItemView_Serialize, ProjectView_Serialize } from "./bindings";
+import type { Ghost, ItemView_Serialize, ProjectView_Serialize } from "./bindings";
 import { commands } from "./bridge";
 import { type EditResult, TIMELINE_FPS, addItems, firstTrack, linkDrift, trackAccepts, updateItem, updateItems, snapToFrame } from "./edit";
 import { Icon, type IconName } from "./icons";
@@ -55,6 +55,9 @@ export function Timeline(props: TimelineProps) {
   const rows = useRef<HTMLDivElement>(null);
   const [viewW, setViewW] = useState(1000);
   const [drag, setDrag] = useState<Drag | null>(null);
+  // Where the planner would put the items a drag also moves (link partners), shown as ghosts while the drag is held.
+  const [ghosts, setGhosts] = useState<Ghost[]>([]);
+  const previewSeq = useRef(0);
   const [menu, setMenu] = useState<{ at: { x: number; y: number }; items: MenuItem[] } | null>(null);
   const items = project?.items ?? [];
   const tracks = project?.tracks ?? [];
@@ -149,12 +152,26 @@ export function Timeline(props: TimelineProps) {
       if (Math.abs(dx) > 3 || Math.abs(dy) > 6) {
         last = { kind: "move", id: item.id, dx, dy, ids: group };
         setDrag(last);
+        if (group.length === 1 && item.link) {
+          // Ask the planner what the move does to the link group; the latest answer wins.
+          const seq = ++previewSeq.current;
+          const start = snapToFrame((item.start ?? 0) + dx / pps);
+          const request = { op: "move", item: item.id, start, linked: !ev.altKey, crossfade: true };
+          commands.editPreview(JSON.stringify(request)).then(
+            (r) => {
+              if (seq === previewSeq.current && r.status === "ok") setGhosts(r.data.ghosts.filter((g) => g.id !== item.id));
+            },
+            () => undefined, // A failed preview only means no ghost.
+          );
+        }
       }
     };
     const up = (ev: PointerEvent) => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
       setDrag(null);
+      previewSeq.current++;
+      setGhosts([]);
       if (!last) return;
       const raw = (item.start ?? 0) + (ev.clientX - x0) / pps;
       // Snap the start, or the end if that is closer to a snap point.
@@ -316,6 +333,17 @@ export function Timeline(props: TimelineProps) {
                   onPointerDown={(e) => (e.target === e.currentTarget && e.button === 0 ? seekAt(e.clientX) : undefined)}
                   onContextMenu={(e) => laneMenu(e, t.id, t.kind)}
                 >
+                  {ghosts
+                    .filter((g) => g.trackId === t.id)
+                    .map((g) => (
+                      <div
+                        key={`ghost-${g.id}`}
+                        className="clip-ghost"
+                        data-testid="ghost"
+                        data-id={g.id}
+                        style={{ left: x(g.start ?? 0), width: Math.max(4, x((g.end ?? 0) - (g.start ?? 0))) }}
+                      />
+                    ))}
                   {items
                     .filter((i) => i.trackId === t.id)
                     .map((i) => {

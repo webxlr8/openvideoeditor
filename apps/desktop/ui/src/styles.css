@@ -1760,6 +1760,15 @@ button.preset-card:disabled {
   font-style: normal;
   color: #ffd84d;
 }
+.clip-ghost {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  border: 1px dashed rgba(255, 255, 255, 0.7);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  pointer-events: none;
+}
 .clip .link-badge {
   position: absolute;
   right: 4px;

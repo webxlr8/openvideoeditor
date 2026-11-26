@@ -33,3 +33,37 @@ describe("linked items", () => {
     expect(chip.closest("[data-testid=clip]")?.getAttribute("data-id")).toBe("la");
   });
 });
+
+describe("edit preview", () => {
+  it("shows where a dragged clip's linked partner goes, and the preview makes no revision", async () => {
+    await editor();
+    await act(async () => {
+      await commands.addItems(
+        JSON.stringify([
+          { id: "pv", trackId: "t_overlay", type: "video", startTime: 0, endTime: 4, link: "P" },
+          { id: "pa", trackId: "t_audio", type: "audio", startTime: 0, endTime: 4, link: "P" },
+        ]),
+        "add pair",
+      );
+    });
+    const clip = await waitFor(() => screen.getAllByTestId("clip").find((c) => c.getAttribute("data-id") === "pv")!);
+    const before = await commands.projectView();
+    fireEvent.pointerDown(clip, { button: 0, clientX: 300, clientY: 100 });
+    await act(async () => {
+      window.dispatchEvent(new MouseEvent("pointermove", { clientX: 360, clientY: 100 }));
+    });
+    const ghost = await waitFor(() => {
+      const g = screen.getAllByTestId("ghost");
+      expect(g.map((x) => x.getAttribute("data-id"))).toEqual(["pa"]);
+      return g[0];
+    });
+    expect(ghost.closest("[data-testid='lane-Audio']")).not.toBeNull();
+    expect(window.__oveMock!.calls).toContain("editPreview");
+    const now = await commands.projectView();
+    expect(now.status === "ok" && now.data?.rev).toBe(before.status === "ok" && before.data?.rev);
+    await act(async () => {
+      window.dispatchEvent(new MouseEvent("pointerup", { clientX: 360, clientY: 100 }));
+    });
+    await waitFor(() => expect(screen.queryAllByTestId("ghost").length).toBe(0));
+  });
+});

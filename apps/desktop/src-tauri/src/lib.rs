@@ -170,6 +170,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             edits::duplicate_items,
             edits::paste_items,
             edits::trim_item,
+            edits::edit_plan,
+            edits::edit_preview,
             edits::add_track,
             edits::rename_track,
             edits::reorder_tracks,

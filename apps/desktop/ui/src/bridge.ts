@@ -1490,6 +1490,27 @@ function createMock(): {
             }),
           );
       }),
+    editPreview: (request: string) => {
+      track("editPreview");
+      // The mock plans moves only: the item and (unless `linked` is false) its link partners shift together.
+      const r = JSON.parse(request) as { op: string; item?: string; start?: number; linked?: boolean };
+      const i = r.op === "move" && r.item ? findItem(r.item) : undefined;
+      if (!i || !project) return ok({ summary: "", ghosts: [], removed: [], limited: [], refusal: null });
+      const delta = Math.max(0, r.start ?? 0) - (i.start ?? 0);
+      const moved = project.items.filter((o) => o.id === i.id || (r.linked !== false && i.link && o.link === i.link));
+      return ok({
+        summary: `move ${i.id}`,
+        ghosts: moved.map((o) => ({ id: o.id, trackId: o.trackId, start: (o.start ?? 0) + delta, end: (o.end ?? 0) + delta })),
+        removed: [],
+        limited: [],
+        refusal: null,
+      });
+    },
+    editPlan: (request: string) => {
+      const r = JSON.parse(request) as { op: string; item?: string; start?: number; track?: string; linked?: boolean };
+      if (r.op !== "move" || !r.item) return fail("invalid_argument", `the mock does not plan ${r.op}`);
+      return commands.moveItem(r.item, r.start ?? 0, r.track ?? null, r.linked ?? null);
+    },
     trimItem: (id: string, edge: string, time: number | null, _linked: boolean | null) =>
       editProject("trim", () => {
         const i = mock(id);

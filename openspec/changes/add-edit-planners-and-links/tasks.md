@@ -46,7 +46,7 @@
 
 ## 5. Surfaces
 
-- [ ] 5.1 Tauri `edit_plan` and `edit_preview` commands with ghost rendering of previews; verify a UI test shows the
+- [x] 5.1 Tauri `edit_plan` and `edit_preview` commands with ghost rendering of previews; verify a UI test shows the
       ghost and that preview creates no revision.
 - [ ] 5.2 Tool modes (V, B, T), range in/out, new default keys in the keymap, all rebindable; verify UI tests for each
       key and mode.
