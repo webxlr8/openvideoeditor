@@ -54,7 +54,7 @@
       100 ms on the reference machines (record numbers in Results).
 - [ ] 5.4 `ove edit <verb>` with `--json` and `--dry-run`, MCP and assistant `edit_timeline`; verify CLI integration
       tests for success, refusal and stale-rev rebase paths, and an MCP contract test.
-- [ ] 5.5 Document `ove edit` in `docs/cli/` and the tool in `docs/spec/mcp-tools.md`; verify docs examples run in the
+- [x] 5.5 Document `ove edit` in `docs/cli/` and the tool in `docs/spec/mcp-tools.md`; verify docs examples run in the
       CLI integration tests.
 
 ## 6. Integration checks

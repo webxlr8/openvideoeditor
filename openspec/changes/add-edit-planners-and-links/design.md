@@ -182,3 +182,19 @@ Measured on the Windows 11 x64 development machine (not a reference machine), 20
   moves the audio of a pair 0.1 s at 30 fps and the chip reads `+3f` on that item.
 - The browser mock's import still adds one item per file, so the UI tests' clip counts are unchanged.
 
+**Group 5 (surfaces), CLI and MCP part.**
+- `ove edit <verb> <project>` covers every verb plus `request` (a whole JSON request), with `--json`, `--dry-run`,
+  `--unlinked`, `--crossfade` and `--rev`. With `--rev`, request times pass through the ripples since that
+  revision (`Request::rebased`), on the track the request refers to. Refusals exit 1 with `details.culprits`.
+- MCP `edit_timeline {project, request, rev, preview}` runs `ove edit request`. `preview` stands for the design's
+  `apply: false` because a boolean MCP argument can only add a flag.
+- When the running app holds the project, the CLI applies through the control link, which carries ops but not the
+  time map: such a ripple is recorded without one (a later stale projection is then merged without rebase).
+- Tests (`crates/ove-cli/tests/edit.rs`, 7): ripple delete as one revision (linked sound goes, a sync-locked track
+  follows, a track with sync lock off stays), dry run creates no revision, blocked ripple exits 1 with culprits,
+  stale `--rev` split lands where meant, every verb parses and plans, the nine examples in `docs/cli/edit.md` run
+  with their documented exit codes, and the MCP contract (listed schema, preview, apply, stale rev, refusal as a tool
+  error with culprits, source `mcp`).
+- The assistant's own `edit_timeline` tool is not added here: the assistant's tool table is being replaced by the
+  shared tool registry (`unify-agent-tool-layer`), which can register this verb from `ove-edit` directly.
+

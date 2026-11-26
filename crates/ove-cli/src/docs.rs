@@ -11,6 +11,11 @@ pub const TOPICS: &[(&str, &str, &str)] = &[
     ("agents", "How an agent edits a project with ove (start here)", include_str!("../../../docs/cli/agents.md")),
     ("timeline", "source print / check / apply, verify, history, undo", include_str!("../../../docs/cli/timeline.md")),
     (
+        "edit",
+        "edit verbs: split, trim, ripple, insert, overwrite, lift, extract, slip, slide, roll",
+        include_str!("../../../docs/cli/edit.md"),
+    ),
+    (
         "project",
         "project list / create / show / rename / duplicate / remove / open / reveal",
         include_str!("../../../docs/cli/project.md"),

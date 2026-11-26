@@ -240,6 +240,55 @@ impl Request {
     }
 }
 
+impl Request {
+    /// The request as made against an older revision, moved onto the current document: every time in it passes
+    /// through the time maps of the ripples made since (oldest first), on the track it refers to. Deltas (slip,
+    /// slide) are relative and stay. A request whose items were removed since is refused later as `item.missing`.
+    pub fn rebased(&self, doc: &Document, ripples: &[ove_core::timemap::Ripple]) -> Request {
+        if ripples.is_empty() {
+            return self.clone();
+        }
+        let track_of = |id: &str| doc.item(id).map(|i| i.track_id.clone());
+        let map = |track: Option<String>, t: Micros, end: bool| -> Micros {
+            let Some(track) = track else { return t };
+            ripples.iter().fold(t, |t, r| if end { r.map.map_end(&track, t) } else { r.map.map(&track, t) })
+        };
+        let range = |track: Option<String>, r: &Range| Range {
+            start: map(track.clone(), r.start, false),
+            end: map(track, r.end, true),
+        };
+        let first = |v: &[String]| v.first().cloned();
+        let mut out = self.clone();
+        match &mut out {
+            Request::Split { items, tracks, at, .. } => {
+                let t = first(items).and_then(|i| track_of(&i)).or_else(|| first(tracks));
+                *at = map(t, *at, false);
+            }
+            Request::Trim { item, edge, to, .. } | Request::RippleTrim { item, edge, to, .. } => {
+                *to = map(track_of(item), *to, *edge == Edge::End);
+            }
+            Request::RippleDelete { items, tracks, ranges, .. } => {
+                let t = first(tracks).or_else(|| first(items).and_then(|i| track_of(&i)));
+                for r in ranges.iter_mut() {
+                    *r = range(t.clone(), r);
+                }
+            }
+            Request::Insert { track, at, .. }
+            | Request::Overwrite { track, at, .. }
+            | Request::CloseGap { track, at } => {
+                *at = map(Some(track.clone()), *at, false);
+            }
+            Request::Lift { tracks, range: r } | Request::Extract { tracks, range: r } => {
+                *r = range(first(tracks), r);
+            }
+            Request::Roll { left, to, .. } => *to = map(track_of(left), *to, true),
+            Request::Move { item, start, .. } => *start = map(track_of(item), *start, false),
+            Request::Delete { .. } | Request::Slip { .. } | Request::Slide { .. } => {}
+        }
+        out
+    }
+}
+
 /// Plans a request with item ids from a deterministic generator seeded by the document revision.
 pub fn plan(doc: &Document, req: &Request) -> Result<Plan, Refusal> {
     let mut seed = (doc.project.rev as u64) ^ 0x2545_f491_4f6c_dd1d;

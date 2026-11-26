@@ -4063,6 +4063,7 @@ dependencies = [
  "ove-analyze",
  "ove-control",
  "ove-core",
+ "ove-edit",
  "ove-generate",
  "ove-guard",
  "ove-interchange",

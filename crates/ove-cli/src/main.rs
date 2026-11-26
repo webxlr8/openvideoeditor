@@ -10,6 +10,7 @@ mod analyze;
 mod app;
 mod common;
 mod docs;
+mod edit;
 mod generate;
 mod mcp;
 mod media;
@@ -106,6 +107,9 @@ enum Cmd {
         #[command(subcommand)]
         cmd: SourceCmd,
     },
+    /// Edit verbs: split, trim, ripple-trim, ripple-delete, delete, insert, overwrite, lift, extract, close-gap, slip,
+    /// slide, roll, move. One revision each; --dry-run prints the plan only.
+    Edit(edit::EditArgs),
     /// Report problems: overlaps, gaps, clips past their source, missing media, pending items.
     Verify { project: String },
     /// List revisions, oldest first.
@@ -382,6 +386,7 @@ fn run(cli: &Cli, source: Source) -> Out {
             };
             Ok((v, text))
         }),
+        Cmd::Edit(a) => edit::run(&ctx, a),
         Cmd::Verify { project } => {
             let p = ctx.read(project)?;
             let offline: BTreeSet<String> = media_status(p.bundle(), p.doc())
