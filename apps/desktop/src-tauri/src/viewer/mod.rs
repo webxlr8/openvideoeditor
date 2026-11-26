@@ -257,7 +257,11 @@ impl ViewerThread {
                 self.renderer = Some(ViewerRenderer::new(ctx));
                 tracing::info!(elapsed_ms = started.elapsed().as_millis() as u64, "viewer GPU device opened");
             }
-            Err(e) => tracing::error!("GPU unavailable, viewer uses the CPU fallback: {e}"),
+            Err(e) => {
+                tracing::error!("GPU unavailable, viewer uses the CPU fallback: {e}");
+                // The adapter was found at start but the device did not open: diagnostics must not show a GPU.
+                relock(&self.stats).gpu_adapter = None;
+            }
         }
     }
 
