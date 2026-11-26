@@ -42,8 +42,10 @@
       (The sheet is a JPEG, not WebP: see design.md Results. `tasks::tests::skim_sheet_tiles_and_decode_work` uses a
       60 s clip with a keyframe every 2 s made by our exporter, as the long-GOP fixture; the matrix fixtures need
       python3 and a fixture ffmpeg this machine lacks.)
-- [ ] 4.2 Serve sheets through a custom URI protocol and add hover-skim to media thumbnails; verify a UI test: no IPC
+- [x] 4.2 Serve sheets through a custom URI protocol and add hover-skim to media thumbnails; verify a UI test: no IPC
       calls while skimming and first tile ≤ 16 ms after pointer move.
+      (`ove-skim` protocol serving only `<contentId>.jpg` from the open project's `cache/skim`
+      (`tasks::protocol_tests`); `ui/src/SkimThumb.test.tsx` in jsdom. Checking it in the built app is part of 7.3.)
 
 ## 5. Proxies
 

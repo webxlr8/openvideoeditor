@@ -29,7 +29,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost ove-frame: http://ove-frame.localhost"
+      "csp": "default-src 'self'; img-src 'self' data: blob: ove-skim: http://ove-skim.localhost; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost ove-frame: http://ove-frame.localhost"
     }
   },
   "bundle": {

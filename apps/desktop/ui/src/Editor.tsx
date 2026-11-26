@@ -41,6 +41,7 @@ import { HistoryPanel } from "./HistoryPanel";
 import { type HelpActions, HelpMenu } from "./onboarding/HelpMenu";
 import { PanelHint } from "./onboarding/PanelHint";
 import { Shortcuts } from "./Shortcuts";
+import { SkimThumb } from "./SkimThumb";
 import { type SelectMode, Timeline } from "./Timeline";
 
 export const RAIL: { id: string; label: string; icon: IconName }[] = [
@@ -596,8 +597,15 @@ function SidePanel({
                 data-testid="media-card"
               >
                 <div className="media-thumb">
-                  {m.thumbnail ? (
-                    <img src={m.thumbnail} alt="" />
+                  {m.thumbnail || m.skim ? (
+                    <SkimThumb
+                      thumbnail={m.thumbnail}
+                      skim={m.skim}
+                      video={m.kind !== "audio"}
+                      onRequest={() => {
+                        commands.requestSkim(m.id).catch(() => undefined);
+                      }}
+                    />
                   ) : (
                     <Icon
                       name={m.kind === "audio" ? "audio" : "media"}

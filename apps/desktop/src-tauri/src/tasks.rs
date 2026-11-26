@@ -6,7 +6,7 @@ use std::sync::mpsc::channel;
 use std::time::Duration;
 
 use ove_tasks::{Class, Options, PauseReason, Priority, Scheduler, TaskError, TaskId, TaskSpec};
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
 
 use crate::PlaybackChanged;
@@ -181,6 +181,54 @@ pub fn queue_skim(
     })
 }
 
+/// The open project's bundle and a media item's content id.
+fn open_content_id(app: &AppHandle, media_id: &str) -> Option<(PathBuf, String)> {
+    let state = app.state::<crate::AppState>();
+    let g = crate::projects::lock(&state.projects.open).ok()?;
+    let p = g.as_ref()?;
+    let cid = p.doc().registry.get(media_id)?.fields.get("contentId")?.as_str()?.to_string();
+    Some((p.bundle().to_path_buf(), cid))
+}
+
+/// The pointer is over a media thumbnail whose skim sheet is not built yet: its task moves to interactive priority.
+/// Sent once per hover, never per pointer move.
+#[tauri::command]
+#[specta::specta]
+pub async fn request_skim(app: AppHandle, media_id: String) -> crate::error::AppResult<()> {
+    crate::worker::blocking("request_skim", move || {
+        let Some((bundle, cid)) = open_content_id(&app, &media_id) else { return Ok(()) };
+        let state = app.state::<crate::AppState>();
+        let (jpg, _) = skim_paths(&bundle, &cid);
+        if let Some(id) = state.tasks.find_key(&format!("skim:{}", jpg.display())) {
+            state.tasks.promote(id, Priority::Interactive);
+        }
+        Ok(())
+    })
+    .await
+}
+
+/// True for `<32 hex digits>.jpg`: the only names the skim protocol serves (no paths, no other files).
+fn is_sheet_name(name: &str) -> bool {
+    name.strip_suffix(".jpg").is_some_and(|id| id.len() == 32 && id.bytes().all(|b| b.is_ascii_hexdigit()))
+}
+
+/// Serves skim sheets of the open project: `ove-skim://localhost/<contentId>.jpg` (on Windows
+/// `http://ove-skim.localhost/<contentId>.jpg`). Sheets are named by content, so they are cached for good.
+pub fn skim_response(bundle: &Path, uri_path: &str) -> tauri::http::Response<Vec<u8>> {
+    let name = uri_path.trim_start_matches('/');
+    let file = is_sheet_name(name).then(|| bundle.join("cache").join("skim").join(name));
+    match file.and_then(|f| std::fs::read(f).ok()) {
+        Some(bytes) => tauri::http::Response::builder()
+            .status(200)
+            .header("Content-Type", "image/jpeg")
+            .header("Cache-Control", "max-age=31536000, immutable")
+            .header("Access-Control-Allow-Origin", "*")
+            .body(bytes)
+            .unwrap_or_default(),
+        None => tauri::http::Response::builder().status(404).body(Vec::new()).unwrap_or_default(),
+    }
+}
+
 fn file_name(p: &Path) -> String {
     p.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default()
 }
@@ -314,5 +362,28 @@ mod tests {
         let left: Vec<_> = std::fs::read_dir(jpg.parent().unwrap()).unwrap().flatten().map(|e| e.file_name()).collect();
         assert_eq!(left.len(), 2, "only c1's image and layout: {left:?}");
         assert!(json.is_file());
+    }
+}
+
+#[cfg(test)]
+mod protocol_tests {
+    use super::*;
+
+    #[test]
+    fn the_skim_protocol_serves_only_sheets() {
+        let dir = tempfile::tempdir().unwrap();
+        let skim = dir.path().join("cache/skim");
+        std::fs::create_dir_all(&skim).unwrap();
+        let id = "0123456789abcdef0123456789abcdef";
+        std::fs::write(skim.join(format!("{id}.jpg")), b"jpeg bytes").unwrap();
+        std::fs::write(dir.path().join("project.json"), b"{}").unwrap();
+        let ok = skim_response(dir.path(), &format!("/{id}.jpg"));
+        assert_eq!(ok.status(), 200);
+        assert_eq!(ok.headers()["Content-Type"], "image/jpeg");
+        assert_eq!(ok.body(), b"jpeg bytes");
+        for bad in ["/../../project.json", "/project.json", "/0123.jpg", &format!("/{id}.json"), "/"] {
+            assert_eq!(skim_response(dir.path(), bad).status(), 404, "{bad}");
+        }
+        assert_eq!(skim_response(dir.path(), "/ffffffffffffffffffffffffffffffff.jpg").status(), 404, "missing sheet");
     }
 }

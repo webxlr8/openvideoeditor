@@ -58,6 +58,13 @@ export function frameUrl(): string {
   return convertFileSrc("latest", "ove-frame");
 }
 
+/** URL of a media file's skim sheet, served from the open project's cache by the `ove-skim` protocol. */
+export function skimUrl(contentId: string): string {
+  return isTauri()
+    ? convertFileSrc(`${contentId}.jpg`, "ove-skim")
+    : `ove-skim://localhost/${contentId}.jpg`;
+}
+
 // ---------------------------------------------------------------------------------------------
 // Browser mock
 
@@ -835,6 +842,7 @@ function createMock(): {
             height: audio ? null : 1080,
             status: "online",
             thumbnail: null,
+            skim: null,
           });
           p.items.push(
             fromDetail({
@@ -1571,6 +1579,10 @@ function createMock(): {
       }, 30);
       return ok(null);
     },
+    requestSkim: async (_mediaId: string) => {
+      track("requestSkim");
+      return ok(null);
+    },
     cancelExport: () => {
       track("cancelExport");
       if (exportTimer) {
@@ -2247,6 +2259,7 @@ function createMock(): {
         height: 540,
         status: "online",
         thumbnail: null,
+        skim: null,
       });
       const clip = { trackId: "t_main", type: "video", name: "Sample clip", mediaItemId: "m_sample" };
       const caption = (id: string, text: string, startTime: number, endTime: number) => ({

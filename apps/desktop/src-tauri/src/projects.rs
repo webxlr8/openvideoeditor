@@ -133,6 +133,43 @@ pub struct MediaView {
     pub status: String,
     /// `data:image/png;base64,…` thumbnail, when one could be made.
     pub thumbnail: Option<String>,
+    /// The hover-skim sheet, once built (served at `ove-skim://localhost/<contentId>.jpg`).
+    pub skim: Option<SkimView>,
+}
+
+/// A skim sheet's image and layout: tile `i` of `count` sits at column `i % columns`, row `i / columns`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SkimView {
+    pub content_id: String,
+    pub columns: u32,
+    pub rows: u32,
+    pub tile_width: u32,
+    pub tile_height: u32,
+    pub count: u32,
+}
+
+impl SkimView {
+    fn new(content_id: &str, s: &ove_media::skim::SkimSheet) -> SkimView {
+        SkimView {
+            content_id: content_id.to_string(),
+            columns: s.columns,
+            rows: s.rows,
+            tile_width: s.tile_width,
+            tile_height: s.tile_height,
+            count: s.times_us.len() as u32,
+        }
+    }
+
+    /// The sheet of `content_id` in `bundle`, read from disk.
+    pub(crate) fn read(bundle: &Path, content_id: &str) -> Option<SkimView> {
+        crate::tasks::read_skim(bundle, content_id).map(|s| SkimView::new(content_id, &s))
+    }
+}
+
+/// The content id of a media item, when its registry entry has one.
+fn content_id_of<'a>(doc: &'a ove_core::Document, media_id: &str) -> Option<&'a str> {
+    doc.registry.get(media_id)?.fields.get("contentId")?.as_str()
 }
 
 /// Everything the editor shows about the open project.
@@ -355,7 +392,7 @@ fn status_name(s: MediaState) -> &'static str {
 /// the cached view instead ([`MediaCache::view`]); this is for one-off use and tests.
 pub fn view(p: &Project) -> ProjectView {
     let status = media_status(p.bundle(), p.doc());
-    view_from(
+    let v = view_from(
         p,
         |id| {
             status
@@ -364,7 +401,12 @@ pub fn view(p: &Project) -> ProjectView {
                 .map(|s| LinkView { path: s.path.display().to_string(), state: s.state })
         },
         |id| thumbnail_for(p.bundle(), p.doc(), id),
-    )
+    );
+    let mut v = v;
+    for m in &mut v.media {
+        m.skim = content_id_of(p.doc(), &m.id).and_then(|cid| SkimView::read(p.bundle(), cid));
+    }
+    v
 }
 
 fn view_from(
@@ -392,6 +434,7 @@ fn view_from(
                 height: get("height").and_then(Value::as_u64).map(|v| v as u32),
                 status: status_name(st.map(|s| s.state).unwrap_or(MediaState::Online)).into(),
                 thumbnail: thumbnail(&m.id),
+                skim: None,
             }
         })
         .collect();
@@ -476,6 +519,8 @@ pub struct MediaCache {
     identity_queued: BTreeSet<String>,
     /// Content ids a skim sheet was queued for (or found finished).
     skim_queued: BTreeSet<String>,
+    /// content id → finished skim sheet.
+    skims: HashMap<String, SkimView>,
 }
 
 impl MediaCache {
@@ -506,7 +551,22 @@ impl MediaCache {
             },
             |id| self.thumbs.get(id).cloned().flatten(),
         );
+        let mut v = v;
+        for m in &mut v.media {
+            m.skim = content_id_of(d, &m.id).and_then(|cid| self.skims.get(cid).cloned());
+        }
         (v, stale)
+    }
+
+    /// Records a finished skim sheet.
+    pub fn put_skim(&mut self, bundle: &Path, skim: SkimView) {
+        self.select(bundle);
+        self.skims.insert(skim.content_id.clone(), skim);
+    }
+
+    /// The bundle whose media this cache holds (the open project's).
+    pub fn bundle(&self) -> &Path {
+        &self.bundle
     }
 
     /// Records a thumbnail just made for `media_id`.
@@ -654,9 +714,11 @@ fn refresh_once(app: &AppHandle, state: &AppState) {
                 (data.get("type").and_then(Value::as_str) == Some("video")).then_some(())?;
                 let dur = data.get("duration").and_then(ove_core::time::json_to_micros).unwrap_or(1_000_000);
                 c.skim_queued.insert(cid.to_string()).then_some(())?;
-                crate::tasks::read_skim(&bundle, cid)
-                    .is_none()
-                    .then(|| (cid.to_string(), resolve_media_path(&bundle, &e.native_path), dur))
+                if let Some(s) = SkimView::read(&bundle, cid) {
+                    c.skims.insert(cid.to_string(), s);
+                    return None;
+                }
+                Some((cid.to_string(), resolve_media_path(&bundle, &e.native_path), dur))
             })
             .collect()
     };
@@ -669,8 +731,13 @@ fn refresh_once(app: &AppHandle, state: &AppState) {
         let tasks = &state.tasks;
         let project = crate::tasks::project_key(&bundle);
         for (cid, source, dur) in skims {
-            let a = app.clone();
-            crate::tasks::queue_skim(tasks, &project, &bundle, &cid, source, dur, move |_| emit_view_soon(&a));
+            let (a, b, c) = (app.clone(), bundle.clone(), cid.clone());
+            crate::tasks::queue_skim(tasks, &project, &bundle, &cid, source, dur, move |made| {
+                if let Some(s) = made.then(|| SkimView::read(&b, &c)).flatten() {
+                    relock(&a.state::<AppState>().projects.media).put_skim(&b, s);
+                    emit_view_soon(&a);
+                }
+            });
         }
     }
     if changed

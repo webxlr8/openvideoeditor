@@ -164,6 +164,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             exporting::open_timeline,
             exporting::export_project,
             exporting::cancel_export,
+            tasks::request_skim,
             exporting::choose_export_path,
             exporting::reveal_path,
             edits::item_detail,
@@ -502,6 +503,15 @@ pub fn run() -> ExitCode {
         .invoke_handler(worker::contain_handler(builder.invoke_handler()))
         .register_uri_scheme_protocol("ove-frame", |ctx, _request| {
             ctx.app_handle().state::<Arc<viewer::stream::StreamSink>>().response()
+        })
+        // Hover-skim sheets of the open project, read from its cache (no decoding, no per-frame IPC).
+        .register_uri_scheme_protocol("ove-skim", |ctx, request| {
+            let bundle = ctx
+                .app_handle()
+                .try_state::<AppState>()
+                .map(|s| relock(&s.projects.media).bundle().to_path_buf())
+                .unwrap_or_default();
+            tasks::skim_response(&bundle, request.uri().path())
         })
         .setup(move |app| {
             builder.mount_events(app);

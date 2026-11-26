@@ -111,6 +111,11 @@ export const commands = {
 	 */
 	exportProject: (request: ExportRequest) => typedError<null, AppError>(__TAURI_INVOKE("export_project", { request })),
 	cancelExport: () => typedError<null, AppError>(__TAURI_INVOKE("cancel_export")),
+	/**
+	 *  The pointer is over a media thumbnail whose skim sheet is not built yet: its task moves to interactive priority.
+	 *  Sent once per hover, never per pointer move.
+	 */
+	requestSkim: (mediaId: string) => typedError<null, AppError>(__TAURI_INVOKE("request_skim", { mediaId })),
 	/**  Save dialog for the export destination. `None` when cancelled. */
 	chooseExportPath: (defaultName: string) => typedError<string | null, AppError>(__TAURI_INVOKE("choose_export_path", { defaultName })),
 	/**  Shows a file in the system file manager. */
@@ -729,6 +734,8 @@ export type MediaView_Deserialize = {
 	status: string,
 	/**  `data:image/png;base64,…` thumbnail, when one could be made. */
 	thumbnail?: string | null,
+	/**  The hover-skim sheet, once built (served at `ove-skim://localhost/<contentId>.jpg`). */
+	skim?: SkimView | null,
 };
 
 export type MediaView_Serialize = {
@@ -743,6 +750,8 @@ export type MediaView_Serialize = {
 	status: string,
 	/**  `data:image/png;base64,…` thumbnail, when one could be made. */
 	thumbnail: string | null,
+	/**  The hover-skim sheet, once built (served at `ove-skim://localhost/<contentId>.jpg`). */
+	skim: SkimView | null,
 };
 
 export type ModelOption = {
@@ -928,6 +937,16 @@ export type RemoteOpened_Serialize = ProjectView_Serialize;
 
 export type SendResult = {
 	chatId: string,
+};
+
+/**  A skim sheet's image and layout: tile `i` of `count` sits at column `i % columns`, row `i / columns`. */
+export type SkimView = {
+	contentId: string,
+	columns: number,
+	rows: number,
+	tileWidth: number,
+	tileHeight: number,
+	count: number,
 };
 
 /**  Tokens and estimated cost of some turns. */
