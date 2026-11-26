@@ -370,6 +370,47 @@ impl DesktopHost {
     }
 }
 
+/// The app as seen by registry tools: the open project, and the app calls the assistant may make.
+struct DesktopApp<'a> {
+    host: &'a mut DesktopHost,
+}
+
+impl ove_tools::AppHost for DesktopApp<'_> {
+    fn with_open(
+        &mut self,
+        edit: bool,
+        f: &mut dyn FnMut(&mut ove_store::Project) -> Result<(), ove_tools::Fail>,
+    ) -> Result<(), ove_tools::Fail> {
+        let state = self.host.app.state::<AppState>();
+        let mut g =
+            crate::projects::lock(&state.projects.open).map_err(|e| ove_tools::Fail::new("app.busy", e.message))?;
+        let p = g
+            .as_mut()
+            .ok_or_else(|| ove_tools::Fail::new("app.noProject", "No project is open in the editor anymore."))?;
+        let before = p.rev();
+        let out = f(p);
+        if edit && p.rev() != before {
+            // The project is locked: a new revision here is this tool's.
+            self.host.revs.push(p.rev());
+            crate::projects::emit(&self.host.app, Some(p));
+        }
+        out
+    }
+    fn app(&mut self, method: &str, params: serde_json::Value) -> Result<serde_json::Value, ove_tools::Fail> {
+        match method {
+            "context" => Ok(crate::control::context(&self.host.app)),
+            "seek" => {
+                let seconds = params["seconds"].as_f64().unwrap_or(0.0);
+                let _ = AgentUiEvent::Seek { seconds }.emit(&self.host.app);
+                Ok(serde_json::json!({}))
+            }
+            other => {
+                Err(ove_tools::Fail::new("app.unavailable", format!("`{other}` is not available to the assistant")))
+            }
+        }
+    }
+}
+
 impl ToolHost for DesktopHost {
     fn print_timeline(&mut self, from: Option<usize>, lines: Option<usize>) -> Result<String, String> {
         self.with_project(|p| Ok(tools::print(p, from, lines)), false)
@@ -405,6 +446,20 @@ impl ToolHost for DesktopHost {
     fn seek_viewer(&mut self, seconds: f64) -> Result<String, String> {
         let _ = AgentUiEvent::Seek { seconds }.emit(&self.app);
         Ok(format!("Showing {seconds:.2}s."))
+    }
+    /// Every registry tool runs its handler on the open project through `AppCtx`, except importing (the app's own
+    /// import also starts probing and thumbnails) and seeking (the viewer follows an event).
+    fn run_tool(
+        &mut self,
+        tool: &'static ove_tools::ToolSpec,
+        args: &serde_json::Map<String, serde_json::Value>,
+    ) -> Option<Result<String, String>> {
+        if matches!(tool.name, "add_media" | "seek") {
+            return None;
+        }
+        let mut host = DesktopApp { host: self };
+        let mut ctx = ove_tools::AppCtx::assistant(&mut host);
+        Some(ove_tools::call(&mut ctx, tool.name, args).map(|r| tool.model_text(&r)).map_err(|f| f.model_text()))
     }
     fn ask_user(&mut self, question_id: &str, _question: &str, _options: &[String]) -> Result<String, String> {
         let state = self.app.state::<AppState>();

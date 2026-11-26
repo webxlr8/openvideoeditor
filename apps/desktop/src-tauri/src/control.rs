@@ -56,7 +56,7 @@ fn same_bundle(a: &Path, b: &Path) -> bool {
     c(a) == c(b)
 }
 
-fn context(app: &AppHandle) -> Value {
+pub fn context(app: &AppHandle) -> Value {
     let state = app.state::<AppState>();
     let project = lock(&state.projects.open).ok().and_then(|g| {
         g.as_ref().map(|p| {

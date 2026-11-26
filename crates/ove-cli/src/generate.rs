@@ -232,7 +232,7 @@ fn start(ctx: &Ctx, kind: Kind, a: &GenArgs) -> Out {
     let (job, bundle, how) = edit(ctx, &a.project, |w| {
         let plan = ove_generate::plan(w.doc(), kind, &req, &item_id).map_err(|e| Fail::new("generate.invalid", e))?;
         let job = ove_generate::new_job(&plan, &req, &ove_generate::job::new_id(now_ms()), now_ms());
-        w.apply(plan.ops.clone(), ctx.source, format!("generate {}: placeholder", kind.as_str()))?;
+        w.apply(plan.ops.clone(), format!("generate {}: placeholder", kind.as_str()))?;
         ove_generate::job::save(w.bundle(), &job).map_err(|e| Fail::new("file.unwritable", e.to_string()))?;
         Ok((job, w.bundle().to_path_buf(), via(w)))
     })?;
@@ -300,13 +300,12 @@ pub fn run_job(ctx: &Ctx, bundle: &Path, id: &str) -> Result<Job, Fail> {
             let file = bundle.join(&rel);
             let probed = probe(&file);
             if job.kind != Kind::Image || probed.width.is_some() {
-                crate::media::thumbnail(bundle, &format!("m_{}", job.id.trim_start_matches("g_")), &file);
+                ove_tools::tools::media::thumbnail(bundle, &format!("m_{}", job.id.trim_start_matches("g_")), &file);
             }
             edit(ctx, &project, |w| {
                 let ops = ove_generate::finish_ops(w.doc(), &job, &rel, &probed, now_ms());
                 w.apply(
                     ops,
-                    ctx.source,
                     format!(
                         "generate {}: {}",
                         job.kind.as_str(),
@@ -323,7 +322,6 @@ pub fn run_job(ctx: &Ctx, bundle: &Path, id: &str) -> Result<Job, Fail> {
                 }
                 w.apply(
                     ops,
-                    ctx.source,
                     format!(
                         "generate {}: {}",
                         job.kind.as_str(),
@@ -353,7 +351,7 @@ fn reap(ctx: &Ctx, bundle: &Path) {
         if ops.is_empty() {
             return Ok(0);
         }
-        w.apply(ops, ctx.source, format!("generate: {} stopped job(s)", reaped.failed.len()))
+        w.apply(ops, format!("generate: {} stopped job(s)", reaped.failed.len()))
     });
 }
 

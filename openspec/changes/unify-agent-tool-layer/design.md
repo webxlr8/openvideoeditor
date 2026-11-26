@@ -206,4 +206,25 @@ Additive. Old bundles open unchanged. The MCP whole-file `source` mode stays. Th
 
 ## Results
 
-(To be filled during apply with measured numbers.)
+### Group 1: tool registry (Windows 11 x64, debug build)
+
+- The registry holds 35 tools: the 33 former MCP tools, `check_code` (now also on MCP) and `ask_user` (in-app
+  only). Surfaces: in-app 9 tools, MCP 34, pinned 32 (`list_projects` and `create_project` are not on the pinned
+  surface, which works on one project).
+- The in-app assistant's former names `undo_last`, `import_media` and `seek_viewer` are aliases of `undo_timeline`,
+  `add_media` and `seek`. The in-app tool list changed once, as the design's prompt-cache risk expects; the golden
+  file `crates/ove-tools/tests/golden/tools-inApp.json` pins it from now on.
+- The MCP adapter no longer turns calls into command-line arguments and temporary files: it validates against the
+  registry and runs the handler, and image tools return PNG bytes directly.
+- Unchanged tests: `crates/ove-agent/tests/agent.rs` 14 passed (1 ignored, live API), `crates/ove-cli/tests/*` all
+  passed, including `media.rs` with fixtures made by a full FFmpeg CLI (`OVE_FIXTURE_FFMPEG`).
+- Implementation notes:
+  - `BundleCtx` takes a project's write lock; `LinkCtx` adds the control link (edits to a project the app holds go
+    through the app, with the 3-attempt retry on `rev.changed`); `AppCtx` runs on the app's open project through an
+    `AppHost` the desktop implements.
+  - Command-line-only arguments (output paths, `--format`, `--image-duration`) are part of the tool's table but are
+    marked command-line only: agents never see them, and an agent that passes one gets `argument.unknown`.
+  - An unknown tool over MCP stays a JSON-RPC error (-32602), as before; its `data` carries code `tool.unknown`
+    and the closest names.
+  - `verify_timeline` refuses with `verify.failed` when there are errors on every surface (the in-app assistant
+    used to get them as a normal result); the findings are in the refusal.

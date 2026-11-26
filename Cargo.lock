@@ -4005,10 +4005,10 @@ version = "0.1.0"
 dependencies = [
  "keyring",
  "ove-core",
- "ove-graphics",
  "ove-guard",
  "ove-projection",
  "ove-store",
+ "ove-tools",
  "serde",
  "serde_json",
  "tempfile",
@@ -4070,6 +4070,7 @@ dependencies = [
  "ove-projection",
  "ove-render",
  "ove-store",
+ "ove-tools",
  "serde_json",
  "tempfile",
 ]
@@ -4124,6 +4125,7 @@ dependencies = [
  "ove-playback",
  "ove-render",
  "ove-store",
+ "ove-tools",
  "ove-transcribe",
  "png",
  "raw-window-handle",
@@ -4294,6 +4296,27 @@ dependencies = [
  "tracing",
  "trash",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "ove-tools"
+version = "0.1.0"
+dependencies = [
+ "dunce",
+ "ove-analyze",
+ "ove-control",
+ "ove-core",
+ "ove-graphics",
+ "ove-guard",
+ "ove-interchange",
+ "ove-media",
+ "ove-projection",
+ "ove-render",
+ "ove-store",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tracing",
 ]
 
 [[package]]

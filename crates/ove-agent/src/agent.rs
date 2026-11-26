@@ -305,7 +305,7 @@ fn summarize_result(name: &str, ok: bool, out: &str) -> String {
             .unwrap_or_default(),
         "list_media" => serde_json::from_str::<Value>(out)
             .ok()
-            .and_then(|v| v.as_array().map(|a| format!("{} files", a.len())))
+            .and_then(|v| v["count"].as_u64().map(|n| format!("{n} files")))
             .unwrap_or_default(),
         _ => out.chars().take(160).collect(),
     }

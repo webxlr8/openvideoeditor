@@ -1,0 +1,36 @@
+[package]
+name = "ove-tools"
+description = "The agent tool registry: one definition and one handler per tool, shared by the in-app assistant, `ove mcp` and the command line"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+dunce = "1.0"
+ove-control = { path = "../ove-control" }
+ove-core = { path = "../ove-core" }
+ove-guard = { path = "../ove-guard" }
+ove-interchange = { path = "../ove-interchange" }
+ove-projection = { path = "../ove-projection" }
+ove-store = { path = "../ove-store" }
+ove-graphics = { path = "../ove-graphics", optional = true }
+ove-analyze = { path = "../ove-analyze", optional = true }
+ove-media = { path = "../ove-media", optional = true }
+ove-render = { path = "../ove-render", optional = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
+tracing = "0.1"
+
+[features]
+# `check_code`: the motion-graphics checker (no FFmpeg).
+graphics = ["dep:ove-graphics"]
+# Media reading, analysis frames and export (links FFmpeg). Includes `graphics`.
+media = ["graphics", "dep:ove-analyze", "dep:ove-media", "dep:ove-render"]
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

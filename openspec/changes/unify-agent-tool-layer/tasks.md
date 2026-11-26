@@ -2,15 +2,15 @@
 
 ## 1. Tool registry
 
-- [ ] 1.1 Create crate `ove-tools` with `ToolSpec`, the annotations, surfaces and the `ToolCtx` trait, plus `BundleCtx`,
+- [x] 1.1 Create crate `ove-tools` with `ToolSpec`, the annotations, surfaces and the `ToolCtx` trait, plus `BundleCtx`,
       `AppCtx` and `LinkCtx`. Verify with unit tests: each context runs a read-only tool on a fixture bundle.
-- [ ] 1.2 Move the 33 MCP tools and the 9 in-app tools into the registry, under one name per tool (keep old names as
+- [x] 1.2 Move the 33 MCP tools and the 9 in-app tools into the registry, under one name per tool (keep old names as
       aliases for one release). Verify: a `tools/list` golden file per surface, and a parity test that the same input
       on `BundleCtx` and `AppCtx` gives the same receipt JSON.
-- [ ] 1.3 Turn `crates/ove-agent/src/tools.rs` and `crates/ove-cli/src/mcp.rs` into adapters, and route CLI
+- [x] 1.3 Turn `crates/ove-agent/src/tools.rs` and `crates/ove-cli/src/mcp.rs` into adapters, and route CLI
       subcommands to the same handlers. Verify: the existing `crates/ove-agent/tests/agent.rs` and CLI integration
       tests pass unchanged, and a snapshot test pins tool order and text.
-- [ ] 1.4 Document the registry and the tool list in `docs/cli/` and the agent guide (`ove docs agents`). Verify: the
+- [x] 1.4 Document the registry and the tool list in `docs/cli/` and the agent guide (`ove docs agents`). Verify: the
       docs' examples run in the integration tests.
 
 ## 2. Edit contract and receipts
