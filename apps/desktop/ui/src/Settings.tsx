@@ -3,6 +3,7 @@
 
 import { useEffect, useState } from "react";
 import type {
+  LibraryChoice_Serialize,
   AgentLimits_Serialize,
   AgentStatus_Serialize,
   AppError,
@@ -275,13 +276,43 @@ function ShortcutsSection() {
 export function Settings({
   onError,
   initialSection = "library",
+  onLibraryChanged,
 }: {
   onError: (e: AppError) => void;
+  /** The library folder changed (the project list is another one now). */
+  onLibraryChanged?: () => void;
   /** The section shown first (Help → Keyboard shortcuts opens on Shortcuts). */
   initialSection?: Section;
 }) {
   const [section, setSection] = useState<Section>(initialSection);
   const [info, setInfo] = useState<AppInfo_Serialize | null>(null);
+  const [library, setLibrary] = useState<LibraryChoice_Serialize | null>(null);
+  const [libraryNote, setLibraryNote] = useState<string | null>(null);
+  useEffect(() => {
+    runCommand(commands.libraryChoice(), setLibrary, onError);
+  }, [onError]);
+  const switchLibrary = (path: string | null) =>
+    runCommand(
+      commands.setLibrary(path),
+      (c) => {
+        setLibrary(c);
+        setLibraryNote(
+          path
+            ? "Projects are kept in this folder from now on. Projects in the previous folder stay where they are."
+            : "Back to the default folder. Projects in the previous folder stay where they are.",
+        );
+        onLibraryChanged?.();
+      },
+      onError,
+    );
+  const chooseLibrary = () =>
+    runCommand(
+      commands.chooseLibraryFolder(),
+      (path) => {
+        if (path) switchLibrary(path);
+      },
+      onError,
+    );
   const [catalog, setCatalog] = useState<Catalog>({ models: [], keys: [] });
   const [agent, setAgent] = useState<AgentStatus_Serialize | null>(null);
   const [agentKey, setAgentKey] = useState("");
@@ -353,13 +384,15 @@ export function Settings({
               stays where it is; the project links to it.
             </p>
             <div className="set-row">
-              <span className="mono">{info?.libraryDir ?? "…"}</span>
-              {info?.libraryDir && (
+              <span className="mono" data-testid="library-dir">
+                {library?.libraryDir ?? info?.libraryDir ?? "…"}
+              </span>
+              {library?.libraryDir && (
                 <button
                   className="btn"
                   onClick={() =>
                     runCommand(
-                      commands.revealPath(info.libraryDir!),
+                      commands.revealPath(library.libraryDir!),
                       undefined,
                       onError,
                     )
@@ -369,10 +402,40 @@ export function Settings({
                 </button>
               )}
             </div>
+            {library?.fromEnv ? (
+              <p className="muted small" data-testid="library-env">
+                The <span className="mono">OVE_LIBRARY</span> environment
+                variable decides this folder while it is set.
+              </p>
+            ) : (
+              <div className="set-row">
+                <button
+                  className="btn"
+                  data-testid="library-choose"
+                  onClick={chooseLibrary}
+                >
+                  Choose another folder…
+                </button>
+                {library && !library.isDefault && (
+                  <button
+                    className="btn"
+                    data-testid="library-default"
+                    onClick={() => switchLibrary(null)}
+                  >
+                    Use the default folder
+                  </button>
+                )}
+              </div>
+            )}
+            {libraryNote && (
+              <p className="muted small" role="status" data-testid="library-note">
+                {libraryNote}
+              </p>
+            )}
             <p className="muted small">
-              To use another folder, start the app with the{" "}
-              <span className="mono">OVE_LIBRARY</span> environment variable set
-              to it. The command line uses the same variable.
+              The command line uses the same folder. A folder on a network
+              drive can't be used: projects must be on this computer so they
+              are saved safely (media may live anywhere).
             </p>
           </section>
         )}

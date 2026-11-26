@@ -39,6 +39,16 @@ export const commands = {
 	/**  Diagnostics hook: panics inside the viewer thread; the error arrives as `AppErrorRaised`. */
 	debugPanicViewer: () => typedError<null, AppError>(__TAURI_INVOKE("debug_panic_viewer")),
 	listProjects: () => typedError<ProjectSummary_Serialize[], AppError>(__TAURI_INVOKE("list_projects")),
+	/**  Where projects are kept. */
+	libraryChoice: () => typedError<LibraryChoice_Serialize, AppError>(__TAURI_INVOKE("library_choice")),
+	/**
+	 *  Uses `path` as the library from now on (`None`: the platform default), for the app and the command line. Refused
+	 *  while a project is open, and while `OVE_LIBRARY` decides the library. Projects in the old library stay where they
+	 *  are.
+	 */
+	setLibrary: (path: string | null) => typedError<LibraryChoice_Serialize, AppError>(__TAURI_INVOKE("set_library", { path })),
+	/**  Asks for a folder for the library (scripted in the end-to-end suite: the first line of `open.txt`). */
+	chooseLibraryFolder: () => typedError<string | null, AppError>(__TAURI_INVOKE("choose_library_folder")),
 	createProject: (name: string, template: string | null) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("create_project", { name, template })),
 	openProject: (bundle: string) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("open_project", { bundle })),
 	closeProject: () => typedError<null, AppError>(__TAURI_INVOKE("close_project")),
@@ -696,6 +706,27 @@ export type KeyCheck = {
 	ok: boolean,
 	/**  "Key works." or the provider's error in plain words. */
 	message: string,
+};
+
+/**  Where projects are kept, and who decided it. */
+export type LibraryChoice = LibraryChoice_Serialize | LibraryChoice_Deserialize;
+
+/**  Where projects are kept, and who decided it. */
+export type LibraryChoice_Deserialize = {
+	libraryDir?: string | null,
+	/**  The platform default (nothing chosen in Settings). */
+	isDefault: boolean,
+	/**  The `OVE_LIBRARY` environment variable decides it (Settings cannot change it while it is set). */
+	fromEnv: boolean,
+};
+
+/**  Where projects are kept, and who decided it. */
+export type LibraryChoice_Serialize = {
+	libraryDir: string | null,
+	/**  The platform default (nothing chosen in Settings). */
+	isDefault: boolean,
+	/**  The `OVE_LIBRARY` environment variable decides it (Settings cannot change it while it is set). */
+	fromEnv: boolean,
 };
 
 /**  Properties shown next to the viewer. */

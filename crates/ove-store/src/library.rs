@@ -34,13 +34,70 @@ pub fn default_library() -> PathBuf {
     }
 }
 
-/// Resolves the library: environment variable, then the settings value, then the platform default. Creates the
-/// folder and refuses network volumes.
+/// Environment variable overriding where [`library_setting_file`] is (tests; a portable install).
+pub const SETTINGS_DIR_ENV: &str = "OVE_SETTINGS_DIR";
+
+/// Where the library chosen in Settings is kept, for the app and the command line alike: `library.json` in the
+/// per-user settings folder (`%APPDATA%\OpenVideoEditor` on Windows, `~/Library/Application Support/OpenVideoEditor`
+/// on macOS, `$XDG_CONFIG_HOME/OpenVideoEditor` or `~/.config/OpenVideoEditor` elsewhere).
+pub fn library_setting_file() -> Option<PathBuf> {
+    let env = |k: &str| std::env::var_os(k).filter(|v| !v.is_empty()).map(PathBuf::from);
+    let dir = if let Some(d) = env(SETTINGS_DIR_ENV) {
+        d
+    } else if cfg!(windows) {
+        env("APPDATA")?.join(APP_DIR_NAME)
+    } else if cfg!(target_os = "macos") {
+        env("HOME")?.join("Library").join("Application Support").join(APP_DIR_NAME)
+    } else {
+        env("XDG_CONFIG_HOME").or_else(|| env("HOME").map(|h| h.join(".config")))?.join(APP_DIR_NAME)
+    };
+    Some(dir.join("library.json"))
+}
+
+/// The library folder chosen in Settings, if any.
+pub fn library_setting() -> Option<PathBuf> {
+    let bytes = std::fs::read(library_setting_file()?).ok()?;
+    let v: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    v["library"].as_str().filter(|s| !s.trim().is_empty()).map(PathBuf::from)
+}
+
+/// Keeps `library` as the chosen library (after checking it like [`validate_library`]), or forgets the choice
+/// (`None`: back to the platform default).
+pub fn set_library_setting(library: Option<&Path>) -> Result<()> {
+    let file = library_setting_file()
+        .ok_or_else(|| StoreError::refused("library.settings", "there is no settings folder for this user"))?;
+    match library {
+        Some(path) => {
+            if !path.is_absolute() {
+                return Err(StoreError::refused("library.relative", "choose a full folder path"));
+            }
+            validate_library(path)?;
+            let dir = file.parent().unwrap_or(Path::new("."));
+            std::fs::create_dir_all(dir).map_err(|e| StoreError::io("create the settings folder", dir, e))?;
+            let tmp = file.with_extension("json.tmp");
+            serde_json::to_vec_pretty(&json!({"library": path}))
+                .map_err(std::io::Error::other)
+                .and_then(|bytes| std::fs::write(&tmp, bytes))
+                .and_then(|()| std::fs::rename(&tmp, &file))
+                .map_err(|e| StoreError::io("save the library setting", &file, e))
+        }
+        None => match std::fs::remove_file(&file) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                Err(StoreError::io("forget the library setting", &file, e))
+            }
+            _ => Ok(()),
+        },
+    }
+}
+
+/// Resolves the library: environment variable, then `setting` (or, when `None`, the folder chosen in Settings), then
+/// the platform default. Creates the folder and refuses network volumes.
 pub fn resolve_library(setting: Option<&Path>) -> Result<PathBuf> {
     let path = std::env::var_os(LIBRARY_ENV)
         .filter(|v| !v.is_empty())
         .map(PathBuf::from)
         .or_else(|| setting.map(Path::to_path_buf))
+        .or_else(library_setting)
         .unwrap_or_else(default_library);
     validate_library(&path)?;
     Ok(path)

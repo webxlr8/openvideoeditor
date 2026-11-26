@@ -524,6 +524,7 @@ export function App() {
         <ErrorBoundary region="Home" className="home">
           <Home
             projects={projects}
+            onLibraryChanged={() => fire(refreshProjects())}
             onError={showError}
             onOpenFile={() => fire(importInto(null))}
             onSample={trySample}

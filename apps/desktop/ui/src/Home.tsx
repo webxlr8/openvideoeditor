@@ -59,8 +59,11 @@ export function Home({
   onError,
   onSample,
   help,
+  onLibraryChanged,
 }: {
   projects: ProjectSummary_Serialize[];
+  /** The library folder was changed in Settings: the project list is another one now. */
+  onLibraryChanged?: () => void;
   onOpenFile: () => void;
   onBlank: () => void;
   /** Opens a new copy of the sample project. */
@@ -232,6 +235,7 @@ export function Home({
               key={settings.asked}
               initialSection={settings.section}
               onError={onError ?? reportError}
+              onLibraryChanged={onLibraryChanged}
             />
           </ErrorBoundary>
         </main>
