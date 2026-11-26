@@ -95,6 +95,8 @@ pub struct TrackView {
     pub locked: bool,
     pub visible: bool,
     pub muted: bool,
+    /// Ripple edits on other tracks shift this track too.
+    pub sync_lock: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -117,6 +119,8 @@ pub struct ItemView {
     pub transition_in: f64,
     pub transition_out: f64,
     pub speed: f64,
+    /// Link group value, when the item is linked.
+    pub link: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -144,6 +148,8 @@ pub struct ProjectView {
     pub bundle: String,
     pub rev: f64,
     pub aspect_ratio: String,
+    /// Timeline frame rate (edits snap to its frame grid).
+    pub fps: f64,
     pub duration_seconds: f64,
     pub can_undo: bool,
     pub can_redo: bool,
@@ -290,6 +296,7 @@ fn view_from(
         bundle: p.bundle().display().to_string(),
         rev: d.project.rev as f64,
         aspect_ratio: d.project.aspect_ratio.clone(),
+        fps: d.fps(),
         duration_seconds: secs(d.duration()),
         can_undo: p.session().can_undo(),
         can_redo: p.session().can_redo(),
@@ -305,6 +312,7 @@ fn view_from(
                 locked: track_bool(t, "locked", false),
                 visible: track_bool(t, "visible", true),
                 muted: track_bool(t, "muted", false),
+                sync_lock: track_bool(t, "syncLock", true),
             })
             .collect(),
         items: d
@@ -337,6 +345,7 @@ fn view_from(
                 transition_in: transition_secs(i, "transitionIn"),
                 transition_out: transition_secs(i, "transitionOut"),
                 speed: i.fields.get("playbackSpeed").and_then(Value::as_f64).unwrap_or(1.0),
+                link: i.fields.get("link").and_then(Value::as_str).map(str::to_string),
             })
             .collect(),
         media,

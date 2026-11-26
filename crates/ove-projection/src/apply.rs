@@ -58,6 +58,9 @@ pub struct Plan {
     pub conflicts: Vec<Conflict>,
     pub removed: Vec<Removed>,
     pub warnings: Vec<Diagnostic>,
+    /// Items left alone in their link group by this apply (their partners were removed).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub orphaned_links: Vec<String>,
 }
 
 impl Plan {
@@ -134,6 +137,16 @@ fn at(pos: Option<&Pos>, code: &str, message: String) -> Diagnostic {
     Diagnostic { severity: Severity::Error, line: p.line.max(1), column: p.column.max(1), code: code.into(), message }
 }
 
+/// Items that were in a link group of two or more in `before` and are alone in their group in `after`.
+fn orphaned_links(before: &Document, after: &Document) -> Vec<String> {
+    let was = crate::verify::link_groups(before);
+    crate::verify::link_groups(after)
+        .into_iter()
+        .filter(|(link, members)| members.len() == 1 && was.get(link).is_some_and(|w| w.len() > 1))
+        .flat_map(|(_, members)| members.into_iter().map(|m| m.id.clone()))
+        .collect()
+}
+
 /// Checks a projection and plans its apply. `Err` means nothing may change.
 pub fn plan(input: &ApplyInput) -> Result<Plan, Refusal> {
     let parsed = parse(input.text);
@@ -191,7 +204,9 @@ pub fn plan(input: &ApplyInput) -> Result<Plan, Refusal> {
         return Err(refuse("check.failed", "the result would be invalid; nothing was applied", errs));
     }
     let warnings: Vec<Diagnostic> = diags.into_iter().filter(|d| !d.is_error()).collect();
+    let orphaned_links = orphaned_links(input.current, &merged.target);
     Ok(Plan {
+        orphaned_links,
         base_rev: rev,
         counts: counts(&ops),
         ops,

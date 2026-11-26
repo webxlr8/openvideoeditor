@@ -299,6 +299,7 @@ describe("steps from project state", () => {
     transitionIn: 0,
     transitionOut: 0,
     speed: 1,
+    link: null,
   });
   const view = (rev: number, items: ItemView_Serialize[], media = 1, id = "p1") =>
     ({

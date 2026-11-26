@@ -653,6 +653,8 @@ export type ItemView_Deserialize = {
 	transitionIn: number | null,
 	transitionOut: number | null,
 	speed: number | null,
+	/**  Link group value, when the item is linked. */
+	link?: string | null,
 };
 
 export type ItemView_Serialize = {
@@ -673,6 +675,8 @@ export type ItemView_Serialize = {
 	transitionIn: number | null,
 	transitionOut: number | null,
 	speed: number | null,
+	/**  Link group value, when the item is linked. */
+	link: string | null,
 };
 
 /**  The result of trying the saved key with a real (free) request. */
@@ -892,6 +896,8 @@ export type ProjectView_Deserialize = {
 	bundle: string,
 	rev: number | null,
 	aspectRatio: string,
+	/**  Timeline frame rate (edits snap to its frame grid). */
+	fps: number | null,
 	durationSeconds: number | null,
 	canUndo: boolean,
 	canRedo: boolean,
@@ -908,6 +914,8 @@ export type ProjectView_Serialize = {
 	bundle: string,
 	rev: number | null,
 	aspectRatio: string,
+	/**  Timeline frame rate (edits snap to its frame grid). */
+	fps: number | null,
 	durationSeconds: number | null,
 	canUndo: boolean,
 	canRedo: boolean,
@@ -998,6 +1006,8 @@ export type TrackView = {
 	locked: boolean,
 	visible: boolean,
 	muted: boolean,
+	/**  Ripple edits on other tracks shift this track too. */
+	syncLock: boolean,
 };
 
 /**  Transport commands sent by the UI (buttons and keys). */

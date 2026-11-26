@@ -66,6 +66,8 @@ export interface MockControl {
   crashReports?: { path: string; at: number; summary: string; seen: boolean }[];
   /** The feedback page a build may set (`OVE_FEEDBACK_URL`); none by default. */
   feedbackUrl?: string | null;
+  /** Frame rate of projects the mock creates (30 unless a test sets one). */
+  fps?: number;
   /** How long a simulated generation job takes (ms). */
   generationMs?: number;
   rects: ViewerRect[];
@@ -731,8 +733,9 @@ function createMock(): {
   });
   // The timeline viewer follows edits, as the engine's timeline session does.
   let timelineOpen = false;
+  const projectFps = () => project?.fps ?? 30;
   const timelineFrames = () =>
-    Math.max(1, Math.ceil((project?.durationSeconds ?? 0) * 30));
+    Math.max(1, Math.ceil((project?.durationSeconds ?? 0) * projectFps()));
   const publish = () => {
     if (!project)
       return ok<ProjectView_Serialize>(
@@ -770,6 +773,7 @@ function createMock(): {
     bundle: `/mock/library/${name}.ove`,
     rev: Date.now(),
     aspectRatio: "16:9",
+    fps: control.fps ?? 30,
     durationSeconds: 0,
     canUndo: false,
     canRedo: false,
@@ -787,6 +791,7 @@ function createMock(): {
       locked: false,
       visible: true,
       muted: false,
+      syncLock: true,
     })),
     items: [],
     media: [],
@@ -904,6 +909,7 @@ function createMock(): {
       transitionIn: 0,
       transitionOut: 0,
       speed: 1,
+      link: typeof d.link === "string" ? d.link : null,
       fields,
     });
   }
@@ -1497,6 +1503,7 @@ function createMock(): {
           locked: false,
           visible: true,
           muted: false,
+          syncLock: true,
         };
         if (kind === "audio") p.tracks.push(t);
         else p.tracks.unshift(t);
@@ -1527,16 +1534,16 @@ function createMock(): {
         hasMedia: true,
         frame: 0,
         totalFrames: timelineFrames(),
-        frameRate: 30,
+        frameRate: projectFps(),
       });
       changed();
       return ok<MediaInfo_Serialize>({
         path: project.bundle,
         name: project.name,
-        durationSeconds: state.totalFrames / 30,
+        durationSeconds: state.totalFrames / projectFps(),
         width,
         height,
-        frameRate: 30,
+        frameRate: projectFps(),
         totalFrames: state.totalFrames,
         videoCodec: "timeline",
         audioLayout: "stereo mix",
@@ -1839,6 +1846,7 @@ function createMock(): {
             locked: false,
             visible: true,
             muted: false,
+            syncLock: true,
           });
           p.items.push({
             id: `i_imp_${seq}`,
@@ -1856,6 +1864,7 @@ function createMock(): {
             transitionIn: 0,
             transitionOut: 0,
             speed: 1,
+            link: null,
           });
         }),
       );

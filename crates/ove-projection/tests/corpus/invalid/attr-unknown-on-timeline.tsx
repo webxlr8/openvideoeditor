@@ -18,7 +18,7 @@
  * rev: 1762000005000
  */
 export default (
-  <timeline aspect="16:9" fps={30}>
+  <timeline aspect="16:9" framerate={30}>
     <track id="t_titles" name="Titles" kind="video">
       <text
         id="i_text"

@@ -48,6 +48,8 @@ pub struct NewMedia {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct FileModel {
     pub aspect: Option<String>,
+    /// The `fps` attribute of `<timeline>`; `None` when absent (the default, 30).
+    pub fps: Option<Value>,
     pub tracks: Vec<FileTrack>,
     pub items: Vec<FileItem>,
     pub new_media: Vec<NewMedia>,
@@ -418,6 +420,13 @@ pub fn read(root: &Element, r: Resolve) -> (FileModel, Vec<Diagnostic>) {
                     "enum.known",
                     format!("aspect must be one of {}", schema::ASPECT_RATIOS.join(", ")),
                 )),
+            }
+        } else if a.name == "fps" {
+            let mut issues = Vec::new();
+            schema::validate(&schema::FPS_KIND, &a.value, "fps", &mut issues);
+            match issues.first() {
+                None => model.fps = Some(normal::canon(&a.value)),
+                Some(i) => rd.push(diag(Severity::Error, a.value_pos, i.code, "fps must be a number from 1 to 240")),
             }
         } else {
             rd.push(diag(

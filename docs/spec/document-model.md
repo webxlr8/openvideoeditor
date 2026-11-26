@@ -30,7 +30,8 @@ fallback "Untitled Project") and never change on rename.
 
 ```
 { format, version,
-  project: { id, name, createdAt, updatedAt, stateUpdatedAt(ms, = rev), aspectRatio, temp?, mediaBaseDirectory?,
+  project: { id, name, createdAt, updatedAt, stateUpdatedAt(ms, = rev), aspectRatio, fps? (default 30), temp?,
+             mediaBaseDirectory?,
              media: [MediaItem], timelineItems: [Item], tracks (field name inferred), cast?: [CastMember] },
   media:   [{ mediaId, nativePath, ownedByBundle }] }
 ```
@@ -39,11 +40,14 @@ MediaItem `{ id, createdAt, addedAt, data: { type, src?, filePath?, fileName, fo
 frameRate, hasAudio, thumbnailIds, waveformId, albumArtId, *GenerationStatus, conversionStatus, transcriptStatus,
 transcriptLanguage, generation?, presetId?, content?, code? } }`.
 
-Track `{ id, name, order, type: video|audio|caption|adjustment|layout, locked, visible, muted }`. First track = top layer.
+Track `{ id, name, order, type: video|audio|caption|adjustment|layout, locked, visible, muted, syncLock (default
+true) }`. First track = top layer. `fps` is the timeline frame rate: edit commands snap times to its grid; times off
+the grid are allowed and reported by verify.
 
 ## Items
 
-Common: `id, trackId, type, name, startTime, endTime, trimStart, trimEnd, mediaItemId, pending, transform{x,y,scale,
+Common: `id, trackId, type, name, startTime, endTime, trimStart, trimEnd, mediaItemId, pending, link (link group
+value: items sharing it edit together), transform{x,y,scale,
 rotation,flipX}` (pixels from frame centre), `crop{top,right,bottom,left}` (%), `opacity, hidden, zIndex, blendMode,
 keyframeTracks[{property: x|y|scale|rotation|opacity|gaussianBlur|borderRadius, keyframes[{time (item-relative), value}],
 easing}], transitionIn/Out{type|presetId, duration, …}, effects[{id,type,…}], borderRadius, gaussianBlur,
@@ -98,7 +102,8 @@ non-overlapping; `newText: ""` deletes; anchor + new JSX inserts.
 ## Verify (lint)
 
 Overlaps, gaps, off-screen text, clips past their source (holds last frame), missing media, pending items, invalid
-compositions.
+compositions, item edges off the frame grid (`time.offFrame`), single-member link groups (`link.single`) and link
+groups whose members drifted apart (`link.offset`, in frames).
 
 ## Chat log records (`agent/chats/<id>.jsonl`)
 

@@ -2,13 +2,13 @@
 
 ## 1. Schema and projection
 
-- [ ] 1.1 Add `fps` (timeline), `syncLock` (track) and `link` (item) to the schema, printer, parser and `timeline.d.ts`
+- [x] 1.1 Add `fps` (timeline), `syncLock` (track) and `link` (item) to the schema, printer, parser and `timeline.d.ts`
       with defaults omitted; verify golden round trip of the existing corpus is unchanged and new corpus cases cover
       each field.
-- [ ] 1.2 Replace the constant 30 fps in `src-tauri/src/timeline.rs` and `ui/src/edit.ts` with the timeline value;
+- [x] 1.2 Replace the constant 30 fps in `src-tauri/src/timeline.rs` and `ui/src/edit.ts` with the timeline value;
       verify a 25 fps project steps one frame per 40 ms in a UI test.
-- [ ] 1.3 Register lints `time.offFrame`, `link.single`, `link.offset`; verify corpus cases report each lint.
-- [ ] 1.4 Document the new attributes in `docs/spec/projection-format.md` and `docs/spec/document-model.md`; verify the
+- [x] 1.3 Register lints `time.offFrame`, `link.single`, `link.offset`; verify corpus cases report each lint.
+- [x] 1.4 Document the new attributes in `docs/spec/projection-format.md` and `docs/spec/document-model.md`; verify the
       docs examples parse with `ove source check`.
 
 ## 2. Planner crate

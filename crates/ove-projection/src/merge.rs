@@ -282,6 +282,20 @@ pub fn merge(base: &Document, current: &Document, file: &FileModel, prefer: Pref
         }
     }
 
+    // Frame rate: compared as effective values, so an absent `fps` and `fps={30}` are the same.
+    let fps_of = |d: &Document| normal::canon(&Value::from(d.fps()));
+    let file_fps = file.fps.clone().unwrap_or_else(|| Value::from(schema::DEFAULT_FPS));
+    let file_fps = normal::canon(&file_fps);
+    if file_fps != fps_of(base)
+        && let Some(Some(v)) = ctx.decide("timeline", "fps", Some(fps_of(base)), Some(file_fps), Some(fps_of(current)))
+    {
+        if schema::project_field("fps").is_some_and(|f| schema::is_default(f, &v)) {
+            m.project.extra.shift_remove("fps");
+        } else {
+            m.project.extra.insert("fps".into(), v);
+        }
+    }
+
     // Tracks: ids for new tracks, field merge, removals, then order.
     let taken_track = |id: &str| {
         base.track(id).is_some()

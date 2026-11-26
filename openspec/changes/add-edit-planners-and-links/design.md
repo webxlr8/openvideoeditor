@@ -103,3 +103,24 @@ New fields are optional with defaults. No document migration. Old projections pa
   remote URL (host to be decided); community skill catalog URL is configurable and 3 original starter skills ship.
   None of these block this change.
 - Default for `syncLock` on newly created audio tracks: true (assumed).
+
+## Results
+
+Measured on the Windows 11 x64 development machine (not a reference machine), 2026-11-26.
+
+**Group 1 (schema and projection).**
+- Storage: `fps` is a project field (the document has one timeline), changed with `updateProject`; it prints as
+  `<timeline fps={…}>` and merges as a single value like `aspect`. An absent `fps` and `fps={30}` compare equal, so
+  printing the default never creates a change. `syncLock` is a track field (default `true`, printed only when
+  `false`); `link` is an item string field printed after `pendingDescription`.
+- Golden corpus: the four existing valid documents print byte for byte as before; new case `edit-fields` covers all
+  three fields; new invalid case `fps-range` reports `value.range`. One existing invalid case
+  (`attr-unknown-on-timeline`) used `fps` as its example of an unknown attribute and now uses `framerate`.
+- Lints `time.offFrame`, `link.single` and `link.offset` are registered in verify; `link.offset` measures drift as
+  the difference in `start − in ÷ speed` and reports frames to one decimal. An apply that leaves one member alone in
+  its group lists it in the plan (`orphanedLinks`).
+- The desktop timeline preview, the engine's frame interval and the UI's `snapToFrame` use the timeline's `fps`. UI
+  test: on a 25 fps project, 25 frame steps read `00:00:01:00` (40 ms per step).
+- Tests: `cargo test -p ove-core -p ove-projection` all pass (new: `edit_fields` 8 tests, corpus 2 tests); UI
+  `pnpm test` 139 passed (21 files).
+

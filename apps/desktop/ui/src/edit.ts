@@ -177,11 +177,24 @@ export function nextAdjacent(p: ProjectView_Serialize, item: ItemView_Serialize)
   return p.items.find((i) => i.trackId === item.trackId && i.id !== item.id && Math.abs((i.start ?? 0) - (item.end ?? 0)) < 0.05);
 }
 
-/** Project frame rate used for placing items (the timeline renders at 30 fps). */
+/** Frame rate of a timeline without its own (`fps` on the timeline). */
 export const TIMELINE_FPS = 30;
 
+/** The open timeline's frame rate. Set from the project view whenever it changes (see `setTimelineFps`). */
+let currentFps = TIMELINE_FPS;
+
+/** Makes `snapToFrame` use the open timeline's frame rate. */
+export function setTimelineFps(fps: number | null | undefined) {
+  currentFps = fps && fps > 0 ? fps : TIMELINE_FPS;
+}
+
+/** The open timeline's frame rate. */
+export function timelineFps(): number {
+  return currentFps;
+}
+
 /** Snaps a time in seconds to the nearest frame of the timeline grid, at microsecond precision. */
-export function snapToFrame(t: number, fps = TIMELINE_FPS): number {
+export function snapToFrame(t: number, fps = currentFps): number {
   const frames = Math.round(Math.max(0, t) * fps);
   return Math.round((frames / fps) * 1e6) / 1e6;
 }
