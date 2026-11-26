@@ -254,10 +254,11 @@ ENC_FLAGS=(--extra-cflags=-I"$ENC_INC")
 
 # --- configuration ----------------------------------------------------------------------------------------------------
 # Only what the preview and export pipeline reads (docs/spec formats for change 1): MP4/MOV/MXF/MKV/WebM containers and
-# audio-only files; H.264, HEVC, ProRes, DNxHD/HR, AV1 (dav1d), VP9 video; AAC, ALAC, Opus, PCM, MP3, FLAC audio.
+# audio-only files; H.264, HEVC, ProRes, DNxHD/HR, AV1 (dav1d; FFmpeg's `av1` for hardware decode), VP9 video; AAC,
+# ALAC, Opus, PCM, MP3, FLAC audio.
 # Still images (imported pictures, generated images): image2 by extension, plus the PNG and JPEG pipe probes.
 DEMUXERS="mov,matroska,mxf,wav,w64,aiff,ogg,mp3,flac,aac,image2,png_pipe,jpeg_pipe"
-DECODERS="h264,hevc,prores,dnxhd,libdav1d,vp9,vp8,mjpeg,png"
+DECODERS="h264,hevc,prores,dnxhd,libdav1d,av1,vp9,vp8,mjpeg,png"
 DECODERS+=",aac,aac_fixed,alac,opus,mp3float,mp3,flac,vorbis"
 DECODERS+=",pcm_s16le,pcm_s16be,pcm_s24le,pcm_s24be,pcm_s32le,pcm_s32be,pcm_f32le,pcm_f32be,pcm_f64le,pcm_u8"
 PARSERS="h264,hevc,av1,vp9,vp8,aac,opus,flac,mpegaudio,dnxhd,prores,mjpeg,png,vorbis"

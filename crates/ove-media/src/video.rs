@@ -135,7 +135,6 @@ impl FfmpegVideoDecoder {
         // the pointer is non-null and exclusively ours; these are plain-data fields read when it is opened.
         unsafe {
             let c = ctx.as_mut_ptr();
-            (*c).thread_count = 0;
             (*c).thread_type = ffi::FF_THREAD_FRAME | ffi::FF_THREAD_SLICE;
             (*c).pkt_timebase = ffi::AVRational { num: tb.num, den: tb.den };
         }
@@ -143,7 +142,7 @@ impl FfmpegVideoDecoder {
         let mut hw_fallback_reason = None;
         let hw = match opts.hwaccel.device_name() {
             None => None,
-            Some(name) => match create_hw_device(name, codec_id.into()) {
+            Some(name) => match create_hw_device(name, codec_id.into(), hw_decoder_name(codec_id.into())) {
                 Ok(dev) => {
                     // SAFETY: `ctx` is a valid, unopened codec context we own and `dev.device` a live device
                     // reference; the context gets a new reference of its own (freed with the context) and the
@@ -158,7 +157,16 @@ impl FfmpegVideoDecoder {
             },
         };
 
-        let dec = ctx.decoder().video().map_err(|e| match e {
+        // SAFETY: `ctx` is still the valid, unopened codec context we own; `thread_count` is read when it is opened.
+        unsafe { (*ctx.as_mut_ptr()).thread_count = decoder_threads(hw.is_some()) };
+        // On the hardware path, open the decoder the device's configuration was found on (see `hw_decoder_name`).
+        let hw_codec =
+            hw.as_ref().and(hw_decoder_name(codec_id.into())).and_then(ffmpeg_the_third::decoder::find_by_name);
+        let opened = match hw_codec {
+            Some(codec) => ctx.decoder().open_as(codec).and_then(|o| o.video()),
+            None => ctx.decoder().video(),
+        };
+        let dec = opened.map_err(|e| match e {
             AvError::DecoderNotFound => MediaError::Unsupported {
                 path: path.to_owned(),
                 reason: format!("no decoder for {}", crate::util::codec_name(codec_id.into())),
@@ -552,7 +560,30 @@ impl VideoDecoder for FfmpegVideoDecoder {
     }
 }
 
-fn create_hw_device(name: &str, codec: ffi::AVCodecID) -> std::result::Result<HwDevice, String> {
+/// Decoder threads. FFmpeg's default (0) starts one frame thread per logical CPU, and each holds frames of its own:
+/// on a 32-thread CPU a 4K H.264 decoder held about 450 MB, and every seek had to refill a 32-frame pipeline.
+/// Measured with `ove-bench` on a Ryzen 9 5950X + RTX 4070 (4K H.264):
+/// - software, 8 threads: peak 550 → 357 MB, seek p50 77 → 57 ms; fewer CPUs keep their own count;
+/// - hardware, 2 threads: peak 614 → 383 MB, seek p50 132 → 91 ms. The GPU decodes; the second thread overlaps the
+///   copy back to memory (14.9 → 11.1 ms per frame against one thread), more threads only add latency and memory.
+fn decoder_threads(hardware: bool) -> i32 {
+    if hardware {
+        return 2;
+    }
+    std::thread::available_parallelism().map_or(0, |n| n.get().min(8) as i32)
+}
+
+/// The decoder to use with a hardware device when it is not FFmpeg's default for the codec. AV1's default is libdav1d
+/// (software only); hardware AV1 goes through FFmpeg's native `av1` decoder, which decodes only with a hwaccel.
+fn hw_decoder_name(codec: ffi::AVCodecID) -> Option<&'static str> {
+    (codec == ffi::AVCodecID::AV1).then_some("av1")
+}
+
+fn create_hw_device(
+    name: &str,
+    codec: ffi::AVCodecID,
+    decoder_name: Option<&str>,
+) -> std::result::Result<HwDevice, String> {
     let cname = std::ffi::CString::new(name).map_err(|e| e.to_string())?;
     // SAFETY: `cname` is a NUL-terminated string that outlives the lookup. `avcodec_find_decoder` and
     // `avcodec_get_hw_config` return null or pointers into static tables (null ends the loop before any
@@ -563,7 +594,10 @@ fn create_hw_device(name: &str, codec: ffi::AVCodecID) -> std::result::Result<Hw
         if ty == ffi::AVHWDeviceType::NONE {
             return Err(format!("{name} is not available in this FFmpeg build"));
         }
-        let codec_ptr = ffi::avcodec_find_decoder(codec);
+        let codec_ptr = match decoder_name.map(std::ffi::CString::new) {
+            Some(Ok(n)) => ffi::avcodec_find_decoder_by_name(n.as_ptr()),
+            _ => ffi::avcodec_find_decoder(codec),
+        };
         if codec_ptr.is_null() {
             return Err("no decoder".into());
         }
