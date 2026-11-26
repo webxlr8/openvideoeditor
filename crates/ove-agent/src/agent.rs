@@ -9,10 +9,11 @@ use serde_json::{Value, json};
 
 use crate::api::{ApiError, Client, StreamEvent, Usage, model_info, pricing_model};
 use crate::chat::{
-    ChatStore, QuestionItem, QuestionOption, Record, estimate_tokens, messages, summary_cut, transcript, user_indices,
+    ChatStore, QuestionItem, QuestionOption, Record, estimate_tokens, messages, messages_with_images, summary_cut,
+    transcript, user_indices,
 };
 use crate::prompt::SYSTEM_PROMPT;
-use crate::tools::{ToolHost, definitions, dispatch, label};
+use crate::tools::{ToolHost, definitions, dispatch_full, label};
 
 /// Default spend cap per turn, in US dollars.
 pub const DEFAULT_TURN_CAP_USD: f64 = 2.0;
@@ -363,7 +364,8 @@ pub fn run_turn(
                 break;
             }
         }
-        let body = request_body(cfg, &messages(&store.records(chat_id)));
+        // The pictures of the last few seeing tool calls go with the request; older ones are left out.
+        let body = request_body(cfg, &messages_with_images(&store.records(chat_id), &|n| store.load_image(n), 3));
         let shared = std::cell::RefCell::new(&mut *emit);
         let resp = client.stream(
             &body,
@@ -427,6 +429,7 @@ pub fn run_turn(
                             tool_use_id: id,
                             text: "Not run: the turn was declined.".into(),
                             is_error: true,
+                            images: vec![],
                         },
                     )
                     .map_err(io)?;
@@ -450,11 +453,13 @@ pub fn run_turn(
                             tool_use_id: id,
                             text: "Stopped by the user before this ran.".into(),
                             is_error: true,
+                            images: vec![],
                         },
                     )
                     .map_err(io)?;
                 continue;
             }
+            let mut images: Vec<String> = Vec::new();
             let (ok, out) = if let Some((_, raw)) = resp.invalid_tool_inputs.iter().find(|(i, _)| *i == id) {
                 (false, json!({"INVALID_JSON": raw}).to_string())
             } else if truncated {
@@ -479,13 +484,23 @@ pub fn run_turn(
                     store.append(chat_id, &Record::Question { id: id.clone(), questions: vec![item] }).map_err(io)?;
                     emit(AgentEvent::Question { id: id.clone(), question: q, options: opts });
                 }
-                match dispatch(host, &id, &name, &call["input"]) {
-                    Ok(s) => (true, s),
+                match dispatch_full(host, &id, &name, &call["input"]) {
+                    Ok(o) => {
+                        for png in o.images {
+                            match store.save_image(chat_id, &png) {
+                                Ok(n) => images.push(n),
+                                Err(e) => tracing::warn!(error = %e, "could not keep a picture with the chat"),
+                            }
+                        }
+                        (true, o.text)
+                    }
                     Err(e) => (false, e),
                 }
             };
             emit(AgentEvent::ToolResult { id: id.clone(), ok, summary: summarize_result(&name, ok, &out) });
-            store.append(chat_id, &Record::ToolResult { tool_use_id: id, text: out, is_error: !ok }).map_err(io)?;
+            store
+                .append(chat_id, &Record::ToolResult { tool_use_id: id, text: out, is_error: !ok, images })
+                .map_err(io)?;
             let made = host.take_revisions();
             if !made.is_empty() {
                 store.append(chat_id, &Record::Revisions { turn: turn_id.clone(), revs: made.clone() }).map_err(io)?;

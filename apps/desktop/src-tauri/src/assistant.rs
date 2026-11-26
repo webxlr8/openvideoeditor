@@ -413,6 +413,11 @@ impl ToolHost for DesktopHost {
     fn check_code(&mut self, composition: &serde_json::Value, duration: f64) -> Result<String, String> {
         self.with_project(|p| Ok(tools::check_code(Some(p), composition, duration)), false)
     }
+    fn see(&mut self, req: &ove_agent::tools::SeeRequest) -> Result<ove_agent::tools::ToolOut, String> {
+        // A copy of the document: decoding and rendering must not hold the project while the editor works.
+        let (doc, bundle) = self.with_project(|p| Ok((p.doc().clone(), p.bundle().to_path_buf())), false)?;
+        crate::seeing::see(&doc, &bundle, req)
+    }
     fn seek_viewer(&mut self, seconds: f64) -> Result<String, String> {
         let _ = AgentUiEvent::Seek { seconds }.emit(&self.app);
         Ok(format!("Showing {seconds:.2}s."))
@@ -675,7 +680,7 @@ pub fn chat_items(records: &[Record]) -> Vec<ChatItem> {
                     }
                 }
             }
-            Record::ToolResult { tool_use_id, text, is_error } => {
+            Record::ToolResult { tool_use_id, text, is_error, .. } => {
                 if let Some(it) = out.iter_mut().rev().find(|i| i.id.as_deref() == Some(tool_use_id)) {
                     if it.role == "question" {
                         it.text = format!("{}\n→ {}", it.text, text);
@@ -1140,7 +1145,7 @@ mod tests {
                     json!({"type": "tool_use", "id": "t1", "name": "apply_timeline", "input": {"edits": [{}]}}),
                 ],
             },
-            Record::ToolResult { tool_use_id: "t1".into(), text: "{}".into(), is_error: false },
+            Record::ToolResult { tool_use_id: "t1".into(), text: "{}".into(), is_error: false, images: vec![] },
         ]);
         assert_eq!(items.len(), 3);
         assert_eq!(items[2].role, "tool");

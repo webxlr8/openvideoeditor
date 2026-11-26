@@ -21,6 +21,7 @@ pub mod onboarding;
 pub mod projects;
 pub mod sample;
 pub mod scripted_dialogs;
+pub mod seeing;
 pub mod support;
 pub mod timeline;
 pub mod transport;

@@ -4136,6 +4136,7 @@ dependencies = [
  "os_info",
  "ove-agent",
  "ove-agents",
+ "ove-analyze",
  "ove-control",
  "ove-core",
  "ove-generate",
