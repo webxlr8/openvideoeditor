@@ -68,7 +68,7 @@
       Status: Code done (`logging.rs` startup line with OS, GPU, decode; panic containment verified by harden-for-alpha
       1.1). Forced panic in the built app: P.9.
 - [ ] 4.5 Measure cold start to interactive UI; verify ≤ 1.5 s on both reference machines (record in Results).
-      Windows: 409–508 ms, release, warm cache (design.md Results). Left: macOS, first start after reboot.
+      Windows: 409–509 ms, release, warm cache (design.md Results). Left: macOS, first start after reboot.
 
 ## 5. Native viewer (R1 gate)
 
@@ -124,7 +124,7 @@ Code for the tasks above is done; these checks remain. Each needs a platform, a 
 - [ ] P.8 Single instance, Open with, drag-and-drop and Dock/taskbar routing: every specs/desktop-shell scenario on
       macOS and Windows.
       Windows: second launch and launch with a file (focus, one process, file routed) checked by hand; drop on the
-      window covered by the app e2e suite (17/17 flows pass). Left: taskbar drop, macOS.
+      window covered by the app e2e suite (19/19 flows pass). Left: taskbar drop, macOS.
 - [ ] P.9 Forced worker panic in the built app on macOS and Windows: error shown, window usable, backtrace in the log.
       Windows: done 2026-11-26 by the app e2e flow "resilience: a forced panic in a worker and in the viewer" (also
       runs on Linux CI). Left: macOS.
