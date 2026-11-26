@@ -1,5 +1,7 @@
-//! Transcript cache per media file in the bundle: `cache/transcripts/<key>.json`, keyed by the file's identity
-//! (path, size, modification time), the model and the language.
+//! Transcript cache per media file in the bundle: `cache/transcripts/<key>.json`, keyed by the file's content id
+//! (see `ove_store::media::content_id`), the model and the language, so a moved or relinked file keeps its
+//! transcripts. Projects from before content ids used a key over the path, size and modification time
+//! ([`key`]); [`migrate_legacy`] renames those entries on first open.
 
 use std::path::{Path, PathBuf};
 
@@ -7,8 +9,39 @@ use sha2::{Digest, Sha256};
 
 use crate::recognize::Transcript;
 
-/// Cache key: a SHA-256 of the file's identity (stable across Rust versions and platforms, unlike `DefaultHasher`),
-/// then the model and the language.
+/// Cache key for a file with a content id: the id, the model and the language.
+pub fn content_key(content_id: &str, model: &str, language: Option<&str>) -> String {
+    format!("{content_id}-{model}-{}", language.unwrap_or("auto"))
+}
+
+/// Renames the legacy cache entries of the file at `media` (keyed by its path, size and modification time) to its
+/// content id, keeping the model and language part. Returns how many were moved. An entry already under the content
+/// id wins; the legacy one is then removed.
+pub fn migrate_legacy(bundle: &Path, media: &Path, content_id: &str) -> usize {
+    let legacy = key(media, "", None);
+    let Some(prefix) = legacy.strip_suffix("-auto").and_then(|k| k.strip_suffix('-')) else { return 0 };
+    let dir = bundle.join("cache").join("transcripts");
+    let Ok(rd) = std::fs::read_dir(&dir) else { return 0 };
+    let mut moved = 0;
+    for e in rd.flatten() {
+        let name = e.file_name().to_string_lossy().into_owned();
+        let Some(rest) = name.strip_prefix(prefix).and_then(|r| r.strip_prefix('-')) else { continue };
+        if !rest.ends_with(".json") {
+            continue;
+        }
+        let target = dir.join(format!("{content_id}-{rest}"));
+        let done = if target.exists() {
+            std::fs::remove_file(e.path()).is_ok()
+        } else {
+            std::fs::rename(e.path(), &target).is_ok()
+        };
+        moved += usize::from(done);
+    }
+    moved
+}
+
+/// Legacy cache key (projects from before content ids): a SHA-256 of the file's path, size and modification time
+/// (stable across Rust versions and platforms, unlike `DefaultHasher`), then the model and the language.
 pub fn key(media: &Path, model: &str, language: Option<&str>) -> String {
     let md = std::fs::metadata(media).ok();
     let modified_ms = md
@@ -69,6 +102,38 @@ mod tests {
         assert_eq!(identity("/clips/a.mov", None, None), "36e67dc6e93c7d17");
         assert_ne!(identity("/clips/a.mov", Some(1234), Some(1)), identity("/clips/a.mov", Some(1234), Some(2)));
         assert_ne!(identity("/clips/a.mov", Some(1), None), identity("/clips/a.mov", None, Some(1)));
+    }
+
+    #[test]
+    fn content_keys_follow_the_content_not_the_path() {
+        assert_eq!(content_key("0123abcd", "base", None), "0123abcd-base-auto");
+        assert_eq!(content_key("0123abcd", "small", Some("en")), "0123abcd-small-en");
+    }
+
+    /// An upgraded project keeps its transcripts: legacy entries move to the content id and load from there, so
+    /// nothing is transcribed again.
+    #[test]
+    fn legacy_entries_migrate_to_the_content_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let bundle = dir.path().join("P.ove");
+        let media = dir.path().join("interview.wav");
+        std::fs::write(&media, b"sound").unwrap();
+        let t = Transcript { language: "en".into(), model: "base".into(), words: vec![], duration_us: 1_000_000 };
+        let old_en = key(&media, "base", Some("en"));
+        let old_auto = key(&media, "small", None);
+        store(&bundle, &old_en, &t);
+        store(&bundle, &old_auto, &t);
+        // Another file's entry stays.
+        let other = dir.path().join("other.wav");
+        std::fs::write(&other, b"other").unwrap();
+        store(&bundle, &key(&other, "base", None), &t);
+
+        assert_eq!(migrate_legacy(&bundle, &media, "c0ffee"), 2);
+        assert_eq!(load(&bundle, &content_key("c0ffee", "base", Some("en"))), Some(t.clone()));
+        assert_eq!(load(&bundle, &content_key("c0ffee", "small", None)), Some(t.clone()));
+        assert!(load(&bundle, &old_en).is_none(), "moved, not copied");
+        assert!(load(&bundle, &key(&other, "base", None)).is_some());
+        assert_eq!(migrate_legacy(&bundle, &media, "c0ffee"), 0, "a second open has nothing to move");
     }
 
     #[test]

@@ -26,10 +26,14 @@
 
 ## 3. Content identity
 
-- [ ] 3.1 Compute `contentId` at import and write it in the add-media op; verify tests: rename and move keep it, a
+- [x] 3.1 Compute `contentId` at import and write it in the add-media op; verify tests: rename and move keep it, a
       content change alters it, the field round-trips in older readers.
-- [ ] 3.2 Re-key transcript and thumbnail caches to `contentId` with migration on first open; verify an upgrade test
+      (`ove-store` media tests; the app's import and `ove media add` / `relink` write it. `contentId` is one additive
+      optional field in the registry schema.)
+- [x] 3.2 Re-key transcript and thumbnail caches to `contentId` with migration on first open; verify an upgrade test
       keeps existing transcripts without re-transcribing.
+      (`projects::tests::upgrade_keeps_derived_data_and_relink_reuses_it`,
+      `ove-transcribe` `cache::tests::legacy_entries_migrate_to_the_content_id`.)
 
 ## 4. Skim sheets
 

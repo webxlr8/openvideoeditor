@@ -418,6 +418,7 @@ pub const REGISTRY_FIELDS: &[Field] = &[
     fd("probeStatus", Kind::Enum(PROBE_STATUSES), Def::Str("awaiting-probe"), "Probe state."),
     f("size", Kind::Int { min: Some(0), max: None }, "Last known file size in bytes."),
     f("modifiedAt", Kind::Int { min: None, max: None }, "Last known modification time, ms since the epoch."),
+    f("contentId", Kind::Str, "Content identity: hash of the size and sampled content; derived data is keyed by it."),
 ];
 
 /// Media item (`project.media`): what a media file is. `data` holds probe results owned by the media change.

@@ -216,9 +216,120 @@ pub(crate) fn thumbs_dir(bundle: &Path) -> PathBuf {
     bundle.join("cache").join("thumbs")
 }
 
-fn thumbnail_data_url(bundle: &Path, media_id: &str) -> Option<String> {
-    let bytes = std::fs::read(thumbs_dir(bundle).join(format!("{media_id}.png"))).ok()?;
+/// `cache/thumbs/<key>.png` as a data URL.
+fn thumbnail_data_url(bundle: &Path, key: &str) -> Option<String> {
+    let bytes = std::fs::read(thumbs_dir(bundle).join(format!("{key}.png"))).ok()?;
     Some(format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes)))
+}
+
+/// What a media file's thumbnail is stored under: its content id (so a moved or relinked file keeps it), or its
+/// media id for entries from before content ids.
+pub(crate) fn thumb_key(doc: &ove_core::Document, media_id: &str) -> String {
+    doc.registry
+        .get(media_id)
+        .and_then(|e| e.fields.get("contentId"))
+        .and_then(Value::as_str)
+        .map_or_else(|| media_id.to_string(), str::to_string)
+}
+
+/// A media file's thumbnail: under its content id, else under its media id (not migrated yet, or written by a
+/// feature that names thumbnails by media id).
+fn thumbnail_for(bundle: &Path, doc: &ove_core::Document, media_id: &str) -> Option<String> {
+    thumbnail_data_url(bundle, &thumb_key(doc, media_id)).or_else(|| thumbnail_data_url(bundle, media_id))
+}
+
+/// Moves derived data from before content ids onto them: thumbnails named by media id and transcripts keyed by
+/// path, size and time. Returns how many files moved. Entries without a content id are left alone.
+#[cfg(test)]
+pub(crate) fn migrate_derived(bundle: &Path, doc: &ove_core::Document) -> usize {
+    let all: BTreeSet<String> = doc
+        .registry
+        .values()
+        .filter_map(|e| e.fields.get("contentId").and_then(Value::as_str))
+        .map(str::to_string)
+        .collect();
+    migrate_derived_only(bundle, doc, &all)
+}
+
+/// [`migrate_derived`] for the entries whose content id is in `only`.
+fn migrate_derived_only(bundle: &Path, doc: &ove_core::Document, only: &BTreeSet<String>) -> usize {
+    let mut moved = 0;
+    for e in doc.registry.values() {
+        let Some(cid) = e.fields.get("contentId").and_then(Value::as_str).filter(|c| only.contains(*c)) else {
+            continue;
+        };
+        let old = thumbs_dir(bundle).join(format!("{}.png", e.media_id));
+        if old.is_file() {
+            let new = thumbs_dir(bundle).join(format!("{cid}.png"));
+            let ok = if new.exists() { std::fs::remove_file(&old) } else { std::fs::rename(&old, &new) };
+            moved += usize::from(ok.is_ok());
+        }
+        let path = resolve_media_path(bundle, &e.native_path);
+        moved += ove_transcribe::cache::migrate_legacy(bundle, &path, cid);
+    }
+    moved
+}
+
+/// Computes content ids in a background task for entries without one (projects from before content ids) or whose
+/// file changed, and stores them as one revision attributed to migration. The next media check then moves older
+/// derived data onto them.
+fn queue_identity_check(app: &AppHandle, bundle: &Path) {
+    let state = app.state::<AppState>();
+    let spec =
+        ove_tasks::TaskSpec::new("identity", "Media identities", ove_tasks::Priority::Derivative, ove_tasks::Class::Io)
+            .project(crate::tasks::project_key(bundle))
+            .memory(8 * 1024 * 1024)
+            .key(format!("identity:{}", bundle.display()));
+    let (a, b) = (app.clone(), bundle.to_path_buf());
+    state.tasks.submit(spec, move |ctx| {
+        let state = a.state::<AppState>();
+        let doc = {
+            let g = lock(&state.projects.open).map_err(|e| ove_tasks::TaskError::Failed(e.message))?;
+            match g.as_ref() {
+                Some(p) if p.bundle() == b => p.doc().clone(),
+                _ => return Ok(()),
+            }
+        };
+        ctx.checkpoint()?;
+        let ops = identity_ops(&b, &doc);
+        ctx.checkpoint()?;
+        if ops.is_empty() {
+            return Ok(());
+        }
+        let n = ops.len();
+        {
+            let mut g = lock(&state.projects.open).map_err(|e| ove_tasks::TaskError::Failed(e.message))?;
+            // Only onto the same project, unchanged since the files were read.
+            if !g.as_ref().is_some_and(|p| p.bundle() == b && p.doc().registry == doc.registry) {
+                return Ok(());
+            }
+            let p = commit_as(&mut g, ops, "media identities", Source::Migration)
+                .map_err(|e| ove_tasks::TaskError::Failed(e.message))?;
+            emit_view(&a, Some(p));
+        }
+        tracing::info!(entries = n, "stored media content ids");
+        refresh_media(&a);
+        Ok(())
+    });
+}
+
+/// Ops that store content ids for entries that lack one (projects from before content ids) or whose file changed
+/// in place. Reads the files; runs as a background task.
+pub(crate) fn identity_ops(bundle: &Path, doc: &ove_core::Document) -> Vec<Op> {
+    doc.registry
+        .values()
+        .filter_map(|e| {
+            let path = resolve_media_path(bundle, &e.native_path);
+            let entry_set = ove_store::media::refresh_identity(&path, &e.fields)?;
+            Some(Op::UpdateMedia {
+                id: e.media_id.clone(),
+                set: Map::new(),
+                unset: vec![],
+                entry_set,
+                entry_unset: vec![],
+            })
+        })
+        .collect()
 }
 
 fn transition_secs(i: &ove_core::Item, key: &str) -> f64 {
@@ -252,7 +363,7 @@ pub fn view(p: &Project) -> ProjectView {
                 .find(|s| s.media_id == id)
                 .map(|s| LinkView { path: s.path.display().to_string(), state: s.state })
         },
-        |id| thumbnail_data_url(p.bundle(), id),
+        |id| thumbnail_for(p.bundle(), p.doc(), id),
     )
 }
 
@@ -359,6 +470,10 @@ pub struct MediaCache {
     thumbs: HashMap<String, Option<String>>,
     /// Media whose missing thumbnail was queued once already (a file that cannot be thumbnailed is not retried).
     thumbs_queued: BTreeSet<String>,
+    /// Content ids whose older derived data was moved onto them this session.
+    migrated: BTreeSet<String>,
+    /// Registry states (link keys) an identity check was queued for.
+    identity_queued: BTreeSet<String>,
 }
 
 impl MediaCache {
@@ -463,11 +578,33 @@ fn refresh_once(app: &AppHandle, state: &AppState) {
     let snapshot =
         lock(&state.projects.open).ok().and_then(|g| g.as_ref().map(|p| (p.bundle().to_path_buf(), p.doc().clone())));
     let Some((bundle, doc)) = snapshot else { return };
-    let have_thumb: BTreeSet<String> = {
+    let (have_thumb, to_migrate, needs_identity) = {
         let mut c = relock(&state.projects.media);
         c.select(&bundle);
-        c.thumbs.iter().filter(|(_, t)| t.is_some()).map(|(id, _)| id.clone()).collect()
+        let have: BTreeSet<String> = c.thumbs.iter().filter(|(_, t)| t.is_some()).map(|(id, _)| id.clone()).collect();
+        let to_migrate: BTreeSet<String> = doc
+            .registry
+            .values()
+            .filter_map(|e| e.fields.get("contentId").and_then(Value::as_str))
+            .filter(|cid| !c.migrated.contains(*cid))
+            .map(str::to_string)
+            .collect();
+        c.migrated.extend(to_migrate.iter().cloned());
+        let keys: Vec<String> = doc.registry.values().map(link_key).collect();
+        let needs_identity = keys.iter().any(|k| !c.identity_queued.contains(k));
+        c.identity_queued.extend(keys);
+        (have, to_migrate, needs_identity)
     };
+    // Derived data from before content ids moves onto them (first open after the upgrade, or after an identity check).
+    if !to_migrate.is_empty() {
+        let moved = migrate_derived_only(&bundle, &doc, &to_migrate);
+        if moved > 0 {
+            tracing::info!(moved, "moved derived data onto content ids");
+        }
+    }
+    if needs_identity {
+        queue_identity_check(app, &bundle);
+    }
     let links: Vec<(String, String, LinkView)> = media_status(&bundle, &doc)
         .into_iter()
         .filter_map(|s| {
@@ -480,10 +617,10 @@ fn refresh_once(app: &AppHandle, state: &AppState) {
         .media
         .keys()
         .filter(|id| !have_thumb.contains(*id))
-        .map(|id| (id.clone(), thumbnail_data_url(&bundle, id)))
+        .map(|id| (id.clone(), thumbnail_for(&bundle, &doc, id)))
         .collect();
     // Thumbnails are derived data: one that is missing (a cleared cache, an older project) is made again.
-    let missing: Vec<(String, PathBuf, i64)> = {
+    let missing: Vec<(String, String, PathBuf, i64)> = {
         let mut c = relock(&state.projects.media);
         let online: BTreeSet<&str> =
             links.iter().filter(|(_, _, l)| l.state == MediaState::Online).map(|(id, _, _)| id.as_str()).collect();
@@ -497,7 +634,7 @@ fn refresh_once(app: &AppHandle, state: &AppState) {
                 let dur = data.get("duration").and_then(ove_core::time::json_to_micros).unwrap_or(1_000_000);
                 c.thumbs_queued
                     .insert(id.clone())
-                    .then(|| (id.clone(), resolve_media_path(&bundle, &e.native_path), dur))
+                    .then(|| (id.clone(), thumb_key(&doc, id), resolve_media_path(&bundle, &e.native_path), dur))
             })
             .collect()
     };
@@ -769,11 +906,9 @@ pub(crate) fn media_records(canonical: &Path, info: &ove_media::MediaInfo, id: &
         }
     }
     let mut entry = json!({"mediaId": id, "nativePath": canonical.display().to_string(), "ownedByBundle": false, "probeStatus": "probed"});
-    if let Ok(md) = std::fs::metadata(canonical) {
-        entry["size"] = json!(md.len());
-        if let Some(t) = md.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()) {
-            entry["modifiedAt"] = json!(t.as_millis() as i64);
-        }
+    // size, modifiedAt and contentId: written with the add-media op, so they cost no extra revision.
+    if let Some(e) = entry.as_object_mut() {
+        e.extend(ove_store::media::identity_fields(canonical));
     }
     (json!({"id": id, "createdAt": now, "addedAt": now, "data": Value::Object(data)}), entry, duration_us)
 }
@@ -832,16 +967,28 @@ fn probed_records(
 
 /// Queues a thumbnail task for each video file; each finished thumbnail shows in the media panel (views go out at
 /// most four times a second while thumbnails arrive).
-fn queue_thumbnails(app: &AppHandle, bundle: &Path, files: Vec<(String, PathBuf, i64)>) {
+/// `files`: media id, thumbnail key ([`thumb_key`]), source file, duration.
+fn queue_thumbnails(app: &AppHandle, bundle: &Path, files: Vec<(String, String, PathBuf, i64)>) {
     let state = app.state::<AppState>();
     let project = crate::tasks::project_key(bundle);
-    for (id, source, duration_us) in files {
-        let out = thumbs_dir(bundle).join(format!("{id}.png"));
+    for (id, key, source, duration_us) in files {
+        let out = thumbs_dir(bundle).join(format!("{key}.png"));
         let (a, b) = (app.clone(), bundle.to_path_buf());
         crate::tasks::queue_thumbnail(&state.tasks, &project, source, out, duration_us, move |made| {
             let state = a.state::<AppState>();
-            let url = if made { thumbnail_data_url(&b, &id) } else { None };
-            relock(&state.projects.media).put_thumbnail(&b, &id, url);
+            let url = if made { thumbnail_data_url(&b, &key) } else { None };
+            // Every media entry with the same content shares the thumbnail (and the task: same key, one run).
+            let mut ids = vec![id];
+            if let Ok(g) = lock(&state.projects.open)
+                && let Some(p) = g.as_ref().filter(|p| p.bundle() == b)
+            {
+                ids.extend(p.doc().registry.keys().filter(|m| thumb_key(p.doc(), m) == key).cloned());
+            }
+            let mut cache = relock(&state.projects.media);
+            for m in ids {
+                cache.put_thumbnail(&b, &m, url.clone());
+            }
+            drop(cache);
             emit_view_soon(&a);
         });
     }
@@ -934,8 +1081,14 @@ pub(crate) async fn import_paths(app: AppHandle, paths: Vec<String>, source: Sou
     let a = app.clone();
     let (bundle, probed, errors) =
         worker::blocking("import_media", move || probe_paths(&a.state::<AppState>(), &paths, now)).await?;
-    let thumbs: Vec<(String, PathBuf, i64)> =
-        probed.iter().filter(|f| f.video).map(|f| (f.id.clone(), f.path.clone(), f.duration_us)).collect();
+    let thumbs: Vec<(String, String, PathBuf, i64)> = probed
+        .iter()
+        .filter(|f| f.video)
+        .map(|f| {
+            let key = f.entry.get("contentId").and_then(Value::as_str).unwrap_or(&f.id).to_string();
+            (f.id.clone(), key, f.path.clone(), f.duration_us)
+        })
+        .collect();
     let b = bundle.clone();
     let v = serial(&app, "import_media", move |app, state| add_probed(app, state, &b, probed, now, source)).await?;
     // The files are listed now; thumbnails follow as their tasks finish.
@@ -1216,6 +1369,11 @@ mod tests {
         let probe_time = t.elapsed();
         assert!(errors.is_empty(), "{errors:?}");
         assert_eq!(probed.len(), 200);
+        // Every entry carries a content id from the add-media op; copies of one file share it.
+        let cids: BTreeSet<&str> = probed.iter().filter_map(|f| f.entry.get("contentId")?.as_str()).collect();
+        assert_eq!(cids.len(), 1, "200 copies, one content");
+        assert!(probed.iter().all(|f| f.entry.get("contentId").is_some()));
+        // Thumbnails named by media id here, so the 200 copies make 200 tasks (the app shares one per content).
         let thumbs: Vec<(String, PathBuf, i64)> =
             probed.iter().filter(|f| f.video).map(|f| (f.id.clone(), f.path.clone(), f.duration_us)).collect();
         let empty = ove_core::Document::new("p", "Import", 1);
@@ -1245,6 +1403,76 @@ mod tests {
         let files = std::fs::read_dir(thumbs_dir(&bundle)).unwrap().count();
         assert_eq!(files, 200, "one PNG per file and no part files left");
         println!("200-file import: probes {probe_time:?}, listed at {list_time:?}, thumbnails took {thumb_time:?}");
+    }
+
+    /// A project from before content ids: the background check stores ids as one migration revision, older
+    /// thumbnails and transcripts move onto them without being made again, and a relinked file keeps them.
+    #[test]
+    fn upgrade_keeps_derived_data_and_relink_reuses_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let bundle = dir.path().join("Old.ove");
+        let source = crate::tasks::testing::video(dir.path(), "interview.mp4");
+        let empty = ove_core::Document::new("p", "Old", 1);
+        let mut doc = ove_core::ops::apply_batch(&empty, &default_tracks()).unwrap().doc;
+        // The entry an older build wrote: size and time, no content id.
+        let (stamp_size, stamp_time) = ove_store::media::file_stamp(&source).unwrap();
+        let old_entry = json!({"mediaId": "m1", "nativePath": source.display().to_string(), "ownedByBundle": false,
+            "probeStatus": "probed", "size": stamp_size, "modifiedAt": stamp_time.unwrap()});
+        doc = ove_core::ops::apply_batch(
+            &doc,
+            &[Op::AddMedia { media: json!({"id": "m1", "data": {"type": "video"}}), entry: Some(old_entry) }],
+        )
+        .unwrap()
+        .doc;
+        // Its derived data: a thumbnail named by media id and a transcript under the path/size/time key.
+        std::fs::create_dir_all(thumbs_dir(&bundle)).unwrap();
+        make_thumbnail(&source, &thumbs_dir(&bundle).join("m1.png"), 600_000).unwrap();
+        let transcript = ove_transcribe::Transcript {
+            language: "en".into(),
+            model: "base".into(),
+            words: vec![],
+            duration_us: 600_000,
+        };
+        ove_transcribe::cache::store(&bundle, &ove_transcribe::cache::key(&source, "base", None), &transcript);
+
+        // Content ids are computed and stored.
+        let ops = identity_ops(&bundle, &doc);
+        assert_eq!(ops.len(), 1);
+        let doc = ove_core::ops::apply_batch(&doc, &ops).unwrap().doc;
+        let cid = doc.registry["m1"].fields["contentId"].as_str().unwrap().to_string();
+        assert!(identity_ops(&bundle, &doc).is_empty(), "nothing more to compute");
+        // Derived data moves onto the id.
+        assert_eq!(migrate_derived(&bundle, &doc), 2);
+        assert!(thumbs_dir(&bundle).join(format!("{cid}.png")).is_file());
+        assert!(!thumbs_dir(&bundle).join("m1.png").exists());
+        assert!(thumbnail_for(&bundle, &doc, "m1").is_some());
+        let key = ove_transcribe::cache::content_key(&cid, "base", None);
+        assert_eq!(ove_transcribe::cache::load(&bundle, &key), Some(transcript.clone()), "no new transcription");
+
+        // The file moves to another folder and is relinked: same id, same derived data.
+        let moved_dir = dir.path().join("moved");
+        std::fs::create_dir_all(&moved_dir).unwrap();
+        let moved = moved_dir.join("interview.mp4");
+        std::fs::rename(&source, &moved).unwrap();
+        let mut entry_set = Map::new();
+        entry_set.insert("nativePath".into(), moved.display().to_string().into());
+        entry_set.extend(ove_store::media::identity_fields(&moved));
+        let doc = ove_core::ops::apply_batch(
+            &doc,
+            &[Op::UpdateMedia { id: "m1".into(), set: Map::new(), unset: vec![], entry_set, entry_unset: vec![] }],
+        )
+        .unwrap()
+        .doc;
+        assert_eq!(thumb_key(&doc, "m1"), cid);
+        assert!(thumbnail_for(&bundle, &doc, "m1").is_some());
+        assert_eq!(ove_transcribe::cache::load(&bundle, &key), Some(transcript));
+
+        // A different file under the same name gets a new id: its derived data is rebuilt.
+        std::fs::write(&moved, b"not the same video").unwrap();
+        let ops = identity_ops(&bundle, &doc);
+        let doc = ove_core::ops::apply_batch(&doc, &ops).unwrap().doc;
+        assert_ne!(thumb_key(&doc, "m1"), cid);
+        assert!(thumbnail_for(&bundle, &doc, "m1").is_none());
     }
 
     fn open_project(lib: &Library) -> Projects {

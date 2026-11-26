@@ -225,11 +225,9 @@ fn describe(path: &Path, id: &str, now: i64, image_us: i64) -> Result<(Value, Va
     };
     data.insert("type".into(), kind.into());
     let mut entry = json!({"mediaId": id, "nativePath": path.display().to_string(), "ownedByBundle": false, "probeStatus": "probed"});
-    if let Ok(md) = std::fs::metadata(path) {
-        entry["size"] = json!(md.len());
-        if let Some(t) = md.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()) {
-            entry["modifiedAt"] = json!(t.as_millis() as i64);
-        }
+    // size, modifiedAt and contentId (derived data is keyed by the content id).
+    if let Some(e) = entry.as_object_mut() {
+        e.extend(ove_store::media::identity_fields(path));
     }
     Ok((json!({"id": id, "createdAt": now, "addedAt": now, "data": Value::Object(data)}), entry, dur, kind))
 }
@@ -442,14 +440,8 @@ pub fn run(ctx: &Ctx, cmd: &MediaCmd) -> Out {
                         let mut entry_set = Map::new();
                         entry_set.insert("nativePath".into(), p.display().to_string().into());
                         entry_set.insert("ownedByBundle".into(), false.into());
-                        if let Ok(md) = std::fs::metadata(p) {
-                            entry_set.insert("size".into(), md.len().into());
-                            if let Some(t) =
-                                md.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                            {
-                                entry_set.insert("modifiedAt".into(), (t.as_millis() as i64).into());
-                            }
-                        }
+                        // The relinked file's identity: the same content keeps its derived data.
+                        entry_set.extend(ove_store::media::identity_fields(p));
                         Op::UpdateMedia {
                             id: id.clone(),
                             set: Map::new(),

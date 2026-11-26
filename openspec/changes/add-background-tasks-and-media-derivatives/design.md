@@ -127,3 +127,19 @@ our own exporter):
 
 Import waits for its probes: a clip's length decides where it goes on the timeline, and probes are quick. Probes carry
 a 2 s watchdog so a paused or busy queue never holds an import up. Thumbnails are not awaited.
+
+Content identity as built (group 3):
+
+- `contentId` is the first 32 hex characters (128 bits) of SHA-256 over a version tag, the size, and the first,
+  middle and last MiB; files of 3 MiB or less are hashed whole. It is written with the add-media op at import (app and
+  `ove media add`) and with the update-media op at relink.
+- The collision risk (an edit between the sampled regions that keeps the size) is handled where it is detected: when
+  the size or time of a file at the same path changed but its sampled id did not, the stored id becomes a hash of the
+  whole file, so derived data is rebuilt. Copies and moves keep the sampled id.
+- Older projects: on open, a P2 "Media identities" task computes the missing ids and stores them as one revision
+  attributed to migration (`Source::Migration`). The next media check moves thumbnails named by media id to
+  `cache/thumbs/<contentId>.png` and renames transcripts keyed by path, size and time to
+  `cache/transcripts/<contentId>-<model>-<language>.json`. Captions also take an unmigrated transcript under the old
+  key, so nothing is transcribed again even before the migration task runs.
+- Thumbnails other features write by media id (sample project, generation, interchange, `ove media` thumbnails) are
+  found under the media id and moved on the next check, so those features did not need changing.

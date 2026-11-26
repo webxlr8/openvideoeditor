@@ -377,13 +377,25 @@ fn transcript_for(
     app: &AppHandle,
     bundle: &Path,
     (model_path, model): (&Path, Model),
-    clip: &SourceClip,
+    (clip, content_id): (&SourceClip, Option<&str>),
     language: Option<&str>,
     cancel: &Arc<AtomicBool>,
     (index, count): (usize, usize),
 ) -> Result<Transcript, ove_transcribe::TranscribeError> {
-    let key = ove_transcribe::cache::key(&clip.path, model.id(), language);
+    // Keyed by content id, so a moved or relinked file keeps its transcript. An entry under the older key (path,
+    // size, time) that the migration on open has not moved yet is moved here.
+    let legacy = ove_transcribe::cache::key(&clip.path, model.id(), language);
+    let key = match content_id {
+        Some(cid) => ove_transcribe::cache::content_key(cid, model.id(), language),
+        None => legacy.clone(),
+    };
     if let Some(t) = ove_transcribe::cache::load(bundle, &key) {
+        return Ok(t);
+    }
+    if key != legacy
+        && let Some(t) = ove_transcribe::cache::load(bundle, &legacy)
+    {
+        ove_transcribe::cache::store(bundle, &key, &t);
         return Ok(t);
     }
     let name = clip.path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
@@ -431,6 +443,11 @@ pub async fn auto_caption(app: AppHandle, request: AutoCaptionRequest) -> AppRes
             (p.doc().clone(), p.bundle().to_path_buf())
         };
         let clips = source_clips(&doc, &bundle, &request.item_ids)?;
+        let content_ids: std::collections::HashMap<String, String> = doc
+            .registry
+            .values()
+            .filter_map(|e| Some((e.media_id.clone(), e.fields.get("contentId")?.as_str()?.to_string())))
+            .collect();
         let cancel = start_job()?;
         let language = request.language.clone().filter(|l| !l.is_empty() && l != "auto");
         let spec = ove_tasks::TaskSpec::new(
@@ -457,7 +474,7 @@ pub async fn auto_caption(app: AppHandle, request: AutoCaptionRequest) -> AppRes
                         &app,
                         &bundle,
                         (&model_path, model),
-                        clip,
+                        (clip, content_ids.get(&clip.media_id).map(String::as_str)),
                         language.as_deref(),
                         &cancel,
                         (i, clips.len()),
