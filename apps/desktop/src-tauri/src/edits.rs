@@ -141,13 +141,40 @@ fn free_start(p: &Project, track: &str, from: Micros, dur: Micros, ignore: &[Str
     items.iter().map(|i| i.end).max().unwrap_or(0).max(from)
 }
 
+/// New link values for copies: copied items that shared a link share a new one (the copies are a new group, not
+/// members of the original's); a copy whose partners were not copied is no longer linked.
+fn relink(items: &mut [Value]) {
+    let mut count: std::collections::BTreeMap<String, usize> = Default::default();
+    for i in items.iter() {
+        if let Some(l) = i.get("link").and_then(Value::as_str) {
+            *count.entry(l.to_string()).or_default() += 1;
+        }
+    }
+    let fresh: std::collections::BTreeMap<String, String> = count
+        .into_iter()
+        .filter(|(_, n)| *n > 1)
+        .map(|(l, _)| (l, format!("l_{}", new_item_id().trim_start_matches("i_"))))
+        .collect();
+    for i in items.iter_mut() {
+        let Some(o) = i.as_object_mut() else { continue };
+        match o.get("link").and_then(Value::as_str).and_then(|l| fresh.get(l)).cloned() {
+            Some(l) => {
+                o.insert("link".into(), l.into());
+            }
+            None => {
+                o.shift_remove("link");
+            }
+        }
+    }
+}
+
 /// Duplicates items right after themselves on their track (or at the track's end when that is taken).
 #[tauri::command]
 #[specta::specta]
 pub async fn duplicate_items(app: AppHandle, ids: Vec<String>) -> AppResult<ProjectView> {
     serial(&app, "duplicate_items", move |app, state| {
         let ops = with_project(state, |p| {
-            let mut ops = Vec::new();
+            let mut copies = Vec::new();
             for id in &ids {
                 let it = item(p, id)?;
                 let dur = it.end - it.start;
@@ -156,9 +183,10 @@ pub async fn duplicate_items(app: AppHandle, ids: Vec<String>) -> AppResult<Proj
                 j["id"] = new_item_id().into();
                 j["startTime"] = micros_to_json(at);
                 j["endTime"] = micros_to_json(at + dur);
-                ops.push(Op::AddItem { item: j });
+                copies.push(j);
             }
-            Ok(ops)
+            relink(&mut copies);
+            Ok(copies.into_iter().map(|item| Op::AddItem { item }).collect::<Vec<_>>())
         })?;
         edit(app, state, ops, "duplicate")
     })
@@ -171,7 +199,8 @@ pub async fn duplicate_items(app: AppHandle, ids: Vec<String>) -> AppResult<Proj
 #[specta::specta]
 pub async fn paste_items(app: AppHandle, items_json: String, at: f64) -> AppResult<ProjectView> {
     serial(&app, "paste_items", move |app, state| {
-        let items: Vec<Value> = parse(&items_json, "the clipboard")?;
+        let mut items: Vec<Value> = parse(&items_json, "the clipboard")?;
+        relink(&mut items);
         let at = secs_to_micros(at.max(0.0)).unwrap_or(0);
         let ops = with_project(state, |p| {
             let min = items.iter().filter_map(|i| i.get("startTime").and_then(json_to_micros)).min().unwrap_or(0);
@@ -241,10 +270,17 @@ pub(crate) fn plan_and_apply(app: &AppHandle, state: &AppState, req: ove_edit::R
 }
 
 /// Trims an item's start or end edge to `time` (seconds on the timeline), keeping the source in sync and within the
-/// source. Linked items trim with it. The trimmed edge may overlap a neighbour (an overlap plays as a crossfade).
+/// source. Linked items trim with it unless `linked` is false (Alt in the timeline: a J or L cut). The trimmed edge
+/// may overlap a neighbour (an overlap plays as a crossfade).
 #[tauri::command]
 #[specta::specta]
-pub async fn trim_item(app: AppHandle, id: String, edge: String, time: f64) -> AppResult<ProjectView> {
+pub async fn trim_item(
+    app: AppHandle,
+    id: String,
+    edge: String,
+    time: f64,
+    linked: Option<bool>,
+) -> AppResult<ProjectView> {
     let edge = match edge.as_str() {
         "start" => ove_edit::Edge::Start,
         "end" => ove_edit::Edge::End,
@@ -252,7 +288,8 @@ pub async fn trim_item(app: AppHandle, id: String, edge: String, time: f64) -> A
     };
     let to = secs_to_micros(time).ok_or_else(|| bad("The time is invalid."))?;
     serial(&app, "trim_item", move |app, state| {
-        plan_and_apply(app, state, ove_edit::Request::Trim { item: id, edge, to, linked: true, crossfade: true })
+        let linked = linked.unwrap_or(true);
+        plan_and_apply(app, state, ove_edit::Request::Trim { item: id, edge, to, linked, crossfade: true })
     })
     .await
 }
@@ -320,6 +357,21 @@ mod tests {
     use super::*;
     use ove_core::revision::Source;
     use ove_store::Library;
+
+    #[test]
+    fn copies_get_their_own_link_group() {
+        let mut items = vec![
+            json!({"id": "v", "link": "L"}),
+            json!({"id": "a", "link": "L"}),
+            json!({"id": "w", "link": "M"}),
+            json!({"id": "t"}),
+        ];
+        relink(&mut items);
+        assert_eq!(items[0]["link"], items[1]["link"]);
+        assert_ne!(items[0]["link"], json!("L"));
+        assert!(items[2].get("link").is_none(), "a copy without its partner is not linked");
+        assert!(items[3].get("link").is_none());
+    }
 
     #[test]
     fn ops_apply_through_the_pipeline() {

@@ -5,7 +5,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ItemView_Serialize, ProjectView_Serialize } from "./bindings";
 import { commands } from "./bridge";
-import { type EditResult, addItems, firstTrack, trackAccepts, updateItem, updateItems, snapToFrame } from "./edit";
+import { type EditResult, TIMELINE_FPS, addItems, firstTrack, linkDrift, trackAccepts, updateItem, updateItems, snapToFrame } from "./edit";
 import { Icon, type IconName } from "./icons";
 import { ContextMenu, type MenuItem } from "./Menu";
 import { MOD } from "./keys";
@@ -68,6 +68,9 @@ export function Timeline(props: TimelineProps) {
   }, []);
 
   const total = Math.max(10, (project?.durationSeconds ?? 0) * 1.15, playhead + 1);
+  const drift = linkDrift(items, project?.fps ?? TIMELINE_FPS);
+  const linkCount = new Map<string, number>();
+  for (const i of items) if (i.link) linkCount.set(i.link, (linkCount.get(i.link) ?? 0) + 1);
   const fitPps = Math.max(1, viewW - HEADER_W) / total;
   const pps = zoom ?? fitPps;
   const contentW = Math.max(viewW, HEADER_W + total * pps);
@@ -172,7 +175,8 @@ export function Timeline(props: TimelineProps) {
           });
         onEdit(updateItems(edits, `move ${edits.length} items`));
       } else if (Math.abs(delta) > 1e-6 || changeTrack) {
-        onEdit(commands.moveItem(item.id, start, changeTrack));
+        // Alt moves this item alone, out of its link group's sync.
+        onEdit(commands.moveItem(item.id, start, changeTrack, ev.altKey ? false : null));
       }
     };
     window.addEventListener("pointermove", move);
@@ -196,7 +200,8 @@ export function Timeline(props: TimelineProps) {
       if (!moved) return;
       const base = edge === "start" ? (item.start ?? 0) : (item.end ?? 0);
       const t = snapTime(base + (ev.clientX - x0) / pps, [item.id]);
-      onEdit(commands.trimItem(item.id, edge, snapToFrame(t)));
+      // Alt trims this side only (a J or L cut).
+      onEdit(commands.trimItem(item.id, edge, snapToFrame(t), ev.altKey ? false : null));
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
@@ -336,6 +341,17 @@ export function Timeline(props: TimelineProps) {
                             {i.muted && <Icon name="mute" size={11} />} {i.kind === "text" || i.kind === "caption" ? (i.text ?? i.name) : i.name}
                             {(i.speed ?? 1) !== 1 && <em className="speed-tag"> {i.speed}×</em>}
                           </span>
+                          {i.link && (linkCount.get(i.link) ?? 0) > 1 && (
+                            <span className="link-badge" data-testid="link-badge" title="Linked: moves, trims and deletes with its partner (Alt edits this side only)">
+                              <Icon name="link" size={11} />
+                            </span>
+                          )}
+                          {drift.has(i.id) && (
+                            <span className="drift-chip" data-testid="drift-chip" title="Out of sync with the items it is linked to">
+                              {drift.get(i.id)! > 0 ? "+" : ""}
+                              {drift.get(i.id)}f
+                            </span>
+                          )}
                           {sel && (
                             <>
                               <span className="trim trim-start" data-testid="trim-start" onPointerDown={(e) => startTrim(e, i, "start")} />

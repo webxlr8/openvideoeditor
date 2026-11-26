@@ -1371,14 +1371,21 @@ function createMock(): {
     projectView: () => ok(project ? clone(project) : null),
     importMedia: (paths: string[]) => importPaths(paths),
     importMediaDialog: () => importPaths(["/mock/Sample clip.mov"]),
-    moveItem: (id: string, start: number | null, trackId: string | null) =>
-      editProject("move clip", () => {
+    moveItem: (id: string, start: number | null, trackId: string | null, linked: boolean | null) =>
+      editProject("move clip", (p) => {
         const i = findItem(id);
         if (!i) return;
         const d = (i.end ?? 0) - (i.start ?? 0);
+        const delta = Math.max(0, start ?? 0) - (i.start ?? 0);
+        // Like the planner: link partners move by the same amount unless the move is for this item alone.
+        const partners = linked !== false && i.link ? p.items.filter((o) => o.link === i.link && o.id !== i.id) : [];
         i.start = Math.max(0, start ?? 0);
         i.end = i.start + d;
         if (trackId) i.trackId = trackId;
+        for (const o of partners) {
+          o.start = (o.start ?? 0) + delta;
+          o.end = (o.end ?? 0) + delta;
+        }
       }),
     removeItems: (ids: string[]) =>
       editProject(
@@ -1483,7 +1490,7 @@ function createMock(): {
             }),
           );
       }),
-    trimItem: (id: string, edge: string, time: number | null) =>
+    trimItem: (id: string, edge: string, time: number | null, _linked: boolean | null) =>
       editProject("trim", () => {
         const i = mock(id);
         if (!i || time === null) return;

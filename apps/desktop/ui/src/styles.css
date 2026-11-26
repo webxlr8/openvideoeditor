@@ -1760,6 +1760,25 @@ button.preset-card:disabled {
   font-style: normal;
   color: #ffd84d;
 }
+.clip .link-badge {
+  position: absolute;
+  right: 4px;
+  top: 3px;
+  opacity: 0.8;
+  pointer-events: none;
+}
+.clip .drift-chip {
+  position: absolute;
+  right: 18px;
+  top: 2px;
+  padding: 0 4px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #1a1a1a;
+  background: #ff6b5a;
+  pointer-events: none;
+}
 .zoom-group {
   display: flex;
   align-items: center;

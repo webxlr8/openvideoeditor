@@ -38,11 +38,11 @@
 
 ## 4. Links
 
-- [ ] 4.1 Create linked video and audio items on import and drop; verify a desktop test imports a camera fixture and
+- [x] 4.1 Create linked video and audio items on import and drop; verify a desktop test imports a camera fixture and
       finds one link value on two items.
-- [ ] 4.2 Linked editing in all planners with the `linked: false` override; verify property: move and ripple keep
+- [x] 4.2 Linked editing in all planners with the `linked: false` override; verify property: move and ripple keep
       `start − in` equal across a group unless the override is set.
-- [ ] 4.3 Timeline badges for links and drift chips; verify a UI test shows "+3f" after a file edit drifts a pair.
+- [x] 4.3 Timeline badges for links and drift chips; verify a UI test shows "+3f" after a file edit drifts a pair.
 
 ## 5. Surfaces
 

@@ -167,3 +167,18 @@ Measured on the Windows 11 x64 development machine (not a reference machine), 20
 - Not done here: a conflict inside a ripple group does not pull the other fields of the group to the same side; the
   group is reported so the user can see the ripple moved them together.
 
+**Group 4 (links).**
+- Import (the OS drop onto the window goes through the same import) turns a file with picture and sound into a
+  muted video item on Main and an audio item on Audio at the same time with one new `link` value; the sound plays
+  once, from the audio item. Files without sound stay one item. Desktop test `importing_a_camera_clip_makes_a_linked_pair`
+  checks this with a probed camera file's records (a synthetic probe result: this machine's LGPL FFmpeg build cannot
+  make a test file with sound, so no real camera fixture is decoded).
+- The editor's move, trim, split and delete edit the link group; move and trim take `linked: false`, sent when Alt
+  is held, for J and L cuts. Duplicate and paste give copies their own link group (a copy without its partner is
+  unlinked), so copies never join the original's group. Planner property `linked_groups_stay_in_sync` covers move,
+  trim, ripple trim and slip; scenario tests cover the override.
+- The timeline badges linked items and shows a drift chip (for example `+3f`) on the members of a group that are out
+  of sync, computed the same way as the `link.offset` lint. UI test `Links.test.tsx`: an edit outside the planners
+  moves the audio of a pair 0.1 s at 30 fps and the chip reads `+3f` on that item.
+- The browser mock's import still adds one item per file, so the UI tests' clip counts are unchanged.
+
