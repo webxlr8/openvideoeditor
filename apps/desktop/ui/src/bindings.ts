@@ -75,6 +75,8 @@ export const commands = {
 	 *  −40 dB and 0.6 s) and closes the gaps, as one revision.
 	 */
 	removeSilences: (id: string, thresholdDb: number | null, minSeconds: number | null) => typedError<SilencesRemoved_Serialize, AppError>(__TAURI_INVOKE("remove_silences", { id, thresholdDb, minSeconds })),
+	/**  Removes background noise from the speech of a video or audio clip (see the module docs). */
+	cleanUpAudio: (id: string) => typedError<AudioCleaned_Serialize, AppError>(__TAURI_INVOKE("clean_up_audio", { id })),
 	setAspectRatio: (aspect: string) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("set_aspect_ratio", { aspect })),
 	renameProject: (name: string) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("rename_project", { name })),
 	setTrackFlag: (id: string, flag: string, value: boolean) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("set_track_flag", { id, flag, value })),
@@ -256,6 +258,7 @@ export const commands = {
 export const events = {
 	agentUiEvent: makeEvent<AgentUiEvent_Serialize, AgentUiEvent_Deserialize>("agent-ui-event"),
 	appErrorRaised: makeEvent<AppErrorRaised, AppErrorRaised>("app-error-raised"),
+	audioCleanupProgress: makeEvent<AudioCleanupProgress, AudioCleanupProgress>("audio-cleanup-progress"),
 	captionJobProgress: makeEvent<CaptionJobProgress_Serialize, CaptionJobProgress_Deserialize>("caption-job-progress"),
 	exportProgress: makeEvent<ExportProgress_Serialize, ExportProgress_Deserialize>("export-progress"),
 	generationUpdated: makeEvent<GenerationUpdated, GenerationUpdated>("generation-updated"),
@@ -436,6 +439,28 @@ export type AppInfo_Serialize = {
 	logDir: string | null,
 	/**  Where projects are kept. */
 	libraryDir: string | null,
+};
+
+export type AudioCleaned = AudioCleaned_Serialize | AudioCleaned_Deserialize;
+
+export type AudioCleaned_Deserialize = {
+	view: ProjectView_Deserialize,
+	/**  Seconds of audio cleaned (0 when an earlier clean-up of the same source was reused). */
+	seconds: number | null,
+	reused: boolean,
+};
+
+export type AudioCleaned_Serialize = {
+	view: ProjectView_Serialize,
+	/**  Seconds of audio cleaned (0 when an earlier clean-up of the same source was reused). */
+	seconds: number | null,
+	reused: boolean,
+};
+
+/**  Progress (0–1) of cleaning up the sound of clip `id`. */
+export type AudioCleanupProgress = {
+	id: string,
+	progress: number | null,
 };
 
 /**  What to caption. */

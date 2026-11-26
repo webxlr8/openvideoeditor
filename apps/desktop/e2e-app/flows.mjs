@@ -710,6 +710,37 @@ export const FLOWS = [
   },
 
   {
+    name: "clean up voice: a video clip is muted and its cleaned sound plays alongside; one undo brings it back",
+    async run(ctx) {
+      const { app, media } = ctx;
+      await newProject(app, "Clean voice E2E");
+      const view = await importWithButton(ctx, [media.video]);
+      const [clip] = mainClips(view);
+      const el = await app.find(`[data-testid="clip"][data-id="${clip.id}"]`);
+      await app.driver.actions({ async: true }).contextClick(el).perform();
+      await app.click("menu-clean-voice");
+      const p = await app.waitFor(async () => {
+        const v = await app.project();
+        return v.items.some((i) => i.kind === "audio" && i.mediaId === `${clip.mediaId}-clean`) ? v : null;
+      }, "the clean voice clip", 60000);
+      const voice = p.items.find((i) => i.mediaId === `${clip.mediaId}-clean`);
+      assert.ok(p.items.find((i) => i.id === clip.id).muted, "the video clip is muted");
+      assert.ok(Math.abs(voice.start - clip.start) < 0.001 && Math.abs(voice.end - clip.end) < 0.001, "same timing");
+      // The cleaned file is a WAV in the bundle, as long as the source's sound (4 s).
+      const wav = path.join(p.bundle, "media", "cleaned", "h264_longgop-clean.wav");
+      assert.ok(fs.existsSync(wav), wav);
+      const probe = ffprobe(wav);
+      if (probe) assert.ok(Math.abs(probe.duration - 4) < 0.1, `cleaned length ${probe.duration}`);
+      assert.equal(await app.count("clip-cleaning"), 0, "the progress bar is gone");
+      await app.click("undo");
+      await app.waitFor(async () => {
+        const v = await app.project();
+        return !v.items.some((i) => i.kind === "audio") && !v.items.find((i) => i.id === clip.id).muted;
+      }, "one undo restores it");
+    },
+  },
+
+  {
     name: "effects + transitions: one effect and one transition; the preview frame renders",
     async run(ctx) {
       const { app, media } = ctx;

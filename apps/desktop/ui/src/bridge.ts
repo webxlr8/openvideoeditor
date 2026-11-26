@@ -1262,6 +1262,25 @@ function createMock(): {
       if (!project) return fail("invalid_argument", "No project is open.");
       return fail("invalid_argument", "No pauses long enough to remove in this clip.");
     },
+    cleanUpAudio: (id: string) => {
+      track(`cleanUpAudio:${id}`);
+      const item = project?.items.find((i) => i.id === id);
+      if (!project || !item) return fail("invalid_argument", "That clip is not in the project.");
+      if (item.muted) return fail("invalid_argument", "This clip is muted, so there is no sound to clean up.");
+      const cleanId = `${item.mediaId}-clean`;
+      const r = editProject("clean up voice", (p) => {
+        const src = p.media.find((m) => m.id === item.mediaId);
+        if (src && !p.media.some((m) => m.id === cleanId)) p.media.push({ ...src, id: cleanId, name: `${src.name.replace(/\.[^.]+$/, "")}-clean.wav`, kind: "audio", thumbnail: null });
+        const it = p.items.find((i) => i.id === id)!;
+        if (it.kind === "audio") it.mediaId = cleanId;
+        else {
+          it.muted = true;
+          const audio = p.tracks.find((t) => t.kind === "audio");
+          p.items.push({ ...it, id: `${id}_voice`, kind: "audio", trackId: audio?.id ?? it.trackId, mediaId: cleanId, muted: false, name: `${it.name} (clean voice)` });
+        }
+      });
+      return r.then((x) => (x.status === "ok" ? { status: "ok" as const, data: { view: x.data, seconds: (item.end ?? 0) - (item.start ?? 0), reused: false } } : x));
+    },
     openAgentTerminal: (id: string) => (track(`openAgentTerminal:${id}`), ok<null>(null)),
     connectAgent: (id: string) => (
       track(`connectAgent:${id}`),
@@ -2359,6 +2378,7 @@ function createMock(): {
     agentUiEvent: makeEvent("agent-ui-event"),
     appErrorRaised: makeEvent("app-error-raised"),
     captionJobProgress: makeEvent("caption-job-progress"),
+    audioCleanupProgress: makeEvent("audio-cleanup-progress"),
     exportProgress: makeEvent("export-progress"),
     openPathsRequested: makeEvent("open-paths-requested"),
     playbackChanged: makeEvent("playback-changed"),

@@ -17,6 +17,25 @@ Everything in [0.1.0-alpha.1](0.1.0-alpha.1.md) still applies unless this page s
   and of a clip (contact sheets too) and listen for levels, silences and loudness, before and after they edit.
 - **Connect for Codex.** Settings → Assistant gives Codex the app's tools with one button, as for Claude. For Hermes
   the exact command to run is shown.
+- **Assistants can read what is said.** A transcript tool gives the built-in assistant and installed ones the timed
+  sentences of a clip (transcribed on this computer the first time), so they can cut by what is said.
+- **Open Claude or Codex in a terminal on the project.** Settings → Agents & command line opens the assistant in a
+  terminal with the app's tools for that session only.
+- **Remove silences.** Right-click a clip with sound and choose **Remove silences**: the pauses are cut out, the
+  timeline closes up, and one Undo brings them back.
+- **Clean up voice.** Right-click a clip with sound and choose **Clean up voice** to take background noise (fans, hum,
+  hiss, traffic, room tone) out of speech. It runs on this computer with RNNoise; nothing is uploaded. A video clip is
+  muted and a clean copy of its sound plays alongside it; an audio clip switches to the clean copy. One Undo puts it
+  back.
+- **Waveform and vectorscope.** The Colour tab's scopes switch between the histogram, a luma waveform and a
+  vectorscope with colour-bar targets and a skin tone line.
+- **Caption styles use the font library.** Each style draws with its own family (serif, display, condensed, script),
+  and a caption can pick any font in the inspector.
+- **Motion templates fit vertical video.** On a 9:16 project, titles and counters fit the width, the end card stacks
+  its frames, and the lower third stays above the area phone apps cover.
+- **Choose the library folder.** Settings → Library moves where projects are kept (or goes back to the default).
+- **`ove` on the command line.** Settings → Agents & command line adds `ove` to your PATH (Windows) or shows the one
+  command to run (macOS).
 - **Hardware decoding of AV1** on Windows (D3D11VA), and faster seeking and lower memory use for hardware decoding.
 - **Lower memory use** on Home and when no video is shown: the GPU is used only once there is a picture.
 - **Faster timeline text** on Windows (printing and applying the timeline as text).

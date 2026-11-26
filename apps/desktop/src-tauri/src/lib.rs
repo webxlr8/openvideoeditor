@@ -4,6 +4,7 @@
 pub mod agents;
 pub mod assistant;
 pub mod captions;
+pub mod cleanup;
 pub mod cli_install;
 pub mod commands;
 pub mod control;
@@ -139,6 +140,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             projects::remove_items,
             projects::split_item,
             silences::remove_silences,
+            cleanup::clean_up_audio,
             projects::set_aspect_ratio,
             projects::rename_project,
             projects::set_track_flag,
@@ -235,6 +237,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             exporting::ExportProgress,
             assistant::AgentUiEvent,
             captions::CaptionJobProgress,
+            cleanup::AudioCleanupProgress,
         ])
         .error_handling(tauri_specta::ErrorHandlingMode::Result)
 }
