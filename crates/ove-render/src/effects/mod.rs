@@ -1,4 +1,5 @@
-//! Effects: the 41 catalogue effects as CPU per-pixel passes (rayon over rows).
+//! Effects: the 41 catalogue effects as per-pixel passes, on the GPU for large images when one is there ([`gpu`]) and
+//! on the CPU otherwise (rayon over rows).
 //!
 //! An effect runs either on an item's decoded frame (`effects: [{id, type, ...params}]` on video and image items)
 //! or as a full-canvas pass for a shader item (`shaderComposition {template, params, amount, fadeIn, fadeOut,
@@ -10,6 +11,7 @@
 
 mod background;
 mod distort;
+pub mod gpu;
 pub mod spec;
 mod stylize;
 mod util;
@@ -102,15 +104,12 @@ pub fn apply(img: &mut Rgba, id: &str, values: &Map<String, Value>, amount: f32,
         return true;
     }
     let params = Params::resolve(spec, values);
+    let t = if t.is_finite() { t } else { 0.0 };
+    if gpu::try_apply(img, spec, &params, amount, t) {
+        return true;
+    }
     let src = img.clone();
-    let ctx = Ctx {
-        src: &src,
-        w: src.w as f32,
-        h: src.h as f32,
-        aspect: src.w as f32 / src.h as f32,
-        t: if t.is_finite() { t } else { 0.0 },
-        p: &params,
-    };
+    let ctx = Ctx { src: &src, w: src.w as f32, h: src.h as f32, aspect: src.w as f32 / src.h as f32, t, p: &params };
     let generator = spec.group == Group::Background;
     let (w, h) = (img.w as usize, img.h as f32);
     img.data.par_chunks_mut(w * 4).enumerate().for_each(|(y, row)| {

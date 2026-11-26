@@ -36,6 +36,9 @@ Everything in [0.1.0-alpha.1](0.1.0-alpha.1.md) still applies unless this page s
 - **Choose the library folder.** Settings → Library moves where projects are kept (or goes back to the default).
 - **`ove` on the command line.** Settings → Agents & command line adds `ove` to your PATH (Windows) or shows the one
   command to run (macOS).
+- **Effects on the graphics card.** All 41 effects run on the GPU for full-size pictures (up to about 9× faster;
+  the slowest now takes 13 ms per 1080p frame instead of 56 ms on our test machine), with the same result as before.
+  Without a usable GPU they run on the processor as before.
 - **Hardware decoding of AV1** on Windows (D3D11VA), and faster seeking and lower memory use for hardware decoding.
 - **Lower memory use** on Home and when no video is shown: the GPU is used only once there is a picture.
 - **Faster timeline text** on Windows (printing and applying the timeline as text).
