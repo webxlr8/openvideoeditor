@@ -109,6 +109,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::app_info,
             agents::detect_agents,
             agents::connect_agent,
+            agents::open_agent_terminal,
             commands::take_pending_open_paths,
             commands::open_media,
             commands::open_media_dialog,

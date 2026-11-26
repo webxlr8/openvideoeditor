@@ -1257,6 +1257,7 @@ function createMock(): {
           };
         }),
       ),
+    openAgentTerminal: (id: string) => (track(`openAgentTerminal:${id}`), ok<null>(null)),
     connectAgent: (id: string) => (
       track(`connectAgent:${id}`),
       ok<AgentConnect>({

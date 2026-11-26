@@ -72,6 +72,10 @@ describe("AgentsSection", () => {
     // Hermes is installed, but its command asks questions: no button, the command to copy.
     expect(screen.queryByTestId("agent-connect-hermes")).toBeNull();
     expect(screen.getByTestId("agent-instructions-hermes").textContent).toBe("hermes mcp add openvideoeditor --command ove --args mcp");
+    // Claude and Codex can be started in a terminal on the project; Hermes not.
+    fireEvent.click(screen.getByTestId("agent-terminal-codex"));
+    expect(window.__oveMock!.calls).toContain("openAgentTerminal:codex");
+    expect(screen.queryByTestId("agent-terminal-hermes")).toBeNull();
     // Not installed: where to get it.
     expect(screen.getByTestId("agent-get-grok")).toBeTruthy();
     expect(screen.queryByTestId("agent-connect-grok")).toBeNull();

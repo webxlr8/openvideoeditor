@@ -19,6 +19,12 @@ export const commands = {
 	 */
 	connectAgent: (id: string) => typedError<AgentConnect, AppError>(__TAURI_INVOKE("connect_agent", { id })),
 	/**
+	 *  Opens a terminal in the open project's folder (the library when none is open) with `id` (Claude or Codex)
+	 *  running, given the editing guide and the app's MCP server for that session only (add-agent-cli-and-mcp 3.5). The
+	 *  agent's own configuration is not changed.
+	 */
+	openAgentTerminal: (id: string) => typedError<null, AppError>(__TAURI_INVOKE("open_agent_terminal", { id })),
+	/**
 	 *  Paths the app was launched with (or that arrived before the UI was ready). Marks the UI ready:
 	 *  later paths arrive as `OpenPathsRequested` events.
 	 */

@@ -189,6 +189,48 @@ pub fn agent(id: &str) -> Option<&'static AgentSpec> {
     AGENTS.iter().find(|a| a.id == id)
 }
 
+/// How to start an agent in a terminal with the app's MCP server for that session only (the agent's own
+/// configuration is not changed).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TerminalStart {
+    pub args: Vec<String>,
+    /// A file to write first, and its contents (Claude's MCP configuration).
+    pub file: Option<(PathBuf, String)>,
+}
+
+/// [`TerminalStart`] for `spec`: Claude's `--mcp-config <file>` (`config_file` holds the server as JSON), Codex's
+/// `-c mcp_servers…` overrides as TOML literal strings. No argument holds a double quote: Windows Terminal re-parses
+/// its command line and drops them. `None` for agents without such a switch we have checked.
+pub fn terminal_start(spec: &AgentSpec, ove: &Path, library: &Path, config_file: &Path) -> Option<TerminalStart> {
+    let args = ["--library".to_string(), library.display().to_string(), "mcp".to_string()];
+    match spec.id {
+        // Checked against Claude Code 2.1.332: `--mcp-config <configs...>` takes JSON files.
+        "claude" => {
+            let config = serde_json::json!({"mcpServers": {SERVER_NAME: {"command": ove, "args": args}}});
+            Some(TerminalStart {
+                args: vec!["--mcp-config".into(), config_file.display().to_string()],
+                file: Some((config_file.to_path_buf(), config.to_string())),
+            })
+        }
+        // Checked against codex-cli 0.101.0: `-c key=value` overrides a configuration value (TOML) for one run; a
+        // multi-line literal string ('''…''') takes any path, apostrophes and backslashes included.
+        "codex" => {
+            let lit = |s: &str| format!("'''{s}'''");
+            let list = args.iter().map(|a| lit(a)).collect::<Vec<_>>().join(",");
+            Some(TerminalStart {
+                args: vec![
+                    "-c".into(),
+                    format!("mcp_servers.{SERVER_NAME}.command={}", lit(&ove.display().to_string())),
+                    "-c".into(),
+                    format!("mcp_servers.{SERVER_NAME}.args=[{list}]"),
+                ],
+                file: None,
+            })
+        }
+        _ => None,
+    }
+}
+
 /// How to start `spec` as an Agent Client Protocol agent: its own program (found by [`detect`]) with its arguments,
 /// or `npx` running its adapter at the pinned version. `None` when the program (or `npx`) is not there.
 pub fn launch(spec: &AgentSpec, program: Option<&Path>, env: &Env) -> Option<acp::Launch> {
@@ -361,6 +403,30 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn terminal_start_gives_the_session_the_server_without_changing_the_agent() {
+        let (ove, lib, file) =
+            (Path::new("/opt/OVE/ove"), Path::new("/home/me/Videos/O'Brien's"), Path::new("/tmp/ove/claude.json"));
+        let c = terminal_start(agent("claude").unwrap(), ove, lib, file).unwrap();
+        assert_eq!(c.args, vec!["--mcp-config".to_string(), "/tmp/ove/claude.json".into()]);
+        let (path, json) = c.file.unwrap();
+        assert_eq!(path, file);
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["mcpServers"]["openvideoeditor"]["command"], "/opt/OVE/ove");
+        assert_eq!(v["mcpServers"]["openvideoeditor"]["args"][1], "/home/me/Videos/O'Brien's");
+        let x = terminal_start(agent("codex").unwrap(), ove, lib, file).unwrap();
+        assert_eq!(x.args[1], "mcp_servers.openvideoeditor.command='''/opt/OVE/ove'''");
+        assert_eq!(
+            x.args[3],
+            "mcp_servers.openvideoeditor.args=['''--library''','''/home/me/Videos/O'Brien's''','''mcp''']"
+        );
+        assert!(x.file.is_none());
+        for t in [&c.args, &x.args] {
+            assert!(t.iter().all(|a| !a.contains('"')), "no double quotes (Windows Terminal drops them): {t:?}");
+        }
+        assert!(terminal_start(agent("grok").unwrap(), ove, lib, file).is_none());
     }
 
     #[test]
