@@ -70,6 +70,11 @@ export const commands = {
 	removeItems: (ids: string[]) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("remove_items", { ids })),
 	/**  Splits a clip at a timeline time (seconds): the left part keeps the id, the right part is a new item. */
 	splitItem: (id: string, at: number | null) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("split_item", { id, at })),
+	/**
+	 *  Removes the quiet stretches of clip `id` (quieter than `threshold_db` dBFS for at least `min_seconds`, default
+	 *  −40 dB and 0.6 s) and closes the gaps, as one revision.
+	 */
+	removeSilences: (id: string, thresholdDb: number | null, minSeconds: number | null) => typedError<SilencesRemoved_Serialize, AppError>(__TAURI_INVOKE("remove_silences", { id, thresholdDb, minSeconds })),
 	setAspectRatio: (aspect: string) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("set_aspect_ratio", { aspect })),
 	renameProject: (name: string) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("rename_project", { name })),
 	setTrackFlag: (id: string, flag: string, value: boolean) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("set_track_flag", { id, flag, value })),
@@ -1009,6 +1014,27 @@ export type RemoteOpened_Serialize = ProjectView_Serialize;
 
 export type SendResult = {
 	chatId: string,
+};
+
+/**  What Remove silences did. */
+export type SilencesRemoved = SilencesRemoved_Serialize | SilencesRemoved_Deserialize;
+
+/**  What Remove silences did. */
+export type SilencesRemoved_Deserialize = {
+	view: ProjectView_Deserialize,
+	/**  Stretches removed. */
+	count: number,
+	/**  Seconds removed from the timeline. */
+	seconds: number | null,
+};
+
+/**  What Remove silences did. */
+export type SilencesRemoved_Serialize = {
+	view: ProjectView_Serialize,
+	/**  Stretches removed. */
+	count: number,
+	/**  Seconds removed from the timeline. */
+	seconds: number | null,
 };
 
 /**  Tokens and estimated cost of some turns. */

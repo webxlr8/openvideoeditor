@@ -20,6 +20,31 @@ async function useAgent(app, id) {
   await app.find("composer");
 }
 
+/** A mono 16-bit 48 kHz WAV of `[seconds, amplitude]` parts (a 440 Hz tone, or silence at amplitude 0). */
+function toneWithPause(file, parts) {
+  const rate = 48000;
+  const samples = [];
+  for (const [secs, amp] of parts)
+    for (let i = 0; i < Math.round(secs * rate); i++) samples.push(Math.round(amp * 32767 * Math.sin((2 * Math.PI * 440 * i) / rate)));
+  const data = Buffer.alloc(samples.length * 2);
+  samples.forEach((v, i) => data.writeInt16LE(v, i * 2));
+  const h = Buffer.alloc(44);
+  h.write("RIFF", 0);
+  h.writeUInt32LE(36 + data.length, 4);
+  h.write("WAVEfmt ", 8);
+  h.writeUInt32LE(16, 16);
+  h.writeUInt16LE(1, 20);
+  h.writeUInt16LE(1, 22);
+  h.writeUInt32LE(rate, 24);
+  h.writeUInt32LE(rate * 2, 28);
+  h.writeUInt16LE(2, 32);
+  h.writeUInt16LE(16, 34);
+  h.write("data", 36);
+  h.writeUInt32LE(data.length, 40);
+  fs.writeFileSync(file, Buffer.concat([h, data]));
+  return file;
+}
+
 async function goHome(app) {
   if (await app.exists("go-home")) await app.click("go-home");
   await app.find("home");
@@ -649,6 +674,38 @@ export const FLOWS = [
       const said = JSON.parse(out).text.toLowerCase();
       assert.match(said, /^speech\.wav \(/, said);
       assert.match(said, /\d+\.\d\d-\d+\.\d\d: .*(welcome|captions|computer|video)/, said);
+    },
+  },
+
+  {
+    name: "remove silences: a pause is cut out of a clip, the timeline closes up, one undo brings it back",
+    async run(ctx) {
+      const { app } = ctx;
+      // 1 s of tone, 1.5 s of silence, 1 s of tone (48 kHz mono 16-bit).
+      const wav = toneWithPause(path.join(ctx.work, "pause.wav"), [
+        [1, 0.4],
+        [1.5, 0],
+        [1, 0.4],
+      ]);
+      await newProject(app, "Silences E2E");
+      await importWithButton(ctx, [wav]);
+      const clip = (await app.project()).items.find((i) => i.kind === "audio");
+      assert.ok(clip, "the tone clip");
+      const before = clip.end - clip.start;
+      const el = await app.find(`[data-testid="clip"][data-id="${clip.id}"]`);
+      await app.driver.actions({ async: true }).contextClick(el).perform();
+      await app.click("menu-silences");
+      const view = await app.waitFor(async () => {
+        const p = await app.project();
+        return p.items.filter((i) => i.kind === "audio").length === 2 ? p : null;
+      }, "the clip cut in two at the pause");
+      const parts = view.items.filter((i) => i.kind === "audio").sort((a, b) => a.start - b.start);
+      const after = parts[1].end - parts[0].start;
+      // 1.5 s of silence, 0.15 s of air kept at each edge: 1.2 s removed.
+      assert.ok(Math.abs(before - after - 1.2) < 0.08, `removed ${(before - after).toFixed(2)} s`);
+      assert.ok(Math.abs(parts[0].end - parts[1].start) < 0.001, "no gap left");
+      await app.click("undo");
+      await app.waitFor(async () => (await app.project()).items.filter((i) => i.kind === "audio").length === 1, "one undo restores it");
     },
   },
 

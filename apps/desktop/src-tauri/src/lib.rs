@@ -23,6 +23,7 @@ pub mod projects;
 pub mod sample;
 pub mod scripted_dialogs;
 pub mod seeing;
+pub mod silences;
 pub mod support;
 pub mod timeline;
 pub mod transport;
@@ -137,6 +138,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             projects::move_item,
             projects::remove_items,
             projects::split_item,
+            silences::remove_silences,
             projects::set_aspect_ratio,
             projects::rename_project,
             projects::set_track_flag,

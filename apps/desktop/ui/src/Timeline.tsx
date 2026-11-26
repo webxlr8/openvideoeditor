@@ -214,6 +214,20 @@ export function Timeline(props: TimelineProps) {
       { id: "duplicate", label: "Duplicate", hint: "D", onSelect: () => onEdit(commands.duplicateItems(ids)) },
       { id: "copy", label: "Copy", hint: `${MOD} C`, onSelect: () => onCopy(ids) },
       ...(canPaste ? [{ id: "paste", label: "Paste at playhead", hint: `${MOD} V`, onSelect: () => onPaste(playhead) }] : []),
+      ...(sound
+        ? [
+            {
+              id: "silences",
+              label: "Remove silences",
+              onSelect: () =>
+                onEdit(
+                  commands
+                    .removeSilences(item.id, null, null)
+                    .then((r) => (r.status === "ok" ? { status: "ok" as const, data: r.data.view } : r)),
+                ),
+            },
+          ]
+        : []),
       ...(sound ? [{ id: "mute", label: item.muted ? "Unmute" : "Mute", onSelect: () => onEdit(updateItem(item.id, { muted: !item.muted }, [], item.muted ? "unmute" : "mute")) }] : []),
       { id: "hide", label: item.hidden ? "Show" : "Hide", onSelect: () => onEdit(updateItem(item.id, { hidden: !item.hidden }, [], item.hidden ? "show" : "hide")) },
       { id: "delete", label: ids.length > 1 ? `Delete ${ids.length} items` : "Delete", hint: "⌫", danger: true, onSelect: () => onEdit(commands.removeItems(ids)) },

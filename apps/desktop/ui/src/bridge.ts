@@ -1257,6 +1257,11 @@ function createMock(): {
           };
         }),
       ),
+    removeSilences: (id: string) => {
+      track(`removeSilences:${id}`);
+      if (!project) return fail("invalid_argument", "No project is open.");
+      return fail("invalid_argument", "No pauses long enough to remove in this clip.");
+    },
     openAgentTerminal: (id: string) => (track(`openAgentTerminal:${id}`), ok<null>(null)),
     connectAgent: (id: string) => (
       track(`connectAgent:${id}`),

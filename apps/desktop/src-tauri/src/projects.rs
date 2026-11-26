@@ -1012,7 +1012,10 @@ pub async fn split_item(app: AppHandle, id: String, at: f64) -> AppResult<Projec
         let mut right = item.to_json();
         right["id"] = format!("{}_b{}", item.id, ove_core::Clock::now_ms(&ove_core::SystemClock) % 100_000).into();
         right["startTime"] = ove_core::time::micros_to_json(cut);
-        right["trimStart"] = ove_core::time::micros_to_json(item.time_field("trimStart") + (cut - item.start));
+        // The right part's in-point moves on by the source played up to the cut (timeline time × speed).
+        let speed = item.fields.get("playbackSpeed").and_then(serde_json::Value::as_f64).unwrap_or(1.0).max(0.01);
+        let played = ((cut - item.start) as f64 * speed).round() as ove_core::time::Micros;
+        right["trimStart"] = ove_core::time::micros_to_json(item.time_field("trimStart") + played);
         let mut set = Map::new();
         set.insert("endTime".into(), ove_core::time::micros_to_json(cut));
         edit(app, state, vec![Op::UpdateItem { id, set }, Op::AddItem { item: right }], "split clip")
