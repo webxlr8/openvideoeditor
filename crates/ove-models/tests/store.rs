@@ -315,3 +315,29 @@ fn files_left_in_the_root_by_earlier_versions_are_adopted() {
     assert!(s.is_installed("old") && !s.is_installed("other"));
     assert!(s.adopt_root_files().is_empty(), "a second call finds it recorded");
 }
+
+#[test]
+fn removal_waits_for_the_job_that_uses_the_model() {
+    let server = Server::start();
+    let a = body(20_000, 17);
+    server.add("/busy/1/a.onnx", a.clone(), Mode::Normal);
+    let dir = tempfile::tempdir().unwrap();
+    let s = Arc::new(store(dir.path(), &server, vec![manifest("busy", &[("a.onnx", &a)])]));
+    s.install("busy", &mut |_| {}, &no_cancel()).unwrap();
+    let lease = s.lease("busy");
+    assert!(s.in_use("busy"));
+    let s2 = s.clone();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let remover = std::thread::spawn(move || s2.remove_when_free("busy", &mut || tx.send(()).unwrap()));
+    rx.recv_timeout(Duration::from_secs(5)).expect("the removal said it waits");
+    std::thread::sleep(Duration::from_millis(200));
+    assert!(s.is_installed("busy"), "nothing is removed while the job runs");
+    drop(lease);
+    assert_eq!(remover.join().unwrap().unwrap(), Some(20_000));
+    assert!(!s.is_installed("busy") && !s.in_use("busy"));
+    // Not in use: removed at once, without waiting.
+    s.install("busy", &mut |_| {}, &no_cancel()).unwrap();
+    let mut waited = false;
+    assert_eq!(s.remove_when_free("busy", &mut || waited = true).unwrap(), Some(20_000));
+    assert!(!waited);
+}

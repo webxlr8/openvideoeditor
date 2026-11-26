@@ -4176,6 +4176,7 @@ dependencies = [
  "ove-guard",
  "ove-interchange",
  "ove-media",
+ "ove-models",
  "ove-playback",
  "ove-render",
  "ove-store",

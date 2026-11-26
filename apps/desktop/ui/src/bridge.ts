@@ -105,6 +105,13 @@ const CAPTION_MODELS: [string, string, number][] = [
   ["small", "Accurate", 487],
 ];
 
+/** Exact sizes of the speech model files, as the model store pins them. */
+const MODEL_BYTES: Record<string, number> = {
+  tiny: 77_691_713,
+  base: 147_951_465,
+  small: 487_601_967,
+};
+
 const MOCK_TRANSCRIPT = [
   "Welcome back to the channel",
   "Today we cut a whole video",
@@ -937,6 +944,31 @@ function createMock(): {
 
   // A captions job: model download (when not installed), then transcription, then `finish`.
   let captionJob: ReturnType<typeof setInterval> | null = null;
+  // Settings → Storage: the speech model a captions job is using, and removals waiting for that job.
+  let captionJobModel: string | null = null;
+  let freeBytes = 120e9;
+  const removeWhenFree: string[] = [];
+  const removeSpeechModel = (id: string): number => {
+    const short = id.replace(/^whisper-/, "");
+    const i = control.captions.installed.indexOf(short);
+    if (i < 0) return 0;
+    control.captions.installed.splice(i, 1);
+    const freed = MODEL_BYTES[short] ?? 0;
+    freeBytes += freed;
+    return freed;
+  };
+  const captionJobEnded = () => {
+    captionJobModel = null;
+    for (const id of removeWhenFree.splice(0)) {
+      const freed = removeSpeechModel(id);
+      emit("local-models-changed", {
+        id,
+        status: freed ? "removed" : "notInstalled",
+        freedBytes: freed,
+        freeBytes,
+      });
+    }
+  };
   const runCaptionJob = (model: string, finish: () => void) => {
     const steps: [string, number, string][] = [];
     const sizeMb = CAPTION_MODELS.find(([id]) => id === model)?.[2] ?? 148;
@@ -950,6 +982,7 @@ function createMock(): {
     for (let k = 1; k <= 4; k++)
       steps.push(["transcribe", k / 4, "Transcribing talk.mp4"]);
     let k = 0;
+    captionJobModel = model;
     captionJob = setInterval(() => {
       const [stage, fraction, message] = steps[k++];
       if (stage === "transcribe" && !control.captions.installed.includes(model))
@@ -971,6 +1004,7 @@ function createMock(): {
         if (!control.captions.installed.includes(model))
           control.captions.installed.push(model);
         finish();
+        captionJobEnded();
       }
     }, control.captions.stepMs);
   };
@@ -2071,6 +2105,48 @@ function createMock(): {
         })),
       ),
     captionPresets: () => Promise.resolve(JSON.stringify(MOCK_CAPTION_PRESETS)),
+    // Settings → Storage: the speech models as local models in the model store.
+    localModels: () =>
+      ok({
+        root: "C:/Users/you/AppData/Roaming/dev.openvideoeditor.app/models",
+        freeBytes,
+        models: CAPTION_MODELS.map(([short, label]) => {
+          const installed = control.captions.installed.includes(short);
+          return {
+            id: `whisper-${short}`,
+            purpose: `Speech to text for captions (${label.toLowerCase()})`,
+            licence: "MIT",
+            bytes: MODEL_BYTES[short],
+            installed,
+            location: installed
+              ? `C:/Users/you/AppData/Roaming/dev.openvideoeditor.app/models/whisper-${short}/ggml-1`
+              : null,
+            inUse:
+              installed && captionJob !== null && captionJobModel === short,
+          };
+        }),
+      }),
+    removeLocalModel: (id: string) => {
+      track(`removeLocalModel:${id}`);
+      const short = id.replace(/^whisper-/, "");
+      if (!CAPTION_MODELS.some(([m]) => m === short))
+        return fail("invalid_argument", `unknown model "${id}"`);
+      if (
+        captionJob !== null &&
+        captionJobModel === short &&
+        control.captions.installed.includes(short)
+      ) {
+        removeWhenFree.push(id);
+        return ok({ id, status: "waiting" as const, freedBytes: 0, freeBytes });
+      }
+      const freed = removeSpeechModel(id);
+      return ok({
+        id,
+        status: freed ? ("removed" as const) : ("notInstalled" as const),
+        freedBytes: freed,
+        freeBytes,
+      });
+    },
     downloadCaptionModel: (model: string) => {
       track(`downloadCaptionModel:${model}`);
       if (captionJob)
@@ -2176,6 +2252,7 @@ function createMock(): {
       if (captionJob) {
         clearInterval(captionJob);
         captionJob = null;
+        captionJobEnded();
         emit("caption-job-progress", {
           stage: "done",
           fraction: 0,
@@ -2299,6 +2376,7 @@ function createMock(): {
     agentUiEvent: makeEvent("agent-ui-event"),
     appErrorRaised: makeEvent("app-error-raised"),
     captionJobProgress: makeEvent("caption-job-progress"),
+    localModelsChanged: makeEvent("local-models-changed"),
     exportProgress: makeEvent("export-progress"),
     openPathsRequested: makeEvent("open-paths-requested"),
     playbackChanged: makeEvent("playback-changed"),

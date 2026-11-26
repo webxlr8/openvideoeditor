@@ -8,7 +8,7 @@
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Condvar, Mutex, MutexGuard};
 
 use serde::{Deserialize, Serialize};
 
@@ -446,6 +446,41 @@ impl Store {
         Ok(found.then_some(freed))
     }
 
+    /// Marks a model as used by a running job until the lease is dropped. [`Store::remove_when_free`] waits for it.
+    /// Leases are seen within this process only.
+    pub fn lease(&self, id: &str) -> Lease {
+        let key = (self.root.clone(), id.to_string());
+        let mut g = leases();
+        match g.iter_mut().find(|(k, _)| *k == key) {
+            Some((_, n)) => *n += 1,
+            None => g.push((key.clone(), 1)),
+        }
+        Lease { key }
+    }
+
+    /// True while a job holds a lease on the model.
+    pub fn in_use(&self, id: &str) -> bool {
+        let key = (self.root.clone(), id.to_string());
+        leases().iter().any(|(k, n)| *k == key && *n > 0)
+    }
+
+    /// Removes a model once no running job uses it. `on_wait` is called once, before waiting, when it is in use.
+    pub fn remove_when_free(&self, id: &str, on_wait: &mut dyn FnMut()) -> Result<Option<u64>> {
+        self.manifest(id)?;
+        let key = (self.root.clone(), id.to_string());
+        let mut g = leases();
+        let mut told = false;
+        while g.iter().any(|(k, n)| *k == key && *n > 0) {
+            if !told {
+                told = true;
+                on_wait();
+            }
+            g = LEASE_FREED.wait(g).unwrap_or_else(|e| e.into_inner());
+        }
+        drop(g);
+        self.remove(id)
+    }
+
     fn record(&self, m: &Manifest, paths: &[PathBuf], adopted: bool) -> Result<()> {
         let _lock = index_lock();
         let mut index = self.read_index();
@@ -536,5 +571,33 @@ impl Busy {
 impl Drop for Busy {
     fn drop(&mut self) {
         active().retain(|k| k != &self.key);
+    }
+}
+
+type LeaseKey = (PathBuf, String);
+
+static LEASES: Mutex<Vec<(LeaseKey, usize)>> = Mutex::new(Vec::new());
+static LEASE_FREED: Condvar = Condvar::new();
+
+fn leases() -> MutexGuard<'static, Vec<(LeaseKey, usize)>> {
+    LEASES.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// A running job's hold on a model (see [`Store::lease`]).
+#[derive(Debug)]
+pub struct Lease {
+    key: LeaseKey,
+}
+
+impl Drop for Lease {
+    fn drop(&mut self) {
+        let mut g = leases();
+        if let Some(i) = g.iter().position(|(k, _)| *k == self.key) {
+            g[i].1 -= 1;
+            if g[i].1 == 0 {
+                g.swap_remove(i);
+            }
+        }
+        LEASE_FREED.notify_all();
     }
 }

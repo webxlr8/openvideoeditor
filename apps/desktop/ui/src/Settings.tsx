@@ -12,6 +12,7 @@ import type {
   UpdateInfo_Serialize as UpdateInfo,
 } from "./bindings";
 import { AgentsSection } from "./agents/AgentsSection";
+import { ModelsSection } from "./storage/ModelsSection";
 import { commands } from "./bridge";
 import { AssistantDataList } from "./ChatPanel";
 import { copyText } from "./clipboard";
@@ -34,6 +35,7 @@ const SECTIONS = [
   { id: "assistant", label: "Assistant" },
   { id: "agents", label: "Agents & command line" },
   { id: "shortcuts", label: "Shortcuts" },
+  { id: "storage", label: "Storage" },
   { id: "privacy", label: "Privacy" },
   { id: "about", label: "About & updates" },
 ] as const;
@@ -515,6 +517,13 @@ export function Settings({
           </section>
         )}
         {section === "shortcuts" && <ShortcutsSection />}
+        {section === "storage" && (
+          <section>
+            <h3>Storage</h3>
+            <h4>Models</h4>
+            <ModelsSection onError={onError} />
+          </section>
+        )}
         {section === "privacy" && (
           <section>
             <h3>Privacy</h3>

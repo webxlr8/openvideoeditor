@@ -220,6 +220,13 @@ export const commands = {
 	onboardingUpdate: (change: OnboardingChange_Deserialize) => typedError<OnboardingState_Serialize, AppError>(__TAURI_INVOKE("onboarding_update", { change })),
 	/**  "Try the sample": copies the sample project into the library and opens it in the editor. */
 	createSampleProject: () => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("create_sample_project")),
+	/**  Every known model, with what is installed. Speech models saved by earlier versions are recorded on first look. */
+	localModels: () => typedError<LocalModels_Serialize, AppError>(__TAURI_INVOKE("local_models")),
+	/**
+	 *  Deletes an installed model's files. When a running job uses it, returns `waiting` and removes it when the job
+	 *  ends, then sends `localModelsChanged`.
+	 */
+	removeLocalModel: (id: string) => typedError<LocalModelsChanged_Serialize, AppError>(__TAURI_INVOKE("remove_local_model", { id })),
 };
 
 /** Events */
@@ -229,6 +236,7 @@ export const events = {
 	captionJobProgress: makeEvent<CaptionJobProgress_Serialize, CaptionJobProgress_Deserialize>("caption-job-progress"),
 	exportProgress: makeEvent<ExportProgress_Serialize, ExportProgress_Deserialize>("export-progress"),
 	generationUpdated: makeEvent<GenerationUpdated, GenerationUpdated>("generation-updated"),
+	localModelsChanged: makeEvent<LocalModelsChanged_Serialize, LocalModelsChanged_Deserialize>("local-models-changed"),
 	openPathsRequested: makeEvent<OpenPathsRequested, OpenPathsRequested>("open-paths-requested"),
 	playbackChanged: makeEvent<PlaybackChanged, PlaybackChanged>("playback-changed"),
 	projectChanged: makeEvent<ProjectChanged_Serialize, ProjectChanged_Deserialize>("project-changed"),
@@ -682,6 +690,74 @@ export type KeyCheck = {
 	message: string,
 };
 
+/**  One model as the Storage list shows it. */
+export type LocalModel = LocalModel_Serialize | LocalModel_Deserialize;
+
+/**  One model as the Storage list shows it. */
+export type LocalModel_Deserialize = {
+	id: string,
+	purpose: string,
+	licence: string,
+	/**  Size of the whole model in bytes. */
+	bytes: number | null,
+	installed: boolean,
+	/**  The folder holding its files, when installed. */
+	location?: string | null,
+	/**  A running job uses it (removal waits for the job). */
+	inUse: boolean,
+};
+
+/**  One model as the Storage list shows it. */
+export type LocalModel_Serialize = {
+	id: string,
+	purpose: string,
+	licence: string,
+	/**  Size of the whole model in bytes. */
+	bytes: number | null,
+	installed: boolean,
+	/**  The folder holding its files, when installed. */
+	location: string | null,
+	/**  A running job uses it (removal waits for the job). */
+	inUse: boolean,
+};
+
+export type LocalModels = LocalModels_Serialize | LocalModels_Deserialize;
+
+/**  The outcome of a removal, returned by `remove_local_model` and, after a wait, sent as an event. */
+export type LocalModelsChanged = LocalModelsChanged_Serialize | LocalModelsChanged_Deserialize;
+
+/**  The outcome of a removal, returned by `remove_local_model` and, after a wait, sent as an event. */
+export type LocalModelsChanged_Deserialize = {
+	id: string,
+	status: RemoveStatus,
+	freedBytes: number | null,
+	freeBytes?: number | null,
+};
+
+/**  The outcome of a removal, returned by `remove_local_model` and, after a wait, sent as an event. */
+export type LocalModelsChanged_Serialize = {
+	id: string,
+	status: RemoveStatus,
+	freedBytes: number | null,
+	freeBytes: number | null,
+};
+
+export type LocalModels_Deserialize = {
+	/**  The store folder. */
+	root: string,
+	/**  Free space on the store's disk in bytes, when known. */
+	freeBytes?: number | null,
+	models: LocalModel_Deserialize[],
+};
+
+export type LocalModels_Serialize = {
+	/**  The store folder. */
+	root: string,
+	/**  Free space on the store's disk in bytes, when known. */
+	freeBytes: number | null,
+	models: LocalModel_Serialize[],
+};
+
 /**  Properties shown next to the viewer. */
 export type MediaInfo = MediaInfo_Serialize | MediaInfo_Deserialize;
 
@@ -925,6 +1001,10 @@ export type RemoteOpened_Deserialize = ProjectView_Deserialize;
 
 /**  A project was opened from the command line: the UI switches to the editor. */
 export type RemoteOpened_Serialize = ProjectView_Serialize;
+
+export type RemoveStatus = "removed" | 
+/**  A running job uses the model; it is removed when the job ends (`localModelsChanged` follows). */
+"waiting" | "notInstalled";
 
 export type SendResult = {
 	chatId: string,

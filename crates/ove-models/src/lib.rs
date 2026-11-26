@@ -15,7 +15,7 @@ pub mod worker;
 pub use error::{ModelError, Result};
 pub use manifest::{Manifest, ModelFile, RuntimeKind};
 pub use store::{
-    CONSENT_ABOVE_BYTES, Ensure, InstallOutcome, ModelStatus, NotInstalled, Origin, Progress, Store, UrlOverride,
+    CONSENT_ABOVE_BYTES, Ensure, InstallOutcome, Lease, ModelStatus, NotInstalled, Origin, Progress, Store, UrlOverride,
 };
 
 use std::path::PathBuf;

@@ -38,6 +38,7 @@ ove-guard = { path = "../../../crates/ove-guard" }
 ove-media = { path = "../../../crates/ove-media" }
 ove-render = { path = "../../../crates/ove-render" }
 ove-store = { path = "../../../crates/ove-store" }
+ove-models = { path = "../../../crates/ove-models" }
 ove-transcribe = { path = "../../../crates/ove-transcribe" }
 png = "0.18"
 base64 = "0.22"

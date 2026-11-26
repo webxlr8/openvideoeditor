@@ -126,6 +126,11 @@ pub fn ensure_model(dir: &Path, m: Model, progress: &mut dyn FnMut(u64, u64), ca
     out.paths.into_iter().next().ok_or_else(|| TranscribeError::Io("the speech model has no file".into()))
 }
 
+/// Holds the model as in use while a captions job runs: removing it in Settings → Storage waits for the job.
+pub fn lease(dir: &Path, m: Model) -> ove_models::Lease {
+    store_for(dir).lease(m.store_id())
+}
+
 fn from_store(m: Model, e: ModelError) -> TranscribeError {
     match e {
         ModelError::Cancelled => TranscribeError::Cancelled,

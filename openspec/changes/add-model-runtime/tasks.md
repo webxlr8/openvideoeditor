@@ -59,8 +59,12 @@
 - [x] 4.3 Add MCP `list_models_local`; verify an MCP contract test.
       Done: one additive entry in `crates/ove-cli/src/mcp.rs` and `docs/cli/mcp.md`; `mcp_lists_the_local_models` in
       `crates/ove-cli/tests/models.rs`.
-- [ ] 4.4 Add Settings → Storage "Models" (list, sizes, Remove, wait-while-in-use); verify a UI test removes a model
+- [x] 4.4 Add Settings → Storage "Models" (list, sizes, Remove, wait-while-in-use); verify a UI test removes a model
       and the feature then reports it missing.
+      Done: `apps/desktop/ui/src/storage/ModelsSection.tsx` and `.test.tsx` (removes a speech model, captions then
+      report it missing; a removal during a captions job waits and says so). Commands in
+      `apps/desktop/src-tauri/src/models.rs`; the captions job holds a lease on its model. The check in the real
+      built app on both platforms is task 5.1.
 
 ## 5. Integration checks
 

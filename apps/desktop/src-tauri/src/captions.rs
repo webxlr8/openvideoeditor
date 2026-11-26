@@ -405,6 +405,8 @@ pub async fn auto_caption(app: AppHandle, request: AutoCaptionRequest) -> AppRes
             let started = std::time::Instant::now();
             let run = || -> Result<(usize, String), ove_transcribe::TranscribeError> {
                 let model_path = ensure(&app, model, &cancel)?;
+                // Removing the model in Settings → Storage waits until this job ends.
+                let _in_use = models::lease(&models::model_dir(&data_dir(&app)), model);
                 let mut words = Vec::new();
                 let mut detected = String::new();
                 for (i, clip) in clips.iter().enumerate() {
