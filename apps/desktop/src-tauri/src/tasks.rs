@@ -121,6 +121,66 @@ pub fn queue_thumbnail(
     })
 }
 
+/// Peak memory of building one skim sheet (decoder state, small RGBA frames, the sheet).
+const SKIM_MEM: u64 = 128 * 1024 * 1024;
+
+/// Where a media file's skim sheet lives: `cache/skim/<contentId>.jpg` and its layout `cache/skim/<contentId>.json`.
+pub fn skim_paths(bundle: &Path, content_id: &str) -> (PathBuf, PathBuf) {
+    let dir = bundle.join("cache").join("skim");
+    (dir.join(format!("{content_id}.jpg")), dir.join(format!("{content_id}.json")))
+}
+
+/// The layout of a finished skim sheet of the current version, if there is one.
+pub fn read_skim(bundle: &Path, content_id: &str) -> Option<ove_media::skim::SkimSheet> {
+    let (jpg, json) = skim_paths(bundle, content_id);
+    let sheet: ove_media::skim::SkimSheet = serde_json::from_slice(&std::fs::read(json).ok()?).ok()?;
+    (sheet.version == ove_media::skim::VERSION && jpg.is_file()).then_some(sheet)
+}
+
+/// Queues a skim sheet for a video: a derivative task (decode class) that writes the image and then its layout
+/// through part files, so a sheet with a layout is always complete. A finished sheet is reused. `done` gets whether
+/// the sheet exists. Returns the task, or the one already queued for the same content.
+pub fn queue_skim(
+    scheduler: &Scheduler,
+    project: &str,
+    bundle: &Path,
+    content_id: &str,
+    source: PathBuf,
+    duration_us: i64,
+    done: impl FnOnce(bool) + Send + 'static,
+) -> TaskId {
+    let name = file_name(&source);
+    let (jpg, json) = skim_paths(bundle, content_id);
+    let (b, cid) = (bundle.to_path_buf(), content_id.to_string());
+    let spec = TaskSpec::new("skim", format!("Skim sheet: {name}"), Priority::Derivative, Class::Decode)
+        .project(project)
+        .memory(SKIM_MEM)
+        .key(format!("skim:{}", jpg.display()));
+    scheduler.submit(spec, move |ctx| {
+        if read_skim(&b, &cid).is_some() {
+            done(true);
+            return Ok(());
+        }
+        let fail = |e: String| TaskError::Failed(format!("No skim sheet for “{name}”: {e}"));
+        let n = ove_media::skim::tile_count(duration_us, None);
+        let rendered = ove_media::skim::render(&source, duration_us, n, |f| {
+            ctx.progress(f);
+            ctx.checkpoint().is_ok()
+        })
+        .map_err(|e| fail(e.to_string()))?;
+        let Some(rendered) = rendered else { return Err(TaskError::Cancelled) };
+        let bytes = ove_media::skim::encode_jpeg(&rendered).map_err(|e| fail(e.to_string()))?;
+        ctx.checkpoint()?;
+        let layout = serde_json::to_vec(&rendered.sheet).map_err(|e| fail(e.to_string()))?;
+        ove_tasks::write_output::<std::io::Error>(&jpg, |p| std::fs::write(p, &bytes))
+            .map_err(|e| fail(e.to_string()))?;
+        ove_tasks::write_output::<std::io::Error>(&json, |p| std::fs::write(p, &layout))
+            .map_err(|e| fail(e.to_string()))?;
+        done(true);
+        Ok(())
+    })
+}
+
 fn file_name(p: &Path) -> String {
     p.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default()
 }
@@ -157,10 +217,102 @@ pub(crate) mod testing {
         out
     }
 
+    /// Exports a `seconds` long 160×90 clip at 10 fps (a keyframe every 2 s) to `dir/name`.
+    pub fn long_video(dir: &Path, name: &str, seconds: f64) -> PathBuf {
+        let out = dir.join(name);
+        ove_render::export(&title_doc(seconds), None, &out, &small(), &AtomicBool::new(false), |_| {}).unwrap();
+        out
+    }
+
     /// A scheduler with test-sized timing.
     pub fn scheduler() -> ove_tasks::Scheduler {
         let mut limits = ove_tasks::Limits::detect();
         limits.tick = std::time::Duration::from_millis(20);
         ove_tasks::Scheduler::new(ove_tasks::Options { limits, background_threads: true })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use ove_media::VideoDecoder;
+
+    use super::*;
+
+    /// Golden tile times: a 60 s clip at 10 fps gets 60 tiles, tile i at exactly i seconds (the first frame at or
+    /// after the start of its part). Decode work drops below a full decode when the clip has more than one keyframe.
+    #[test]
+    fn skim_sheet_tiles_and_decode_work() {
+        let dir = tempfile::tempdir().unwrap();
+        let clip = testing::long_video(dir.path(), "long.mp4", 60.0);
+        let info = ove_media::probe(&clip).unwrap();
+        let duration = info.duration_us.unwrap();
+        let n = ove_media::skim::tile_count(duration, None);
+        assert_eq!(n, 120.min((duration as f64 / 500_000.0).round() as usize).max(60));
+        // The golden case uses 60 tiles over 60 s.
+        let t = std::time::Instant::now();
+        let r = ove_media::skim::render(&clip, 60_000_000, 60, |_| true).unwrap().unwrap();
+        let took = t.elapsed();
+        let want: Vec<i64> = (0..60).map(|i| i * 1_000_000).collect();
+        for (i, (&got, &w)) in r.sheet.times_us.iter().zip(&want).enumerate() {
+            assert!((got - w).abs() <= 1_000, "tile {i}: {got} µs, want {w} µs");
+        }
+        assert_eq!((r.sheet.columns, r.sheet.rows, r.sheet.tile_width), (10, 6, 160));
+        assert_eq!((r.width, r.height), (1600, 6 * r.sheet.tile_height));
+
+        // A full decode, for comparison.
+        let mut full = ove_media::FfmpegVideoDecoder::open(&clip, Default::default()).unwrap();
+        let mut total = 0u64;
+        while full.next_frame().unwrap().is_some() {
+            total += 1;
+        }
+        let mut probe = ove_media::FfmpegVideoDecoder::open(&clip, Default::default()).unwrap();
+        let keyframes =
+            (0..60).filter_map(|s| probe.keyframe_before(s * 1_000_000)).collect::<std::collections::BTreeSet<_>>();
+        assert!(r.frames_decoded <= total, "{} of {total}", r.frames_decoded);
+        if keyframes.len() > 1 {
+            assert!(
+                (r.frames_decoded as f64) < 0.7 * total as f64,
+                "decoded {} of {total} frames with {} keyframes",
+                r.frames_decoded,
+                keyframes.len()
+            );
+        }
+        let jpeg = ove_media::skim::encode_jpeg(&r).unwrap();
+        println!(
+            "skim: 60 tiles in {took:?}, decoded {} of {total} frames ({} keyframes), sheet {} KB",
+            r.frames_decoded,
+            keyframes.len(),
+            jpeg.len() / 1024
+        );
+    }
+
+    /// The task writes the image and its layout, reuses a finished sheet, and leaves nothing when cancelled.
+    #[test]
+    fn skim_task_writes_reuses_and_cancels_cleanly() {
+        let dir = tempfile::tempdir().unwrap();
+        let clip = testing::long_video(dir.path(), "clip.mp4", 20.0);
+        let bundle = dir.path().join("P.ove");
+        let s = testing::scheduler();
+        let id = queue_skim(&s, "p", &bundle, "c1", clip.clone(), 20_000_000, |ok| assert!(ok));
+        assert_eq!(s.wait_task(id, Duration::from_secs(60)).unwrap().state, ove_tasks::TaskState::Done);
+        let sheet = read_skim(&bundle, "c1").expect("a finished sheet");
+        assert_eq!(sheet.times_us.len(), 60);
+        let (jpg, json) = skim_paths(&bundle, "c1");
+        let modified = std::fs::metadata(&jpg).unwrap().modified().unwrap();
+        // Queued again: reused, not rebuilt.
+        let again = queue_skim(&s, "p", &bundle, "c1", clip.clone(), 20_000_000, |ok| assert!(ok));
+        s.wait_task(again, Duration::from_secs(60)).unwrap();
+        assert_eq!(std::fs::metadata(&jpg).unwrap().modified().unwrap(), modified);
+        // Cancelled while paused: no sheet, no part files.
+        s.set_pause(ove_tasks::PauseReason::Playback, true);
+        let other = queue_skim(&s, "p", &bundle, "c2", clip, 20_000_000, |_| {});
+        s.cancel(other);
+        assert_eq!(s.wait_task(other, Duration::from_secs(5)).unwrap().state, ove_tasks::TaskState::Cancelled);
+        assert!(read_skim(&bundle, "c2").is_none());
+        let left: Vec<_> = std::fs::read_dir(jpg.parent().unwrap()).unwrap().flatten().map(|e| e.file_name()).collect();
+        assert_eq!(left.len(), 2, "only c1's image and layout: {left:?}");
+        assert!(json.is_file());
     }
 }

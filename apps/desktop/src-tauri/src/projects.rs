@@ -474,6 +474,8 @@ pub struct MediaCache {
     migrated: BTreeSet<String>,
     /// Registry states (link keys) an identity check was queued for.
     identity_queued: BTreeSet<String>,
+    /// Content ids a skim sheet was queued for (or found finished).
+    skim_queued: BTreeSet<String>,
 }
 
 impl MediaCache {
@@ -638,10 +640,38 @@ fn refresh_once(app: &AppHandle, state: &AppState) {
             })
             .collect()
     };
+    // Skim sheets, keyed by content id: queued once per content for online videos without a finished sheet.
+    let skims: Vec<(String, PathBuf, i64)> = {
+        let mut c = relock(&state.projects.media);
+        let online: BTreeSet<&str> =
+            links.iter().filter(|(_, _, l)| l.state == MediaState::Online).map(|(id, _, _)| id.as_str()).collect();
+        doc.registry
+            .values()
+            .filter(|e| online.contains(e.media_id.as_str()))
+            .filter_map(|e| {
+                let cid = e.fields.get("contentId")?.as_str()?;
+                let data = doc.project.media.get(&e.media_id)?.fields.get("data")?;
+                (data.get("type").and_then(Value::as_str) == Some("video")).then_some(())?;
+                let dur = data.get("duration").and_then(ove_core::time::json_to_micros).unwrap_or(1_000_000);
+                c.skim_queued.insert(cid.to_string()).then_some(())?;
+                crate::tasks::read_skim(&bundle, cid)
+                    .is_none()
+                    .then(|| (cid.to_string(), resolve_media_path(&bundle, &e.native_path), dur))
+            })
+            .collect()
+    };
     // Released before the project is locked: the lock order is project, then media cache.
     let changed = relock(&state.projects.media).store(&bundle, links, thumbs);
     if !missing.is_empty() {
         queue_thumbnails(app, &bundle, missing);
+    }
+    if !skims.is_empty() {
+        let tasks = &state.tasks;
+        let project = crate::tasks::project_key(&bundle);
+        for (cid, source, dur) in skims {
+            let a = app.clone();
+            crate::tasks::queue_skim(tasks, &project, &bundle, &cid, source, dur, move |_| emit_view_soon(&a));
+        }
     }
     if changed
         && let Ok(g) = lock(&state.projects.open)

@@ -13,6 +13,7 @@ mod error;
 mod fallback;
 mod frame;
 mod probe;
+pub mod skim;
 pub mod tonemap;
 mod util;
 mod video;

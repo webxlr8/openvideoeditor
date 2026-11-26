@@ -143,3 +143,22 @@ Content identity as built (group 3):
   key, so nothing is transcribed again even before the migration task runs.
 - Thumbnails other features write by media id (sample project, generation, interchange, `ove media` thumbnails) are
   found under the media id and moved on the next check, so those features did not need changing.
+
+Skim sheets as built (task 4.1):
+
+- Format: JPEG (quality 72), not WebP. The LGPL FFmpeg build has no WebP encoder, and the only pure-Rust WebP encoder
+  in reach writes lossless files, about ten times larger than the 150 KB target for video frames. A libwebp binding
+  would add a C build to every platform. JPEG comes from `jpeg-encoder`, already in the tree (and already allowed by
+  cargo-deny's exception for that crate), and the browser decodes it as fast.
+- Files: `cache/skim/<contentId>.jpg` and `cache/skim/<contentId>.json` (version, tile size, columns, rows, the time of
+  each tile). The image is committed before its layout, so a layout always means a complete sheet.
+- Frame choice: n = two tiles per second, 60 to 120. Tile i is the first frame at or after the start of part i. The
+  decoder skips non-reference frames, keeps decoding forward while that is cheaper, and jumps to a keyframe (from the
+  container index) when the next tile lies past it.
+
+| Measure (Windows dev machine, debug test build) | Result |
+|---|---|
+| 60 s clip, 10 fps, keyframe every 2 s, 60 tiles: frames decoded | 330 of 599 (a full decode decodes 599) |
+| Same clip: render time | 57 ms |
+| Same clip: tile times | exactly 0, 1, …, 59 s (golden) |
+| Sheet size for this (flat title) clip | 16 KB; camera footage will be larger, to be measured in 7.3 |

@@ -37,8 +37,11 @@
 
 ## 4. Skim sheets
 
-- [ ] 4.1 Implement the skim-sheet task (frame choice, 160 px tiles, WebP sheet, times JSON) with a decoder option to
+- [x] 4.1 Implement the skim-sheet task (frame choice, 160 px tiles, WebP sheet, times JSON) with a decoder option to
       skip non-reference frames; verify a golden test of tile times and that decode work drops on long-GOP fixtures.
+      (The sheet is a JPEG, not WebP: see design.md Results. `tasks::tests::skim_sheet_tiles_and_decode_work` uses a
+      60 s clip with a keyframe every 2 s made by our exporter, as the long-GOP fixture; the matrix fixtures need
+      python3 and a fixture ffmpeg this machine lacks.)
 - [ ] 4.2 Serve sheets through a custom URI protocol and add hover-skim to media thumbnails; verify a UI test: no IPC
       calls while skimming and first tile ≤ 16 ms after pointer move.
 

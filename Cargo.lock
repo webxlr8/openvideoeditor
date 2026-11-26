@@ -4224,6 +4224,7 @@ name = "ove-media"
 version = "0.1.0"
 dependencies = [
  "ffmpeg-the-third",
+ "jpeg-encoder",
  "libc",
  "md-5",
  "rayon",
