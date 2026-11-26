@@ -4,6 +4,7 @@
 pub mod agents;
 pub mod assistant;
 pub mod captions;
+pub mod cli_install;
 pub mod commands;
 pub mod control;
 pub mod edits;
@@ -121,6 +122,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::debug_panic_worker,
             commands::debug_panic_viewer,
             projects::list_projects,
+            cli_install::cli_status,
+            cli_install::cli_install,
             projects::library_choice,
             projects::set_library,
             projects::choose_library_folder,

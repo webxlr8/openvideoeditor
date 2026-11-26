@@ -39,6 +39,10 @@ export const commands = {
 	/**  Diagnostics hook: panics inside the viewer thread; the error arrives as `AppErrorRaised`. */
 	debugPanicViewer: () => typedError<null, AppError>(__TAURI_INVOKE("debug_panic_viewer")),
 	listProjects: () => typedError<ProjectSummary_Serialize[], AppError>(__TAURI_INVOKE("list_projects")),
+	/**  Whether a new terminal finds `ove`, and how to get there. */
+	cliStatus: () => typedError<CliStatus_Serialize, AppError>(__TAURI_INVOKE("cli_status")),
+	/**  Adds the folder of `ove` to the user's search path (`install`), or removes it. */
+	cliInstall: (install: boolean) => typedError<CliStatus_Serialize, AppError>(__TAURI_INVOKE("cli_install", { install })),
 	/**  Where projects are kept. */
 	libraryChoice: () => typedError<LibraryChoice_Serialize, AppError>(__TAURI_INVOKE("library_choice")),
 	/**
@@ -532,6 +536,30 @@ export type ChatSummaryView = {
 
 /**  A step of the guided first edit. */
 export type ChecklistStep = "import" | "cut" | "title" | "captions" | "export";
+
+export type CliStatus = CliStatus_Serialize | CliStatus_Deserialize;
+
+export type CliStatus_Deserialize = {
+	/**  The `ove` program that ships with the app. */
+	program: string,
+	/**  A new terminal finds `ove` (the folder is on the user's or the computer's search path). */
+	onPath: boolean,
+	/**  The app can add it to (and remove it from) the search path itself. */
+	canInstall: boolean,
+	/**  What to run by hand instead, where the app cannot do it. */
+	instruction?: string | null,
+};
+
+export type CliStatus_Serialize = {
+	/**  The `ove` program that ships with the app. */
+	program: string,
+	/**  A new terminal finds `ove` (the folder is on the user's or the computer's search path). */
+	onPath: boolean,
+	/**  The app can add it to (and remove it from) the search path itself. */
+	canInstall: boolean,
+	/**  What to run by hand instead, where the app cannot do it. */
+	instruction: string | null,
+};
 
 export type CrashReport = {
 	path: string,
