@@ -474,4 +474,14 @@ pub static TOOLS: &[ToolSpec] = &[
         run: timeline::undo_my_changes,
         model: ModelText::Json,
     },
+    ToolSpec {
+        name: "use_project",
+        aliases: &[],
+        about: "Set this session's project: later calls may leave out `project`. A session started for one project (ove mcp --project) cannot switch to another.",
+        args: &[req("project", Str, "Project name, id or bundle path")],
+        annotations: READ,
+        surfaces: SERVERS,
+        run: project::use_project,
+        model: ModelText::Text,
+    },
 ];

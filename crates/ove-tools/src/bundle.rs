@@ -132,6 +132,10 @@ impl ToolCtx for BundleCtx {
     fn bundle(&mut self, project: Option<&str>) -> Result<PathBuf, Fail> {
         self.resolve(project)
     }
+    fn use_project(&mut self, bundle: &Path) -> Result<(), Fail> {
+        self.binding.project = Some(bundle.to_path_buf());
+        Ok(())
+    }
     fn read(&mut self, bundle: &Path, f: &mut dyn FnMut(&Project) -> Result<(), Fail>) -> Result<(), Fail> {
         f(&self.open_read(bundle)?)
     }
@@ -247,6 +251,9 @@ impl ToolCtx for LinkCtx {
     }
     fn bundle(&mut self, project: Option<&str>) -> Result<PathBuf, Fail> {
         self.inner.resolve(project)
+    }
+    fn use_project(&mut self, bundle: &Path) -> Result<(), Fail> {
+        self.inner.use_project(bundle)
     }
     fn read(&mut self, bundle: &Path, f: &mut dyn FnMut(&Project) -> Result<(), Fail>) -> Result<(), Fail> {
         self.inner.read(bundle, f)

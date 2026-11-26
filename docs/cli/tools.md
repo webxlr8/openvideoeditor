@@ -5,7 +5,9 @@ input schema, annotations, and the surfaces it appears on. Three surfaces list t
 
 - **in-app**: the assistant inside the app. It works on the project open in the editor, so `project` is optional.
 - **mcp**: `ove mcp`, for agents that run outside the app (Claude Code, Codex and others).
-- **pinned**: `ove mcp` bound to one project for a local agent session.
+- **pinned**: `ove mcp --project <p> [--turn <id>]`, bound to one project for a local agent session. Calls that name
+  another project are refused with `project.pinned`. An unbound `ove mcp` session can set a default project with
+  `use_project`.
 
 A tool that appears on two surfaces has the same name, description and schema on both, and gives the same result for
 the same input. The command line runs the same handlers: `ove source apply` runs `apply_timeline`, `ove media add`
@@ -124,4 +126,5 @@ ove source print Nope                              # exit 1
 | `check_code` |  | in-app, mcp, pinned | read | `project`? `composition` `duration`? |
 | `ask_user` |  | in-app | read | `question` `options`? |
 | `undo_my_changes` |  | in-app, mcp, pinned | destructive | `project`? `scope`? `turn`? |
+| `use_project` |  | mcp, pinned | read | `project` |
 <!-- tools:end -->

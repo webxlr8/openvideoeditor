@@ -42,11 +42,18 @@ verify_timeline. Times are seconds. When the app has the project open, edits app
 const PROTOCOLS: [&str; 3] = ["2025-06-18", "2025-03-26", "2024-11-05"];
 
 /// Serves MCP on stdin/stdout until stdin closes.
-pub fn serve(library: Option<&Path>) -> std::io::Result<()> {
-    let mut ctx = LinkCtx::open(library, Surface::Mcp, Source::Mcp).map_err(|f| std::io::Error::other(f.message))?;
+pub fn serve(library: Option<&Path>, project: Option<&str>, turn: Option<&str>) -> std::io::Result<()> {
+    let surface = if project.is_some() { Surface::Pinned } else { Surface::Mcp };
+    let mut ctx = LinkCtx::open(library, surface, Source::Mcp).map_err(|f| std::io::Error::other(f.message))?;
+    if let Some(p) = project {
+        // A pinned session: every project tool works on this project, and calls naming another are refused.
+        let bundle = ctx.inner.find(p).map_err(|f| std::io::Error::other(f.message))?;
+        ctx.inner.binding = ove_tools::Binding { project: Some(bundle), pinned: true };
+    }
     // Every revision this session makes records it, so its undo touches only its own changes.
     let session = format!("mcp-{:x}-{:x}", ove_tools::fail::now_ms(), std::process::id());
-    ctx.inner.actor = Some(Actor { kind: ActorKind::Mcp, session: Some(session), turn: None, client: None });
+    ctx.inner.actor =
+        Some(Actor { kind: ActorKind::Mcp, session: Some(session), turn: turn.map(str::to_string), client: None });
     let stdin = std::io::stdin();
     let mut stdout = std::io::stdout().lock();
     for line in stdin.lock().lines() {

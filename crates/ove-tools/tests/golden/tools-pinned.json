@@ -942,6 +942,28 @@
         "destructiveHint": true,
         "openWorldHint": false
       }
+    },
+    {
+      "name": "use_project",
+      "description": "Set this session's project: later calls may leave out `project`. A session started for one project (ove mcp --project) cannot switch to another.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path"
+          }
+        },
+        "required": [
+          "project"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
     }
   ]
 }

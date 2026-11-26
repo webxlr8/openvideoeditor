@@ -129,6 +129,19 @@ pub fn show_project(ctx: &mut dyn ToolCtx, a: &Args) -> Result<Receipt, Fail> {
     })
 }
 
+/// `use_project`: the session's default project (refused in a session pinned to another project).
+pub fn use_project(ctx: &mut dyn ToolCtx, a: &Args) -> Result<Receipt, Fail> {
+    let bundle = ctx.bundle(Some(a.req_str("project")?))?;
+    ctx.use_project(&bundle)?;
+    read(ctx, &bundle, |p| {
+        let d = &p.doc().project;
+        Ok(Receipt::new(
+            json!({"id": d.id, "name": d.name, "bundle": p.bundle(), "rev": p.rev()}),
+            format!("calls without `project` now use {} ({})", d.name, d.id),
+        ))
+    })
+}
+
 pub fn rename_project(ctx: &mut dyn ToolCtx, a: &Args) -> Result<Receipt, Fail> {
     let name = a.req_str("name")?.trim().to_string();
     if name.is_empty() {

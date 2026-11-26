@@ -152,7 +152,14 @@ enum Cmd {
         cmd: Option<AgentsCmd>,
     },
     /// Serve the commands as MCP tools on stdin/stdout (`claude mcp add openvideoeditor -- ove mcp`).
-    Mcp,
+    Mcp {
+        /// Bind the session to this project: every tool works on it, and calls naming another are refused.
+        #[arg(long)]
+        project: Option<String>,
+        /// Record this turn id on every revision the session makes (for `undo_my_changes` scope turn).
+        #[arg(long)]
+        turn: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -267,7 +274,7 @@ fn run(cli: &Cli, source: Source) -> Out {
         Cmd::Skills { cmd: SkillsCmd::Install { dir } } => return docs::install_skills(dir),
         Cmd::Agents { cmd: None | Some(AgentsCmd::List) } => return docs::agents_list(),
         Cmd::Agents { cmd: Some(AgentsCmd::Connect { agent }) } => return docs::agents_connect(agent),
-        Cmd::Mcp => return Err(Fail::new("mcp.nested", "already serving MCP")),
+        Cmd::Mcp { .. } => return Err(Fail::new("mcp.nested", "already serving MCP")),
         _ => {}
     }
     let ctx = Ctx::open(cli.library.as_deref(), source, cli.json, true)?;
@@ -322,7 +329,7 @@ fn run(cli: &Cli, source: Source) -> Out {
             ctx.tool("import_timeline_file", json!({"project": project, "file": file, "format": format, "fps": fps}))
         }
         // Answered before the library is opened.
-        Cmd::Docs { .. } | Cmd::Doctor | Cmd::Skills { .. } | Cmd::Agents { .. } | Cmd::Mcp => {
+        Cmd::Docs { .. } | Cmd::Doctor | Cmd::Skills { .. } | Cmd::Agents { .. } | Cmd::Mcp { .. } => {
             Err(Fail::new("internal", "this command does not use a library"))
         }
     }
@@ -335,8 +342,8 @@ fn exit_code(f: &Fail) -> u8 {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
-    if matches!(cli.cmd, Cmd::Mcp) {
-        return match mcp::serve(cli.library.as_deref()) {
+    if let Cmd::Mcp { project, turn } = &cli.cmd {
+        return match mcp::serve(cli.library.as_deref(), project.as_deref(), turn.as_deref()) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
                 eprintln!("error: {e}");

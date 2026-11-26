@@ -276,3 +276,14 @@ Additive. Old bundles open unchanged. The MCP whole-file `source` mode stays. Th
   `cli` and `mcp` only.
 - The fuzz target `revision_record` is in the nightly fuzz matrix; it was compiled here but not run (no nightly
   toolchain with cargo-fuzz on this machine).
+
+### Group 4: session binding
+
+- `ove mcp --project <p> [--turn <id>]` serves the pinned surface (34 tools, MCP has 36; no
+  library listing or project creation). `use_project` sets the default project of an unbound session.
+- Two pinned `ove mcp` processes on projects P and Q, editing in alternation (3 edits each), each refused when
+  naming the other project: each project's history shows the 3 revisions of its own session only, each with its
+  `--turn` id (`crates/ove-cli/tests/mcp_pinned.rs`).
+- Task 4.2 is open: the app holds one project at a time (`projects.open`), so "a project open in the app but not in
+  front" needs multi-window support first; through the control link, a write to a project the app does not hold
+  goes to the bundle on disk, and one to the held project goes through the app.

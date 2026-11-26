@@ -43,7 +43,7 @@
 
 ## 4. Session binding
 
-- [ ] 4.1 Add `ove mcp --project <p> [--turn <id>]` and the `use_project` tool, and refuse other projects with
+- [x] 4.1 Add `ove mcp --project <p> [--turn <id>]` and the `use_project` tool, and refuse other projects with
       `project.pinned`. Verify: a scripted client runs two concurrent pinned sessions on different projects, and each
       project's history shows only its own session.
 - [ ] 4.2 Allow writes to an open project that is not in front. Verify: an e2e test where the person's window shows

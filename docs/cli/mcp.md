@@ -16,7 +16,16 @@ claude mcp add openvideoeditor -- ove mcp            # Claude Code
 codex mcp add openvideoeditor -- ove mcp             # Codex
 ```
 
-Pass `--library <folder>` before `mcp` to serve another library. Tools:
+Pass `--library <folder>` before `mcp` to serve another library.
+
+`ove mcp --project <project> [--turn <id>]` starts a session bound to one project (the pinned server for local
+agents): every project tool works on it without naming it, and a call that names another project is refused with
+`project.pinned`. `--turn` records a turn id on every revision the session makes, so `undo_my_changes` with scope
+`turn` can undo just that turn. Without `--project`, `use_project` sets a default project for the session. Each
+`ove mcp` process is one session; its revisions record the session and the client name the client gives in
+`initialize`, and agents undo only their own session's changes.
+
+Tools:
 
 | Tool | Command |
 |---|---|

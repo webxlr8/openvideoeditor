@@ -82,6 +82,10 @@ pub trait ToolCtx {
     }
     /// The client's name, from MCP `initialize`.
     fn set_client(&mut self, _name: &str) {}
+    /// Makes `bundle` the session's project for calls that name none (`use_project`).
+    fn use_project(&mut self, _bundle: &Path) -> Result<(), Fail> {
+        Err(Fail::new("tool.unavailable", "this session's project is the one open in the app"))
+    }
     /// The bundle of the project a call names; `None` means the session's project (the open one in the app, or the
     /// one a session is bound to). Refused when there is none or when the session may not use that project.
     fn bundle(&mut self, project: Option<&str>) -> Result<PathBuf, Fail>;
