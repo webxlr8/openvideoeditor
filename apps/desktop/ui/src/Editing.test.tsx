@@ -78,6 +78,19 @@ describe("editing", () => {
     await waitFor(() => expect(clips().length).toBe(1));
   });
 
+  it("Clean up voice mutes a video clip and adds its clean voice; the menu then leaves it out", async () => {
+    await editorWithClip();
+    fireEvent.contextMenu(clips()[0], { clientX: 300, clientY: 600 });
+    fireEvent.click(await screen.findByTestId("menu-clean-voice"));
+    await waitFor(() => expect(clips().length).toBe(2));
+    expect(clips()[0].textContent).toContain("Sample clip");
+    expect(clips().some((c) => c.textContent?.includes("(clean voice)"))).toBe(true);
+    await waitFor(() => expect(screen.queryByTestId("clip-cleaning")).toBeNull());
+    fireEvent.contextMenu(clips()[0], { clientX: 300, clientY: 600 });
+    await screen.findByTestId("menu-delete");
+    expect(screen.queryByTestId("menu-clean-voice")).toBeNull();
+  });
+
   it("keyboard: D duplicates, ⌘C/⌘V pastes, S splits, ? shows shortcuts", async () => {
     await editorWithClip();
     fireEvent.keyDown(window, { key: "d" });

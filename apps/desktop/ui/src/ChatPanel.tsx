@@ -170,7 +170,7 @@ export function ChatPanel({
 
   useEffect(() => loadTotals(chatId), [chatId, projectId, loadTotals]);
 
-  useEffect(() => {
+  const loadStatus = useCallback(() => {
     runCommand(
       commands.agentStatus(),
       (s) => {
@@ -180,6 +180,14 @@ export function ChatPanel({
       report,
     );
   }, [report]);
+  useEffect(loadStatus, [loadStatus]);
+
+  /** Chooses who answers in this chat: an installed agent's id, or "api-key" for the built-in assistant. */
+  const choose = (assistant: string) =>
+    runCommand(commands.onboardingUpdate({ kind: "setAssistant", assistant }), loadStatus, report);
+  /** The chat runs on an agent installed on this computer (no key needed). */
+  const local = !!status?.agentName;
+  const ready = !!status && (status.hasKey || local);
 
   const shownProject = useRef(projectId);
   useEffect(() => {
@@ -248,7 +256,9 @@ export function ChatPanel({
           const cost = ev.costUsd ?? 0;
           const secs = (ev.durationMs ?? 0) / 1000;
           // A limit the turn stopped at shows in the log (it is kept there), not twice.
-          setFooter(ev.stopped ? "Stopped." : ev.note ? null : `${secs.toFixed(1)}s · ≈${usd(cost)}`);
+          setFooter(
+            ev.stopped ? "Stopped." : ev.note ? null : ev.plan ? `${secs.toFixed(1)}s · uses your ${ev.plan} plan` : `${secs.toFixed(1)}s · ≈${usd(cost)}`,
+          );
           loadChat(ev.chatId);
           loadChats();
           loadTotals(ev.chatId);
@@ -359,8 +369,8 @@ export function ChatPanel({
           <span>Project: ≈{usd(totals.project.costUsd)}</span>
         </div>
       )}
-      {status && !status.hasKey ? (
-        <NoKeyCard onError={report}>
+      {status && !ready ? (
+        <NoKeyCard onError={report} onChoose={choose}>
           <KeyCard
             onSaved={(s, check) => {
               setStatus(s);
@@ -375,6 +385,12 @@ export function ChatPanel({
             <p className={keyCheck.ok ? "key-ok" : "key-error"} role="status" data-testid="key-check">
               {keyCheck.ok ? "Key works. " : ""}
               {keyCheck.ok ? "You're ready." : keyCheck.message}
+            </p>
+          )}
+          {local && (
+            <p className="muted small" data-testid="chat-agent-note">
+              {status?.agentName} answers here, on your {status?.agentName} plan. It sees this project's timeline, frames and
+              sound measurements; its changes show up here and can be undone.
             </p>
           )}
           <p>Ask for a cut, captions, or a fresh idea.</p>
@@ -399,9 +415,14 @@ export function ChatPanel({
       )}
 
       {footer && <div className="chat-footer muted small" data-testid="chat-footer">{footer}</div>}
+      {local && status?.needsSignIn && (
+        <div className="chat-footer key-error small" role="status" data-testid="chat-sign-in">
+          {status.agentName} needs you to sign in: open a terminal, run it and sign in, then send your message again.
+        </div>
+      )}
       <div className="composer">
         <textarea
-          placeholder={status && !status.hasKey ? "Add your API key above to start." : "Describe an edit…"}
+          placeholder={status && !ready ? "Choose an assistant above to start." : "Describe an edit…"}
           rows={3}
           value={text}
           data-testid="composer"
@@ -418,7 +439,21 @@ export function ChatPanel({
             <Icon name="attach" size={16} />
           </button>
           <span className="grow" />
-          {status && (
+          {status && local && (
+            <Dropdown
+              testId="agent-picker"
+              direction="up"
+              label={status.agentName ?? "Assistant"}
+              items={[
+                {
+                  id: "api-key",
+                  label: "Use the built-in assistant (API key)",
+                  onSelect: () => choose("api-key"),
+                },
+              ]}
+            />
+          )}
+          {status && !local && (
             <Dropdown
               testId="agent-picker"
               direction="up"
@@ -452,7 +487,7 @@ export function ChatPanel({
               className="send"
               title="Send (Enter)"
               data-testid="send"
-              disabled={!text.trim() || !status?.hasKey}
+              disabled={!text.trim() || !ready}
               onClick={() => fire(send(), report)}
             >
               <Icon name="send" size={16} />
@@ -533,8 +568,16 @@ function ChatLine({
       if (!u) return null;
       return (
         <div className="turn-usage muted small" data-testid="turn-usage">
-          {((u.durationMs ?? 0) / 1000).toFixed(1)}s · {tokens(u.inputTokens)} in · {tokens(u.outputTokens)} out · ≈
-          {usd(u.costUsd)}
+          {u.plan ? (
+            <>
+              {((u.durationMs ?? 0) / 1000).toFixed(1)}s · uses your {u.plan} plan
+            </>
+          ) : (
+            <>
+              {((u.durationMs ?? 0) / 1000).toFixed(1)}s · {tokens(u.inputTokens)} in · {tokens(u.outputTokens)} out · ≈
+              {usd(u.costUsd)}
+            </>
+          )}
         </div>
       );
     }
@@ -591,15 +634,17 @@ function ChatLine({
   }
 }
 
-/** What the assistant sends to Anthropic, and what it never sends. */
+/** What the assistant sends, and what it never sends. */
 export function AssistantDataList() {
   return (
     <ul className="data-list small" data-testid="assistant-data">
       <li>
-        Sent to Anthropic: the timeline as text (item names and times, text and caption words, media file names), this
-        chat, and the results of the assistant's tools.
+        Sent to the assistant's provider (Anthropic for the built-in assistant, or the provider of an assistant installed
+        on this computer): the timeline as text (item names and times, text and caption words, media file names), this
+        chat, and the results of the assistant's tools, which include frames of your video and sound measurements when it
+        looks or listens.
       </li>
-      <li>Never sent: your media files or video frames.</li>
+      <li>Never sent: your media files themselves.</li>
       <li>Nothing else leaves this computer, and there is no telemetry.</li>
     </ul>
   );

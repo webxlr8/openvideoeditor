@@ -737,6 +737,165 @@ pub fn histogram(img: &Rgba) -> [Vec<f32>; 4] {
     h.map(|c| c.iter().map(|&v| v as f32 / max).collect())
 }
 
+/// BT.709 luma and colour difference (Cb, Cr in -0.5..0.5) of an 8-bit RGB pixel.
+fn ycbcr(p: &[u8]) -> (f32, f32, f32) {
+    let [r, g, b] = [p[0], p[1], p[2]].map(|v| v as f32 / 255.0);
+    let y = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    (y, (b - y) / 1.8556, (r - y) / 1.5748)
+}
+
+/// Turns hit counts into brightness: a log scale so that a few pixels still show, normalised to the busiest cell.
+fn density(counts: &[u32]) -> impl Fn(u32) -> f32 {
+    let max = (counts.iter().copied().max().unwrap_or(1).max(1) as f32).ln_1p();
+    move |n| if n == 0 { 0.0 } else { ((n as f32).ln_1p() / max).clamp(0.0, 1.0).powf(0.6).max(0.25) }
+}
+
+const SCOPE_BG: [u8; 4] = [11, 11, 12, 255];
+const GRATICULE: [u8; 4] = [64, 64, 70, 255];
+
+fn mix_px(img: &mut Rgba, x: u32, y: u32, c: [u8; 4], a: f32) {
+    if x >= img.w || y >= img.h {
+        return;
+    }
+    let i = ((y * img.w + x) * 4) as usize;
+    for (o, &t) in img.data[i..i + 3].iter_mut().zip(&c) {
+        let v = *o as f32;
+        *o = (v + (t as f32 - v) * a).round() as u8;
+    }
+}
+
+/// A luma waveform scope (`w`×`h`): each column of the frame is one column of the scope, and each pixel lands at
+/// the height of its brightness (0 % at the bottom, 100 % at the top); busier levels draw brighter. Lines mark 0, 25,
+/// 50, 75 and 100 %.
+pub fn waveform(img: &Rgba, w: u32, h: u32) -> Rgba {
+    let (w, h) = (w.max(8), h.max(8));
+    let mut counts = vec![0u32; (w * h) as usize];
+    if img.w > 0 && img.h > 0 {
+        for (i, p) in img.data.chunks_exact(4).enumerate() {
+            let x = ((i as u32 % img.w) as u64 * w as u64 / img.w as u64) as u32;
+            let l = ycbcr(p).0.clamp(0.0, 1.0);
+            let y = (h - 1) - (l * (h - 1) as f32).round() as u32;
+            counts[(y * w + x) as usize] += 1;
+        }
+    }
+    let bright = density(&counts);
+    let mut out = Rgba::filled(w, h, SCOPE_BG);
+    for q in 0..=4 {
+        let y = (h - 1) - (q * (h - 1)) / 4;
+        for x in 0..w {
+            mix_px(&mut out, x, y, GRATICULE, 1.0);
+        }
+    }
+    for (i, &n) in counts.iter().enumerate() {
+        if n == 0 {
+            continue;
+        }
+        let b = bright(n);
+        let o = &mut out.data[i * 4..i * 4 + 3];
+        for (k, top) in [150.0f32, 255.0, 170.0].into_iter().enumerate() {
+            o[k] = (o[k] as f32).max(top * b).round() as u8;
+        }
+    }
+    out
+}
+
+/// A vectorscope (`size`×`size`): each pixel is placed by its colour difference (hue as the angle, saturation as
+/// the distance from the centre) and drawn in its own hue. The circle is full saturation of the 75 % colour bars,
+/// small squares mark where those bars land (R, Mg, B, Cy, G, Yl), and a line marks typical skin tones.
+pub fn vectorscope(img: &Rgba, size: u32) -> Rgba {
+    let s = size.max(16);
+    // Cb/Cr span -0.5..0.5; scale so the 75 % bars sit well inside the frame.
+    let scale = (s as f32 - 1.0) * 0.9;
+    let to_xy = |cb: f32, cr: f32| -> (i64, i64) {
+        let c = (s as f32 - 1.0) / 2.0;
+        ((c + cb * scale).round() as i64, (c - cr * scale).round() as i64)
+    };
+    let mut counts = vec![0u32; (s * s) as usize];
+    let mut sums = vec![[0f32; 3]; (s * s) as usize];
+    for p in img.data.chunks_exact(4) {
+        let (_, cb, cr) = ycbcr(p);
+        let (x, y) = to_xy(cb, cr);
+        if (0..s as i64).contains(&x) && (0..s as i64).contains(&y) {
+            let i = (y as u32 * s + x as u32) as usize;
+            counts[i] += 1;
+            for k in 0..3 {
+                sums[i][k] += p[k] as f32;
+            }
+        }
+    }
+    let bright = density(&counts);
+    let mut out = Rgba::filled(s, s, SCOPE_BG);
+    let centre = (s as f32 - 1.0) / 2.0;
+    // Outer circle at the saturation of the 75 % red bar (the farthest of the six from the centre).
+    let bars: [(f32, f32, f32); 6] =
+        [(0.75, 0.0, 0.0), (0.75, 0.0, 0.75), (0.0, 0.0, 0.75), (0.0, 0.75, 0.75), (0.0, 0.75, 0.0), (0.75, 0.75, 0.0)];
+    let bar_xy: Vec<(i64, i64)> = bars
+        .iter()
+        .map(|&(r, g, b)| {
+            let px = [(r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8, 255];
+            let (_, cb, cr) = ycbcr(&px);
+            to_xy(cb, cr)
+        })
+        .collect();
+    let radius = bar_xy
+        .iter()
+        .map(|&(x, y)| ((x as f32 - centre).powi(2) + (y as f32 - centre).powi(2)).sqrt())
+        .fold(0.0f32, f32::max);
+    let steps = (radius * 8.0) as u32 + 16;
+    for i in 0..steps {
+        let a = i as f32 / steps as f32 * std::f32::consts::TAU;
+        mix_px(
+            &mut out,
+            (centre + radius * a.cos()).round() as u32,
+            (centre + radius * a.sin()).round() as u32,
+            GRATICULE,
+            1.0,
+        );
+    }
+    // Cross hairs through the centre (no colour).
+    let (c, r) = (centre.round() as u32, radius.round() as u32);
+    for t in c.saturating_sub(r)..=c + r {
+        mix_px(&mut out, c, t, GRATICULE, 0.5);
+        mix_px(&mut out, t, c, GRATICULE, 0.5);
+    }
+    // Skin tone line: the hue of typical skin (about 123° from the Cb axis), centre to circle.
+    let skin = 123f32.to_radians();
+    for i in 0..(radius as u32) {
+        let r = i as f32;
+        mix_px(
+            &mut out,
+            (centre + r * skin.cos()).round() as u32,
+            (centre - r * skin.sin()).round() as u32,
+            [150, 110, 80, 255],
+            0.8,
+        );
+    }
+    for &(x, y) in &bar_xy {
+        for d in -3i64..=3 {
+            for (dx, dy) in [(d, -3), (d, 3), (-3, d), (3, d)] {
+                if x + dx >= 0 && y + dy >= 0 {
+                    mix_px(&mut out, (x + dx) as u32, (y + dy) as u32, [120, 120, 130, 255], 1.0);
+                }
+            }
+        }
+    }
+    for (i, &n) in counts.iter().enumerate() {
+        if n == 0 {
+            continue;
+        }
+        // The trace is drawn in the average colour of the pixels that land there, lifted so dark hues still show.
+        let avg = sums[i].map(|v| v / n as f32);
+        let top = avg.iter().copied().fold(1.0f32, f32::max);
+        let b = bright(n);
+        let o = &mut out.data[i * 4..i * 4 + 3];
+        for k in 0..3 {
+            let v = (0.35 + 0.65 * avg[k] / top) * 255.0 * b;
+            o[k] = (o[k] as f32).max(v).round() as u8;
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -851,5 +1010,55 @@ mod tests {
         let mid = [100.0 / 255.0 - 20.0 / 255.0, 100.0 / 255.0, 130.0 / 255.0];
         let o = g.eval(mid);
         assert!(o[0] > mid[0] && o[2] < mid[2], "cool target warmed towards the reference: {o:?}");
+    }
+
+    fn lit(img: &Rgba, x: u32, y: u32) -> bool {
+        img.px(x, y)[..3].iter().any(|&v| v > 100)
+    }
+
+    #[test]
+    fn waveform_places_levels_by_column() {
+        // Left half black, right half white: the left of the scope traces at the bottom, the right at the top.
+        let mut img = Rgba::new(64, 32);
+        for (i, p) in img.data.chunks_exact_mut(4).enumerate() {
+            let v = if i % 64 < 32 { 0 } else { 255 };
+            p.copy_from_slice(&[v, v, v, 255]);
+        }
+        let w = waveform(&img, 128, 64);
+        assert_eq!((w.w, w.h), (128, 64));
+        assert!(lit(&w, 10, 63) && !lit(&w, 10, 0), "black at 0 %");
+        assert!(lit(&w, 100, 0) && !lit(&w, 100, 63), "white at 100 %");
+        let mid = Rgba::filled(64, 32, [0, 255, 0, 255]);
+        let y = 63 - (0.7152f32 * 63.0).round() as u32;
+        assert!(lit(&waveform(&mid, 128, 64), 10, y), "green at its luma (72 %)");
+    }
+
+    #[test]
+    fn vectorscope_places_hues_around_the_centre() {
+        let solid = |c: [u8; 3]| Rgba::filled(16, 16, [c[0], c[1], c[2], 255]);
+        let busiest = |v: &Rgba| {
+            let mut best = (0, 0, 0u32);
+            for y in 0..v.h {
+                for x in 0..v.w {
+                    let [r, g, b, _] = v.px(x, y);
+                    let sum = r as u32 + g as u32 + b as u32;
+                    if sum > best.2 {
+                        best = (x, y, sum);
+                    }
+                }
+            }
+            (best.0 as i32 - v.w as i32 / 2, best.1 as i32 - v.h as i32 / 2)
+        };
+        let grey = vectorscope(&solid([128, 128, 128]), 101);
+        let (x, y) = busiest(&grey);
+        assert!(x.abs() <= 1 && y.abs() <= 1, "grey at the centre: {x},{y}");
+        let (x, y) = busiest(&vectorscope(&solid([255, 0, 0]), 101));
+        assert!(y < -20, "red up (positive Cr): {x},{y}");
+        let (x, y) = busiest(&vectorscope(&solid([0, 0, 255]), 101));
+        assert!(x > 20, "blue right (positive Cb): {x},{y}");
+        let red = vectorscope(&solid([255, 0, 0]), 101);
+        let (x, y) = busiest(&red);
+        let [r, g, b, _] = red.px((x + 50) as u32, (y + 50) as u32);
+        assert!(r > g && r > b, "drawn in its own hue");
     }
 }

@@ -51,10 +51,15 @@ struct Mcp {
 
 impl Mcp {
     fn start(lib: &Path) -> Mcp {
+        Mcp::start_with(lib, &[])
+    }
+
+    fn start_with(lib: &Path, extra: &[&str]) -> Mcp {
         let mut child = Command::new(env!("CARGO_BIN_EXE_ove"))
             .arg("--library")
             .arg(lib)
             .arg("mcp")
+            .args(extra)
             .env_remove("OVE_LIBRARY")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -250,4 +255,131 @@ fn skills_install_writes_the_skill() {
     let text = std::fs::read_to_string(d.path().join("openvideoeditor/SKILL.md")).unwrap();
     assert!(text.starts_with("---\nname: openvideoeditor\n"));
     assert!(text.contains("ove source apply"));
+}
+
+/// The in-app chat's server (`ove mcp --project … --turn …`): one project, only the tools for seeing and editing it,
+/// media by id or name within the project, and a turn's edits only through the app.
+#[test]
+fn a_pinned_session_sees_and_edits_one_project_only() {
+    let (_d, lib) = setup();
+    let library = ove_store::Library::open(&lib, Arc::new(ove_core::SystemClock)).unwrap();
+    library.create("Other").unwrap().close().unwrap();
+    let bundle = lib.join("Demo.ove");
+    let outside = lib.parent().unwrap().join("secret.mp4");
+    std::fs::write(&outside, b"not for the agent").unwrap();
+
+    let mut m = Mcp::start_with(&lib, &["--project", "Demo", "--turn", "t1"]);
+    let init = m.request("initialize", json!({"protocolVersion": "2025-06-18", "capabilities": {}}));
+    assert!(init["result"]["instructions"].as_str().unwrap().contains("open in OpenVideoEditor"), "{init}");
+
+    let tools = m.request("tools/list", json!({}))["result"]["tools"].as_array().unwrap().clone();
+    let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
+    for n in
+        ["print_timeline", "apply_timeline", "look", "grab_frame", "measure_loudness", "detect_silence", "transcript"]
+    {
+        assert!(names.contains(&n), "{n} is offered");
+    }
+    for n in [
+        "list_projects",
+        "create_project",
+        "rename_project",
+        "open_in_app",
+        "add_media",
+        "remove_media",
+        "relink_media",
+        "export_video",
+        "export_timeline_file",
+        "import_timeline_file",
+        "screenshot",
+    ] {
+        assert!(!names.contains(&n), "{n} is not offered");
+    }
+    for t in &tools {
+        assert!(t["inputSchema"]["properties"].get("project").is_none(), "no project argument: {t}");
+    }
+
+    // The pinned project without naming it; another project, by name or path, is refused.
+    let printed = m.call("print_timeline", json!({}));
+    assert_eq!(printed["isError"], false, "{printed}");
+    assert!(printed["structuredContent"]["text"].as_str().unwrap().contains("Title"));
+    let named = m.call("print_timeline", json!({"project": bundle.display().to_string()}));
+    assert_eq!(named["isError"], false, "naming the pinned project is fine: {named}");
+    for other in [json!("Other"), json!(lib.join("Other.ove").display().to_string())] {
+        let r = m.call("print_timeline", json!({ "project": other }));
+        assert_eq!(r["structuredContent"]["error"]["code"], "project.pinned", "{r}");
+    }
+
+    // Tools that are not offered are refused when called anyway.
+    for (tool, args) in [
+        ("list_projects", json!({})),
+        ("add_media", json!({"paths": [outside.display().to_string()]})),
+        ("export_video", json!({"output": "x.mp4"})),
+    ] {
+        let r = m.call(tool, args);
+        assert_eq!(r["structuredContent"]["error"]["code"], "tool.unavailable", "{tool}: {r}");
+    }
+
+    // Media is named within the project; a file by its path is refused before anything reads it.
+    let r = m.call("grab_frame", json!({"media": outside.display().to_string()}));
+    assert_eq!(r["structuredContent"]["error"]["code"], "media.notInProject", "{r}");
+    let r = m.call("measure_loudness", json!({"media": "../secret.mp4"}));
+    assert_eq!(r["structuredContent"]["error"]["code"], "media.notInProject", "{r}");
+
+    // The transcript comes from the app (it has the speech models).
+    let r = m.call("transcript", json!({"media": "nothing"}));
+    assert_eq!(r["isError"], true, "{r}");
+    // A turn's edits go through the app; with the app not running nothing is written to the bundle.
+    let text = printed["structuredContent"]["text"].as_str().unwrap().replacen("name=\"Title\"", "name=\"T2\"", 1);
+    let r = m.call("apply_timeline", json!({ "source": text }));
+    assert_eq!(r["isError"], true, "{r}");
+    let p = Project::open(&bundle, Mode::ReadOnly, Arc::new(ove_core::SystemClock)).unwrap();
+    assert_eq!(p.doc().item("b").unwrap().name(), "Title", "the bundle is unchanged");
+}
+
+#[test]
+fn a_pinned_session_needs_a_project_that_exists() {
+    let (_d, lib) = setup();
+    let out = ove(&lib, &["mcp", "--project", "Nope"]);
+    assert_eq!(out.status.code(), Some(1), "{}", String::from_utf8_lossy(&out.stderr));
+    let out = ove(&lib, &["mcp", "--turn", "t1"]);
+    assert!(!out.status.success(), "--turn needs --project");
+}
+
+/// Pictures from a pinned session are at most 1280 pixels on the long side, whatever size was asked for.
+#[cfg(feature = "media")]
+#[test]
+fn a_pinned_session_caps_pictures() {
+    let (_d, lib) = setup();
+    let mut m = Mcp::start_with(&lib, &["--project", "Demo"]);
+    m.request("initialize", json!({"protocolVersion": "2025-06-18", "capabilities": {}}));
+    let r = m.call("look", json!({"at": "3", "width": 2560}));
+    assert_eq!(r["isError"], false, "{r}");
+    let img = r["content"].as_array().unwrap().iter().find(|c| c["type"] == "image").expect("an image").clone();
+    let png = decode_base64(img["data"].as_str().unwrap());
+    let i = ove_analyze::Image::from_png(&png).unwrap();
+    assert_eq!(i.width.max(i.height), 1280, "{}x{}", i.width, i.height);
+}
+
+#[cfg(feature = "media")]
+fn decode_base64(s: &str) -> Vec<u8> {
+    let val = |c: u8| match c {
+        b'A'..=b'Z' => c - b'A',
+        b'a'..=b'z' => c - b'a' + 26,
+        b'0'..=b'9' => c - b'0' + 52,
+        b'+' => 62,
+        _ => 63,
+    };
+    let bytes: Vec<u8> = s.bytes().filter(|&c| c != b'=').collect();
+    let mut out = Vec::new();
+    for c in bytes.chunks(4) {
+        let n = c.iter().enumerate().fold(0u32, |n, (i, &b)| n | (val(b) as u32) << (18 - 6 * i));
+        out.push((n >> 16) as u8);
+        if c.len() > 2 {
+            out.push((n >> 8) as u8);
+        }
+        if c.len() > 3 {
+            out.push(n as u8);
+        }
+    }
+    out
 }

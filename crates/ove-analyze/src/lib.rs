@@ -1,14 +1,17 @@
 //! Media and timeline analysis for the CLI and agents: frames and contact sheets of media files, scene cuts, audio
-//! levels, waveform pictures, silence, loudness (BS.1770 / EBU R128), and composited timeline frames with exposure
-//! statistics. Results are plain serializable structs or RGBA images (`Image::png`); nothing is printed.
+//! levels, waveform pictures, silence, loudness (BS.1770 / EBU R128), composited timeline frames with exposure
+//! statistics, and voice clean-up (RNNoise). Results are plain serializable structs or RGBA images (`Image::png`);
+//! nothing is printed.
 #![forbid(unsafe_code)]
 
 pub mod audio;
+pub mod cleanup;
 pub mod image;
 pub mod look;
 pub mod video;
 
 pub use audio::{Levels, Loudness, Range, levels, loudness, silence, waveform_png};
+pub use cleanup::{Cleaned, clean_voice};
 pub use image::{Image, Stats, frame_stats, sheet};
 pub use look::{look, timeline_times};
 pub use video::{FilmstripOpts, SceneCut, Scenes, filmstrip, frame_to_image, grab, scenes};

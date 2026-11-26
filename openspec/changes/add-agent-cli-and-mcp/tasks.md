@@ -21,5 +21,8 @@
 - [x] 3.1 `ove mcp` with the tool table; verify initialize, tools/list, edits, refusals and image results.
 - [x] 3.2 `ove skills install` (Claude Code / Codex skills folders) and the agents guide (`ove docs agents`).
 - [x] 3.3 Ship `ove` as an installer sidecar (tools/package.sh).
-- [ ] 3.4 "Install command line tool" in Settings (symlink into PATH on macOS; PATH entry on Windows) — change 13.
-- [ ] 3.5 Launch Claude Code / Codex from the app in the project folder with the skill and MCP preconfigured — change 9.
+- [x] 3.4 "Install command line tool" in Settings (symlink into PATH on macOS; PATH entry on Windows) — change 13.
+      Done: see add-settings-and-templates 1.4 (macOS: the `sudo ln -sf` command is shown; it needs an administrator).
+- [x] 3.5 Launch Claude Code / Codex from the app in the project folder with the skill and MCP preconfigured — change 9.
+      Done: "Open in a terminal" (`open_agent_terminal`, `ove_agents::terminal_start`). Verified on Windows against
+      Claude 2.1.332 and Codex 0.101.0 and through Windows Terminal; not run on macOS.

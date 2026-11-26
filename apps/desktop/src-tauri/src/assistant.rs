@@ -22,8 +22,8 @@ use crate::AppState;
 use crate::error::{AppError, AppResult, ErrorCode};
 use crate::worker::{self, relock};
 
-struct Running {
-    cancel: Arc<AtomicBool>,
+pub struct Running {
+    pub cancel: Arc<AtomicBool>,
 }
 
 /// Spending and size limits for the assistant (Settings → Assistant).
@@ -78,7 +78,7 @@ pub struct Assistant {
     keys: Box<dyn KeyStore>,
     model: Mutex<String>,
     limits: Mutex<AgentLimits>,
-    running: Mutex<Option<Running>>,
+    pub running: Mutex<Option<Running>>,
     answers: Mutex<HashMap<String, Sender<String>>>,
     settings_path: Option<PathBuf>,
 }
@@ -160,6 +160,12 @@ pub struct AgentStatus {
     pub models: Vec<ModelOption>,
     pub running: bool,
     pub limits: AgentLimits,
+    /// The assistant the chat uses: an installed agent's id, `"api-key"` (the built-in one), or `None`.
+    pub assistant: Option<String>,
+    /// The chosen agent's name, when the chat uses an installed agent.
+    pub agent_name: Option<String>,
+    /// The chosen agent's last start failed because it needs its person to sign in.
+    pub needs_sign_in: bool,
 }
 
 /// The result of trying the saved key with a real (free) request.
@@ -217,6 +223,8 @@ pub struct TurnUsageView {
     pub output_tokens: f64,
     pub cache_read_tokens: f64,
     pub cost_usd: f64,
+    /// The turn ran on an installed agent, on the person's plan with it (its name).
+    pub plan: Option<String>,
 }
 
 /// What a turn changed on the timeline, for "Show" and "Undo this turn".
@@ -304,6 +312,8 @@ pub enum AgentUiEvent {
         cache_read_tokens: f64,
         cost_usd: f64,
         note: Option<String>,
+        /// The turn ran on an installed agent, on the person's plan with it (its name): no price is shown.
+        plan: Option<String>,
     },
     Error {
         code: String,
@@ -334,6 +344,7 @@ impl From<AgentEvent> for AgentUiEvent {
                 cache_read_tokens: usage.cache_read_input_tokens as f64,
                 cost_usd,
                 note,
+                plan: None,
             },
             AgentEvent::Error { code, message } => AgentUiEvent::Error { code, message },
         }
@@ -402,6 +413,15 @@ impl ToolHost for DesktopHost {
     fn check_code(&mut self, composition: &serde_json::Value, duration: f64) -> Result<String, String> {
         self.with_project(|p| Ok(tools::check_code(Some(p), composition, duration)), false)
     }
+    fn see(&mut self, req: &ove_agent::tools::SeeRequest) -> Result<ove_agent::tools::ToolOut, String> {
+        // A copy of the document: decoding and rendering must not hold the project while the editor works.
+        let (doc, bundle) = self.with_project(|p| Ok((p.doc().clone(), p.bundle().to_path_buf())), false)?;
+        let env = crate::seeing::SeeEnv {
+            models_dir: Some(ove_transcribe::models::model_dir(&crate::captions::data_dir(&self.app))),
+            cancel: Some(self.cancel.clone()),
+        };
+        crate::seeing::see_with(&doc, &bundle, req, &env)
+    }
     fn seek_viewer(&mut self, seconds: f64) -> Result<String, String> {
         let _ = AgentUiEvent::Seek { seconds }.emit(&self.app);
         Ok(format!("Showing {seconds:.2}s."))
@@ -435,7 +455,27 @@ fn status(a: &Assistant) -> AppResult<AgentStatus> {
         models: ove_agent::MODELS.iter().map(|m| ModelOption { id: m.id.into(), label: m.label.into() }).collect(),
         running: lock(&a.running)?.is_some(),
         limits: lock(&a.limits)?.clone(),
+        assistant: None,
+        agent_name: None,
+        needs_sign_in: false,
     })
+}
+
+/// The installed agent the chat uses, when the person chose one (Welcome, Settings or the chat).
+pub fn chosen_agent(app: &AppHandle) -> Option<&'static ove_agents::AgentSpec> {
+    let choice = app.try_state::<crate::onboarding::Onboarding>()?.get().assistant?;
+    ove_agents::agent(&choice)
+}
+
+/// [`status`] with the chosen assistant filled in.
+fn full_status(app: &AppHandle, a: &Assistant) -> AppResult<AgentStatus> {
+    let mut s = status(a)?;
+    s.assistant = app.try_state::<crate::onboarding::Onboarding>().and_then(|o| o.get().assistant);
+    if let Some(spec) = chosen_agent(app) {
+        s.agent_name = Some(spec.name.into());
+        s.needs_sign_in = app.state::<crate::local_agent::LocalAgents>().needs_sign_in(spec.id);
+    }
+    Ok(s)
 }
 
 fn bundle(state: &AppState) -> AppResult<PathBuf> {
@@ -451,7 +491,7 @@ pub async fn agent_status(app: AppHandle) -> AppResult<AgentStatus> {
     worker::blocking("agent_status", move || {
         let state = app.state::<AppState>();
         let state = &*state;
-        status(&state.assistant)
+        full_status(&app, &state.assistant)
     })
     .await
 }
@@ -464,7 +504,7 @@ pub async fn agent_set_key(app: AppHandle, key: String) -> AppResult<AgentStatus
         let state = &*state;
         state.assistant.keys.set(&key).map_err(|m| AppError::new(ErrorCode::InvalidArgument, m))?;
         tracing::info!("assistant API key stored in the system credential store");
-        status(&state.assistant)
+        full_status(&app, &state.assistant)
     })
     .await
 }
@@ -476,7 +516,7 @@ pub async fn agent_clear_key(app: AppHandle) -> AppResult<AgentStatus> {
         let state = app.state::<AppState>();
         let state = &*state;
         state.assistant.keys.clear().map_err(|m| AppError::new(ErrorCode::Io, m))?;
-        status(&state.assistant)
+        full_status(&app, &state.assistant)
     })
     .await
 }
@@ -492,7 +532,7 @@ pub async fn agent_set_model(app: AppHandle, model: String) -> AppResult<AgentSt
         }
         *lock(&state.assistant.model)? = model;
         state.assistant.save_settings();
-        status(&state.assistant)
+        full_status(&app, &state.assistant)
     })
     .await
 }
@@ -507,7 +547,7 @@ pub async fn agent_set_limits(app: AppHandle, limits: AgentLimits) -> AppResult<
         limits.validate().map_err(|m| AppError::new(ErrorCode::InvalidArgument, m))?;
         *lock(&state.assistant.limits)? = limits;
         state.assistant.save_settings();
-        status(&state.assistant)
+        full_status(&app, &state.assistant)
     })
     .await
 }
@@ -644,7 +684,7 @@ pub fn chat_items(records: &[Record]) -> Vec<ChatItem> {
                     }
                 }
             }
-            Record::ToolResult { tool_use_id, text, is_error } => {
+            Record::ToolResult { tool_use_id, text, is_error, .. } => {
                 if let Some(it) = out.iter_mut().rev().find(|i| i.id.as_deref() == Some(tool_use_id)) {
                     if it.role == "question" {
                         it.text = format!("{}\n→ {}", it.text, text);
@@ -661,7 +701,7 @@ pub fn chat_items(records: &[Record]) -> Vec<ChatItem> {
                     });
                 }
             }
-            Record::Result { is_error, text, note, cost_usd, duration_ms, thread_usage: u, .. } => {
+            Record::Result { is_error, text, note, cost_usd, duration_ms, thread_usage: u, plan, .. } => {
                 flush(&mut out, &turn, &mut revs);
                 if *is_error {
                     out.push(item("note", text.clone()));
@@ -676,9 +716,24 @@ pub fn chat_items(records: &[Record]) -> Vec<ChatItem> {
                         output_tokens: u.output_tokens as f64,
                         cache_read_tokens: u.cache_read_input_tokens as f64,
                         cost_usd: *cost_usd,
+                        plan: plan.clone(),
                     }),
                     ..item("usage", String::new())
                 });
+            }
+            Record::AgentTool { id, title, ok } => {
+                // An installed agent's tool call: a chip when it starts, its outcome when it ends.
+                match out.iter_mut().rev().find(|i| i.role == "tool" && i.id.as_deref() == Some(id)) {
+                    Some(it) => {
+                        if ok.is_some() {
+                            it.ok = *ok;
+                        }
+                    }
+                    None if !title.is_empty() => {
+                        out.push(ChatItem { id: Some(id.clone()), ok: *ok, ..item("tool", title.clone()) });
+                    }
+                    None => {}
+                }
             }
             Record::Summary { .. } if !out.iter().any(|i| i.role == "note" && i.text == SUMMARY_NOTE) => {
                 out.push(item("note", SUMMARY_NOTE.into()));
@@ -862,6 +917,9 @@ pub async fn agent_send(app: AppHandle, chat_id: Option<String>, text: String) -
             return Err(AppError::new(ErrorCode::InvalidArgument, "Type a message first."));
         }
         let a = &state.assistant;
+        if let Some(spec) = chosen_agent(&app) {
+            return send_local(&app, state, spec, chat_id, text);
+        }
         let Some((key, _)) = a.keys.get() else {
             return Err(AppError::new(ErrorCode::InvalidArgument, "Add your Anthropic API key to use the assistant."));
         };
@@ -943,6 +1001,7 @@ pub async fn agent_send(app: AppHandle, chat_id: Option<String>, text: String) -
                         cache_read_tokens: 0.0,
                         cost_usd: 0.0,
                         note: None,
+                        plan: None,
                     }
                     .emit(&app2);
                 }
@@ -954,6 +1013,77 @@ pub async fn agent_send(app: AppHandle, chat_id: Option<String>, text: String) -
         Ok(SendResult { chat_id })
     })
     .await
+}
+
+/// A turn on an installed agent (design D5): the same chat, records and events as the built-in assistant; the agent
+/// runs on the person's own plan with it, so no spend caps apply.
+fn send_local(
+    app: &AppHandle,
+    state: &AppState,
+    spec: &'static ove_agents::AgentSpec,
+    chat_id: Option<String>,
+    text: String,
+) -> AppResult<SendResult> {
+    let a = &state.assistant;
+    let bundle = bundle(state)?;
+    let limits = lock(&a.limits)?.clone();
+    let store = ChatStore::for_bundle(&bundle);
+    let chat_id = match chat_id.filter(|c| !c.is_empty()) {
+        Some(c) => c,
+        None => {
+            store
+                .create(&text, spec.name)
+                .map_err(|e| AppError::new(ErrorCode::Io, format!("Couldn't start the chat: {e}")))?
+                .id
+        }
+    };
+    let cancel = Arc::new(AtomicBool::new(false));
+    {
+        let mut running = lock(&a.running)?;
+        if running.is_some() {
+            return Err(AppError::new(ErrorCode::InvalidArgument, "The assistant is still working. Stop it or wait."));
+        }
+        *running = Some(Running { cancel: cancel.clone() });
+    }
+    let input = crate::local_agent::TurnInput {
+        chat_id: chat_id.clone(),
+        agent_id: spec.id.into(),
+        text,
+        bundle,
+        max_tool_calls: limits.max_requests as usize,
+        max_duration: Duration::from_secs(u64::from(limits.max_minutes) * 60),
+        cancel,
+    };
+    let (app2, chat2) = (app.clone(), chat_id.clone());
+    std::thread::Builder::new()
+        .name("assistant-local-turn".into())
+        .spawn(move || {
+            let result =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::local_agent::run_turn(&app2, input)));
+            if result.is_err() {
+                tracing::error!("the local agent turn panicked");
+                let _ = AgentUiEvent::Error {
+                    code: "internal".into(),
+                    message: "The assistant stopped unexpectedly. Details are in the log.".into(),
+                }
+                .emit(&app2);
+                let _ = AgentUiEvent::TurnDone {
+                    chat_id: chat2,
+                    stopped: true,
+                    duration_ms: 0.0,
+                    input_tokens: 0.0,
+                    output_tokens: 0.0,
+                    cache_read_tokens: 0.0,
+                    cost_usd: 0.0,
+                    note: None,
+                    plan: None,
+                }
+                .emit(&app2);
+            }
+            *relock(&app2.state::<AppState>().assistant.running) = None;
+        })
+        .map_err(|e| AppError::new(ErrorCode::Internal, e.to_string()))?;
+    Ok(SendResult { chat_id })
 }
 
 #[tauri::command]
@@ -1019,7 +1149,7 @@ mod tests {
                     json!({"type": "tool_use", "id": "t1", "name": "apply_timeline", "input": {"edits": [{}]}}),
                 ],
             },
-            Record::ToolResult { tool_use_id: "t1".into(), text: "{}".into(), is_error: false },
+            Record::ToolResult { tool_use_id: "t1".into(), text: "{}".into(), is_error: false, images: vec![] },
         ]);
         assert_eq!(items.len(), 3);
         assert_eq!(items[2].role, "tool");
@@ -1090,6 +1220,7 @@ mod tests {
                 thread_usage: ove_agent::Usage { input_tokens: 100, output_tokens: 20, ..Default::default() },
                 time: 1,
                 note: Some("Stopped: this turn reached its spend cap of $0.01".into()),
+                plan: None,
             },
         ];
         let items = chat_items(&records);

@@ -586,8 +586,8 @@ fn a_200_turn_chat_is_summarised_to_stay_under_the_limit_with_tool_pairs_intact(
                     json!({"type": "tool_use", "id": format!("t{i}b"), "name": "list_media", "input": {}}),
                 ],
             },
-            Record::ToolResult { tool_use_id: format!("t{i}a"), text: big.clone(), is_error: false },
-            Record::ToolResult { tool_use_id: format!("t{i}b"), text: "[]".into(), is_error: false },
+            Record::ToolResult { tool_use_id: format!("t{i}a"), text: big.clone(), is_error: false, images: vec![] },
+            Record::ToolResult { tool_use_id: format!("t{i}b"), text: "[]".into(), is_error: false, images: vec![] },
             Record::Assistant {
                 message_id: format!("m{i}b"),
                 model: "claude-sonnet-5-5".into(),
@@ -655,4 +655,66 @@ fn live_turn() {
     .unwrap();
     assert!(!out.text.is_empty());
     assert!(host.project.doc().project.items.values().any(|i| i.kind == "text"));
+}
+
+/// A host that records what it was asked to see and returns one picture.
+struct SeeingHost(Vec<ove_agent::tools::SeeRequest>);
+
+impl ToolHost for SeeingHost {
+    fn print_timeline(&mut self, _: Option<usize>, _: Option<usize>) -> Result<String, String> {
+        Ok(String::new())
+    }
+    fn apply_timeline(&mut self, _: ApplyRequest) -> Result<String, String> {
+        Ok(String::new())
+    }
+    fn verify_timeline(&mut self) -> Result<String, String> {
+        Ok(String::new())
+    }
+    fn list_media(&mut self) -> Result<String, String> {
+        Ok(String::new())
+    }
+    fn undo_last(&mut self) -> Result<String, String> {
+        Ok(String::new())
+    }
+    fn ask_user(&mut self, _: &str, _: &str, _: &[String]) -> Result<String, String> {
+        Ok(String::new())
+    }
+    fn see(&mut self, req: &ove_agent::tools::SeeRequest) -> Result<ove_agent::tools::ToolOut, String> {
+        self.0.push(req.clone());
+        Ok(ove_agent::tools::ToolOut { text: "seen".into(), images: vec![b"png".to_vec()] })
+    }
+}
+
+#[test]
+fn seeing_tools_are_validated_and_return_pictures() {
+    use ove_agent::tools::{SeeRequest, dispatch_full};
+    let mut h = SeeingHost(vec![]);
+    let out = dispatch_full(&mut h, "t", "look", &json!({"at": [1.5, 3], "width": 800})).unwrap();
+    assert_eq!(out.images.len(), 1);
+    assert_eq!(h.0[0], SeeRequest::Look { times: vec![1.5, 3.0], count: 6, width: 800, stats: true });
+    dispatch_full(&mut h, "t", "detect_silence", &json!({"media": "interview"})).unwrap();
+    assert_eq!(h.0[1], SeeRequest::Silence { media: "interview".into(), threshold_db: -40.0, min_seconds: 0.5 });
+    for (name, input) in [
+        ("look", json!({"width": 4000})),
+        ("look", json!({"at": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]})),
+        ("look", json!({"path": "/etc/passwd"})),
+        ("grab_frame", json!({})),
+        ("grab_frame", json!({"media": "x", "at": -1})),
+        ("filmstrip", json!({"media": "x", "count": 100})),
+        ("detect_silence", json!({"media": "x", "threshold_db": 3})),
+    ] {
+        assert!(dispatch_full(&mut h, "t", name, &input).is_err(), "{name} {input}");
+    }
+    assert_eq!(h.0.len(), 2, "refused inputs never reach the host");
+    // A host without the seeing tools says so instead of failing.
+    let d = tempfile::tempdir().unwrap();
+    let mut plain = TestHost::new(project(d.path()), vec![]);
+    assert!(dispatch_full(&mut plain, "t", "look", &json!({})).unwrap_err().contains("not available"));
+    // The definitions list them, and their labels read like the others.
+    let names: Vec<String> =
+        ove_agent::tools::definitions().iter().map(|t| t["name"].as_str().unwrap().to_string()).collect();
+    for n in ["look", "grab_frame", "filmstrip", "audio_levels", "detect_silence", "measure_loudness"] {
+        assert!(names.contains(&n.to_string()), "{n}");
+    }
+    assert_eq!(ove_agent::tools::label("look", &json!({})), "Looking at the timeline");
 }

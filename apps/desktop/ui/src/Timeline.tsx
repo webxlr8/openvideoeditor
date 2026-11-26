@@ -4,11 +4,12 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ItemView_Serialize, ProjectView_Serialize } from "./bindings";
-import { commands } from "./bridge";
+import { commands, events } from "./bridge";
 import { type EditResult, addItems, firstTrack, trackAccepts, updateItem, updateItems, snapToFrame } from "./edit";
 import { Icon, type IconName } from "./icons";
 import { ContextMenu, type MenuItem } from "./Menu";
 import { MOD } from "./keys";
+import { unlisten } from "./notify";
 
 export const HEADER_W = 188;
 const ROW_H = 41;
@@ -56,6 +57,27 @@ export function Timeline(props: TimelineProps) {
   const [viewW, setViewW] = useState(1000);
   const [drag, setDrag] = useState<Drag | null>(null);
   const [menu, setMenu] = useState<{ at: { x: number; y: number }; items: MenuItem[] } | null>(null);
+  // Clips whose sound is being cleaned up, with progress 0–1.
+  const [cleaning, setCleaning] = useState<Record<string, number>>({});
+  useEffect(() => {
+    const off = events.audioCleanupProgress.listen((e) => setCleaning((c) => (e.payload.id in c ? { ...c, [e.payload.id]: e.payload.progress ?? 0 } : c)));
+    return () => unlisten(off);
+  }, []);
+  const cleanUp = (id: string) => {
+    setCleaning((c) => ({ ...c, [id]: 0 }));
+    onEdit(
+      commands
+        .cleanUpAudio(id)
+        .then((r) => (r.status === "ok" ? { status: "ok" as const, data: r.data.view } : r))
+        .finally(() =>
+          setCleaning((c) => {
+            const rest = { ...c };
+            delete rest[id];
+            return rest;
+          }),
+        ),
+    );
+  };
   const items = project?.items ?? [];
   const tracks = project?.tracks ?? [];
 
@@ -214,6 +236,21 @@ export function Timeline(props: TimelineProps) {
       { id: "duplicate", label: "Duplicate", hint: "D", onSelect: () => onEdit(commands.duplicateItems(ids)) },
       { id: "copy", label: "Copy", hint: `${MOD} C`, onSelect: () => onCopy(ids) },
       ...(canPaste ? [{ id: "paste", label: "Paste at playhead", hint: `${MOD} V`, onSelect: () => onPaste(playhead) }] : []),
+      ...(sound
+        ? [
+            {
+              id: "silences",
+              label: "Remove silences",
+              onSelect: () =>
+                onEdit(
+                  commands
+                    .removeSilences(item.id, null, null)
+                    .then((r) => (r.status === "ok" ? { status: "ok" as const, data: r.data.view } : r)),
+                ),
+            },
+          ]
+        : []),
+      ...(sound && !item.muted && !(item.id in cleaning) ? [{ id: "clean-voice", label: "Clean up voice", onSelect: () => cleanUp(item.id) }] : []),
       ...(sound ? [{ id: "mute", label: item.muted ? "Unmute" : "Mute", onSelect: () => onEdit(updateItem(item.id, { muted: !item.muted }, [], item.muted ? "unmute" : "mute")) }] : []),
       { id: "hide", label: item.hidden ? "Show" : "Hide", onSelect: () => onEdit(updateItem(item.id, { hidden: !item.hidden }, [], item.hidden ? "show" : "hide")) },
       { id: "delete", label: ids.length > 1 ? `Delete ${ids.length} items` : "Delete", hint: "⌫", danger: true, onSelect: () => onEdit(commands.removeItems(ids)) },
@@ -336,6 +373,11 @@ export function Timeline(props: TimelineProps) {
                             {i.muted && <Icon name="mute" size={11} />} {i.kind === "text" || i.kind === "caption" ? (i.text ?? i.name) : i.name}
                             {(i.speed ?? 1) !== 1 && <em className="speed-tag"> {i.speed}×</em>}
                           </span>
+                          {i.id in cleaning && (
+                            <span className="clip-progress" data-testid="clip-cleaning" title="Cleaning up the voice…">
+                              <span style={{ width: `${Math.round(cleaning[i.id] * 100)}%` }} />
+                            </span>
+                          )}
                           {sel && (
                             <>
                               <span className="trim trim-start" data-testid="trim-start" onPointerDown={(e) => startTrim(e, i, "start")} />

@@ -9,6 +9,8 @@ import { fire } from "./notify";
 import type {
   AgentConnect,
   AgentInfo_Serialize,
+  CliStatus_Serialize,
+  LibraryChoice_Serialize,
   AgentLimits_Deserialize,
   AgentLimits_Serialize,
   AgentStatus_Serialize,
@@ -88,6 +90,8 @@ export interface MockControl {
   captions: { installed: string[]; stepMs: number };
   /** Ids of the supported agents that are "installed on this computer" (none unless a test says so). */
   localAgents: string[];
+  /** What the folder dialog for the library answers (`null`: cancelled). */
+  libraryFolderAnswer?: string | null;
   /** Onboarding state as the native side would keep it. Onboarding is over by default (the welcome would cover
    * every other test); a test of the first run puts `FIRST_RUN` here before rendering. */
   onboarding: OnboardingState;
@@ -999,6 +1003,27 @@ function createMock(): {
     { title: string; updatedAt: number; items: ChatItem_Serialize[] }
   >();
   let turn: { stop: boolean; answer?: (a: string) => void } | null = null;
+  /** The installed agent the chat uses, as the native side decides it (the onboarding choice, when installed). */
+  const localAgentName = (): string | null => {
+    const id = control.onboarding.assistant ?? null;
+    const names: Record<string, string> = { claude: "Claude", codex: "Codex", opencode: "OpenCode", hermes: "Hermes", kimi: "Kimi", grok: "Grok" };
+    return id && names[id] && control.localAgents.includes(id) ? names[id] : null;
+  };
+  /** Whether a new terminal finds `ove` (Settings → Agents & command line). */
+  let cliOnPath = false;
+  const cliNow = (): CliStatus_Serialize => ({
+    program: "/mock/app/ove",
+    onPath: cliOnPath,
+    canInstall: true,
+    instruction: null,
+  });
+  /** The library chosen in Settings (`null`: the default). */
+  let chosenLibrary: string | null = null;
+  const libraryNow = (): LibraryChoice_Serialize => ({
+    libraryDir: chosenLibrary ?? "/mock/library",
+    isDefault: chosenLibrary === null,
+    fromEnv: false,
+  });
   const agentStatus = (): AgentStatus_Serialize => ({
     hasKey: control.agent.hasKey,
     keySource: control.agent.hasKey ? "keychain" : null,
@@ -1006,6 +1031,9 @@ function createMock(): {
     models: MODELS,
     running: turn !== null,
     limits: agentLimits,
+    assistant: control.onboarding.assistant ?? null,
+    agentName: localAgentName(),
+    needsSignIn: false,
   });
   const agentEvent = (payload: AgentUiEvent_Serialize) =>
     emit("agent-ui-event", payload);
@@ -1149,13 +1177,16 @@ function createMock(): {
           undone: false,
         },
       });
-    const costUsd = control.agent.turnCost ?? 0.0148;
+    // A turn on an installed agent runs on the person's plan: no tokens or price here.
+    const plan = localAgentName();
+    const costUsd = plan ? 0 : (control.agent.turnCost ?? 0.0148);
     const usage = {
       durationMs: Date.now() - started,
-      inputTokens: 5400,
-      outputTokens: 320,
-      cacheReadTokens: 4800,
+      inputTokens: plan ? 0 : 5400,
+      outputTokens: plan ? 0 : 320,
+      cacheReadTokens: plan ? 0 : 4800,
       costUsd,
+      plan,
     };
     chat.items.push({ ...item("usage", ""), usage });
     agentEvent({
@@ -1179,6 +1210,20 @@ function createMock(): {
         logDir: null,
         libraryDir: "/mock/library",
       }),
+    libraryChoice: () => ok<LibraryChoice_Serialize>(libraryNow()),
+    cliStatus: () => ok<CliStatus_Serialize>(cliNow()),
+    cliInstall: (install: boolean) => {
+      track(`cliInstall:${install}`);
+      cliOnPath = install;
+      return ok<CliStatus_Serialize>(cliNow());
+    },
+    setLibrary: (path: string | null) => {
+      track(`setLibrary:${path ?? "default"}`);
+      if (project) return fail("invalid_argument", "Close the project to change the library.");
+      chosenLibrary = path;
+      return ok<LibraryChoice_Serialize>(libraryNow());
+    },
+    chooseLibraryFolder: () => ok<string | null>(control.libraryFolderAnswer ?? null),
     detectAgents: () =>
       ok<AgentInfo_Serialize[]>(
         (
@@ -1199,23 +1244,50 @@ function createMock(): {
             state: installed ? "ready" : "notInstalled",
             version: installed ? version : null,
             getIt: `https://example.com/${id}`,
-            // As in the app: only Claude's command has been checked against a real install.
-            connectRuns: id === "claude",
+            // As in the app: Claude's and Codex's commands have been checked against a real install.
+            connectRuns: id === "claude" || id === "codex",
             connectInstructions:
               id === "claude"
                 ? "claude mcp add --scope user openvideoeditor -- ove mcp"
                 : id === "codex"
                   ? "codex mcp add openvideoeditor -- ove mcp"
-                  : `In ${name}, add an MCP server named openvideoeditor that runs: ove mcp`,
+                  : id === "hermes"
+                    ? "hermes mcp add openvideoeditor --command ove --args mcp"
+                    : `In ${name}, add an MCP server named openvideoeditor that runs: ove mcp`,
           };
         }),
       ),
+    removeSilences: (id: string) => {
+      track(`removeSilences:${id}`);
+      if (!project) return fail("invalid_argument", "No project is open.");
+      return fail("invalid_argument", "No pauses long enough to remove in this clip.");
+    },
+    cleanUpAudio: (id: string) => {
+      track(`cleanUpAudio:${id}`);
+      const item = project?.items.find((i) => i.id === id);
+      if (!project || !item) return fail("invalid_argument", "That clip is not in the project.");
+      if (item.muted) return fail("invalid_argument", "This clip is muted, so there is no sound to clean up.");
+      const cleanId = `${item.mediaId}-clean`;
+      const r = editProject("clean up voice", (p) => {
+        const src = p.media.find((m) => m.id === item.mediaId);
+        if (src && !p.media.some((m) => m.id === cleanId)) p.media.push({ ...src, id: cleanId, name: `${src.name.replace(/\.[^.]+$/, "")}-clean.wav`, kind: "audio", thumbnail: null });
+        const it = p.items.find((i) => i.id === id)!;
+        if (it.kind === "audio") it.mediaId = cleanId;
+        else {
+          it.muted = true;
+          const audio = p.tracks.find((t) => t.kind === "audio");
+          p.items.push({ ...it, id: `${id}_voice`, kind: "audio", trackId: audio?.id ?? it.trackId, mediaId: cleanId, muted: false, name: `${it.name} (clean voice)` });
+        }
+      });
+      return r.then((x) => (x.status === "ok" ? { status: "ok" as const, data: { view: x.data, seconds: (item.end ?? 0) - (item.start ?? 0), reused: false } } : x));
+    },
+    openAgentTerminal: (id: string) => (track(`openAgentTerminal:${id}`), ok<null>(null)),
     connectAgent: (id: string) => (
       track(`connectAgent:${id}`),
       ok<AgentConnect>({
-        status: id === "claude" ? "connected" : "manual",
+        status: id === "claude" || id === "codex" ? "connected" : "manual",
         instructions: `${id} mcp add openvideoeditor -- ove mcp`,
-        detail: id === "claude" ? "Added stdio MCP server openvideoeditor" : "set up in the agent's own settings",
+        detail: id === "claude" || id === "codex" ? "Added stdio MCP server openvideoeditor" : "set up in the agent's own settings",
       })
     ),
     takePendingOpenPaths: () => (
@@ -1921,6 +1993,13 @@ function createMock(): {
         );
       return ok([bins(6), bins(0), bins(-6), bins(1)]);
     },
+    scopeImage: (time: number | null, kind: string) => {
+      track(`scopeImage:${kind}:${time ?? 0}`);
+      if (kind !== "waveform" && kind !== "vectorscope") return fail("invalid_argument", `Unknown scope ${kind}: use waveform or vectorscope.`);
+      const [w, h] = kind === "waveform" ? [256, 128] : [160, 160];
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><rect width="${w}" height="${h}" fill="#0b0b0c"/></svg>`;
+      return ok(`data:image/svg+xml;base64,${btoa(svg)}`);
+    },
     agentStatus: () => ok(agentStatus()),
     agentSetKey: (key: string) => {
       if (!/^sk-ant-[\w-]{8,}$/.test(key.trim()))
@@ -2013,7 +2092,7 @@ function createMock(): {
         : fail("not_found", "That conversation no longer exists.");
     },
     agentSend: (chatId: string | null, text: string) => {
-      if (!control.agent.hasKey)
+      if (!control.agent.hasKey && !localAgentName())
         return fail(
           "invalid_argument",
           "Add an Anthropic API key to use the assistant.",
@@ -2299,6 +2378,7 @@ function createMock(): {
     agentUiEvent: makeEvent("agent-ui-event"),
     appErrorRaised: makeEvent("app-error-raised"),
     captionJobProgress: makeEvent("caption-job-progress"),
+    audioCleanupProgress: makeEvent("audio-cleanup-progress"),
     exportProgress: makeEvent("export-progress"),
     openPathsRequested: makeEvent("open-paths-requested"),
     playbackChanged: makeEvent("playback-changed"),

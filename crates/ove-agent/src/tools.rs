@@ -13,7 +13,44 @@ use ove_store::project::Project;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-/// Where tools run. All results are text (usually JSON) handed back to the model; `Err` becomes an error result.
+/// A request to see the project: composited timeline frames, a media item's frames, or its sound. The same things
+/// the pinned MCP server offers a local agent (add-local-agents-and-onboarding D5).
+#[derive(Debug, Clone, PartialEq)]
+pub enum SeeRequest {
+    /// Timeline frames at `times` (or `count` across the timeline), `width` pixels wide, with brightness stats.
+    Look { times: Vec<f64>, count: u32, width: u32, stats: bool },
+    /// One frame of a media item (id or file name) at `at` seconds.
+    Grab { media: String, at: f64, width: u32 },
+    /// A contact sheet of `count` frames of a media item.
+    Filmstrip { media: String, count: u32 },
+    /// Peak and RMS levels at `points` places of a media item's sound.
+    Levels { media: String, points: u32 },
+    /// Stretches of a media item quieter than `threshold_db` for at least `min_seconds`.
+    Silence { media: String, threshold_db: f64, min_seconds: f64 },
+    /// Integrated loudness (LUFS), range and true peak of a media item.
+    Loudness { media: String },
+    /// What is said in a media item, as timed sentences between `from` and `to` seconds of the source.
+    Transcript { media: String, from: f64, to: Option<f64> },
+}
+
+/// What a tool returns: text for the model and, for seeing tools, pictures (PNG).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ToolOut {
+    pub text: String,
+    pub images: Vec<Vec<u8>>,
+}
+
+impl From<String> for ToolOut {
+    fn from(text: String) -> Self {
+        ToolOut { text, images: Vec::new() }
+    }
+}
+
+/// Pictures are at most this many pixels on their long side.
+pub const MAX_IMAGE: u32 = 1280;
+
+/// Where tools run. Results are text (usually JSON) handed back to the model, plus pictures for the seeing tools;
+/// `Err` becomes an error result.
 pub trait ToolHost: Send {
     fn print_timeline(&mut self, from: Option<usize>, lines: Option<usize>) -> Result<String, String>;
     fn apply_timeline(&mut self, req: ApplyRequest) -> Result<String, String>;
@@ -36,6 +73,10 @@ pub trait ToolHost: Send {
     /// and undone as a whole).
     fn take_revisions(&mut self) -> Vec<i64> {
         Vec::new()
+    }
+    /// Frames and sound measurements of the open project ([`SeeRequest`]). Media is named within the project only.
+    fn see(&mut self, _req: &SeeRequest) -> Result<ToolOut, String> {
+        Err("Seeing the project is not available here.".into())
     }
 }
 
@@ -115,6 +156,65 @@ pub fn definitions() -> Vec<Value> {
             }, "required": ["composition"], "additionalProperties": false}
         }),
         json!({
+            "name": "look",
+            "description": "See the composited timeline (what the export will show): frames at the given times, or `count` frames spread across it, returned as pictures, with brightness statistics. Look before and after visual edits.",
+            "input_schema": {"type": "object", "properties": {
+                "at": {"type": "array", "items": {"type": "number", "minimum": 0}, "maxItems": 12, "description": "Timeline times in seconds."},
+                "count": {"type": "integer", "minimum": 1, "maximum": 12, "description": "Frames across the timeline when `at` is not given (default 6)."},
+                "width": {"type": "integer", "minimum": 64, "maximum": 1280, "description": "Pixels (default 640)."}
+            }, "additionalProperties": false}
+        }),
+        json!({
+            "name": "grab_frame",
+            "description": "See one frame of a media item of the project (by id or name from list_media) at a time in the source, as a picture.",
+            "input_schema": {"type": "object", "properties": {
+                "media": {"type": "string"},
+                "at": {"type": "number", "minimum": 0, "description": "Seconds into the media (default 0)."},
+                "width": {"type": "integer", "minimum": 64, "maximum": 1280, "description": "Pixels (default 640)."}
+            }, "required": ["media"], "additionalProperties": false}
+        }),
+        json!({
+            "name": "filmstrip",
+            "description": "See a contact sheet of a media item: `count` frames evenly spread through it, as one picture.",
+            "input_schema": {"type": "object", "properties": {
+                "media": {"type": "string"},
+                "count": {"type": "integer", "minimum": 2, "maximum": 24, "description": "Frames (default 8)."}
+            }, "required": ["media"], "additionalProperties": false}
+        }),
+        json!({
+            "name": "audio_levels",
+            "description": "Peak and RMS levels (dBFS) at evenly spaced points of a media item's sound, to find loud and quiet parts.",
+            "input_schema": {"type": "object", "properties": {
+                "media": {"type": "string"},
+                "points": {"type": "integer", "minimum": 2, "maximum": 400, "description": "Points (default 60)."}
+            }, "required": ["media"], "additionalProperties": false}
+        }),
+        json!({
+            "name": "detect_silence",
+            "description": "Stretches of a media item quieter than a threshold for at least a minimum length (start and end in seconds), to cut pauses.",
+            "input_schema": {"type": "object", "properties": {
+                "media": {"type": "string"},
+                "threshold_db": {"type": "number", "maximum": 0, "description": "dBFS (default -40)."},
+                "min_seconds": {"type": "number", "exclusiveMinimum": 0, "description": "Shortest silence (default 0.5)."}
+            }, "required": ["media"], "additionalProperties": false}
+        }),
+        json!({
+            "name": "measure_loudness",
+            "description": "Integrated loudness (LUFS), loudness range and true peak of a media item's sound.",
+            "input_schema": {"type": "object", "properties": {
+                "media": {"type": "string"}
+            }, "required": ["media"], "additionalProperties": false}
+        }),
+        json!({
+            "name": "transcript",
+            "description": "What is said in a media item of the project, as timed sentences (source seconds). Use it to find the takes, quotes and pauses to cut. Transcribes on this computer the first time (it can take a while); later calls are instant.",
+            "input_schema": {"type": "object", "properties": {
+                "media": {"type": "string"},
+                "from": {"type": "number", "minimum": 0, "description": "Start in seconds of the source (default 0)."},
+                "to": {"type": "number", "exclusiveMinimum": 0, "description": "End in seconds of the source (default: the end)."}
+            }, "required": ["media"], "additionalProperties": false}
+        }),
+        json!({
             "name": "ask_user",
             "description": "Ask the user a question when a choice is genuinely theirs (style, which take, what to cut). Offer 2-4 short options when you can. Blocks until they answer.",
             "input_schema": {"type": "object", "properties": {
@@ -136,6 +236,10 @@ pub fn definitions() -> Vec<Value> {
 /// A short human label for a tool call, shown as a chip in the chat.
 pub fn label(name: &str, input: &Value) -> String {
     match name {
+        "look" => "Looking at the timeline".into(),
+        "grab_frame" | "filmstrip" => "Looking at a clip".into(),
+        "audio_levels" | "detect_silence" | "measure_loudness" => "Listening to a clip".into(),
+        "transcript" => "Reading what is said".into(),
         "print_timeline" => "Reading the timeline".into(),
         "apply_timeline" => {
             let n = input["edits"].as_array().map(|a| a.len()).unwrap_or(0);
@@ -175,8 +279,100 @@ fn only_keys(input: &Value, allowed: &[&str]) -> Result<(), String> {
     }
 }
 
-/// Validates a tool input against its schema and runs it on the host. `Err` is an error result for the model.
+/// [`dispatch_full`], text only.
 pub fn dispatch(host: &mut dyn ToolHost, tool_use_id: &str, name: &str, input: &Value) -> Result<String, String> {
+    dispatch_full(host, tool_use_id, name, input).map(|o| o.text)
+}
+
+fn media_arg(input: &Value) -> Result<String, String> {
+    input["media"]
+        .as_str()
+        .filter(|s| !s.trim().is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| "`media` is required".into())
+}
+
+fn num_arg(input: &Value, key: &str, default: f64, ok: impl Fn(f64) -> bool) -> Result<f64, String> {
+    match input.get(key) {
+        None | Some(Value::Null) => Ok(default),
+        Some(v) => v.as_f64().filter(|x| x.is_finite() && ok(*x)).ok_or_else(|| format!("`{key}` is out of range")),
+    }
+}
+
+/// Validates a tool input against its schema and runs it on the host, with the pictures a seeing tool returns.
+/// `Err` is an error result for the model.
+pub fn dispatch_full(host: &mut dyn ToolHost, tool_use_id: &str, name: &str, input: &Value) -> Result<ToolOut, String> {
+    let req = match name {
+        "look" => {
+            only_keys(input, &["at", "count", "width"])?;
+            let times = match input.get("at") {
+                None | Some(Value::Null) => vec![],
+                Some(v) => v
+                    .as_array()
+                    .ok_or("`at` must be a list of times")?
+                    .iter()
+                    .map(|t| t.as_f64().filter(|t| *t >= 0.0 && t.is_finite()).ok_or("`at` must be times in seconds"))
+                    .collect::<Result<Vec<_>, _>>()?,
+            };
+            if times.len() > 12 {
+                return Err("at most 12 times".into());
+            }
+            let count = num_arg(input, "count", 6.0, |c| (1.0..=12.0).contains(&c))? as u32;
+            let width = num_arg(input, "width", 640.0, |w| (64.0..=f64::from(MAX_IMAGE)).contains(&w))? as u32;
+            Some(SeeRequest::Look { times, count, width, stats: true })
+        }
+        "grab_frame" => {
+            only_keys(input, &["media", "at", "width"])?;
+            Some(SeeRequest::Grab {
+                media: media_arg(input)?,
+                at: num_arg(input, "at", 0.0, |t| t >= 0.0)?,
+                width: num_arg(input, "width", 640.0, |w| (64.0..=f64::from(MAX_IMAGE)).contains(&w))? as u32,
+            })
+        }
+        "filmstrip" => {
+            only_keys(input, &["media", "count"])?;
+            Some(SeeRequest::Filmstrip {
+                media: media_arg(input)?,
+                count: num_arg(input, "count", 8.0, |c| (2.0..=24.0).contains(&c))? as u32,
+            })
+        }
+        "audio_levels" => {
+            only_keys(input, &["media", "points"])?;
+            Some(SeeRequest::Levels {
+                media: media_arg(input)?,
+                points: num_arg(input, "points", 60.0, |p| (2.0..=400.0).contains(&p))? as u32,
+            })
+        }
+        "detect_silence" => {
+            only_keys(input, &["media", "threshold_db", "min_seconds"])?;
+            Some(SeeRequest::Silence {
+                media: media_arg(input)?,
+                threshold_db: num_arg(input, "threshold_db", -40.0, |d| d <= 0.0)?,
+                min_seconds: num_arg(input, "min_seconds", 0.5, |s| s > 0.0)?,
+            })
+        }
+        "measure_loudness" => {
+            only_keys(input, &["media"])?;
+            Some(SeeRequest::Loudness { media: media_arg(input)? })
+        }
+        "transcript" => {
+            only_keys(input, &["media", "from", "to"])?;
+            let from = num_arg(input, "from", 0.0, |t| t >= 0.0)?;
+            let to = match input.get("to") {
+                None | Some(Value::Null) => None,
+                Some(_) => Some(num_arg(input, "to", 0.0, |t| t > from)?),
+            };
+            Some(SeeRequest::Transcript { media: media_arg(input)?, from, to })
+        }
+        _ => None,
+    };
+    if let Some(req) = req {
+        return host.see(&req);
+    }
+    dispatch_text(host, tool_use_id, name, input).map(ToolOut::from)
+}
+
+fn dispatch_text(host: &mut dyn ToolHost, tool_use_id: &str, name: &str, input: &Value) -> Result<String, String> {
     match name {
         "print_timeline" => {
             only_keys(input, &["from", "lines"])?;

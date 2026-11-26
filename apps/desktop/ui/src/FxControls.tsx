@@ -481,32 +481,61 @@ export function CurveEditor({ curve, value, onCommit }: { curve: (typeof CURVES)
   );
 }
 
-export function Histogram({ time }: { time: number }) {
-  const [data, setData] = useState<number[][] | null>(null);
-  const refresh = () => runCommand(commands.colorScopes(time), (d) => setData(d.map((c) => c.map((v) => v ?? 0))));
-  useEffect(refresh, [time]);
-  const W = 256;
-  const H = 80;
-  const colors = ["#ff5a5a", "#5ad16a", "#5a8cff", "#dddddd"];
+const SCOPES = [
+  { key: "histogram", label: "Histogram" },
+  { key: "waveform", label: "Waveform" },
+  { key: "vectorscope", label: "Vectorscope" },
+] as const;
+type ScopeKind = (typeof SCOPES)[number]["key"];
+
+/** The scopes of the frame at `time`: histogram, waveform (levels by column) or vectorscope (hue and saturation). */
+export function Scopes({ time }: { time: number }) {
+  const [kind, setKind] = useState<ScopeKind>("histogram");
+  const [tick, setTick] = useState(0);
   return (
     <div className="scopes" data-testid="scopes">
-      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none">
-        {data?.map((ch, k) => (
-          <path
-            key={k}
-            d={`M0,${H} ${ch.map((v, i) => `L${((i + 0.5) / ch.length) * W},${H - Math.sqrt(v) * H}`).join(" ")} L${W},${H} Z`}
-            fill={colors[k]}
-            fillOpacity={k === 3 ? 0.15 : 0.3}
-            stroke={colors[k]}
-            strokeOpacity={0.8}
-          />
+      <div className="scope-tabs" role="tablist">
+        {SCOPES.map((s) => (
+          <button key={s.key} role="tab" aria-selected={s.key === kind} className={`chip-sm${s.key === kind ? " on" : ""}`} data-testid={`scope-tab-${s.key}`} onClick={() => setKind(s.key)}>
+            {s.label}
+          </button>
         ))}
-      </svg>
-      <button className="link" onClick={refresh}>
+      </div>
+      {kind === "histogram" ? <Histogram time={time} tick={tick} /> : <ScopeImage time={time} kind={kind} tick={tick} />}
+      <button className="link" onClick={() => setTick((t) => t + 1)}>
         Refresh
       </button>
     </div>
   );
+}
+
+function Histogram({ time, tick }: { time: number; tick: number }) {
+  const [data, setData] = useState<number[][] | null>(null);
+  useEffect(() => runCommand(commands.colorScopes(time), (d) => setData(d.map((c) => c.map((v) => v ?? 0)))), [time, tick]);
+  const W = 256;
+  const H = 80;
+  const colors = ["#ff5a5a", "#5ad16a", "#5a8cff", "#dddddd"];
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" data-testid="scope-histogram">
+      {data?.map((ch, k) => (
+        <path
+          key={k}
+          d={`M0,${H} ${ch.map((v, i) => `L${((i + 0.5) / ch.length) * W},${H - Math.sqrt(v) * H}`).join(" ")} L${W},${H} Z`}
+          fill={colors[k]}
+          fillOpacity={k === 3 ? 0.15 : 0.3}
+          stroke={colors[k]}
+          strokeOpacity={0.8}
+        />
+      ))}
+    </svg>
+  );
+}
+
+function ScopeImage({ time, kind, tick }: { time: number; kind: Exclude<ScopeKind, "histogram">; tick: number }) {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => runCommand(commands.scopeImage(time, kind), setUrl), [time, kind, tick]);
+  const label = kind === "waveform" ? "Waveform: levels of each column, 0 % at the bottom" : "Vectorscope: hue as the angle, saturation as the distance from the centre";
+  return url ? <img className={`scope-img ${kind}`} src={url} alt={label} title={label} data-testid={`scope-${kind}`} /> : <div className={`scope-img ${kind} placeholder`} />;
 }
 
 function LutThumb({ id }: { id: string }) {
@@ -628,7 +657,7 @@ export function ColorGradeEditor({
             </button>
           </div>
           <h5 className="panel-sub">Scopes</h5>
-          <Histogram time={playhead} />
+          <Scopes time={playhead} />
       </>
     </div>
   );

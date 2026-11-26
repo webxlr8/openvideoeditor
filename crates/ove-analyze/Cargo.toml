@@ -11,6 +11,7 @@ publish.workspace = true
 ove-core = { path = "../ove-core" }
 ove-media = { path = "../ove-media" }
 ove-render = { path = "../ove-render" }
+nnnoiseless = { version = "0.5", default-features = false }
 png = "0.18"
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"

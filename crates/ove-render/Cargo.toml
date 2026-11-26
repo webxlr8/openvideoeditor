@@ -9,11 +9,14 @@ publish.workspace = true
 
 [dependencies]
 ab_glyph = "0.2.32"
+bytemuck = "1.25.2"
 ffmpeg-the-third = { version = "6", default-features = false, features = ["codec", "format", "software-resampling", "software-scaling"] }
 libc = "0.2"
 ove-core = { path = "../ove-core" }
 ove-graphics = { path = "../ove-graphics" }
+ove-gpu = { path = "../ove-gpu" }
 ove-media = { path = "../ove-media" }
+pollster = "1.0.1"
 rayon = "1.10"
 rubato = { version = "5.0.1", default-features = false }
 serde = { version = "1", features = ["derive"] }

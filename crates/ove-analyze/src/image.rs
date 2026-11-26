@@ -46,6 +46,39 @@ impl Image {
         Ok(out)
     }
 
+    /// Decodes an 8-bit PNG (RGBA, RGB, grey or grey with alpha) as written by [`Image::png`] or another encoder.
+    pub fn from_png(bytes: &[u8]) -> std::io::Result<Image> {
+        let mut dec = png::Decoder::new(std::io::Cursor::new(bytes));
+        dec.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
+        let mut r = dec.read_info().map_err(std::io::Error::other)?;
+        let mut buf = vec![0u8; r.output_buffer_size().ok_or_else(|| std::io::Error::other("PNG too large"))?];
+        let info = r.next_frame(&mut buf).map_err(std::io::Error::other)?;
+        let (width, height) = (info.width, info.height);
+        let px = (width as usize) * (height as usize);
+        let rgba = match info.color_type {
+            png::ColorType::Rgba => buf[..px * 4].to_vec(),
+            png::ColorType::Rgb => buf[..px * 3].chunks_exact(3).flat_map(|c| [c[0], c[1], c[2], 255]).collect(),
+            png::ColorType::GrayscaleAlpha => {
+                buf[..px * 2].chunks_exact(2).flat_map(|c| [c[0], c[0], c[0], c[1]]).collect()
+            }
+            png::ColorType::Grayscale => buf[..px].iter().flat_map(|&g| [g, g, g, 255]).collect(),
+            png::ColorType::Indexed => return Err(std::io::Error::other("indexed PNG was not expanded")),
+        };
+        Ok(Image { width, height, rgba })
+    }
+
+    /// Shrunk so that neither side exceeds `max` (aspect kept); unchanged when it already fits.
+    pub fn fit_within(&self, max: u32) -> Image {
+        let long = self.width.max(self.height);
+        if long <= max || max == 0 {
+            return self.clone();
+        }
+        let s = max as f64 / long as f64;
+        let w = ((self.width as f64 * s).round() as u32).clamp(1, max);
+        let h = ((self.height as f64 * s).round() as u32).clamp(1, max);
+        self.resize(w, h)
+    }
+
     /// Resized to `width`×`height`: area averaging when shrinking, bilinear when enlarging.
     pub fn resize(&self, width: u32, height: u32) -> Image {
         let (width, height) = (width.max(1), height.max(1));
@@ -213,6 +246,20 @@ pub fn frame_stats(img: &Image) -> Stats {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn png_round_trip_and_fit_within() {
+        let mut img = Image::filled(1920, 1080, [10, 20, 30, 255]);
+        img.put(5, 7, [250, 0, 0, 128]);
+        let back = Image::from_png(&img.png().unwrap()).unwrap();
+        assert_eq!(back, img);
+        let fit = img.fit_within(1280);
+        assert_eq!((fit.width, fit.height), (1280, 720));
+        let tall = Image::filled(1080, 1920, [0, 0, 0, 255]).fit_within(1280);
+        assert_eq!((tall.width, tall.height), (720, 1280), "the long side is capped, portrait too");
+        assert_eq!(Image::filled(640, 360, [0; 4]).fit_within(1280).width, 640, "small images stay");
+        assert!(Image::from_png(b"not a png").is_err());
+    }
 
     #[test]
     fn resize_keeps_flat_colour_and_size() {

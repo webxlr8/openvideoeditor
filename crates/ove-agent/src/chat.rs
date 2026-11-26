@@ -26,6 +26,9 @@ pub enum Record {
         text: String,
         #[serde(default)]
         is_error: bool,
+        /// Pictures the tool returned, as files of the chat (see [`ChatStore::save_image`]).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        images: Vec<String>,
     },
     #[serde(rename_all = "camelCase")]
     Question { id: String, questions: Vec<QuestionItem> },
@@ -43,7 +46,15 @@ pub enum Record {
         time: i64,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         note: Option<String>,
+        /// The turn ran on an agent installed on this computer, on the person's plan with that agent (its name); it
+        /// has no cost in money here.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        plan: Option<String>,
     },
+    /// A tool call of an agent installed on this computer (Agent Client Protocol), for the chat's tool chips. Not
+    /// sent to the API: such a turn's own tools are the agent's business.
+    #[serde(rename_all = "camelCase")]
+    AgentTool { id: String, title: String, ok: Option<bool> },
     /// Project revisions the turn that began with user record `turn` made (one record per tool call that changed
     /// the project).
     #[serde(rename_all = "camelCase")]
@@ -78,7 +89,8 @@ impl Spend {
 pub fn spend_of(records: &[Record], since_ms: i64) -> Spend {
     let mut s = Spend::default();
     for r in records {
-        if let Record::Result { cost_usd, thread_usage, time, .. } = r
+        // A turn on an installed agent's plan is not spend here.
+        if let Record::Result { cost_usd, thread_usage, time, plan: None, .. } = r
             && *time >= since_ms
         {
             s.usage.add(thread_usage);
@@ -202,6 +214,29 @@ impl ChatStore {
             s.add(&self.spend(&c.id, since_ms));
         }
         s
+    }
+
+    /// Keeps a picture a tool returned in the chat (`images/<chat>/<n>.png`); returns its name for the record.
+    pub fn save_image(&self, chat_id: &str, png: &[u8]) -> std::io::Result<String> {
+        if !ove_guard::is_safe_id(chat_id) {
+            return Err(std::io::Error::other("invalid chat id"));
+        }
+        let dir = self.dir.join("images").join(chat_id);
+        std::fs::create_dir_all(&dir)?;
+        let n = std::fs::read_dir(&dir).map(|d| d.count()).unwrap_or(0);
+        let name = format!("{chat_id}/{n}.png");
+        std::fs::write(dir.join(format!("{n}.png")), png)?;
+        Ok(name)
+    }
+
+    /// A picture saved by [`ChatStore::save_image`]; `None` for a name it did not make.
+    pub fn load_image(&self, name: &str) -> Option<Vec<u8>> {
+        let (chat, file) = name.split_once('/')?;
+        let n = file.strip_suffix(".png")?;
+        if !ove_guard::is_safe_id(chat) || n.is_empty() || !n.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        std::fs::read(self.dir.join("images").join(chat).join(file)).ok()
     }
 
     /// Records of a chat; a torn last line (crash mid-write) is skipped. An invalid id has none.
@@ -328,6 +363,20 @@ pub fn validate_messages(msgs: &[Value]) -> Result<(), String> {
 /// is merged, and tool calls left unanswered (a stopped turn) get an error result so the history stays valid. When
 /// the log holds a summary, the turns it covers are sent as that summary.
 pub fn messages(records: &[Record]) -> Vec<Value> {
+    messages_with_images(records, &|_| None, 0)
+}
+
+/// [`messages`], with the pictures of the last `keep` tool results that had any attached as image blocks (loaded by
+/// `load`). Older pictures are left out, with a note, so a long chat does not resend every frame it ever looked at.
+pub fn messages_with_images(records: &[Record], load: &dyn Fn(&str) -> Option<Vec<u8>>, keep: usize) -> Vec<Value> {
+    let with_images: Vec<usize> = records
+        .iter()
+        .enumerate()
+        .filter(|(_, r)| matches!(r, Record::ToolResult { images, .. } if !images.is_empty()))
+        .map(|(i, _)| i)
+        .collect();
+    let attach_from = with_images.len().saturating_sub(keep);
+    let attached: std::collections::HashSet<usize> = with_images[attach_from..].iter().copied().collect();
     let (summary, start) = summary_cut(records);
     let mut msgs: Vec<Value> = Vec::new();
     let mut open_calls: Vec<String> = Vec::new();
@@ -352,7 +401,7 @@ pub fn messages(records: &[Record]) -> Vec<Value> {
     if let Some(text) = summary {
         push_user(&mut msgs, json!({"type": "text", "text": format!("{SUMMARY_PREFIX}{text}")}));
     }
-    for r in &records[start..] {
+    for (i, r) in records.iter().enumerate().skip(start) {
         match r {
             Record::User { text, .. } => {
                 close_open(&mut msgs, &mut open_calls);
@@ -367,9 +416,23 @@ pub fn messages(records: &[Record]) -> Vec<Value> {
                     .collect();
                 msgs.push(json!({"role": "assistant", "content": blocks}));
             }
-            Record::ToolResult { tool_use_id, text, is_error } => {
+            Record::ToolResult { tool_use_id, text, is_error, images } => {
                 open_calls.retain(|i| i != tool_use_id);
-                let mut b = json!({"type": "tool_result", "tool_use_id": tool_use_id, "content": text});
+                let content = if images.is_empty() {
+                    json!(text)
+                } else if attached.contains(&i) {
+                    let mut blocks = vec![json!({"type": "text", "text": text})];
+                    for png in images.iter().filter_map(|n| load(n)) {
+                        blocks.push(json!({"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": base64(&png)}}));
+                    }
+                    json!(blocks)
+                } else {
+                    json!(format!(
+                        "{text}\n({} picture(s) were shown here earlier; look again to see them.)",
+                        images.len()
+                    ))
+                };
+                let mut b = json!({"type": "tool_result", "tool_use_id": tool_use_id, "content": content});
                 if *is_error {
                     b["is_error"] = json!(true);
                 }
@@ -381,9 +444,69 @@ pub fn messages(records: &[Record]) -> Vec<Value> {
     msgs
 }
 
+fn base64(bytes: &[u8]) -> String {
+    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut s = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for c in bytes.chunks(3) {
+        let n = (c[0] as u32) << 16 | (*c.get(1).unwrap_or(&0) as u32) << 8 | *c.get(2).unwrap_or(&0) as u32;
+        s.push(T[(n >> 18) as usize & 63] as char);
+        s.push(T[(n >> 12) as usize & 63] as char);
+        s.push(if c.len() > 1 { T[(n >> 6) as usize & 63] as char } else { '=' });
+        s.push(if c.len() > 2 { T[n as usize & 63] as char } else { '=' });
+    }
+    s
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pictures_are_kept_with_the_chat_and_sent_for_the_last_results_only() {
+        let d = tempfile::tempdir().unwrap();
+        let store = ChatStore::for_bundle(d.path());
+        let c = store.create("look", "m").unwrap();
+        let a = store.save_image(&c.id, b"png-a").unwrap();
+        let b = store.save_image(&c.id, b"png-b").unwrap();
+        assert_ne!(a, b);
+        assert_eq!(store.load_image(&a).as_deref(), Some(&b"png-a"[..]));
+        for bad in ["../x.png", "c/../../x.png", "c/1.txt", "c/a.png", "nothing"] {
+            assert!(store.load_image(bad).is_none(), "{bad}");
+        }
+        let recs = vec![
+            Record::User { id: "u".into(), text: "look".into(), time: 0 },
+            Record::Assistant {
+                message_id: "m".into(),
+                model: "x".into(),
+                blocks: vec![
+                    json!({"type": "tool_use", "id": "t1", "name": "look", "input": {}}),
+                    json!({"type": "tool_use", "id": "t2", "name": "look", "input": {}}),
+                ],
+            },
+            Record::ToolResult {
+                tool_use_id: "t1".into(),
+                text: "first".into(),
+                is_error: false,
+                images: vec![a.clone()],
+            },
+            Record::ToolResult {
+                tool_use_id: "t2".into(),
+                text: "second".into(),
+                is_error: false,
+                images: vec![b.clone()],
+            },
+        ];
+        let m = messages_with_images(&recs, &|n| store.load_image(n), 1);
+        validate_messages(&m).unwrap();
+        let results = m[2]["content"].as_array().unwrap();
+        assert!(results[0]["content"].as_str().unwrap().contains("shown here earlier"), "older: a note");
+        let last = results[1]["content"].as_array().unwrap();
+        assert_eq!(last[0]["text"], "second");
+        assert_eq!(last[1]["type"], "image");
+        assert_eq!(last[1]["source"]["data"], base64(b"png-b"));
+        // Without pictures the old shape: plain text.
+        assert!(messages(&recs[..3])[2]["content"][0]["content"].as_str().unwrap().contains("shown here earlier"));
+    }
 
     #[test]
     fn round_trip_and_rebuild() {
@@ -402,7 +525,10 @@ mod tests {
             .append(&c.id, &Record::Assistant { message_id: "m1".into(), model: "x".into(), blocks: blocks.clone() })
             .unwrap();
         store
-            .append(&c.id, &Record::ToolResult { tool_use_id: "t1".into(), text: "tsx".into(), is_error: false })
+            .append(
+                &c.id,
+                &Record::ToolResult { tool_use_id: "t1".into(), text: "tsx".into(), is_error: false, images: vec![] },
+            )
             .unwrap();
         // t2 was never answered (stopped); then the user writes again.
         store.append(&c.id, &Record::User { id: "u2".into(), text: "continue".into(), time: 2 }).unwrap();
@@ -448,7 +574,8 @@ mod tests {
             model: "x".into(),
             blocks: vec![json!({"type": "tool_use", "id": id, "name": "print_timeline", "input": {}})],
         };
-        let result = |id: &str| Record::ToolResult { tool_use_id: id.into(), text: "t".into(), is_error: false };
+        let result =
+            |id: &str| Record::ToolResult { tool_use_id: id.into(), text: "t".into(), is_error: false, images: vec![] };
         let answer = Record::Assistant {
             message_id: "m".into(),
             model: "x".into(),
@@ -505,6 +632,7 @@ mod tests {
             thread_usage: Usage { input_tokens: 10, output_tokens: 2, ..Default::default() },
             time,
             note: None,
+            plan: None,
         };
         let a = store.create("a", "m").unwrap();
         store.append(&a.id, &result(0.5, 100)).unwrap();

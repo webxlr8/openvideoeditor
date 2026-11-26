@@ -142,7 +142,8 @@ impl Drop for Server {
     }
 }
 
-fn new_token() -> String {
+/// A random token (48 hex digits).
+pub fn new_token() -> String {
     let mut b = [0u8; 24];
     if getrandom::fill(&mut b).is_err() {
         // Extremely unlikely; fall back to time + pid entropy.

@@ -16,6 +16,31 @@ beforeEach(() => {
 });
 
 describe("settings", () => {
+  it("puts the command line on the search path and takes it off again", async () => {
+    await openSettings("agents");
+    expect((await screen.findByTestId("cli-row")).textContent).toContain("does not find ove yet");
+    fireEvent.click(screen.getByTestId("cli-install"));
+    await waitFor(() => expect(screen.getByTestId("cli-row").textContent).toContain("A new terminal finds ove."));
+    expect(screen.getByTestId("cli-install").textContent).toBe("Remove from PATH");
+    fireEvent.click(screen.getByTestId("cli-install"));
+    await waitFor(() => expect(screen.getByTestId("cli-install").textContent).toBe("Add to PATH"));
+    expect(window.__oveMock!.calls).toEqual(expect.arrayContaining(["cliInstall:true", "cliInstall:false"]));
+  });
+
+  it("chooses another library folder and goes back to the default", async () => {
+    window.__oveMock!.libraryFolderAnswer = "D:/Projects/Video";
+    await openSettings("library");
+    expect((await screen.findByTestId("library-dir")).textContent).toBe("/mock/library");
+    expect(screen.queryByTestId("library-default")).toBeNull();
+    fireEvent.click(screen.getByTestId("library-choose"));
+    await waitFor(() => expect(screen.getByTestId("library-dir").textContent).toBe("D:/Projects/Video"));
+    expect(screen.getByTestId("library-note").textContent).toContain("stay where they are");
+    fireEvent.click(screen.getByTestId("library-default"));
+    await waitFor(() => expect(screen.getByTestId("library-dir").textContent).toBe("/mock/library"));
+    expect(window.__oveMock!.calls).toContain("setLibrary:default");
+    window.__oveMock!.libraryFolderAnswer = null;
+  });
+
   it("reads spend caps as dollars, empty meaning no cap", () => {
     expect(parseCap("")).toBeNull();
     expect(parseCap(" $2.50 ")).toBe(2.5);
@@ -85,7 +110,9 @@ describe("settings", () => {
   it("privacy lists what leaves the computer and nothing vaguer", async () => {
     await openSettings("privacy");
     const list = (await screen.findByTestId("privacy-list")).textContent ?? "";
-    expect(list).toContain("never sends media files or video frames");
+    expect(list).toContain("frames of your video and");
+    expect(list).toContain("Media files");
+    expect(list).toContain("never leave this computer");
     expect(list).toContain("prompt and any reference image you attach to the provider you pick");
     expect(list).toContain("no telemetry");
   });

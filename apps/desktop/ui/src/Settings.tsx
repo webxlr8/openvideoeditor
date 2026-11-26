@@ -3,6 +3,8 @@
 
 import { useEffect, useState } from "react";
 import type {
+  CliStatus_Serialize,
+  LibraryChoice_Serialize,
   AgentLimits_Serialize,
   AgentStatus_Serialize,
   AppError,
@@ -275,13 +277,47 @@ function ShortcutsSection() {
 export function Settings({
   onError,
   initialSection = "library",
+  onLibraryChanged,
 }: {
   onError: (e: AppError) => void;
+  /** The library folder changed (the project list is another one now). */
+  onLibraryChanged?: () => void;
   /** The section shown first (Help → Keyboard shortcuts opens on Shortcuts). */
   initialSection?: Section;
 }) {
   const [section, setSection] = useState<Section>(initialSection);
   const [info, setInfo] = useState<AppInfo_Serialize | null>(null);
+  const [library, setLibrary] = useState<LibraryChoice_Serialize | null>(null);
+  const [cli, setCli] = useState<CliStatus_Serialize | null>(null);
+  useEffect(() => {
+    runCommand(commands.cliStatus(), setCli, onError);
+  }, [onError]);
+  const [libraryNote, setLibraryNote] = useState<string | null>(null);
+  useEffect(() => {
+    runCommand(commands.libraryChoice(), setLibrary, onError);
+  }, [onError]);
+  const switchLibrary = (path: string | null) =>
+    runCommand(
+      commands.setLibrary(path),
+      (c) => {
+        setLibrary(c);
+        setLibraryNote(
+          path
+            ? "Projects are kept in this folder from now on. Projects in the previous folder stay where they are."
+            : "Back to the default folder. Projects in the previous folder stay where they are.",
+        );
+        onLibraryChanged?.();
+      },
+      onError,
+    );
+  const chooseLibrary = () =>
+    runCommand(
+      commands.chooseLibraryFolder(),
+      (path) => {
+        if (path) switchLibrary(path);
+      },
+      onError,
+    );
   const [catalog, setCatalog] = useState<Catalog>({ models: [], keys: [] });
   const [agent, setAgent] = useState<AgentStatus_Serialize | null>(null);
   const [agentKey, setAgentKey] = useState("");
@@ -353,13 +389,15 @@ export function Settings({
               stays where it is; the project links to it.
             </p>
             <div className="set-row">
-              <span className="mono">{info?.libraryDir ?? "…"}</span>
-              {info?.libraryDir && (
+              <span className="mono" data-testid="library-dir">
+                {library?.libraryDir ?? info?.libraryDir ?? "…"}
+              </span>
+              {library?.libraryDir && (
                 <button
                   className="btn"
                   onClick={() =>
                     runCommand(
-                      commands.revealPath(info.libraryDir!),
+                      commands.revealPath(library.libraryDir!),
                       undefined,
                       onError,
                     )
@@ -369,10 +407,40 @@ export function Settings({
                 </button>
               )}
             </div>
+            {library?.fromEnv ? (
+              <p className="muted small" data-testid="library-env">
+                The <span className="mono">OVE_LIBRARY</span> environment
+                variable decides this folder while it is set.
+              </p>
+            ) : (
+              <div className="set-row">
+                <button
+                  className="btn"
+                  data-testid="library-choose"
+                  onClick={chooseLibrary}
+                >
+                  Choose another folder…
+                </button>
+                {library && !library.isDefault && (
+                  <button
+                    className="btn"
+                    data-testid="library-default"
+                    onClick={() => switchLibrary(null)}
+                  >
+                    Use the default folder
+                  </button>
+                )}
+              </div>
+            )}
+            {libraryNote && (
+              <p className="muted small" role="status" data-testid="library-note">
+                {libraryNote}
+              </p>
+            )}
             <p className="muted small">
-              To use another folder, start the app with the{" "}
-              <span className="mono">OVE_LIBRARY</span> environment variable set
-              to it. The command line uses the same variable.
+              The command line uses the same folder. A folder on a network
+              drive can't be used: projects must be on this computer so they
+              are saved safely (media may live anywhere).
             </p>
           </section>
         )}
@@ -499,6 +567,33 @@ export function Settings({
               never sees an assistant's sign-in.
             </p>
             <AgentsSection onError={onError} />
+            <h4>The command line in new terminals</h4>
+            <div className="set-row" data-testid="cli-row">
+              <span className="small">
+                {cli === null
+                  ? "…"
+                  : cli.onPath
+                    ? "A new terminal finds ove."
+                    : "A new terminal does not find ove yet."}
+              </span>
+              {cli?.canInstall && (
+                <button
+                  className="btn"
+                  data-testid="cli-install"
+                  onClick={() =>
+                    runCommand(commands.cliInstall(!cli.onPath), setCli, onError)
+                  }
+                >
+                  {cli.onPath ? "Remove from PATH" : "Add to PATH"}
+                </button>
+              )}
+            </div>
+            {cli?.instruction && !cli.onPath && (
+              <>
+                <p className="muted small">Run this once in Terminal:</p>
+                <Copyable text={cli.instruction} />
+              </>
+            )}
             <h4>By hand: give an agent the editing guide</h4>
             <Copyable text="ove skills install" />
             <h4>Connect the MCP server</h4>
@@ -520,10 +615,13 @@ export function Settings({
             <h3>Privacy</h3>
             <ul className="set-list" data-testid="privacy-list">
               <li>
-                The assistant sends the timeline as text (item names and
-                times, text and caption words, media file names), the chat and
-                the results of its tools to Anthropic. It never sends media
-                files or video frames.
+                The assistant you choose sends the timeline as text (item names
+                and times, text and caption words, media file names), the chat
+                and the results of its tools to its provider: Anthropic for the
+                built-in assistant, or the provider of an assistant installed
+                on this computer. Those results include frames of your video and
+                sound measurements when it looks or listens. Media files
+                themselves never leave this computer.
               </li>
               <li>
                 Generation sends the prompt and any reference image you

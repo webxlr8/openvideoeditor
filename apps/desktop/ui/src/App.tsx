@@ -365,7 +365,8 @@ export function App() {
       else showError(r.error);
     }
     const status = await commands.agentStatus();
-    const ready = status.status === "ok" && status.data.hasKey;
+    // Ready: a key for the built-in assistant, or an installed agent chosen to answer.
+    const ready = status.status === "ok" && (status.data.hasKey || !!status.data.agentName);
     // Without a key the words wait in the assistant's composer next to the key card.
     if (!ready) setPendingDraft(text);
     setLayout((l) => ({ ...l, chatOpen: true }));
@@ -452,7 +453,7 @@ export function App() {
     if (storedChatOpen() === null)
       runCommand(
         commands.agentStatus(),
-        (s) => setLayout((l) => ({ ...l, chatOpen: s.hasKey })),
+        (s) => setLayout((l) => ({ ...l, chatOpen: s.hasKey || !!s.agentName })),
         logError,
       );
     runCommand(
@@ -523,6 +524,7 @@ export function App() {
         <ErrorBoundary region="Home" className="home">
           <Home
             projects={projects}
+            onLibraryChanged={() => fire(refreshProjects())}
             onError={showError}
             onOpenFile={() => fire(importInto(null))}
             onSample={trySample}

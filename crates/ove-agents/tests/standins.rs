@@ -128,9 +128,14 @@ fn a_file_that_cannot_be_run_is_not_an_agent() {
 
 /// A stand-in Claude that keeps a log of what it was asked and remembers whether the server was added.
 fn recording_claude(dir: &Path) -> PathBuf {
+    recording_agent(dir, "claude")
+}
+
+/// A stand-in agent (Claude's or Codex's `mcp get` / `mcp add`) that keeps a log of what it was asked.
+fn recording_agent(dir: &Path, name: &str) -> PathBuf {
     stand_in(
         dir,
-        "claude",
+        name,
         r#"here=$(dirname "$0")
 echo "$*" >> "$here/asked.log"
 if [ "$1 $2" = "mcp get" ]; then [ -f "$here/added" ] && exit 0; echo "No MCP server named $3" >&2; exit 1; fi
@@ -194,9 +199,22 @@ fn an_agent_that_refuses_is_reported_with_what_it_said() {
 }
 
 #[test]
+fn codex_is_connected_with_its_own_checked_command() {
+    let dir = tempfile::tempdir().unwrap();
+    let codex = recording_agent(dir.path(), "codex");
+    let spec = agent("codex").unwrap();
+    let first = connect(spec, &codex, &dir.path().join("ove"), &quick());
+    assert_eq!(first.status, ConnectStatus::Connected, "{first:?}");
+    let log = asked(dir.path());
+    assert_eq!(log[0], "mcp get openvideoeditor");
+    assert!(log[1].starts_with("mcp add openvideoeditor -- ") && log[1].ends_with(" mcp"), "{}", log[1]);
+    assert_eq!(connect(spec, &codex, &dir.path().join("ove"), &quick()).status, ConnectStatus::AlreadyConnected);
+}
+
+#[test]
 fn an_unchecked_or_manual_agent_is_never_run() {
     let dir = tempfile::tempdir().unwrap();
-    for id in ["codex", "opencode", "hermes", "kimi", "grok"] {
+    for id in ["opencode", "hermes", "kimi", "grok"] {
         // A stand-in that would leave a mark if it were started.
         let program = stand_in(dir.path(), id, r#"touch "$(dirname "$0")/started""#, r#"type nul > "%~dp0started""#);
         let out = connect(agent(id).unwrap(), &program, Path::new("/usr/bin/ove"), &quick());

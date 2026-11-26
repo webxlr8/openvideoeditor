@@ -2,6 +2,7 @@
 // project the native side holds (through the UI's own bridge), files in the bundle, files written by exports.
 // The first flow is the exception: it starts where a new person does, on the welcome.
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -10,6 +11,39 @@ import { WINDOWS, bundleItems, captureScreen, ffprobe, logRecords, makeSpeech, r
 
 // ---------------------------------------------------------------------------------------------------------------
 // Shared steps
+
+/** Chooses who answers in the chat (`null`: the built-in assistant) and reopens the panel so it reads the choice. */
+async function useAgent(app, id) {
+  await app.invoke("onboarding_update", { change: { kind: "setAssistant", assistant: id ?? "api-key" } });
+  if (await app.exists("chat")) await app.click("close-chat");
+  await app.click("toggle-chat");
+  await app.find("composer");
+}
+
+/** A mono 16-bit 48 kHz WAV of `[seconds, amplitude]` parts (a 440 Hz tone, or silence at amplitude 0). */
+function toneWithPause(file, parts) {
+  const rate = 48000;
+  const samples = [];
+  for (const [secs, amp] of parts)
+    for (let i = 0; i < Math.round(secs * rate); i++) samples.push(Math.round(amp * 32767 * Math.sin((2 * Math.PI * 440 * i) / rate)));
+  const data = Buffer.alloc(samples.length * 2);
+  samples.forEach((v, i) => data.writeInt16LE(v, i * 2));
+  const h = Buffer.alloc(44);
+  h.write("RIFF", 0);
+  h.writeUInt32LE(36 + data.length, 4);
+  h.write("WAVEfmt ", 8);
+  h.writeUInt32LE(16, 16);
+  h.writeUInt16LE(1, 20);
+  h.writeUInt16LE(1, 22);
+  h.writeUInt32LE(rate, 24);
+  h.writeUInt32LE(rate * 2, 28);
+  h.writeUInt16LE(2, 32);
+  h.writeUInt16LE(16, 34);
+  h.write("data", 36);
+  h.writeUInt32LE(data.length, 40);
+  fs.writeFileSync(file, Buffer.concat([h, data]));
+  return file;
+}
 
 async function goHome(app) {
   if (await app.exists("go-home")) await app.click("go-home");
@@ -631,6 +665,78 @@ export const FLOWS = [
       const words = caps.map((c) => c.text ?? "").join(" ").toLowerCase();
       assert.match(words, /welcome|captions|computer|video/, `recognised words: ${words}`);
       await app.waitFor(async () => (await app.count('[data-testid="clip"].kind-caption')) === caps.length, "caption items on the timeline");
+      // The transcript the assistants read: through the command line and the running app (the pinned MCP server's
+      // `transcript` tool runs the same command), from the transcript the captions left in the project.
+      const out = execFileSync(ctx.ove, ["--library", ctx.library, "--json", "media", "transcript", "Captions E2E", "speech.wav"], {
+        encoding: "utf8",
+        env: process.env,
+      });
+      const said = JSON.parse(out).text.toLowerCase();
+      assert.match(said, /^speech\.wav \(/, said);
+      assert.match(said, /\d+\.\d\d-\d+\.\d\d: .*(welcome|captions|computer|video)/, said);
+    },
+  },
+
+  {
+    name: "remove silences: a pause is cut out of a clip, the timeline closes up, one undo brings it back",
+    async run(ctx) {
+      const { app } = ctx;
+      // 1 s of tone, 1.5 s of silence, 1 s of tone (48 kHz mono 16-bit).
+      const wav = toneWithPause(path.join(ctx.work, "pause.wav"), [
+        [1, 0.4],
+        [1.5, 0],
+        [1, 0.4],
+      ]);
+      await newProject(app, "Silences E2E");
+      await importWithButton(ctx, [wav]);
+      const clip = (await app.project()).items.find((i) => i.kind === "audio");
+      assert.ok(clip, "the tone clip");
+      const before = clip.end - clip.start;
+      const el = await app.find(`[data-testid="clip"][data-id="${clip.id}"]`);
+      await app.driver.actions({ async: true }).contextClick(el).perform();
+      await app.click("menu-silences");
+      const view = await app.waitFor(async () => {
+        const p = await app.project();
+        return p.items.filter((i) => i.kind === "audio").length === 2 ? p : null;
+      }, "the clip cut in two at the pause");
+      const parts = view.items.filter((i) => i.kind === "audio").sort((a, b) => a.start - b.start);
+      const after = parts[1].end - parts[0].start;
+      // 1.5 s of silence, 0.15 s of air kept at each edge: 1.2 s removed.
+      assert.ok(Math.abs(before - after - 1.2) < 0.08, `removed ${(before - after).toFixed(2)} s`);
+      assert.ok(Math.abs(parts[0].end - parts[1].start) < 0.001, "no gap left");
+      await app.click("undo");
+      await app.waitFor(async () => (await app.project()).items.filter((i) => i.kind === "audio").length === 1, "one undo restores it");
+    },
+  },
+
+  {
+    name: "clean up voice: a video clip is muted and its cleaned sound plays alongside; one undo brings it back",
+    async run(ctx) {
+      const { app, media } = ctx;
+      await newProject(app, "Clean voice E2E");
+      const view = await importWithButton(ctx, [media.video]);
+      const [clip] = mainClips(view);
+      const el = await app.find(`[data-testid="clip"][data-id="${clip.id}"]`);
+      await app.driver.actions({ async: true }).contextClick(el).perform();
+      await app.click("menu-clean-voice");
+      const p = await app.waitFor(async () => {
+        const v = await app.project();
+        return v.items.some((i) => i.kind === "audio" && i.mediaId === `${clip.mediaId}-clean`) ? v : null;
+      }, "the clean voice clip", 60000);
+      const voice = p.items.find((i) => i.mediaId === `${clip.mediaId}-clean`);
+      assert.ok(p.items.find((i) => i.id === clip.id).muted, "the video clip is muted");
+      assert.ok(Math.abs(voice.start - clip.start) < 0.001 && Math.abs(voice.end - clip.end) < 0.001, "same timing");
+      // The cleaned file is a WAV in the bundle, as long as the source's sound (4 s).
+      const wav = path.join(p.bundle, "media", "cleaned", "h264_longgop-clean.wav");
+      assert.ok(fs.existsSync(wav), wav);
+      const probe = ffprobe(wav);
+      if (probe) assert.ok(Math.abs(probe.duration - 4) < 0.1, `cleaned length ${probe.duration}`);
+      assert.equal(await app.count("clip-cleaning"), 0, "the progress bar is gone");
+      await app.click("undo");
+      await app.waitFor(async () => {
+        const v = await app.project();
+        return !v.items.some((i) => i.kind === "audio") && !v.items.find((i) => i.id === clip.id).muted;
+      }, "one undo restores it");
     },
   },
 
@@ -662,6 +768,14 @@ export const FLOWS = [
       const shot = captureScreen(path.join(ctx.out, "viewer-screen.png"));
       if (shot) ctx.log(`    screen capture: ${shot}`);
       assert.equal(await app.count("region-error"), 0);
+      // The colour scopes of the frame: waveform and vectorscope pictures from the renderer.
+      await clickClip(app, first.id, 0.5);
+      await app.click("insp-tab-color");
+      for (const kind of ["waveform", "vectorscope"]) {
+        await app.click(`scope-tab-${kind}`);
+        const img = await app.find(`scope-${kind}`);
+        assert.match(await img.getAttribute("src"), /^data:image\/png;base64,/, `${kind} picture`);
+      }
     },
   },
 
@@ -776,6 +890,65 @@ export const FLOWS = [
       }, "the turn to be undone");
       await app.waitFor(async () => (await (await app.find("turn-review")).getAttribute("class")).includes("undone"), "the turn marked undone");
       assert.equal(await app.count(`[data-testid="clip"][data-id="${title.id}"]`), 0);
+    },
+  },
+
+  {
+    name: "local agent (stand-in for Claude): a turn edits through the app's tools, review, Undo this turn, uses your plan",
+    async run(ctx) {
+      const { app } = ctx;
+      await newProject(app, "Agent E2E");
+      await importWithButton(ctx, [ctx.media.video]);
+      const clip = (await app.project()).items.find((i) => i.kind === "video");
+      await useAgent(app, "claude");
+      await app.type("composer", "Rename the first clip");
+      await app.click("send");
+      const review = await app.find("turn-review", 60000);
+      assert.match(await app.textOf(review), /Changed 1 item/);
+      assert.match(await app.text("turn-usage"), /uses your Claude plan/);
+      assert.ok(!(await app.text("turn-usage")).includes("$"), "no price for a turn on the person's plan");
+      const renamed = (await app.project()).items.find((i) => i.id === clip.id);
+      assert.equal(renamed.name, "Edited by stand-in", "the agent's edit is on the timeline");
+      const chips = (await Promise.all((await app.all("tool-chip")).map((c) => app.textOf(c)))).join(" | ");
+      assert.match(chips, /Reading the timeline/, chips);
+      assert.ok(!/Not allowed/.test(chips), `the app's own tools are allowed: ${chips}`);
+      await app.click("turn-undo");
+      await app.waitFor(async () => (await app.project()).items.find((i) => i.id === clip.id)?.name !== "Edited by stand-in", "Undo this turn");
+      await useAgent(app, null);
+    },
+  },
+
+  {
+    name: "local agent (hostile stand-in for Codex): shell, files, terminal, network, other projects and imports are refused",
+    async run(ctx) {
+      const { app } = ctx;
+      await newProject(app, "Hostile E2E");
+      await importWithButton(ctx, [ctx.media.video]);
+      await useAgent(app, "codex");
+      await app.type("composer", "Do your worst");
+      await app.click("send");
+      await app.waitFor(async () => (await app.all("msg-assistant")).length > 0, "the hostile agent's report", 60000);
+      const report = (await Promise.all((await app.all("msg-assistant")).map((m) => app.textOf(m)))).join("\n");
+      for (const what of [
+        "permission:shell",
+        "permission:fetch",
+        "permission:write",
+        "permission:disguised shell",
+        "client:read",
+        "client:write",
+        "client:terminal",
+        "mcp:other project (project.pinned)",
+        "mcp:file outside (media.notInProject)",
+        "mcp:list projects (tool.unavailable)",
+        "mcp:import (tool.unavailable)",
+        "mcp:export (tool.unavailable)",
+      ])
+        assert.ok(report.includes(`REFUSED ${what}`), `${what} must be refused:\n${report}`);
+      assert.ok(!report.includes("ALLOWED"), report);
+      const chips = (await Promise.all((await app.all("tool-chip")).map((c) => app.textOf(c)))).join(" | ");
+      assert.match(chips, /Not allowed: .*rm -rf/, `the person sees what was tried: ${chips}`);
+      assert.equal((await app.project()).items.length, 1, "nothing changed on the timeline");
+      await useAgent(app, null);
     },
   },
 

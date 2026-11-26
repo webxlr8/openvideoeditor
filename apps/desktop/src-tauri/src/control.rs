@@ -112,6 +112,19 @@ fn socket_source(params: &Value) -> Result<Source, ove_control::Refusal> {
     }
 }
 
+/// An edit from an assistant session of the in-app chat carries its token (`ove mcp --turn`): it is admitted only
+/// while that session's turn runs, on its own project, and the revision is then attributed to the turn.
+fn admit_turn<'a>(app: &AppHandle, params: &'a Value, bundle: &Path) -> Result<Option<&'a str>, ove_control::Refusal> {
+    match params.get("turn").filter(|v| !v.is_null()) {
+        None => Ok(None),
+        Some(v) => {
+            let t = v.as_str().ok_or_else(|| refusal("argument.invalid", "turn"))?;
+            app.state::<crate::local_agent::LocalAgents>().admit(t, bundle)?;
+            Ok(Some(t))
+        }
+    }
+}
+
 fn handle(app: &AppHandle, method: &str, params: Value) -> Result<Value, ove_control::Refusal> {
     match method {
         "context" => Ok(context(app)),
@@ -145,7 +158,11 @@ fn handle(app: &AppHandle, method: &str, params: Value) -> Result<Value, ove_con
             let state = app.state::<AppState>();
             let mut g = lock(&state.projects.open).map_err(|e| refusal("app.busy", e.message))?;
             let p = check_open(g.as_mut(), &params)?;
+            let turn = admit_turn(app, &params, p.bundle())?;
             p.apply(ops, source, summary).map_err(|e| refusal(e.code(), e.to_string()))?;
+            if let Some(t) = turn {
+                app.state::<crate::local_agent::LocalAgents>().record(t, p.rev());
+            }
             emit(app, Some(p));
             Ok(json!({"rev": p.rev()}))
         }
@@ -154,12 +171,38 @@ fn handle(app: &AppHandle, method: &str, params: Value) -> Result<Value, ove_con
             let state = app.state::<AppState>();
             let mut g = lock(&state.projects.open).map_err(|e| refusal("app.busy", e.message))?;
             let p = check_open(g.as_mut(), &params)?;
+            let turn = admit_turn(app, &params, p.bundle())?;
             let c = p.restore_as(rev, Source::Undo).map_err(|e| refusal(e.code(), e.to_string()))?;
+            if let (Some(t), Some(c)) = (turn, &c) {
+                app.state::<crate::local_agent::LocalAgents>().record(t, c.record.rev);
+            }
             emit(app, Some(p));
             Ok(match c {
                 Some(c) => json!({"rev": c.record.rev, "summary": c.record.summary}),
                 None => json!({"rev": null}),
             })
+        }
+        // What is said in a media item of the open project (`ove media transcript`, the pinned MCP server's
+        // `transcript`): the app has the speech models.
+        "transcript" => {
+            let media =
+                params.get("media").and_then(Value::as_str).ok_or_else(|| refusal("argument.missing", "media"))?;
+            let from = params.get("from").and_then(Value::as_f64).unwrap_or(0.0);
+            let to = params.get("to").and_then(Value::as_f64);
+            let state = app.state::<AppState>();
+            let (doc, bundle) = {
+                let mut g = lock(&state.projects.open).map_err(|e| refusal("app.busy", e.message))?;
+                let p = check_open(g.as_mut(), &params)?;
+                (p.doc().clone(), p.bundle().to_path_buf())
+            };
+            let env = crate::seeing::SeeEnv {
+                models_dir: Some(ove_transcribe::models::model_dir(&crate::captions::data_dir(app))),
+                cancel: None,
+            };
+            let req = ove_agent::tools::SeeRequest::Transcript { media: media.into(), from, to };
+            let out =
+                crate::seeing::see_with(&doc, &bundle, &req, &env).map_err(|e| refusal("transcript.failed", e))?;
+            Ok(json!({"text": out.text}))
         }
         other => Err(refusal("method.unknown", format!("unknown method {other}"))),
     }

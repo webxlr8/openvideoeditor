@@ -19,6 +19,12 @@ export const commands = {
 	 */
 	connectAgent: (id: string) => typedError<AgentConnect, AppError>(__TAURI_INVOKE("connect_agent", { id })),
 	/**
+	 *  Opens a terminal in the open project's folder (the library when none is open) with `id` (Claude or Codex)
+	 *  running, given the editing guide and the app's MCP server for that session only (add-agent-cli-and-mcp 3.5). The
+	 *  agent's own configuration is not changed.
+	 */
+	openAgentTerminal: (id: string) => typedError<null, AppError>(__TAURI_INVOKE("open_agent_terminal", { id })),
+	/**
 	 *  Paths the app was launched with (or that arrived before the UI was ready). Marks the UI ready:
 	 *  later paths arrive as `OpenPathsRequested` events.
 	 */
@@ -39,6 +45,20 @@ export const commands = {
 	/**  Diagnostics hook: panics inside the viewer thread; the error arrives as `AppErrorRaised`. */
 	debugPanicViewer: () => typedError<null, AppError>(__TAURI_INVOKE("debug_panic_viewer")),
 	listProjects: () => typedError<ProjectSummary_Serialize[], AppError>(__TAURI_INVOKE("list_projects")),
+	/**  Whether a new terminal finds `ove`, and how to get there. */
+	cliStatus: () => typedError<CliStatus_Serialize, AppError>(__TAURI_INVOKE("cli_status")),
+	/**  Adds the folder of `ove` to the user's search path (`install`), or removes it. */
+	cliInstall: (install: boolean) => typedError<CliStatus_Serialize, AppError>(__TAURI_INVOKE("cli_install", { install })),
+	/**  Where projects are kept. */
+	libraryChoice: () => typedError<LibraryChoice_Serialize, AppError>(__TAURI_INVOKE("library_choice")),
+	/**
+	 *  Uses `path` as the library from now on (`None`: the platform default), for the app and the command line. Refused
+	 *  while a project is open, and while `OVE_LIBRARY` decides the library. Projects in the old library stay where they
+	 *  are.
+	 */
+	setLibrary: (path: string | null) => typedError<LibraryChoice_Serialize, AppError>(__TAURI_INVOKE("set_library", { path })),
+	/**  Asks for a folder for the library (scripted in the end-to-end suite: the first line of `open.txt`). */
+	chooseLibraryFolder: () => typedError<string | null, AppError>(__TAURI_INVOKE("choose_library_folder")),
 	createProject: (name: string, template: string | null) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("create_project", { name, template })),
 	openProject: (bundle: string) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("open_project", { bundle })),
 	closeProject: () => typedError<null, AppError>(__TAURI_INVOKE("close_project")),
@@ -50,6 +70,13 @@ export const commands = {
 	removeItems: (ids: string[]) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("remove_items", { ids })),
 	/**  Splits a clip at a timeline time (seconds): the left part keeps the id, the right part is a new item. */
 	splitItem: (id: string, at: number | null) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("split_item", { id, at })),
+	/**
+	 *  Removes the quiet stretches of clip `id` (quieter than `threshold_db` dBFS for at least `min_seconds`, default
+	 *  −40 dB and 0.6 s) and closes the gaps, as one revision.
+	 */
+	removeSilences: (id: string, thresholdDb: number | null, minSeconds: number | null) => typedError<SilencesRemoved_Serialize, AppError>(__TAURI_INVOKE("remove_silences", { id, thresholdDb, minSeconds })),
+	/**  Removes background noise from the speech of a video or audio clip (see the module docs). */
+	cleanUpAudio: (id: string) => typedError<AudioCleaned_Serialize, AppError>(__TAURI_INVOKE("clean_up_audio", { id })),
 	setAspectRatio: (aspect: string) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("set_aspect_ratio", { aspect })),
 	renameProject: (name: string) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("rename_project", { name })),
 	setTrackFlag: (id: string, flag: string, value: boolean) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("set_track_flag", { id, flag, value })),
@@ -214,6 +241,11 @@ export const commands = {
 	matchColor: (itemId: string, referenceTime: number | null, strength: number | null) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("match_color", { itemId, referenceTime, strength })),
 	/**  Histograms (red, green, blue, luma; 64 bins, 0..1) of the timeline frame at `time` seconds. */
 	colorScopes: (time: number | null) => typedError<((number | null)[])[], AppError>(__TAURI_INVOKE("color_scopes", { time })),
+	/**
+	 *  A waveform (`waveform`) or vectorscope (`vectorscope`) of the timeline frame at `time` seconds, as a PNG data
+	 *  URL.
+	 */
+	scopeImage: (time: number | null, kind: string) => typedError<string, AppError>(__TAURI_INVOKE("scope_image", { time, kind })),
 	/**  The onboarding state (a first run when there is none yet). */
 	onboardingState: () => typedError<OnboardingState_Serialize, AppError>(__TAURI_INVOKE("onboarding_state")),
 	/**  Changes the onboarding state and returns it as it is now. */
@@ -226,6 +258,7 @@ export const commands = {
 export const events = {
 	agentUiEvent: makeEvent<AgentUiEvent_Serialize, AgentUiEvent_Deserialize>("agent-ui-event"),
 	appErrorRaised: makeEvent<AppErrorRaised, AppErrorRaised>("app-error-raised"),
+	audioCleanupProgress: makeEvent<AudioCleanupProgress, AudioCleanupProgress>("audio-cleanup-progress"),
 	captionJobProgress: makeEvent<CaptionJobProgress_Serialize, CaptionJobProgress_Deserialize>("caption-job-progress"),
 	exportProgress: makeEvent<ExportProgress_Serialize, ExportProgress_Deserialize>("export-progress"),
 	generationUpdated: makeEvent<GenerationUpdated, GenerationUpdated>("generation-updated"),
@@ -327,6 +360,12 @@ export type AgentStatus_Deserialize = {
 	models: ModelOption[],
 	running: boolean,
 	limits: AgentLimits_Deserialize,
+	/**  The assistant the chat uses: an installed agent's id, `"api-key"` (the built-in one), or `None`. */
+	assistant?: string | null,
+	/**  The chosen agent's name, when the chat uses an installed agent. */
+	agentName?: string | null,
+	/**  The chosen agent's last start failed because it needs its person to sign in. */
+	needsSignIn: boolean,
 };
 
 export type AgentStatus_Serialize = {
@@ -337,18 +376,28 @@ export type AgentStatus_Serialize = {
 	models: ModelOption[],
 	running: boolean,
 	limits: AgentLimits_Serialize,
+	/**  The assistant the chat uses: an installed agent's id, `"api-key"` (the built-in one), or `None`. */
+	assistant: string | null,
+	/**  The chosen agent's name, when the chat uses an installed agent. */
+	agentName: string | null,
+	/**  The chosen agent's last start failed because it needs its person to sign in. */
+	needsSignIn: boolean,
 };
 
 /**  Live assistant activity. */
 export type AgentUiEvent = AgentUiEvent_Serialize | AgentUiEvent_Deserialize;
 
 /**  Live assistant activity. */
-export type AgentUiEvent_Deserialize = { kind: "turnStarted"; chatId: string } | { kind: "textDelta"; text: string } | { kind: "thinkingDelta"; text: string } | { kind: "toolCall"; id: string; name: string; label: string } | { kind: "toolResult"; id: string; ok: boolean; summary: string } | { kind: "question"; id: string; question: string; options: string[] } | { kind: "retrying"; message: string; seconds: number | null } | { kind: "turnDone"; chatId: string; stopped: boolean; durationMs: number | null; inputTokens: number | null; outputTokens: number | null; cacheReadTokens: number | null; costUsd: number | null; note?: string | null } | { kind: "error"; code: string; message: string } | 
+export type AgentUiEvent_Deserialize = { kind: "turnStarted"; chatId: string } | { kind: "textDelta"; text: string } | { kind: "thinkingDelta"; text: string } | { kind: "toolCall"; id: string; name: string; label: string } | { kind: "toolResult"; id: string; ok: boolean; summary: string } | { kind: "question"; id: string; question: string; options: string[] } | { kind: "retrying"; message: string; seconds: number | null } | { kind: "turnDone"; chatId: string; stopped: boolean; durationMs: number | null; inputTokens: number | null; outputTokens: number | null; cacheReadTokens: number | null; costUsd: number | null; note?: string | null; 
+/**  The turn ran on an installed agent, on the person's plan with it (its name): no price is shown. */
+plan?: string | null } | { kind: "error"; code: string; message: string } | 
 /**  The assistant asked to show a timeline time. */
 { kind: "seek"; seconds: number | null };
 
 /**  Live assistant activity. */
-export type AgentUiEvent_Serialize = { kind: "turnStarted"; chatId: string } | { kind: "textDelta"; text: string } | { kind: "thinkingDelta"; text: string } | { kind: "toolCall"; id: string; name: string; label: string } | { kind: "toolResult"; id: string; ok: boolean; summary: string } | { kind: "question"; id: string; question: string; options: string[] } | { kind: "retrying"; message: string; seconds: number | null } | { kind: "turnDone"; chatId: string; stopped: boolean; durationMs: number | null; inputTokens: number | null; outputTokens: number | null; cacheReadTokens: number | null; costUsd: number | null; note: string | null } | { kind: "error"; code: string; message: string } | 
+export type AgentUiEvent_Serialize = { kind: "turnStarted"; chatId: string } | { kind: "textDelta"; text: string } | { kind: "thinkingDelta"; text: string } | { kind: "toolCall"; id: string; name: string; label: string } | { kind: "toolResult"; id: string; ok: boolean; summary: string } | { kind: "question"; id: string; question: string; options: string[] } | { kind: "retrying"; message: string; seconds: number | null } | { kind: "turnDone"; chatId: string; stopped: boolean; durationMs: number | null; inputTokens: number | null; outputTokens: number | null; cacheReadTokens: number | null; costUsd: number | null; note: string | null; 
+/**  The turn ran on an installed agent, on the person's plan with it (its name): no price is shown. */
+plan: string | null } | { kind: "error"; code: string; message: string } | 
 /**  The assistant asked to show a timeline time. */
 { kind: "seek"; seconds: number | null };
 
@@ -390,6 +439,28 @@ export type AppInfo_Serialize = {
 	logDir: string | null,
 	/**  Where projects are kept. */
 	libraryDir: string | null,
+};
+
+export type AudioCleaned = AudioCleaned_Serialize | AudioCleaned_Deserialize;
+
+export type AudioCleaned_Deserialize = {
+	view: ProjectView_Deserialize,
+	/**  Seconds of audio cleaned (0 when an earlier clean-up of the same source was reused). */
+	seconds: number | null,
+	reused: boolean,
+};
+
+export type AudioCleaned_Serialize = {
+	view: ProjectView_Serialize,
+	/**  Seconds of audio cleaned (0 when an earlier clean-up of the same source was reused). */
+	seconds: number | null,
+	reused: boolean,
+};
+
+/**  Progress (0–1) of cleaning up the sound of clip `id`. */
+export type AudioCleanupProgress = {
+	id: string,
+	progress: number | null,
 };
 
 /**  What to caption. */
@@ -478,7 +549,7 @@ export type ChatItem_Deserialize = {
 	ok?: boolean | null,
 	options: string[],
 	/**  role `usage`: the finished turn's cost and tokens. */
-	usage?: TurnUsageView | null,
+	usage?: TurnUsageView_Deserialize | null,
 	/**  role `changes`: what the turn changed. */
 	review?: TurnReview | null,
 };
@@ -493,7 +564,7 @@ export type ChatItem_Serialize = {
 	ok: boolean | null,
 	options: string[],
 	/**  role `usage`: the finished turn's cost and tokens. */
-	usage: TurnUsageView | null,
+	usage: TurnUsageView_Serialize | null,
 	/**  role `changes`: what the turn changed. */
 	review: TurnReview | null,
 };
@@ -506,6 +577,30 @@ export type ChatSummaryView = {
 
 /**  A step of the guided first edit. */
 export type ChecklistStep = "import" | "cut" | "title" | "captions" | "export";
+
+export type CliStatus = CliStatus_Serialize | CliStatus_Deserialize;
+
+export type CliStatus_Deserialize = {
+	/**  The `ove` program that ships with the app. */
+	program: string,
+	/**  A new terminal finds `ove` (the folder is on the user's or the computer's search path). */
+	onPath: boolean,
+	/**  The app can add it to (and remove it from) the search path itself. */
+	canInstall: boolean,
+	/**  What to run by hand instead, where the app cannot do it. */
+	instruction?: string | null,
+};
+
+export type CliStatus_Serialize = {
+	/**  The `ove` program that ships with the app. */
+	program: string,
+	/**  A new terminal finds `ove` (the folder is on the user's or the computer's search path). */
+	onPath: boolean,
+	/**  The app can add it to (and remove it from) the search path itself. */
+	canInstall: boolean,
+	/**  What to run by hand instead, where the app cannot do it. */
+	instruction: string | null,
+};
 
 export type CrashReport = {
 	path: string,
@@ -680,6 +775,27 @@ export type KeyCheck = {
 	ok: boolean,
 	/**  "Key works." or the provider's error in plain words. */
 	message: string,
+};
+
+/**  Where projects are kept, and who decided it. */
+export type LibraryChoice = LibraryChoice_Serialize | LibraryChoice_Deserialize;
+
+/**  Where projects are kept, and who decided it. */
+export type LibraryChoice_Deserialize = {
+	libraryDir?: string | null,
+	/**  The platform default (nothing chosen in Settings). */
+	isDefault: boolean,
+	/**  The `OVE_LIBRARY` environment variable decides it (Settings cannot change it while it is set). */
+	fromEnv: boolean,
+};
+
+/**  Where projects are kept, and who decided it. */
+export type LibraryChoice_Serialize = {
+	libraryDir: string | null,
+	/**  The platform default (nothing chosen in Settings). */
+	isDefault: boolean,
+	/**  The `OVE_LIBRARY` environment variable decides it (Settings cannot change it while it is set). */
+	fromEnv: boolean,
 };
 
 /**  Properties shown next to the viewer. */
@@ -930,6 +1046,27 @@ export type SendResult = {
 	chatId: string,
 };
 
+/**  What Remove silences did. */
+export type SilencesRemoved = SilencesRemoved_Serialize | SilencesRemoved_Deserialize;
+
+/**  What Remove silences did. */
+export type SilencesRemoved_Deserialize = {
+	view: ProjectView_Deserialize,
+	/**  Stretches removed. */
+	count: number,
+	/**  Seconds removed from the timeline. */
+	seconds: number | null,
+};
+
+/**  What Remove silences did. */
+export type SilencesRemoved_Serialize = {
+	view: ProjectView_Serialize,
+	/**  Stretches removed. */
+	count: number,
+	/**  Seconds removed from the timeline. */
+	seconds: number | null,
+};
+
 /**  Tokens and estimated cost of some turns. */
 export type SpendView = {
 	/**  Input tokens (cache writes included, cache reads not). */
@@ -1027,12 +1164,28 @@ export type TurnReview = {
 };
 
 /**  Cost and tokens of one finished turn, shown under it. */
-export type TurnUsageView = {
+export type TurnUsageView = TurnUsageView_Serialize | TurnUsageView_Deserialize;
+
+/**  Cost and tokens of one finished turn, shown under it. */
+export type TurnUsageView_Deserialize = {
 	durationMs: number | null,
 	inputTokens: number | null,
 	outputTokens: number | null,
 	cacheReadTokens: number | null,
 	costUsd: number | null,
+	/**  The turn ran on an installed agent, on the person's plan with it (its name). */
+	plan?: string | null,
+};
+
+/**  Cost and tokens of one finished turn, shown under it. */
+export type TurnUsageView_Serialize = {
+	durationMs: number | null,
+	inputTokens: number | null,
+	outputTokens: number | null,
+	cacheReadTokens: number | null,
+	costUsd: number | null,
+	/**  The turn ran on an installed agent, on the person's plan with it (its name). */
+	plan: string | null,
 };
 
 /**  What the UI shows that only it knows: the selection and the viewer mode. */

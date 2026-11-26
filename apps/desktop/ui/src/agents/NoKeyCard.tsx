@@ -7,7 +7,16 @@ import { commands } from "../bridge";
 import { type ErrorSink, logError, runCommand } from "../notify";
 import { AgentsSection } from "./AgentsSection";
 
-export function NoKeyCard({ children, onError }: { children: ReactNode; onError: ErrorSink }) {
+export function NoKeyCard({
+  children,
+  onError,
+  onChoose,
+}: {
+  children: ReactNode;
+  onError: ErrorSink;
+  /** Chat here with this installed agent. */
+  onChoose?: (id: string) => void;
+}) {
   const [agents, setAgents] = useState<AgentInfo[] | null>(null);
   const [useKey, setUseKey] = useState(false);
   useEffect(() => {
@@ -34,8 +43,18 @@ export function NoKeyCard({ children, onError }: { children: ReactNode; onError:
   return (
     <div className="key-card" data-testid="agents-card">
       <h3>Use an assistant you already have</h3>
+      {onChoose && (
+        <div className="chat-here" data-testid="chat-here">
+          <p className="muted">Chat with it here, on your own plan with it:</p>
+          {installed.map((a) => (
+            <button key={a.id} className="btn" data-testid={`chat-here-${a.id}`} onClick={() => onChoose(a.id)}>
+              Chat here with {a.name}
+            </button>
+          ))}
+        </div>
+      )}
       <p className="muted">
-        Connect one, start it in its own window and ask it to edit this project. Every change shows up here as it is
+        Or connect one, start it in its own window and ask it to edit this project. Every change shows up here as it is
         made, and can be undone.
       </p>
       <AgentsSection onError={onError} agents={installed} />

@@ -1152,6 +1152,13 @@ function CaptionEditor({
             set({ captionHighlightColor: v }, "caption highlight")
           }
         />
+        <label className="select-row">
+          Font
+          <FontPicker
+            value={str(detail.captionFontFamily, preset?.fontFamily ?? "Inter")}
+            onChange={(f) => set({ captionFontFamily: f }, "caption font")}
+          />
+        </label>
         <NumberField
           label="Size"
           unit="px"

@@ -1,9 +1,11 @@
 // Title card: a gradient field, the title rising letter by letter with a slight overshoot, then the subtitle.
 type Props = { title: string; subtitle: string; color: string; from: string; to: string };
 
-export default function TitleCard({ time, duration, props }: { time: number; duration: number; props: Props }) {
+export default function TitleCard({ time, duration, width, props }: { time: number; duration: number; width: number; props: Props }) {
   const letters = Array.from(props.title);
   const step = Math.min(0.05, 1.2 / Math.max(1, letters.length));
+  // As large as the frame's width allows (a long title on a narrow frame shrinks).
+  const size = Math.min(150, ((width - 120) / Math.max(4, letters.length)) * 1.7);
   const out = 1 - easing.in(clamp((time - (duration - 0.6)) / 0.6));
   const sub = easing.out(clamp((time - 0.3 - letters.length * step) / 0.6));
   return (
@@ -15,7 +17,7 @@ export default function TitleCard({ time, duration, props }: { time: number; dur
         opacity: out,
       }}
     >
-      <div style={{ display: "flex", flexDirection: "row", fontSize: 150, fontWeight: 800, color: props.color, letterSpacing: -3 }}>
+      <div style={{ display: "flex", flexDirection: "row", fontSize: size, fontWeight: 800, color: props.color, letterSpacing: -3 }}>
         {letters.map((ch, i) => {
           const p = easing.back(clamp(stagger(time, i, step, 0.1) / 0.55));
           return (

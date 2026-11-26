@@ -16,6 +16,8 @@ function type(el: HTMLElement, text: string) {
 }
 
 beforeEach(() => {
+  window.__oveMock!.localAgents = [];
+  window.__oveMock!.onboarding.assistant = null;
   const agent = window.__oveMock!.agent;
   agent.hasKey = true;
   agent.stepMs = 5;
@@ -25,6 +27,28 @@ beforeEach(() => {
 });
 
 describe("ChatPanel", () => {
+  it("chats through an installed agent: no key needed, the plan instead of a price, back to the key", async () => {
+    window.__oveMock!.agent.hasKey = false;
+    window.__oveMock!.localAgents = ["claude"];
+    render(<App />);
+    fireEvent.click(screen.getByTestId("home-blank"));
+    await screen.findByTestId("editor");
+    await act(() => new Promise((r) => setTimeout(r, 50)));
+    fireEvent.click(screen.getByTestId("toggle-chat"));
+    fireEvent.click(await screen.findByTestId("chat-here-claude"));
+    expect((await screen.findByTestId("chat-agent-note")).textContent).toContain("Claude answers here");
+    expect(screen.getByTestId("agent-picker-button").textContent).toContain("Claude");
+    type(screen.getByTestId("composer"), "Add an opening title");
+    const usage = await screen.findByTestId("turn-usage", {}, { timeout: 3000 });
+    expect(usage.textContent).toMatch(/uses your Claude plan/);
+    expect(usage.textContent).not.toContain("$");
+    expect((await screen.findByTestId("chat-footer")).textContent).toMatch(/uses your Claude plan/);
+    // Back to the built-in assistant: without a key, the card asks how to chat again.
+    fireEvent.click(screen.getByTestId("agent-picker-button"));
+    fireEvent.click(screen.getByText("Use the built-in assistant (API key)"));
+    expect(await screen.findByTestId("chat-here-claude")).toBeTruthy();
+  });
+
   it("streams a turn: text, tool chips, a timeline edit and a cost footer", async () => {
     const composer = await openBlankProject();
     type(composer, "Add an opening title");
@@ -75,7 +99,8 @@ describe("ChatPanel", () => {
     await screen.findByTestId("editor");
     fireEvent.click(screen.getByTestId("toggle-chat"));
     const card = await screen.findByTestId("key-card");
-    expect(screen.getByTestId("assistant-data").textContent).toContain("Never sent: your media files or video frames");
+    expect(screen.getByTestId("assistant-data").textContent).toContain("Never sent: your media files themselves");
+    expect(screen.getByTestId("assistant-data").textContent).toContain("frames of your video and sound measurements");
     fireEvent.change(screen.getByTestId("key-input"), { target: { value: "sk-ant-test-0123456789" } });
     fireEvent.click(screen.getByTestId("key-save"));
     expect((await screen.findByTestId("key-error")).textContent).toContain("rejected");

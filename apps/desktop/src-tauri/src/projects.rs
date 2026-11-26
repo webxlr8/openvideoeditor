@@ -202,6 +202,74 @@ fn secs(us: i64) -> f64 {
     us as f64 / 1e6
 }
 
+/// Where projects are kept, and who decided it.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct LibraryChoice {
+    pub library_dir: Option<String>,
+    /// The platform default (nothing chosen in Settings).
+    pub is_default: bool,
+    /// The `OVE_LIBRARY` environment variable decides it (Settings cannot change it while it is set).
+    pub from_env: bool,
+}
+
+fn library_choice_now() -> LibraryChoice {
+    let from_env = std::env::var_os(ove_store::library::LIBRARY_ENV).is_some_and(|v| !v.is_empty());
+    LibraryChoice {
+        library_dir: ove_store::library::resolve_library(None).ok().map(|d| d.display().to_string()),
+        is_default: !from_env && ove_store::library::library_setting().is_none(),
+        from_env,
+    }
+}
+
+/// Where projects are kept.
+#[tauri::command]
+#[specta::specta]
+pub async fn library_choice() -> AppResult<LibraryChoice> {
+    worker::blocking("library_choice", || Ok(library_choice_now())).await
+}
+
+/// Uses `path` as the library from now on (`None`: the platform default), for the app and the command line. Refused
+/// while a project is open, and while `OVE_LIBRARY` decides the library. Projects in the old library stay where they
+/// are.
+#[tauri::command]
+#[specta::specta]
+pub async fn set_library(app: AppHandle, path: Option<String>) -> AppResult<LibraryChoice> {
+    serial(&app, "set_library", move |app, state| {
+        if library_choice_now().from_env {
+            return Err(AppError::new(
+                ErrorCode::InvalidArgument,
+                "The OVE_LIBRARY environment variable decides the library while it is set.",
+            ));
+        }
+        if lock(&state.projects.open)?.is_some() {
+            return Err(AppError::new(ErrorCode::InvalidArgument, "Close the project to change the library."));
+        }
+        let path = path.map(PathBuf::from);
+        ove_store::library::set_library_setting(path.as_deref())?;
+        // The next listing opens the new library; the command line reaches the app there.
+        *lock(&state.projects.library)? = None;
+        crate::control::stop(app);
+        crate::control::start(app);
+        tracing::info!(library = ?path, "library changed");
+        Ok(library_choice_now())
+    })
+    .await
+}
+
+/// Asks for a folder for the library (scripted in the end-to-end suite: the first line of `open.txt`).
+#[tauri::command]
+#[specta::specta]
+pub async fn choose_library_folder(app: AppHandle) -> AppResult<Option<String>> {
+    worker::blocking("choose_library_folder", move || {
+        if let Some(paths) = crate::scripted_dialogs::open() {
+            return Ok(paths.into_iter().next().map(|p| p.display().to_string()));
+        }
+        Ok(app.dialog().file().blocking_pick_folder().and_then(|f| f.into_path().ok()).map(|p| p.display().to_string()))
+    })
+    .await
+}
+
 /// Runs `f` with the library (opened on first use), holding its lock.
 pub(crate) fn with_library<T>(p: &Projects, f: impl FnOnce(&Library) -> AppResult<T>) -> AppResult<T> {
     let mut g = lock(&p.library)?;
@@ -944,7 +1012,10 @@ pub async fn split_item(app: AppHandle, id: String, at: f64) -> AppResult<Projec
         let mut right = item.to_json();
         right["id"] = format!("{}_b{}", item.id, ove_core::Clock::now_ms(&ove_core::SystemClock) % 100_000).into();
         right["startTime"] = ove_core::time::micros_to_json(cut);
-        right["trimStart"] = ove_core::time::micros_to_json(item.time_field("trimStart") + (cut - item.start));
+        // The right part's in-point moves on by the source played up to the cut (timeline time × speed).
+        let speed = item.fields.get("playbackSpeed").and_then(serde_json::Value::as_f64).unwrap_or(1.0).max(0.01);
+        let played = ((cut - item.start) as f64 * speed).round() as ove_core::time::Micros;
+        right["trimStart"] = ove_core::time::micros_to_json(item.time_field("trimStart") + played);
         let mut set = Map::new();
         set.insert("endTime".into(), ove_core::time::micros_to_json(cut));
         edit(app, state, vec![Op::UpdateItem { id, set }, Op::AddItem { item: right }], "split clip")

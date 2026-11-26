@@ -71,6 +71,24 @@ impl Params {
         self.vecs.iter().find(|e| e.0 == k).map_or([0.0; 3], |e| e.1)
     }
 
+    /// The values in contract order, one `vec4` each (numbers in x, colours and points in xyz), for the GPU path.
+    pub fn packed(&self, spec: &EffectSpec) -> Vec<[f32; 4]> {
+        spec.params
+            .iter()
+            .map(|s| match s.default {
+                ParamDefault::Num(_) => [self.n(s.name), 0.0, 0.0, 0.0],
+                ParamDefault::Vec3(_) => {
+                    let c = self.c(s.name);
+                    [c[0], c[1], c[2], 0.0]
+                }
+                ParamDefault::Vec2(_) => {
+                    let (x, y) = self.pt(s.name);
+                    [x, y, 0.0, 0.0]
+                }
+            })
+            .collect()
+    }
+
     pub fn pt(&self, k: &str) -> (f32, f32) {
         let v = self.vecs.iter().find(|e| e.0 == k).map_or([0.5, 0.5, 0.0], |e| e.1);
         (v[0], v[1])

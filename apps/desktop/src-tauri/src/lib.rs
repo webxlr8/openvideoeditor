@@ -4,6 +4,8 @@
 pub mod agents;
 pub mod assistant;
 pub mod captions;
+pub mod cleanup;
+pub mod cli_install;
 pub mod commands;
 pub mod control;
 pub mod edits;
@@ -13,6 +15,7 @@ pub mod exporting;
 pub mod fx;
 pub mod generation;
 pub mod interchange;
+pub mod local_agent;
 pub mod logging;
 pub mod media;
 pub mod motion;
@@ -20,6 +23,8 @@ pub mod onboarding;
 pub mod projects;
 pub mod sample;
 pub mod scripted_dialogs;
+pub mod seeing;
+pub mod silences;
 pub mod support;
 pub mod timeline;
 pub mod transport;
@@ -106,6 +111,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::app_info,
             agents::detect_agents,
             agents::connect_agent,
+            agents::open_agent_terminal,
             commands::take_pending_open_paths,
             commands::open_media,
             commands::open_media_dialog,
@@ -119,6 +125,11 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::debug_panic_worker,
             commands::debug_panic_viewer,
             projects::list_projects,
+            cli_install::cli_status,
+            cli_install::cli_install,
+            projects::library_choice,
+            projects::set_library,
+            projects::choose_library_folder,
             projects::create_project,
             projects::open_project,
             projects::close_project,
@@ -128,6 +139,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             projects::move_item,
             projects::remove_items,
             projects::split_item,
+            silences::remove_silences,
+            cleanup::clean_up_audio,
             projects::set_aspect_ratio,
             projects::rename_project,
             projects::set_track_flag,
@@ -206,6 +219,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             fx::import_lut,
             fx::match_color,
             fx::color_scopes,
+            fx::scope_image,
             // Onboarding: the welcome and checklist state, and the sample project.
             onboarding::onboarding_state,
             onboarding::onboarding_update,
@@ -223,6 +237,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             exporting::ExportProgress,
             assistant::AgentUiEvent,
             captions::CaptionJobProgress,
+            cleanup::AudioCleanupProgress,
         ])
         .error_handling(tauri_specta::ErrorHandlingMode::Result)
 }
@@ -567,6 +582,7 @@ pub fn run() -> ExitCode {
             control::start(&handle);
             app.manage(generation::Generation::default());
             app.manage(onboarding::Onboarding::new(app.path().app_config_dir().ok()));
+            app.manage(local_agent::LocalAgents::default());
 
             create_main_window(app)?;
             if let Some(window) = app.get_webview_window("main") {
@@ -607,6 +623,13 @@ pub fn run() -> ExitCode {
         }
         if let RunEvent::Exit = event {
             control::stop(handle);
+            // A local agent turn is stopped and every agent process ended: they are this app's children.
+            if let Some(r) = worker::relock(&handle.state::<AppState>().assistant.running).as_ref() {
+                r.cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+            if let Some(agents) = handle.try_state::<local_agent::LocalAgents>() {
+                agents.close_all();
+            }
             let state = handle.state::<AppState>();
             // Final snapshot, full flush, prune and lock release for the open project.
             if let Ok(mut open) = projects::lock(&state.projects.open)

@@ -10,6 +10,7 @@
 //! the person installed, as that person.
 #![forbid(unsafe_code)]
 
+pub mod acp;
 mod detect;
 mod run;
 
@@ -22,6 +23,35 @@ pub use run::Limits;
 
 /// The name the app's MCP server is registered under in every agent.
 pub const SERVER_NAME: &str = "openvideoeditor";
+
+/// The tools of the MCP server the in-app chat gives an agent (`ove mcp --project`): seeing and editing the open
+/// project, nothing else. The server offers only these, and the chat grants an agent's permission requests only for
+/// these (design D6 layers 2 and 3).
+pub const APP_TOOLS: &[&str] = &[
+    "show_project",
+    "print_timeline",
+    "check_timeline",
+    "apply_timeline",
+    "verify_timeline",
+    "timeline_history",
+    "undo_timeline",
+    "list_media",
+    "probe_media",
+    "grab_frame",
+    "filmstrip",
+    "detect_scenes",
+    "audio_levels",
+    "waveform_image",
+    "detect_silence",
+    "measure_loudness",
+    "transcript",
+    "look",
+    "app_context",
+    "seek",
+    "play",
+    "pause",
+    "docs",
+];
 
 /// How an agent is told about an MCP server.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,8 +69,9 @@ pub enum McpSetup {
 pub enum AcpStart {
     /// The agent's own program with these arguments.
     Own(&'static [&'static str]),
-    /// A separate adapter program (an npm package) that drives the installed agent.
-    Adapter { package: &'static str },
+    /// A separate adapter program (an npm package, at a pinned version) that drives the installed agent; started
+    /// with `npx`.
+    Adapter { package: &'static str, version: &'static str },
 }
 
 /// One supported agent.
@@ -71,7 +102,8 @@ pub const AGENTS: &[AgentSpec] = &[
         vendor: "Anthropic",
         programs: &["claude"],
         version_args: &["--version"],
-        acp: AcpStart::Adapter { package: "@agentclientprotocol/claude-agent-acp" },
+        // Checked on npm 2026-11-26 (the package Zed's adapter is published as).
+        acp: AcpStart::Adapter { package: "@agentclientprotocol/claude-agent-acp", version: "0.112.0" },
         // Checked against Claude Code 2.1.325: `claude mcp add [options] <name> <commandOrUrl> [args...]`, default
         // scope `local` (one folder), so `--scope user` makes the server available wherever the agent is started.
         mcp: McpSetup::Command {
@@ -88,12 +120,14 @@ pub const AGENTS: &[AgentSpec] = &[
         vendor: "OpenAI",
         programs: &["codex"],
         version_args: &["--version"],
-        acp: AcpStart::Adapter { package: "@zed-industries/codex-acp" },
-        // From OpenAI's documentation; not yet run by us against a real install.
+        // Checked on npm 2026-11-26; `@zed-industries/codex-acp` is the old name (0.16).
+        acp: AcpStart::Adapter { package: "@agentclientprotocol/codex-acp", version: "2.12.1" },
+        // Checked against codex-cli 0.101.0 (2026-11-26): `codex mcp add <NAME> -- <COMMAND>...` adds a global server
+        // without asking anything; `codex mcp get <NAME>` exits 0 when it is there and 1 when it is not.
         mcp: McpSetup::Command {
             add: &["mcp", "add", SERVER_NAME, "--", "{ove}", "mcp"],
-            registered: None,
-            checked: false,
+            registered: Some(&["mcp", "get", SERVER_NAME]),
+            checked: true,
         },
         skills_dir: Some(".codex/skills"),
         get_it: "https://developers.openai.com/codex/cli",
@@ -105,6 +139,7 @@ pub const AGENTS: &[AgentSpec] = &[
         programs: &["opencode"],
         version_args: &["--version"],
         acp: AcpStart::Own(&["acp"]),
+        // OpenCode 1.18.15's `opencode mcp add` asks for a local server's command interactively: set up by hand.
         mcp: McpSetup::Manual { docs: "https://opencode.ai/docs/mcp-servers/" },
         skills_dir: None,
         get_it: "https://opencode.ai",
@@ -116,7 +151,13 @@ pub const AGENTS: &[AgentSpec] = &[
         programs: &["hermes"],
         version_args: &["--version"],
         acp: AcpStart::Own(&["acp"]),
-        mcp: McpSetup::Manual { docs: "https://hermes-agent.nousresearch.com/docs/user-guide/features/mcp" },
+        // Checked against Hermes 0.21.5 (2026-11-26): the command connects to the server and then asks which of its
+        // tools to enable, so it is shown to copy and run in a terminal, never run by the app.
+        mcp: McpSetup::Command {
+            add: &["mcp", "add", SERVER_NAME, "--command", "{ove}", "--args", "mcp"],
+            registered: None,
+            checked: false,
+        },
         skills_dir: None,
         get_it: "https://hermes-agent.nousresearch.com",
     },
@@ -147,6 +188,69 @@ pub const AGENTS: &[AgentSpec] = &[
 /// The entry with this id.
 pub fn agent(id: &str) -> Option<&'static AgentSpec> {
     AGENTS.iter().find(|a| a.id == id)
+}
+
+/// How to start an agent in a terminal with the app's MCP server for that session only (the agent's own
+/// configuration is not changed).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TerminalStart {
+    pub args: Vec<String>,
+    /// A file to write first, and its contents (Claude's MCP configuration).
+    pub file: Option<(PathBuf, String)>,
+}
+
+/// [`TerminalStart`] for `spec`: Claude's `--mcp-config <file>` (`config_file` holds the server as JSON), Codex's
+/// `-c mcp_servers…` overrides as TOML literal strings. No argument holds a double quote: Windows Terminal re-parses
+/// its command line and drops them. `None` for agents without such a switch we have checked.
+pub fn terminal_start(spec: &AgentSpec, ove: &Path, library: &Path, config_file: &Path) -> Option<TerminalStart> {
+    let args = ["--library".to_string(), library.display().to_string(), "mcp".to_string()];
+    match spec.id {
+        // Checked against Claude Code 2.1.332: `--mcp-config <configs...>` takes JSON files.
+        "claude" => {
+            let config = serde_json::json!({"mcpServers": {SERVER_NAME: {"command": ove, "args": args}}});
+            Some(TerminalStart {
+                args: vec!["--mcp-config".into(), config_file.display().to_string()],
+                file: Some((config_file.to_path_buf(), config.to_string())),
+            })
+        }
+        // Checked against codex-cli 0.101.0: `-c key=value` overrides a configuration value (TOML) for one run; a
+        // multi-line literal string ('''…''') takes any path, apostrophes and backslashes included.
+        "codex" => {
+            let lit = |s: &str| format!("'''{s}'''");
+            let list = args.iter().map(|a| lit(a)).collect::<Vec<_>>().join(",");
+            Some(TerminalStart {
+                args: vec![
+                    "-c".into(),
+                    format!("mcp_servers.{SERVER_NAME}.command={}", lit(&ove.display().to_string())),
+                    "-c".into(),
+                    format!("mcp_servers.{SERVER_NAME}.args=[{list}]"),
+                ],
+                file: None,
+            })
+        }
+        _ => None,
+    }
+}
+
+/// How to start `spec` as an Agent Client Protocol agent: its own program (found by [`detect`]) with its arguments,
+/// or `npx` running its adapter at the pinned version. `None` when the program (or `npx`) is not there.
+pub fn launch(spec: &AgentSpec, program: Option<&Path>, env: &Env) -> Option<acp::Launch> {
+    match spec.acp {
+        AcpStart::Own(args) => Some(acp::Launch {
+            program: program?.to_path_buf(),
+            args: args.iter().map(|a| a.to_string()).collect(),
+            env: Vec::new(),
+        }),
+        AcpStart::Adapter { package, version } => {
+            // The adapter drives the installed agent, so the agent itself must be there too.
+            program?;
+            Some(acp::Launch {
+                program: find_program(&["npx"], env)?,
+                args: vec!["-y".into(), format!("{package}@{version}")],
+                env: Vec::new(),
+            })
+        }
+    }
 }
 
 /// What Connect did.
@@ -291,14 +395,39 @@ mod tests {
     fn only_a_checked_command_is_ever_run() {
         for a in AGENTS {
             if let McpSetup::Command { checked, .. } = a.mcp {
+                // Run against a real install: Claude (2.1.325) and Codex (0.101.0). Hermes's asks questions.
                 assert_eq!(
                     checked,
-                    a.id == "claude",
+                    a.id == "claude" || a.id == "codex",
                     "{}: mark a command checked only after running it for real",
                     a.id
                 );
             }
         }
+    }
+
+    #[test]
+    fn terminal_start_gives_the_session_the_server_without_changing_the_agent() {
+        let (ove, lib, file) =
+            (Path::new("/opt/OVE/ove"), Path::new("/home/me/Videos/O'Brien's"), Path::new("/tmp/ove/claude.json"));
+        let c = terminal_start(agent("claude").unwrap(), ove, lib, file).unwrap();
+        assert_eq!(c.args, vec!["--mcp-config".to_string(), "/tmp/ove/claude.json".into()]);
+        let (path, json) = c.file.unwrap();
+        assert_eq!(path, file);
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["mcpServers"]["openvideoeditor"]["command"], "/opt/OVE/ove");
+        assert_eq!(v["mcpServers"]["openvideoeditor"]["args"][1], "/home/me/Videos/O'Brien's");
+        let x = terminal_start(agent("codex").unwrap(), ove, lib, file).unwrap();
+        assert_eq!(x.args[1], "mcp_servers.openvideoeditor.command='''/opt/OVE/ove'''");
+        assert_eq!(
+            x.args[3],
+            "mcp_servers.openvideoeditor.args=['''--library''','''/home/me/Videos/O'Brien's''','''mcp''']"
+        );
+        assert!(x.file.is_none());
+        for t in [&c.args, &x.args] {
+            assert!(t.iter().all(|a| !a.contains('"')), "no double quotes (Windows Terminal drops them): {t:?}");
+        }
+        assert!(terminal_start(agent("grok").unwrap(), ove, lib, file).is_none());
     }
 
     #[test]
@@ -311,6 +440,10 @@ mod tests {
         assert_eq!(
             connect_instructions(agent("codex").unwrap(), Path::new("/usr/bin/ove")),
             "codex mcp add openvideoeditor -- /usr/bin/ove mcp"
+        );
+        assert_eq!(
+            connect_instructions(agent("hermes").unwrap(), Path::new("/usr/bin/ove")),
+            "hermes mcp add openvideoeditor --command /usr/bin/ove --args mcp"
         );
         let grok = connect_instructions(agent("grok").unwrap(), Path::new("/usr/bin/ove"));
         assert!(grok.starts_with("In Grok, add an MCP server named openvideoeditor that runs: /usr/bin/ove mcp"));

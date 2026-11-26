@@ -4,6 +4,8 @@
 // Prerequisites
 //   - the debug app:          cd apps/desktop && pnpm tauri build --debug --no-bundle
 //   - the mock Messages API:  cargo build -p ove-agent --example mock_server
+//   - the stand-in agent:     cargo build -p ove-agents --example standin_acp
+//   - the command line:       cargo build -p ove-cli --features media (the in-app chat's MCP server, next to the app)
 //   - tauri-driver:           cargo install tauri-driver --locked
 //   - the native driver:      Linux: WebKitWebDriver (apt install webkit2gtk-driver);
 //                             Windows: msedgedriver matching the installed WebView2 (msedgedriver-tool)
@@ -56,6 +58,7 @@ const targetDir = process.env.CARGO_TARGET_DIR ? path.resolve(process.env.CARGO_
 const APP = path.resolve(process.env.OVE_E2E_APP ?? path.join(targetDir, "debug", exe("ove-desktop")));
 const APP_EXE = path.basename(APP);
 const MOCK = path.resolve(process.env.OVE_E2E_MOCK_SERVER ?? path.join(targetDir, "debug", "examples", exe("mock_server")));
+const STANDIN = path.resolve(process.env.OVE_E2E_STANDIN ?? path.join(targetDir, "debug", "examples", exe("standin_acp")));
 const TAURI_DRIVER =
   process.env.OVE_E2E_TAURI_DRIVER ?? which("tauri-driver") ?? path.join(os.homedir(), ".cargo", "bin", exe("tauri-driver"));
 const MEDIA = path.resolve(process.env.OVE_E2E_MEDIA ?? path.join(repo, "tests", "media", "files"));
@@ -100,6 +103,11 @@ const env = {
   OVE_E2E_DIALOGS: dialogs,
   OVE_WHISPER_MODEL_DIR: models,
   OVE_ANTHROPIC_BASE_URL: mock.url,
+  // Local agents in the chat: the stand-in takes Claude's place (a scripted turn) and Codex's (a hostile one).
+  OVE_AGENT_OVERRIDE: JSON.stringify([
+    { id: "claude", program: STANDIN, args: ["--mode", "script"] },
+    { id: "codex", program: STANDIN, args: ["--mode", "hostile"] },
+  ]),
   // The assistant and the generation panel read keys from the environment when the credential store has none.
   ANTHROPIC_API_KEY: "e2e-demo-key-not-real-0123456789",
   FAL_KEY: "e2e-fal-key-not-real-0123456789",
@@ -148,6 +156,8 @@ const ctx = {
   log,
   work,
   library,
+  /** The command line next to the app (the in-app chat's MCP server). */
+  ove: path.join(path.dirname(APP), exe("ove")),
   dialogs,
   media,
   out: OUT,

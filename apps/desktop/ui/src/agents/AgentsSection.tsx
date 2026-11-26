@@ -17,6 +17,9 @@ function outcomeText(name: string, r: AgentConnect): string {
   return `${name} did not accept it: ${r.detail || "no reason given"}`;
 }
 
+/** Agents the app can start in a terminal with its editing tools for that session (checked against real installs). */
+const TERMINAL_AGENTS = ["claude", "codex"];
+
 export function AgentsSection({
   onError,
   agents: given,
@@ -69,6 +72,16 @@ export function AgentsSection({
                   <small>{a.vendor}</small>
                 </span>
                 <span className={`state${a.state === "ready" ? " ready" : ""}`}>{stateText(a)}</span>
+                {installed && TERMINAL_AGENTS.includes(a.id) && (
+                  <button
+                    className="btn"
+                    data-testid={`agent-terminal-${a.id}`}
+                    title={`Start ${a.name} in a terminal on the open project, with the app's editing tools for that session`}
+                    onClick={() => runCommand(commands.openAgentTerminal(a.id), undefined, onError)}
+                  >
+                    Open in a terminal
+                  </button>
+                )}
                 {installed && a.connectRuns && (
                   <button
                     className="btn"
