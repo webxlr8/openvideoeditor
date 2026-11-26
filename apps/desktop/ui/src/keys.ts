@@ -21,7 +21,19 @@ export type KeyAction =
   | { type: "zoomOut" }
   | { type: "zoomFit" }
   | { type: "help" }
-  | { type: "escape" };
+  | { type: "escape" }
+  | { type: "tool"; tool: Tool }
+  | { type: "markIn" }
+  | { type: "markOut" }
+  | { type: "markClip" }
+  | { type: "rippleTrimStart" }
+  | { type: "rippleTrimEnd" }
+  | { type: "rippleDelete" }
+  | { type: "insert" }
+  | { type: "overwrite" };
+
+/** Timeline tool modes: select (move and trim), blade (click to cut), trim (slip, slide and roll). */
+export type Tool = "select" | "blade" | "trim";
 
 /** Editing actions the editor handles itself (the app handles transport, undo/redo and diagnostics). */
 export const EDIT_ACTIONS = new Set([
@@ -36,6 +48,15 @@ export const EDIT_ACTIONS = new Set([
   "zoomFit",
   "help",
   "escape",
+  "tool",
+  "markIn",
+  "markOut",
+  "markClip",
+  "rippleTrimStart",
+  "rippleTrimEnd",
+  "rippleDelete",
+  "insert",
+  "overwrite",
 ]);
 
 export interface KeyLike {
@@ -70,6 +91,16 @@ export const REBINDABLE: { id: string; label: string; key: string }[] = [
   { id: "zoomIn", label: "Zoom in", key: "=" },
   { id: "zoomOut", label: "Zoom out", key: "-" },
   { id: "help", label: "Show shortcuts", key: "?" },
+  { id: "toolSelect", label: "Select tool", key: "v" },
+  { id: "toolBlade", label: "Blade tool (click to cut)", key: "b" },
+  { id: "toolTrim", label: "Trim tool (slip, slide, roll)", key: "t" },
+  { id: "markIn", label: "Mark in", key: "i" },
+  { id: "markOut", label: "Mark out", key: "o" },
+  { id: "markClip", label: "Mark the selected clip", key: "x" },
+  { id: "rippleTrimStart", label: "Ripple trim start to the playhead", key: "q" },
+  { id: "rippleTrimEnd", label: "Ripple trim end to the playhead", key: "w" },
+  { id: "insert", label: "Insert the source clip at the playhead", key: "," },
+  { id: "overwrite", label: "Overwrite with the source clip at the playhead", key: "." },
 ];
 
 /** Keys that cannot be bound (they have fixed meanings). */
@@ -159,7 +190,20 @@ function rebindableAction(id: string): KeyAction | null {
     case "zoomIn":
     case "zoomOut":
     case "help":
+    case "markIn":
+    case "markOut":
+    case "markClip":
+    case "rippleTrimStart":
+    case "rippleTrimEnd":
+    case "insert":
+    case "overwrite":
       return { type: id };
+    case "toolSelect":
+      return { type: "tool", tool: "select" };
+    case "toolBlade":
+      return { type: "tool", tool: "blade" };
+    case "toolTrim":
+      return { type: "tool", tool: "trim" };
     default:
       return null;
   }
@@ -227,7 +271,8 @@ function defaultKeyToAction(e: KeyLike): KeyAction | null {
       return t({ kind: "goToEnd" });
     case "Delete":
     case "Backspace":
-      return { type: "delete" };
+      // Shift+Delete closes the space too (ripple delete).
+      return { type: e.shiftKey ? "rippleDelete" : "delete" };
     case "s":
     case "S":
       return { type: "split" };
@@ -242,6 +287,34 @@ function defaultKeyToAction(e: KeyLike): KeyAction | null {
       return { type: "zoomOut" };
     case "?":
       return { type: "help" };
+    case "v":
+    case "V":
+      return { type: "tool", tool: "select" };
+    case "b":
+    case "B":
+      return { type: "tool", tool: "blade" };
+    case "t":
+    case "T":
+      return { type: "tool", tool: "trim" };
+    case "i":
+    case "I":
+      return { type: "markIn" };
+    case "o":
+    case "O":
+      return { type: "markOut" };
+    case "x":
+    case "X":
+      return { type: "markClip" };
+    case "q":
+    case "Q":
+      return { type: "rippleTrimStart" };
+    case "w":
+    case "W":
+      return { type: "rippleTrimEnd" };
+    case ",":
+      return { type: "insert" };
+    case ".":
+      return { type: "overwrite" };
     case "Escape":
       return { type: "escape" };
     default:

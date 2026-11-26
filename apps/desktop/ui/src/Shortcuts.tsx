@@ -31,7 +31,11 @@ export function shortcutGroups(): { group: string; keys: [string, string][] }[] 
       keys: [
         [k("split"), "Split the selected clip at the playhead"],
         [k("duplicate"), "Duplicate selection"],
-        ["Delete", "Delete selection"],
+        ["Delete", "Delete selection (linked items too)"],
+        ["⇧ Delete", "Ripple delete: the selection, or the marked range"],
+        [`${k("rippleTrimStart")} / ${k("rippleTrimEnd")}`, "Ripple trim the start / end to the playhead"],
+        [`${k("insert")} / ${k("overwrite")}`, "Insert / overwrite with the source clip at the playhead"],
+        [`${k("markIn")} / ${k("markOut")} / ${k("markClip")}`, "Mark in / out / the selected clip"],
         [`${MOD} C / ${MOD} V`, "Copy / paste at the playhead"],
         [`${MOD} A`, "Select all on the track"],
         [`${MOD} Z / ⇧${MOD} Z`, "Undo / redo"],
@@ -44,7 +48,9 @@ export function shortcutGroups(): { group: string; keys: [string, string][] }[] 
       keys: [
         [`${k("zoomIn")} / ${k("zoomOut")}`, "Zoom in / out"],
         [`${MOD} 0`, "Fit the timeline"],
-        ["Drag an edge", "Trim (the start edge moves the in-point)"],
+        [`${k("toolSelect")} / ${k("toolBlade")} / ${k("toolTrim")}`, "Select, blade and trim tools"],
+        ["Drag an edge", "Trim (the start edge moves the in-point; Alt: this side only)"],
+        ["Trim tool", "Drag a clip to slip, Alt-drag to slide, drag an edit point to roll"],
         ["Right-click", "Clip and lane actions"],
       ],
     },

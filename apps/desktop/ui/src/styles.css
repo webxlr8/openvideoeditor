@@ -1760,6 +1760,31 @@ button.preset-card:disabled {
   font-style: normal;
   color: #ffd84d;
 }
+.timeline.tool-blade .clip {
+  cursor: crosshair;
+}
+.timeline.tool-trim .clip {
+  cursor: ew-resize;
+}
+.ruler {
+  position: relative;
+}
+.ruler .range-mark {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(90, 170, 255, 0.25);
+  pointer-events: none;
+}
+.ruler .range-in,
+.ruler .range-out {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: #5aaaff;
+  pointer-events: none;
+}
 .clip-ghost {
   position: absolute;
   top: 4px;

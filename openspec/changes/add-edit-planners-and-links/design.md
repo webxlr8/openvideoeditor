@@ -208,3 +208,16 @@ Measured on the Windows 11 x64 development machine (not a reference machine), 20
   ghost on the Audio lane for its partner, the project revision is unchanged during the drag, and the ghost goes on
   release.
 
+**Group 5, tool modes and keys (5.2).**
+- Tools: select (V), blade (B: click a clip to cut it there, link partners too), trim (T: drag a clip to slip with
+  the content following the pointer, Alt-drag to slide, drag an edit point between touching clips to roll; Alt rolls
+  one side only). Toolbar buttons show the tool. Marks: I and O set in and out, X marks the selected clip; the ruler
+  shows them. Q and W ripple trim the selected clip's start and end to the playhead; Shift+Delete extracts the marked
+  range on all unlocked tracks, or ripple deletes the selection; `,` and `.` insert and overwrite the clip shown in
+  the viewer (a project file previewed as the source) at the playhead. All go through `edit_plan`.
+- All the new single keys are rebindable in Settings → Shortcuts and listed in the shortcuts overlay. Three existing
+  UI tests used X as an unbound key; they now use G, because X is the mark-clip default.
+- UI tests (`Tools.test.tsx`, 8): key map, rebinding, V/B/T switching, blade cut, slip, slide and roll requests,
+  I/O/X marks and Shift+Delete extract, Q/W ripple trims and Shift+Delete ripple delete, and `,`/`.` with and without
+  a source in the viewer. UI suite: 149 tests in 23 files pass.
+

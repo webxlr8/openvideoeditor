@@ -1508,8 +1508,10 @@ function createMock(): {
     },
     editPlan: (request: string) => {
       const r = JSON.parse(request) as { op: string; item?: string; start?: number; track?: string; linked?: boolean };
-      if (r.op !== "move" || !r.item) return fail("invalid_argument", `the mock does not plan ${r.op}`);
-      return commands.moveItem(r.item, r.start ?? 0, r.track ?? null, r.linked ?? null);
+      track(`editPlan:${r.op}`);
+      if (r.op === "move" && r.item) return commands.moveItem(r.item, r.start ?? 0, r.track ?? null, r.linked ?? null);
+      // Other verbs are planned by the native side; the mock records the request and changes nothing.
+      return publish();
     },
     trimItem: (id: string, edge: string, time: number | null, _linked: boolean | null) =>
       editProject("trim", () => {
