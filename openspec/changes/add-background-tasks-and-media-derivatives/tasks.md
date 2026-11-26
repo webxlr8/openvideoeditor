@@ -2,15 +2,16 @@
 
 ## 1. Scheduler core
 
-- [ ] 1.1 Create crate `ove-tasks` with task, priority, class, memory budget and age bump; verify unit tests for
+- [x] 1.1 Create crate `ove-tasks` with task, priority, class, memory budget and age bump; verify unit tests for
       ordering, class limits, budget admission, the "runs alone" case and no starvation (simulated clock).
-- [ ] 1.2 Add cancel tokens, `.part` outputs and rename-on-success helpers; verify cancel stops a test task within
+- [x] 1.2 Add cancel tokens, `.part` outputs and rename-on-success helpers; verify cancel stops a test task within
       200 ms and leaves no visible output.
 - [ ] 1.3 Add OS background priority on macOS and Windows; verify a test reads back the thread priority on both OSes.
-- [ ] 1.4 Add pause sources (playback, export, power, low-power, thermal) and the person's override; verify tests with
+- [x] 1.4 Add pause sources (playback, export, power, low-power, thermal) and the person's override; verify tests with
       injected state changes pause and resume tasks at checkpoints.
 - [ ] 1.5 Document the scheduler for feature authors in `docs/cli/tasks.md` (task kinds, priorities, how to add one);
       verify the docs' CLI examples run in tests.
+      (Written; its Rust example runs as a doc test. The `ove tasks` examples run once 6.2 adds the command.)
 
 ## 2. Existing jobs onto the scheduler
 

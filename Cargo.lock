@@ -4297,6 +4297,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "ove-tasks"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "objc2-foundation",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tracing",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "ove-transcribe"
 version = "0.1.0"
 dependencies = [
