@@ -999,6 +999,12 @@ function createMock(): {
     { title: string; updatedAt: number; items: ChatItem_Serialize[] }
   >();
   let turn: { stop: boolean; answer?: (a: string) => void } | null = null;
+  /** The installed agent the chat uses, as the native side decides it (the onboarding choice, when installed). */
+  const localAgentName = (): string | null => {
+    const id = control.onboarding.assistant ?? null;
+    const names: Record<string, string> = { claude: "Claude", codex: "Codex", opencode: "OpenCode", hermes: "Hermes", kimi: "Kimi", grok: "Grok" };
+    return id && names[id] && control.localAgents.includes(id) ? names[id] : null;
+  };
   const agentStatus = (): AgentStatus_Serialize => ({
     hasKey: control.agent.hasKey,
     keySource: control.agent.hasKey ? "keychain" : null,
@@ -1006,6 +1012,9 @@ function createMock(): {
     models: MODELS,
     running: turn !== null,
     limits: agentLimits,
+    assistant: control.onboarding.assistant ?? null,
+    agentName: localAgentName(),
+    needsSignIn: false,
   });
   const agentEvent = (payload: AgentUiEvent_Serialize) =>
     emit("agent-ui-event", payload);
@@ -1149,13 +1158,16 @@ function createMock(): {
           undone: false,
         },
       });
-    const costUsd = control.agent.turnCost ?? 0.0148;
+    // A turn on an installed agent runs on the person's plan: no tokens or price here.
+    const plan = localAgentName();
+    const costUsd = plan ? 0 : (control.agent.turnCost ?? 0.0148);
     const usage = {
       durationMs: Date.now() - started,
-      inputTokens: 5400,
-      outputTokens: 320,
-      cacheReadTokens: 4800,
+      inputTokens: plan ? 0 : 5400,
+      outputTokens: plan ? 0 : 320,
+      cacheReadTokens: plan ? 0 : 4800,
       costUsd,
+      plan,
     };
     chat.items.push({ ...item("usage", ""), usage });
     agentEvent({
@@ -2013,7 +2025,7 @@ function createMock(): {
         : fail("not_found", "That conversation no longer exists.");
     },
     agentSend: (chatId: string | null, text: string) => {
-      if (!control.agent.hasKey)
+      if (!control.agent.hasKey && !localAgentName())
         return fail(
           "invalid_argument",
           "Add an Anthropic API key to use the assistant.",

@@ -327,6 +327,12 @@ export type AgentStatus_Deserialize = {
 	models: ModelOption[],
 	running: boolean,
 	limits: AgentLimits_Deserialize,
+	/**  The assistant the chat uses: an installed agent's id, `"api-key"` (the built-in one), or `None`. */
+	assistant?: string | null,
+	/**  The chosen agent's name, when the chat uses an installed agent. */
+	agentName?: string | null,
+	/**  The chosen agent's last start failed because it needs its person to sign in. */
+	needsSignIn: boolean,
 };
 
 export type AgentStatus_Serialize = {
@@ -337,18 +343,28 @@ export type AgentStatus_Serialize = {
 	models: ModelOption[],
 	running: boolean,
 	limits: AgentLimits_Serialize,
+	/**  The assistant the chat uses: an installed agent's id, `"api-key"` (the built-in one), or `None`. */
+	assistant: string | null,
+	/**  The chosen agent's name, when the chat uses an installed agent. */
+	agentName: string | null,
+	/**  The chosen agent's last start failed because it needs its person to sign in. */
+	needsSignIn: boolean,
 };
 
 /**  Live assistant activity. */
 export type AgentUiEvent = AgentUiEvent_Serialize | AgentUiEvent_Deserialize;
 
 /**  Live assistant activity. */
-export type AgentUiEvent_Deserialize = { kind: "turnStarted"; chatId: string } | { kind: "textDelta"; text: string } | { kind: "thinkingDelta"; text: string } | { kind: "toolCall"; id: string; name: string; label: string } | { kind: "toolResult"; id: string; ok: boolean; summary: string } | { kind: "question"; id: string; question: string; options: string[] } | { kind: "retrying"; message: string; seconds: number | null } | { kind: "turnDone"; chatId: string; stopped: boolean; durationMs: number | null; inputTokens: number | null; outputTokens: number | null; cacheReadTokens: number | null; costUsd: number | null; note?: string | null } | { kind: "error"; code: string; message: string } | 
+export type AgentUiEvent_Deserialize = { kind: "turnStarted"; chatId: string } | { kind: "textDelta"; text: string } | { kind: "thinkingDelta"; text: string } | { kind: "toolCall"; id: string; name: string; label: string } | { kind: "toolResult"; id: string; ok: boolean; summary: string } | { kind: "question"; id: string; question: string; options: string[] } | { kind: "retrying"; message: string; seconds: number | null } | { kind: "turnDone"; chatId: string; stopped: boolean; durationMs: number | null; inputTokens: number | null; outputTokens: number | null; cacheReadTokens: number | null; costUsd: number | null; note?: string | null; 
+/**  The turn ran on an installed agent, on the person's plan with it (its name): no price is shown. */
+plan?: string | null } | { kind: "error"; code: string; message: string } | 
 /**  The assistant asked to show a timeline time. */
 { kind: "seek"; seconds: number | null };
 
 /**  Live assistant activity. */
-export type AgentUiEvent_Serialize = { kind: "turnStarted"; chatId: string } | { kind: "textDelta"; text: string } | { kind: "thinkingDelta"; text: string } | { kind: "toolCall"; id: string; name: string; label: string } | { kind: "toolResult"; id: string; ok: boolean; summary: string } | { kind: "question"; id: string; question: string; options: string[] } | { kind: "retrying"; message: string; seconds: number | null } | { kind: "turnDone"; chatId: string; stopped: boolean; durationMs: number | null; inputTokens: number | null; outputTokens: number | null; cacheReadTokens: number | null; costUsd: number | null; note: string | null } | { kind: "error"; code: string; message: string } | 
+export type AgentUiEvent_Serialize = { kind: "turnStarted"; chatId: string } | { kind: "textDelta"; text: string } | { kind: "thinkingDelta"; text: string } | { kind: "toolCall"; id: string; name: string; label: string } | { kind: "toolResult"; id: string; ok: boolean; summary: string } | { kind: "question"; id: string; question: string; options: string[] } | { kind: "retrying"; message: string; seconds: number | null } | { kind: "turnDone"; chatId: string; stopped: boolean; durationMs: number | null; inputTokens: number | null; outputTokens: number | null; cacheReadTokens: number | null; costUsd: number | null; note: string | null; 
+/**  The turn ran on an installed agent, on the person's plan with it (its name): no price is shown. */
+plan: string | null } | { kind: "error"; code: string; message: string } | 
 /**  The assistant asked to show a timeline time. */
 { kind: "seek"; seconds: number | null };
 
@@ -478,7 +494,7 @@ export type ChatItem_Deserialize = {
 	ok?: boolean | null,
 	options: string[],
 	/**  role `usage`: the finished turn's cost and tokens. */
-	usage?: TurnUsageView | null,
+	usage?: TurnUsageView_Deserialize | null,
 	/**  role `changes`: what the turn changed. */
 	review?: TurnReview | null,
 };
@@ -493,7 +509,7 @@ export type ChatItem_Serialize = {
 	ok: boolean | null,
 	options: string[],
 	/**  role `usage`: the finished turn's cost and tokens. */
-	usage: TurnUsageView | null,
+	usage: TurnUsageView_Serialize | null,
 	/**  role `changes`: what the turn changed. */
 	review: TurnReview | null,
 };
@@ -1027,12 +1043,28 @@ export type TurnReview = {
 };
 
 /**  Cost and tokens of one finished turn, shown under it. */
-export type TurnUsageView = {
+export type TurnUsageView = TurnUsageView_Serialize | TurnUsageView_Deserialize;
+
+/**  Cost and tokens of one finished turn, shown under it. */
+export type TurnUsageView_Deserialize = {
 	durationMs: number | null,
 	inputTokens: number | null,
 	outputTokens: number | null,
 	cacheReadTokens: number | null,
 	costUsd: number | null,
+	/**  The turn ran on an installed agent, on the person's plan with it (its name). */
+	plan?: string | null,
+};
+
+/**  Cost and tokens of one finished turn, shown under it. */
+export type TurnUsageView_Serialize = {
+	durationMs: number | null,
+	inputTokens: number | null,
+	outputTokens: number | null,
+	cacheReadTokens: number | null,
+	costUsd: number | null,
+	/**  The turn ran on an installed agent, on the person's plan with it (its name). */
+	plan: string | null,
 };
 
 /**  What the UI shows that only it knows: the selection and the viewer mode. */

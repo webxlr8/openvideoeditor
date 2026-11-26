@@ -112,6 +112,19 @@ fn socket_source(params: &Value) -> Result<Source, ove_control::Refusal> {
     }
 }
 
+/// An edit from an assistant session of the in-app chat carries its token (`ove mcp --turn`): it is admitted only
+/// while that session's turn runs, on its own project, and the revision is then attributed to the turn.
+fn admit_turn<'a>(app: &AppHandle, params: &'a Value, bundle: &Path) -> Result<Option<&'a str>, ove_control::Refusal> {
+    match params.get("turn").filter(|v| !v.is_null()) {
+        None => Ok(None),
+        Some(v) => {
+            let t = v.as_str().ok_or_else(|| refusal("argument.invalid", "turn"))?;
+            app.state::<crate::local_agent::LocalAgents>().admit(t, bundle)?;
+            Ok(Some(t))
+        }
+    }
+}
+
 fn handle(app: &AppHandle, method: &str, params: Value) -> Result<Value, ove_control::Refusal> {
     match method {
         "context" => Ok(context(app)),
@@ -145,7 +158,11 @@ fn handle(app: &AppHandle, method: &str, params: Value) -> Result<Value, ove_con
             let state = app.state::<AppState>();
             let mut g = lock(&state.projects.open).map_err(|e| refusal("app.busy", e.message))?;
             let p = check_open(g.as_mut(), &params)?;
+            let turn = admit_turn(app, &params, p.bundle())?;
             p.apply(ops, source, summary).map_err(|e| refusal(e.code(), e.to_string()))?;
+            if let Some(t) = turn {
+                app.state::<crate::local_agent::LocalAgents>().record(t, p.rev());
+            }
             emit(app, Some(p));
             Ok(json!({"rev": p.rev()}))
         }
@@ -154,7 +171,11 @@ fn handle(app: &AppHandle, method: &str, params: Value) -> Result<Value, ove_con
             let state = app.state::<AppState>();
             let mut g = lock(&state.projects.open).map_err(|e| refusal("app.busy", e.message))?;
             let p = check_open(g.as_mut(), &params)?;
+            let turn = admit_turn(app, &params, p.bundle())?;
             let c = p.restore_as(rev, Source::Undo).map_err(|e| refusal(e.code(), e.to_string()))?;
+            if let (Some(t), Some(c)) = (turn, &c) {
+                app.state::<crate::local_agent::LocalAgents>().record(t, c.record.rev);
+            }
             emit(app, Some(p));
             Ok(match c {
                 Some(c) => json!({"rev": c.record.rev, "summary": c.record.summary}),

@@ -221,7 +221,7 @@ pub fn compact_if_needed(
 }
 
 /// A new turn id: unique within a chat log (time plus a counter).
-fn new_turn_id() -> String {
+pub fn new_turn_id() -> String {
     use std::sync::atomic::AtomicU32;
     static SEQ: AtomicU32 = AtomicU32::new(0);
     format!("u_{:x}_{:x}", ove_core::Clock::now_ms(&ove_core::SystemClock), SEQ.fetch_add(1, Ordering::Relaxed))
@@ -514,6 +514,7 @@ pub fn run_turn(
                 thread_usage: usage,
                 time: ove_core::Clock::now_ms(&ove_core::SystemClock),
                 note: note.clone(),
+                plan: None,
             },
         )
         .map_err(io)?;

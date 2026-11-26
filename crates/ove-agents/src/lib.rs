@@ -24,6 +24,34 @@ pub use run::Limits;
 /// The name the app's MCP server is registered under in every agent.
 pub const SERVER_NAME: &str = "openvideoeditor";
 
+/// The tools of the MCP server the in-app chat gives an agent (`ove mcp --project`): seeing and editing the open
+/// project, nothing else. The server offers only these, and the chat grants an agent's permission requests only for
+/// these (design D6 layers 2 and 3).
+pub const APP_TOOLS: &[&str] = &[
+    "show_project",
+    "print_timeline",
+    "check_timeline",
+    "apply_timeline",
+    "verify_timeline",
+    "timeline_history",
+    "undo_timeline",
+    "list_media",
+    "probe_media",
+    "grab_frame",
+    "filmstrip",
+    "detect_scenes",
+    "audio_levels",
+    "waveform_image",
+    "detect_silence",
+    "measure_loudness",
+    "look",
+    "app_context",
+    "seek",
+    "play",
+    "pause",
+    "docs",
+];
+
 /// How an agent is told about an MCP server.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum McpSetup {

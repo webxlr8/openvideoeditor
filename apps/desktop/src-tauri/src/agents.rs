@@ -57,7 +57,7 @@ pub struct AgentConnect {
 
 /// The `ove` program that ships with the app: next to the app's own program (macOS, Windows, a development build),
 /// `/usr/bin/ove` from the Linux package, else whatever `ove` the search path has.
-fn ove_program(env: &ove_agents::Env) -> PathBuf {
+pub(crate) fn ove_program(env: &ove_agents::Env) -> PathBuf {
     let name = if cfg!(windows) { "ove.exe" } else { "ove" };
     let beside = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join(name)));
     beside
@@ -94,7 +94,17 @@ pub async fn detect_agents() -> AppResult<Vec<AgentInfo>> {
         let env = ove_agents::Env::from_process();
         let ove = ove_program(&env);
         let found = ove_agents::detect_all(&env, &ove_agents::Limits::default());
-        Ok(found.into_iter().map(|d| info(d, &ove)).collect())
+        Ok(found
+            .into_iter()
+            .map(|mut d| {
+                // The end-to-end suite's stand-in takes an agent's place (development builds only).
+                if crate::local_agent::override_launch(&d.id).is_some() {
+                    d.state = ove_agents::State::Ready;
+                    d.version = Some("stand-in".into());
+                }
+                info(d, &ove)
+            })
+            .collect())
     })
     .await
 }

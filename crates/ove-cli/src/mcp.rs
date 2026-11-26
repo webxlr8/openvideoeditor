@@ -451,30 +451,7 @@ pub struct Pin {
     pub bundle: PathBuf,
 }
 
-pub const PINNED_TOOLS: &[&str] = &[
-    "show_project",
-    "print_timeline",
-    "check_timeline",
-    "apply_timeline",
-    "verify_timeline",
-    "timeline_history",
-    "undo_timeline",
-    "list_media",
-    "probe_media",
-    "grab_frame",
-    "filmstrip",
-    "detect_scenes",
-    "audio_levels",
-    "waveform_image",
-    "detect_silence",
-    "measure_loudness",
-    "look",
-    "app_context",
-    "seek",
-    "play",
-    "pause",
-    "docs",
-];
+pub const PINNED_TOOLS: &[&str] = ove_agents::APP_TOOLS;
 
 /// Pictures a pinned session returns are at most this many pixels on their long side.
 pub const PINNED_MAX_IMAGE: u32 = 1280;

@@ -43,7 +43,15 @@ pub enum Record {
         time: i64,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         note: Option<String>,
+        /// The turn ran on an agent installed on this computer, on the person's plan with that agent (its name); it
+        /// has no cost in money here.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        plan: Option<String>,
     },
+    /// A tool call of an agent installed on this computer (Agent Client Protocol), for the chat's tool chips. Not
+    /// sent to the API: such a turn's own tools are the agent's business.
+    #[serde(rename_all = "camelCase")]
+    AgentTool { id: String, title: String, ok: Option<bool> },
     /// Project revisions the turn that began with user record `turn` made (one record per tool call that changed
     /// the project).
     #[serde(rename_all = "camelCase")]
@@ -505,6 +513,7 @@ mod tests {
             thread_usage: Usage { input_tokens: 10, output_tokens: 2, ..Default::default() },
             time,
             note: None,
+            plan: None,
         };
         let a = store.create("a", "m").unwrap();
         store.append(&a.id, &result(0.5, 100)).unwrap();

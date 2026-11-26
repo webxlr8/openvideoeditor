@@ -13,6 +13,7 @@ pub mod exporting;
 pub mod fx;
 pub mod generation;
 pub mod interchange;
+pub mod local_agent;
 pub mod logging;
 pub mod media;
 pub mod motion;
@@ -567,6 +568,7 @@ pub fn run() -> ExitCode {
             control::start(&handle);
             app.manage(generation::Generation::default());
             app.manage(onboarding::Onboarding::new(app.path().app_config_dir().ok()));
+            app.manage(local_agent::LocalAgents::default());
 
             create_main_window(app)?;
             if let Some(window) = app.get_webview_window("main") {
@@ -607,6 +609,13 @@ pub fn run() -> ExitCode {
         }
         if let RunEvent::Exit = event {
             control::stop(handle);
+            // A local agent turn is stopped and every agent process ended: they are this app's children.
+            if let Some(r) = worker::relock(&handle.state::<AppState>().assistant.running).as_ref() {
+                r.cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+            if let Some(agents) = handle.try_state::<local_agent::LocalAgents>() {
+                agents.close_all();
+            }
             let state = handle.state::<AppState>();
             // Final snapshot, full flush, prune and lock release for the open project.
             if let Ok(mut open) = projects::lock(&state.projects.open)

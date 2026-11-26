@@ -141,6 +141,9 @@ pub struct Session {
     _cwd: tempfile::TempDir,
 }
 
+/// How long an agent may take to stop after `session/cancel`.
+const CANCEL_GRACE: Duration = Duration::from_secs(10);
+
 /// Kept from the agent's stderr, for error messages.
 const STDERR_KEEP: usize = 16 * 1024;
 
@@ -288,11 +291,13 @@ impl Session {
         self.next_id += 1;
         let id = self.next_id;
         self.write(&json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}))?;
-        let deadline = Instant::now() + limit;
+        let mut deadline = Instant::now() + limit;
         let mut cancel_sent = false;
         loop {
             if cancel.load(Ordering::SeqCst) && !cancel_sent && method == "session/prompt" {
                 cancel_sent = true;
+                // An agent that does not stop within this is ended (layer 6).
+                deadline = deadline.min(Instant::now() + CANCEL_GRACE);
                 let sid = self.session_id.clone();
                 self.write(&json!({"jsonrpc": "2.0", "method": "session/cancel", "params": {"sessionId": sid}}))?;
             }
