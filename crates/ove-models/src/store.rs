@@ -18,6 +18,60 @@ use crate::manifest::{self, Manifest, RuntimeKind};
 
 pub const INDEX_FILE: &str = "installed.json";
 
+/// A model or runtime larger than this downloads only after the person confirms.
+pub const CONSENT_ABOVE_BYTES: u64 = 50 * 1_000_000;
+
+/// Who asks for a model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Origin {
+    /// The person confirmed the download (the app's prompt, or `--yes` typed at the terminal).
+    Person,
+    /// A feature in the app needs the model and nobody was asked.
+    Feature,
+    /// An agent, an MCP call or a CLI call without `--yes`.
+    Agent,
+}
+
+/// Result of [`Store::ensure_installed`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Ensure {
+    /// Installed (now or before): the model's files in manifest order.
+    Ready(Vec<PathBuf>),
+    /// Not installed, and too large to download without the person's consent. Nothing was downloaded.
+    NeedsConsent(NotInstalled),
+}
+
+/// A "model not installed" result for agents, the CLI and MCP.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotInstalled {
+    pub id: String,
+    pub purpose: String,
+    pub bytes: u64,
+    /// How to install it.
+    pub install: String,
+    pub message: String,
+}
+
+impl NotInstalled {
+    pub fn for_manifest(m: &Manifest) -> NotInstalled {
+        let bytes = m.total_bytes();
+        let install = format!("ove models install {} --yes", m.id);
+        NotInstalled {
+            id: m.id.clone(),
+            purpose: m.purpose.clone(),
+            bytes,
+            message: format!(
+                "the model {} ({}) is not installed; it is a {} MB download that needs your consent: install it in                  Settings > Storage or run `{install}`",
+                m.id,
+                m.purpose,
+                crate::error::mb_up(bytes)
+            ),
+            install,
+        }
+    }
+}
+
 /// Download progress of a whole model.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Progress {
@@ -286,6 +340,46 @@ impl Store {
         }
         self.record(&m, &paths, false)?;
         Ok(InstallOutcome { already: false, paths })
+    }
+
+    /// Makes sure a model is installed, honouring consent: a model over [`CONSENT_ABOVE_BYTES`] downloads only for
+    /// [`Origin::Person`]; for anyone else it returns [`Ensure::NeedsConsent`] and downloads nothing. Smaller models
+    /// download for any origin, with progress.
+    pub fn ensure_installed(
+        &self,
+        id: &str,
+        origin: Origin,
+        progress: &mut dyn FnMut(&Progress),
+        cancel: &AtomicBool,
+    ) -> Result<Ensure> {
+        let m = self.manifest(id)?;
+        if let Some(paths) = self.installed_paths(id) {
+            return Ok(Ensure::Ready(paths));
+        }
+        if m.total_bytes() > CONSENT_ABOVE_BYTES && origin != Origin::Person {
+            return Ok(Ensure::NeedsConsent(NotInstalled::for_manifest(m)));
+        }
+        Ok(Ensure::Ready(self.install(id, progress, cancel)?.paths))
+    }
+
+    /// Adopts every known model whose files sit directly in the store root with their pinned sizes and hashes
+    /// (speech models saved there by earlier versions). Each file is hashed once; later calls find them recorded.
+    /// Returns the ids adopted now.
+    pub fn adopt_root_files(&self) -> Vec<String> {
+        let index = self.read_index();
+        let mut adopted = Vec::new();
+        for m in &self.catalog {
+            if self.complete_paths(m, &index).is_some() {
+                continue;
+            }
+            let present = m.files.iter().all(|f| {
+                std::fs::metadata(self.root.join(&f.name)).is_ok_and(|md| md.is_file() && md.len() == f.bytes)
+            });
+            if present && self.adopt_in_place(&m.id, &self.root).unwrap_or(false) {
+                adopted.push(m.id.clone());
+            }
+        }
+        adopted
     }
 
     /// Records a model whose files already sit in `dir` (for example whisper files from before the store), after

@@ -10,7 +10,9 @@ pub mod store;
 
 pub use error::{ModelError, Result};
 pub use manifest::{Manifest, ModelFile, RuntimeKind};
-pub use store::{InstallOutcome, ModelStatus, Progress, Store, UrlOverride};
+pub use store::{
+    CONSENT_ABOVE_BYTES, Ensure, InstallOutcome, ModelStatus, NotInstalled, Origin, Progress, Store, UrlOverride,
+};
 
 use std::path::PathBuf;
 
@@ -31,7 +33,11 @@ pub fn app_data_dir() -> Option<PathBuf> {
     base.map(|b| b.join(IDENTIFIER))
 }
 
-/// The model store's folder: `OVE_MODELS_DIR`, else `<app data>/models`.
+/// The model store's folder: `OVE_MODELS_DIR`, else `OVE_WHISPER_MODEL_DIR` (the former speech-model setting), else
+/// `<app data>/models`. The app and the CLI resolve it the same way.
 pub fn default_root() -> Option<PathBuf> {
-    std::env::var_os("OVE_MODELS_DIR").map(PathBuf::from).or_else(|| app_data_dir().map(|d| d.join("models")))
+    ["OVE_MODELS_DIR", "OVE_WHISPER_MODEL_DIR"]
+        .iter()
+        .find_map(|k| std::env::var_os(k).filter(|v| !v.is_empty()).map(PathBuf::from))
+        .or_else(|| app_data_dir().map(|d| d.join("models")))
 }

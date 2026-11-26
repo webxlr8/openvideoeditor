@@ -28,6 +28,11 @@ pub const TOPICS: &[(&str, &str, &str)] = &[
         include_str!("../../../docs/cli/interchange.md"),
     ),
     ("mcp", "the MCP server and agent setup", include_str!("../../../docs/cli/mcp.md")),
+    (
+        "models",
+        "models list / install / remove: local models and the model store",
+        include_str!("../../../docs/cli/models.md"),
+    ),
 ];
 
 pub fn docs(topic: Option<&str>) -> Out {

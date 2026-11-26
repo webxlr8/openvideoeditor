@@ -25,7 +25,8 @@
 - [x] 2.4 Move `ove-transcribe` model handling onto `ove-models`; verify the existing transcribe tests pass unchanged.
       Done: unit tests pass; `tests/speech.rs` is unchanged (it is ignored without espeak-ng); `tests/windows.rs`
       needs the Unix-only media fixture script, so it was not run on this Windows machine.
-- [ ] 2.5 Document the store and manifests in `docs/cli/models.md`; verify the docs' examples run in the CLI tests.
+- [x] 2.5 Document the store and manifests in `docs/cli/models.md`; verify the docs' examples run in the CLI tests.
+      Done: `crates/ove-cli/tests/models.rs` runs the page's 5 examples with their exit codes; `ove docs models`.
 
 ## 3. Inference adapter and worker
 
@@ -40,8 +41,10 @@
 
 - [ ] 4.1 Implement the consent gate (`NeedsConsent` over 50 MB, origin-aware); verify an MCP call for a large model
       returns the result and downloads nothing, and a small model downloads with progress.
-- [ ] 4.2 Add `ove models list|install|remove` with `--json` and `--yes`; verify CLI tests for success and refusal paths
+- [x] 4.2 Add `ove models list|install|remove` with `--json` and `--yes`; verify CLI tests for success and refusal paths
       and exit codes.
+      Done (ahead of group 3, because 2.5 needs the command): `crates/ove-cli/tests/models.rs`; the success path
+      uses the real tiny model from a local mirror (`--ignored` with `OVE_WHISPER_MODEL_DIR`; passed on Windows).
 - [ ] 4.3 Add MCP `list_models_local`; verify an MCP contract test.
 - [ ] 4.4 Add Settings → Storage "Models" (list, sizes, Remove, wait-while-in-use); verify a UI test removes a model
       and the feature then reports it missing.

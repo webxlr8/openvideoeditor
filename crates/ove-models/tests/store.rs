@@ -258,3 +258,60 @@ fn a_new_manifest_version_needs_a_new_install() {
     v2.version = "2".into();
     assert!(!store(dir.path(), &server, vec![v2]).is_installed("ver"));
 }
+
+#[test]
+fn a_large_model_asked_for_by_an_agent_downloads_nothing() {
+    use ove_models::{Ensure, Origin};
+    let server = Server::start();
+    let big = body(50_000_001, 14);
+    server.add("/large/1/w.bin", big.clone(), Mode::Normal);
+    let dir = tempfile::tempdir().unwrap();
+    let s = store(dir.path(), &server, vec![manifest("large", &[("w.bin", &big)])]);
+    for origin in [Origin::Agent, Origin::Feature] {
+        match s.ensure_installed("large", origin, &mut |_| {}, &no_cancel()).unwrap() {
+            Ensure::NeedsConsent(n) => {
+                assert_eq!((n.id.as_str(), n.bytes), ("large", 50_000_001));
+                assert_eq!(n.install, "ove models install large --yes");
+                assert!(n.message.contains("not installed") && n.message.contains("50.1 MB"), "{}", n.message);
+            }
+            other => panic!("expected NeedsConsent, got {other:?}"),
+        }
+    }
+    assert!(server.requests().is_empty(), "nothing was downloaded");
+    assert!(!dir.path().join("large").exists());
+
+    // The person confirms: it downloads.
+    let mut last = None;
+    let got = s.ensure_installed("large", Origin::Person, &mut |p| last = Some(p.clone()), &no_cancel()).unwrap();
+    assert_eq!(got, Ensure::Ready(vec![dir.path().join("large/1/w.bin")]));
+    assert_eq!(last.map(|p| p.done), Some(50_000_001));
+    // Once installed, everyone gets it.
+    assert!(matches!(s.ensure_installed("large", Origin::Agent, &mut |_| {}, &no_cancel()).unwrap(), Ensure::Ready(_)));
+}
+
+#[test]
+fn a_small_model_downloads_for_any_origin_with_progress() {
+    use ove_models::{Ensure, Origin};
+    let server = Server::start();
+    let small = body(2_000_000, 15);
+    server.add("/small/1/m.onnx", small.clone(), Mode::Normal);
+    let dir = tempfile::tempdir().unwrap();
+    let s = store(dir.path(), &server, vec![manifest("small", &[("m.onnx", &small)])]);
+    let mut steps = 0;
+    let got = s.ensure_installed("small", Origin::Agent, &mut |_| steps += 1, &no_cancel()).unwrap();
+    assert!(matches!(got, Ensure::Ready(_)));
+    assert!(steps > 2, "progress was reported ({steps} updates)");
+}
+
+#[test]
+fn files_left_in_the_root_by_earlier_versions_are_adopted() {
+    let server = Server::start();
+    let a = body(40_000, 16);
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("ggml-old.bin"), &a).unwrap();
+    let s =
+        store(dir.path(), &server, vec![manifest("old", &[("ggml-old.bin", &a)]), manifest("other", &[("x.bin", &a)])]);
+    assert_eq!(s.adopt_root_files(), vec!["old".to_string()]);
+    assert!(s.is_installed("old") && !s.is_installed("other"));
+    assert!(s.adopt_root_files().is_empty(), "a second call finds it recorded");
+}

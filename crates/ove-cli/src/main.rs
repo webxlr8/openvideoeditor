@@ -13,6 +13,7 @@ mod docs;
 mod generate;
 mod mcp;
 mod media;
+mod models;
 mod project;
 
 use std::collections::BTreeSet;
@@ -140,6 +141,11 @@ enum Cmd {
     Agents {
         #[command(subcommand)]
         cmd: Option<AgentsCmd>,
+    },
+    /// Local machine-learning models: list, install (models over 50 MB need --yes), remove.
+    Models {
+        #[command(subcommand)]
+        cmd: models::ModelsCmd,
     },
     /// Serve the commands as MCP tools on stdin/stdout (`claude mcp add openvideoeditor -- ove mcp`).
     Mcp,
@@ -320,6 +326,7 @@ fn run(cli: &Cli, source: Source) -> Out {
         Cmd::Skills { cmd: SkillsCmd::Install { dir } } => return docs::install_skills(dir),
         Cmd::Agents { cmd: None | Some(AgentsCmd::List) } => return docs::agents_list(),
         Cmd::Agents { cmd: Some(AgentsCmd::Connect { agent }) } => return docs::agents_connect(agent),
+        Cmd::Models { cmd } => return models::run(cmd, source),
         Cmd::Mcp => return Err(Fail::new("mcp.nested", "already serving MCP")),
         _ => {}
     }
@@ -489,7 +496,7 @@ fn run(cli: &Cli, source: Source) -> Out {
             })
         }
         // Answered before the library is opened.
-        Cmd::Docs { .. } | Cmd::Doctor | Cmd::Skills { .. } | Cmd::Agents { .. } | Cmd::Mcp => {
+        Cmd::Docs { .. } | Cmd::Doctor | Cmd::Skills { .. } | Cmd::Agents { .. } | Cmd::Models { .. } | Cmd::Mcp => {
             Err(Fail::new("internal", "this command does not use a library"))
         }
     }

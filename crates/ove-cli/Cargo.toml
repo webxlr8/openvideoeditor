@@ -23,6 +23,7 @@ ove-guard = { path = "../ove-guard" }
 ove-interchange = { path = "../ove-interchange" }
 ove-projection = { path = "../ove-projection" }
 ove-media = { path = "../ove-media", optional = true }
+ove-models = { path = "../ove-models" }
 ove-render = { path = "../ove-render", optional = true }
 ove-store = { path = "../ove-store" }
 serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }

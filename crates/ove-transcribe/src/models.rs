@@ -79,9 +79,13 @@ impl Model {
     }
 }
 
-/// Where models live: `OVE_WHISPER_MODEL_DIR`, else `<data dir>/models` (the model store's root).
+/// Where models live (the model store's root): `OVE_MODELS_DIR`, else `OVE_WHISPER_MODEL_DIR`, else
+/// `<data dir>/models`.
 pub fn model_dir(data_dir: &Path) -> PathBuf {
-    std::env::var_os("OVE_WHISPER_MODEL_DIR").map(PathBuf::from).unwrap_or_else(|| data_dir.join("models"))
+    ["OVE_MODELS_DIR", "OVE_WHISPER_MODEL_DIR"]
+        .iter()
+        .find_map(|k| std::env::var_os(k).filter(|v| !v.is_empty()).map(PathBuf::from))
+        .unwrap_or_else(|| data_dir.join("models"))
 }
 
 /// The model store at `dir`. `OVE_WHISPER_MODEL_URL` (a folder of ggml files) still overrides the download location.
