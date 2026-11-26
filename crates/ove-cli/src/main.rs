@@ -147,7 +147,15 @@ enum Cmd {
         cmd: Option<AgentsCmd>,
     },
     /// Serve the commands as MCP tools on stdin/stdout (`claude mcp add openvideoeditor -- ove mcp`).
-    Mcp,
+    Mcp {
+        /// Pin the session to this project (name, id or bundle path): the tools see and edit it only, and tools for
+        /// other projects, media files by path, imports and exports are not offered. Used by the in-app chat.
+        #[arg(long)]
+        project: Option<String>,
+        /// The assistant turn the edits belong to (given by the app with --project); the app attributes them to it.
+        #[arg(long, requires = "project")]
+        turn: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -325,7 +333,7 @@ fn run(cli: &Cli, source: Source) -> Out {
         Cmd::Skills { cmd: SkillsCmd::Install { dir } } => return docs::install_skills(dir),
         Cmd::Agents { cmd: None | Some(AgentsCmd::List) } => return docs::agents_list(),
         Cmd::Agents { cmd: Some(AgentsCmd::Connect { agent }) } => return docs::agents_connect(agent),
-        Cmd::Mcp => return Err(Fail::new("mcp.nested", "already serving MCP")),
+        Cmd::Mcp { .. } => return Err(Fail::new("mcp.nested", "already serving MCP")),
         _ => {}
     }
     let ctx = Ctx::open(cli.library.as_deref(), source, cli.json)?;
@@ -494,7 +502,7 @@ fn run(cli: &Cli, source: Source) -> Out {
             })
         }
         // Answered before the library is opened.
-        Cmd::Docs { .. } | Cmd::Doctor | Cmd::Skills { .. } | Cmd::Agents { .. } | Cmd::Mcp => {
+        Cmd::Docs { .. } | Cmd::Doctor | Cmd::Skills { .. } | Cmd::Agents { .. } | Cmd::Mcp { .. } => {
             Err(Fail::new("internal", "this command does not use a library"))
         }
     }
@@ -555,7 +563,20 @@ fn exit_code(f: &Fail) -> u8 {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
-    if matches!(cli.cmd, Cmd::Mcp) {
+    if let Cmd::Mcp { project, turn } = &cli.cmd {
+        let pin = match project {
+            Some(q) => match Ctx::open(cli.library.as_deref(), Source::Mcp, true).and_then(|ctx| ctx.find(q)) {
+                Ok(bundle) => Some(mcp::Pin { bundle }),
+                Err(f) => {
+                    eprintln!("error: {}", f.message);
+                    return ExitCode::from(exit_code(&f));
+                }
+            },
+            None => None,
+        };
+        if let Some(t) = turn {
+            common::set_turn(t.clone());
+        }
         let library = cli.library.clone();
         let runner = move |args: Vec<String>| -> Out {
             let mut argv = vec!["ove".to_string(), "--json".to_string()];
@@ -565,12 +586,12 @@ fn main() -> ExitCode {
             }
             argv.extend(args);
             let parsed = Cli::try_parse_from(&argv).map_err(|e| Fail::new("argument.invalid", e.to_string()))?;
-            if matches!(parsed.cmd, Cmd::Mcp) {
+            if matches!(parsed.cmd, Cmd::Mcp { .. }) {
                 return Err(Fail::new("mcp.nested", "already serving MCP"));
             }
             run(&parsed, Source::Mcp)
         };
-        return match mcp::serve(&runner) {
+        return match mcp::serve(&runner, pin.as_ref()) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
                 eprintln!("error: {e}");

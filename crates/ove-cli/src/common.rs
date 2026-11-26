@@ -70,6 +70,18 @@ pub fn progress_enabled() -> bool {
     PROGRESS.load(Ordering::SeqCst)
 }
 
+/// The assistant turn this process edits for (`ove mcp --turn`): set once, sent with every edit to the app, which
+/// attributes the revisions to the turn and refuses them when the turn is not the one running.
+static TURN: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+pub fn set_turn(turn: String) {
+    let _ = TURN.set(turn);
+}
+
+pub fn turn() -> Option<&'static str> {
+    TURN.get().map(String::as_str)
+}
+
 pub fn clock() -> Arc<dyn ove_core::Clock> {
     Arc::new(ove_core::SystemClock)
 }
@@ -112,7 +124,7 @@ impl Ctx {
     }
 }
 
-fn same_bundle(a: &Path, b: &Path) -> bool {
+pub(crate) fn same_bundle(a: &Path, b: &Path) -> bool {
     let c = |p: &Path| dunce::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
     c(a) == c(b)
 }
@@ -178,18 +190,22 @@ impl Writer {
     /// Applies one batch as one revision; returns the new revision.
     pub fn apply(&mut self, ops: Vec<Op>, source: Source, summary: String) -> Result<i64, Fail> {
         match self {
+            Writer::Local(_) if turn().is_some() => Err(not_in_app()),
             Writer::Local(p) => {
                 p.apply(ops, source, Some(summary))?;
                 Ok(p.rev())
             }
             Writer::App { view, root } => {
-                let params = json!({
+                let mut params = json!({
                     "bundle": view.bundle(),
                     "expectRev": view.rev(),
                     "ops": ops,
                     "summary": summary,
                     "source": source,
                 });
+                if let Some(t) = turn() {
+                    params["turn"] = json!(t);
+                }
                 let v = ove_control::call(root, "apply", params, Duration::from_secs(30))?;
                 self.reload()?;
                 Ok(v.get("rev").and_then(Value::as_i64).unwrap_or_else(|| self.rev()))
@@ -201,9 +217,13 @@ impl Writer {
     /// there.
     pub fn restore(&mut self, target: i64, source: Source) -> Result<Option<(i64, String)>, Fail> {
         match self {
+            Writer::Local(_) if turn().is_some() => Err(not_in_app()),
             Writer::Local(p) => Ok(p.restore_as(target, source)?.map(|c| (c.record.rev, c.record.summary))),
             Writer::App { view, root } => {
-                let params = json!({"bundle": view.bundle(), "rev": target, "expectRev": view.rev()});
+                let mut params = json!({"bundle": view.bundle(), "rev": target, "expectRev": view.rev()});
+                if let Some(t) = turn() {
+                    params["turn"] = json!(t);
+                }
                 let v = ove_control::call(root, "restore", params, Duration::from_secs(30))?;
                 self.reload()?;
                 Ok(v.get("rev")
@@ -228,6 +248,11 @@ impl Writer {
         }
         Ok(())
     }
+}
+
+/// A turn's edits are made by the app (which records them for the turn), never to a closed bundle.
+fn not_in_app() -> Fail {
+    Fail::new("turn.projectClosed", "the app no longer has this project open, so the assistant's turn cannot edit it")
 }
 
 /// Runs an edit, retrying (up to 3 times) when the app's project moved on between reading and applying.

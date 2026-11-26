@@ -405,10 +405,10 @@ pub fn tool(name: &str) -> Option<&'static Tool> {
     TOOLS.iter().find(|t| t.name == name)
 }
 
-fn schema(t: &Tool) -> Value {
+fn schema(t: &Tool, pinned: bool) -> Value {
     let mut props = Map::new();
     let mut req = Vec::new();
-    for a in t.args {
+    for a in t.args.iter().filter(|a| !(pinned && a.name == "project")) {
         let ty = match a.kind {
             Kind::Str | Kind::TextFile => json!({"type": "string"}),
             Kind::Num => json!({"type": "number"}),
@@ -426,19 +426,84 @@ fn schema(t: &Tool) -> Value {
     json!({"type": "object", "properties": props, "required": req, "additionalProperties": false})
 }
 
-pub fn list() -> Value {
+pub fn list(pin: Option<&Pin>) -> Value {
     let tools: Vec<Value> = TOOLS
         .iter()
+        .filter(|t| pin.is_none() || PINNED_TOOLS.contains(&t.name))
         .map(|t| {
             json!({
                 "name": t.name,
                 "description": t.about,
-                "inputSchema": schema(t),
+                "inputSchema": schema(t, pin.is_some()),
                 "annotations": {"readOnlyHint": t.read_only, "destructiveHint": !t.read_only && matches!(t.name, "remove_media" | "undo_timeline")},
             })
         })
         .collect();
     json!({"tools": tools})
+}
+
+/// A session pinned to one project, for one assistant turn: the server the in-app chat gives a local agent (design
+/// D5; D6 layer 3). The tools see and edit that project only. Not offered: other projects, creating or opening
+/// projects, adding, removing or relinking media (they take paths), imports and exports (asked of the person),
+/// screen captures. Arguments naming media must name media of the project, never a file by its path.
+#[derive(Debug, Clone)]
+pub struct Pin {
+    pub bundle: PathBuf,
+}
+
+pub const PINNED_TOOLS: &[&str] = &[
+    "show_project",
+    "print_timeline",
+    "check_timeline",
+    "apply_timeline",
+    "verify_timeline",
+    "timeline_history",
+    "undo_timeline",
+    "list_media",
+    "probe_media",
+    "grab_frame",
+    "filmstrip",
+    "detect_scenes",
+    "audio_levels",
+    "waveform_image",
+    "detect_silence",
+    "measure_loudness",
+    "look",
+    "app_context",
+    "seek",
+    "play",
+    "pause",
+    "docs",
+];
+
+/// Pictures a pinned session returns are at most this many pixels on their long side.
+pub const PINNED_MAX_IMAGE: u32 = 1280;
+
+/// The arguments of a pinned call: the project filled in (an agent's own `project` must be the pinned one), and a
+/// `media` argument resolved within the project (an id or file name; a path to any other file is refused).
+fn pinned_args(t: &Tool, args: &Map<String, Value>, pin: &Pin) -> Result<Map<String, Value>, Fail> {
+    if !PINNED_TOOLS.contains(&t.name) {
+        return Err(Fail::new("tool.unavailable", format!("{} is not available to the assistant in the app", t.name)));
+    }
+    let mut args = args.clone();
+    let bundle = pin.bundle.display().to_string();
+    if let Some(v) = args.get("project").filter(|v| !v.is_null()) {
+        let same =
+            v.as_str().is_some_and(|q| q == bundle || crate::common::same_bundle(std::path::Path::new(q), &pin.bundle));
+        if !same {
+            return Err(Fail::new("project.pinned", "this session works on the project open in the app only"));
+        }
+    }
+    if t.args.iter().any(|a| a.name == "project") {
+        args.insert("project".into(), json!(bundle));
+    }
+    if let Some(q) = args.get("media").and_then(Value::as_str) {
+        let p = ove_store::Project::open(&pin.bundle, ove_store::Mode::ReadOnly, crate::common::clock())?;
+        let id = crate::media::find_media(p.doc(), p.bundle(), q)
+            .map_err(|_| Fail::new("media.notInProject", format!("no media \"{q}\" in the open project")))?;
+        args.insert("media".into(), json!(id));
+    }
+    Ok(args)
 }
 
 fn scalar(v: &Value, name: &str, kind: Kind) -> Result<String, Fail> {
@@ -584,6 +649,22 @@ fn base64(bytes: &[u8]) -> String {
     s
 }
 
+/// A PNG with its long side at most [`PINNED_MAX_IMAGE`] pixels (re-encoded only when it was larger).
+#[cfg(feature = "media")]
+fn fit_png(png: Vec<u8>) -> Vec<u8> {
+    match ove_analyze::Image::from_png(&png) {
+        Ok(img) if img.width.max(img.height) > PINNED_MAX_IMAGE => {
+            img.fit_within(PINNED_MAX_IMAGE).png().unwrap_or(png)
+        }
+        _ => png,
+    }
+}
+
+#[cfg(not(feature = "media"))]
+fn fit_png(png: Vec<u8>) -> Vec<u8> {
+    png
+}
+
 fn images_at(p: &std::path::Path) -> Vec<PathBuf> {
     if p.is_dir() {
         let mut v: Vec<PathBuf> = std::fs::read_dir(p)
@@ -599,18 +680,32 @@ fn images_at(p: &std::path::Path) -> Vec<PathBuf> {
 }
 
 /// Runs one tool call: the `tools/call` result object.
-pub fn call(name: &str, args: &Map<String, Value>, run: &dyn Fn(Vec<String>) -> crate::common::Out) -> Value {
+pub fn call(
+    name: &str,
+    args: &Map<String, Value>,
+    run: &dyn Fn(Vec<String>) -> crate::common::Out,
+    pin: Option<&Pin>,
+) -> Value {
     let Some(t) = tool(name) else {
         return json!({"content": [{"type": "text", "text": format!("unknown tool {name}")}], "isError": true});
     };
     let mut scratch = Scratch::default();
-    let res = argv(t, args, &mut scratch).and_then(|(a, img)| run(a).map(|r| (r, img)));
+    let args = match pin {
+        Some(pin) => pinned_args(t, args, pin),
+        None => Ok(args.clone()),
+    };
+    if let (Err(f), Some(_)) = (&args, pin) {
+        // Logged by the app, which reads the server's stderr.
+        eprintln!("ove mcp: refused {name}: {} ({})", f.message, f.code);
+    }
+    let res = args.and_then(|args| argv(t, &args, &mut scratch)).and_then(|(a, img)| run(a).map(|r| (r, img)));
     match res {
         Ok(((v, _), img)) => {
             let mut content =
                 vec![json!({"type": "text", "text": serde_json::to_string_pretty(&v).unwrap_or_default()})];
             for p in img.as_deref().map(images_at).unwrap_or_default().iter().take(12) {
                 if let Ok(b) = std::fs::read(p) {
+                    let b = if pin.is_some() { fit_png(b) } else { b };
                     content.push(json!({"type": "image", "data": base64(&b), "mimeType": "image/png"}));
                 }
             }
@@ -628,10 +723,16 @@ Typical loop: app_context (what the user has open) → print_timeline → edit t
 apply_timeline (one undo step) → verify_timeline. Times are seconds. When the app has the project open, edits \
 appear in it at once.";
 
+const PINNED_INSTRUCTIONS: &str = "Edit the video project that is open in OpenVideoEditor; every tool works on that \
+project, so no tool takes a project. Start with `docs` topic `agents` for the editing guide. See before you edit: \
+look (composited frames), grab_frame and filmstrip (a media item), audio_levels, detect_silence, measure_loudness. \
+Loop: print_timeline -> edit the TSX text -> check_timeline -> apply_timeline (one undo step) -> verify_timeline. \
+Times are seconds. Importing and exporting are done by the person in the app.";
+
 const PROTOCOLS: [&str; 3] = ["2025-06-18", "2025-03-26", "2024-11-05"];
 
 /// Serves MCP on stdin/stdout until stdin closes.
-pub fn serve(run: &dyn Fn(Vec<String>) -> crate::common::Out) -> std::io::Result<()> {
+pub fn serve(run: &dyn Fn(Vec<String>) -> crate::common::Out, pin: Option<&Pin>) -> std::io::Result<()> {
     crate::common::set_progress(false);
     let stdin = std::io::stdin();
     let mut stdout = std::io::stdout().lock();
@@ -644,7 +745,7 @@ pub fn serve(run: &dyn Fn(Vec<String>) -> crate::common::Out) -> std::io::Result
             Err(e) => Some(
                 json!({"jsonrpc": "2.0", "id": null, "error": {"code": -32700, "message": format!("parse error: {e}")}}),
             ),
-            Ok(msg) => handle_contained(&msg, run),
+            Ok(msg) => handle_contained(&msg, run, pin),
         };
         if let Some(r) = reply {
             writeln!(stdout, "{r}")?;
@@ -654,7 +755,7 @@ pub fn serve(run: &dyn Fn(Vec<String>) -> crate::common::Out) -> std::io::Result
     Ok(())
 }
 
-pub fn handle(msg: &Value, run: &dyn Fn(Vec<String>) -> crate::common::Out) -> Option<Value> {
+pub fn handle(msg: &Value, run: &dyn Fn(Vec<String>) -> crate::common::Out, pin: Option<&Pin>) -> Option<Value> {
     let id = msg.get("id").cloned();
     let method = msg.get("method").and_then(Value::as_str).unwrap_or("");
     let params = msg.get("params").cloned().unwrap_or(Value::Null);
@@ -668,18 +769,18 @@ pub fn handle(msg: &Value, run: &dyn Fn(Vec<String>) -> crate::common::Out) -> O
                 "protocolVersion": version,
                 "capabilities": {"tools": {"listChanged": false}},
                 "serverInfo": {"name": "openvideoeditor", "title": "OpenVideoEditor", "version": env!("CARGO_PKG_VERSION")},
-                "instructions": INSTRUCTIONS,
+                "instructions": if pin.is_some() { PINNED_INSTRUCTIONS } else { INSTRUCTIONS },
             }))
         }
         "ping" => Ok(json!({})),
-        "tools/list" => Ok(list()),
+        "tools/list" => Ok(list(pin)),
         "tools/call" => {
             let name = params.get("name").and_then(Value::as_str).unwrap_or("");
             let args = params.get("arguments").and_then(Value::as_object).cloned().unwrap_or_default();
             if tool(name).is_none() {
                 Err((-32602, format!("unknown tool: {name}")))
             } else {
-                Ok(call(name, &args, run))
+                Ok(call(name, &args, run, pin))
             }
         }
         "resources/list" => Ok(json!({"resources": []})),
@@ -694,8 +795,12 @@ pub fn handle(msg: &Value, run: &dyn Fn(Vec<String>) -> crate::common::Out) -> O
 
 /// [`handle`], with a panic anywhere in the message's handling (a tool, a command it runs) answered as a JSON-RPC
 /// internal error, so one bad call does not end the session.
-pub fn handle_contained(msg: &Value, run: &dyn Fn(Vec<String>) -> crate::common::Out) -> Option<Value> {
-    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| handle(msg, run))) {
+pub fn handle_contained(
+    msg: &Value,
+    run: &dyn Fn(Vec<String>) -> crate::common::Out,
+    pin: Option<&Pin>,
+) -> Option<Value> {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| handle(msg, run, pin))) {
         Ok(reply) => reply,
         Err(payload) => {
             let what = payload
@@ -722,36 +827,40 @@ mod tests {
     #[test]
     fn a_panicking_tool_is_an_error_reply_not_the_end() {
         let msg = call_msg("list_projects", json!({}));
-        let reply = handle_contained(&msg, &|_| panic!("tool blew up")).unwrap();
+        let reply = handle_contained(&msg, &|_| panic!("tool blew up"), None).unwrap();
         assert_eq!(reply["id"], 7);
         assert_eq!(reply["error"]["code"], -32603);
         assert!(reply["error"]["message"].as_str().unwrap().contains("tool blew up"));
         // The next message is served normally.
-        let ok = handle_contained(&msg, &|_| Ok((json!({"projects": []}), String::new()))).unwrap();
+        let ok = handle_contained(&msg, &|_| Ok((json!({"projects": []}), String::new())), None).unwrap();
         assert_eq!(ok["result"]["isError"], false);
         // A notification that panics gets no reply.
         let note = json!({"jsonrpc": "2.0", "method": "tools/call", "params": {"name": "list_projects"}});
-        assert!(handle_contained(&note, &|_| panic!("quiet")).is_none());
+        assert!(handle_contained(&note, &|_| panic!("quiet"), None).is_none());
     }
 
     #[test]
     fn timeline_text_goes_to_a_private_folder_that_is_removed() {
         let seen = std::cell::RefCell::new(None::<PathBuf>);
         let msg = call_msg("check_timeline", json!({"project": "p", "source": "<timeline />"}));
-        let reply = handle_contained(&msg, &|args| {
-            let path = PathBuf::from(args.iter().find(|a| a.ends_with(".tsx")).unwrap());
-            assert_eq!(std::fs::read_to_string(&path).unwrap(), "<timeline />");
-            let dir = path.parent().unwrap().to_path_buf();
-            assert!(dir.file_name().unwrap().to_string_lossy().starts_with("ove-mcp-"));
-            assert_ne!(dir, std::env::temp_dir(), "not directly in the shared temp folder");
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                assert_eq!(std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777, 0o700);
-            }
-            *seen.borrow_mut() = Some(dir);
-            Ok((json!({}), String::new()))
-        })
+        let reply = handle_contained(
+            &msg,
+            &|args| {
+                let path = PathBuf::from(args.iter().find(|a| a.ends_with(".tsx")).unwrap());
+                assert_eq!(std::fs::read_to_string(&path).unwrap(), "<timeline />");
+                let dir = path.parent().unwrap().to_path_buf();
+                assert!(dir.file_name().unwrap().to_string_lossy().starts_with("ove-mcp-"));
+                assert_ne!(dir, std::env::temp_dir(), "not directly in the shared temp folder");
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    assert_eq!(std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777, 0o700);
+                }
+                *seen.borrow_mut() = Some(dir);
+                Ok((json!({}), String::new()))
+            },
+            None,
+        )
         .unwrap();
         assert_eq!(reply["result"]["isError"], false, "{reply}");
         assert!(!seen.borrow().as_ref().unwrap().exists(), "removed after the call");
