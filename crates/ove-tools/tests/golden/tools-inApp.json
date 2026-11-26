@@ -170,6 +170,216 @@
     "eager_input_streaming": true
   },
   {
+    "name": "grab_frame",
+    "description": "Decode one frame of a media item or file; returns it as an image.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "project": {
+          "type": "string",
+          "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+        },
+        "media": {
+          "type": "string",
+          "description": "Media id, file name or path"
+        },
+        "at": {
+          "type": "number",
+          "description": "Time in seconds (default 0)"
+        },
+        "width": {
+          "type": "integer",
+          "description": "Width in pixels (default: source width)"
+        },
+        "grid": {
+          "type": "boolean",
+          "description": "Overlay a labelled grid in the frame's pixels from its centre, with safe-area boxes"
+        }
+      },
+      "required": [
+        "media"
+      ],
+      "additionalProperties": false
+    },
+    "eager_input_streaming": true
+  },
+  {
+    "name": "filmstrip",
+    "description": "Contact sheet of frames across a media file (or a range); returns the image and the frame times.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "project": {
+          "type": "string",
+          "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+        },
+        "media": {
+          "type": "string",
+          "description": "Media id, file name or path"
+        },
+        "count": {
+          "type": "integer",
+          "description": "Frames (default 8)"
+        },
+        "every": {
+          "type": "number",
+          "description": "One frame every N seconds"
+        },
+        "from": {
+          "type": "number",
+          "description": "Start (s)"
+        },
+        "to": {
+          "type": "number",
+          "description": "End (s)"
+        },
+        "columns": {
+          "type": "integer",
+          "description": "Columns"
+        },
+        "tileWidth": {
+          "type": "integer",
+          "description": "Tile width in pixels (default 240)"
+        },
+        "storyboard": {
+          "type": "boolean",
+          "description": "A storyboard instead: frames across the whole file, repeats dropped, at most 36 tiles with timecodes"
+        }
+      },
+      "required": [
+        "media"
+      ],
+      "additionalProperties": false
+    },
+    "eager_input_streaming": true
+  },
+  {
+    "name": "detect_scenes",
+    "description": "Hard cuts in a video: times (s) and scores.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "project": {
+          "type": "string",
+          "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+        },
+        "media": {
+          "type": "string",
+          "description": "Media id, file name or path"
+        },
+        "threshold": {
+          "type": "number",
+          "description": "0–1, default 0.3"
+        }
+      },
+      "required": [
+        "media"
+      ],
+      "additionalProperties": false
+    },
+    "eager_input_streaming": true
+  },
+  {
+    "name": "audio_levels",
+    "description": "Peak and RMS level (dBFS) per bucket across an audio or video file.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "project": {
+          "type": "string",
+          "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+        },
+        "media": {
+          "type": "string",
+          "description": "Media id, file name or path"
+        },
+        "points": {
+          "type": "integer",
+          "description": "Buckets (default 100)"
+        }
+      },
+      "required": [
+        "media"
+      ],
+      "additionalProperties": false
+    },
+    "eager_input_streaming": true
+  },
+  {
+    "name": "detect_silence",
+    "description": "Ranges quieter than a threshold for at least a minimum length — candidates for cuts.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "project": {
+          "type": "string",
+          "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+        },
+        "media": {
+          "type": "string",
+          "description": "Media id, file name or path"
+        },
+        "thresholdDb": {
+          "type": "number",
+          "description": "dBFS, default -40"
+        },
+        "minDuration": {
+          "type": "number",
+          "description": "Seconds, default 0.5"
+        }
+      },
+      "required": [
+        "media"
+      ],
+      "additionalProperties": false
+    },
+    "eager_input_streaming": true
+  },
+  {
+    "name": "look",
+    "description": "Render composited timeline frames (what the export will show) and return them as images, optionally with brightness stats.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "project": {
+          "type": "string",
+          "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+        },
+        "at": {
+          "type": "string",
+          "description": "Times in seconds, comma-separated"
+        },
+        "every": {
+          "type": "number",
+          "description": "One frame every N seconds"
+        },
+        "count": {
+          "type": "integer",
+          "description": "Frames across the timeline (default 6)"
+        },
+        "width": {
+          "type": "integer",
+          "description": "Pixels (default 640)"
+        },
+        "stats": {
+          "type": "boolean",
+          "description": "Brightness and black/clipped shares"
+        },
+        "grid": {
+          "type": "boolean",
+          "description": "Overlay a labelled grid in transform units (pixels from the canvas centre) with title-safe and action-safe boxes"
+        },
+        "storyboard": {
+          "type": "boolean",
+          "description": "One storyboard sheet of the whole timeline instead: repeats dropped, at most 36 tiles, each with its timecode and the ids of the visible items"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "eager_input_streaming": true
+  },
+  {
     "name": "seek",
     "description": "Move the app's playhead to a time in seconds so the person sees that moment.",
     "input_schema": {

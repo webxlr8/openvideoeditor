@@ -75,6 +75,18 @@ Both keep every other change. When a later change by someone else touched the sa
 `undo.notYours`. People can undo any session's changes from the command line with
 `ove undo <project> --any --session <id>`.
 
+## Frames for agents
+
+- `look` and `grab_frame` take `grid: true`: the returned image carries a labelled grid in the units item transforms
+  use (reference pixels from the canvas centre: x to the right, y down; lines every twelfth of the canvas width, so
+  160 on a 1920-wide canvas), plus the title-safe (80 %) and action-safe (90 %) boxes. A `grab_frame` grid is in the
+  frame's own pixels. The grid is drawn only on these returned frames, never in export.
+- `filmstrip` and `look` take `storyboard: true`: about 120 frames across the whole file or timeline, repeats
+  dropped, at most 36 tiles in 6 columns. Each tile has its timecode burned in; on timeline sheets also the ids of
+  the items visible then. The receipt lists each tile's `at`, `timecode` and `items`.
+- The in-app assistant has the frame and analysis tools too: `look`, `grab_frame`, `filmstrip`, `detect_scenes`,
+  `audio_levels` and `detect_silence`. Their images reach it as image blocks.
+
 ## Examples
 
 ```sh
@@ -105,14 +117,14 @@ ove source print Nope                              # exit 1
 | `remove_media` |  | mcp, pinned | destructive | `project`? `media` |
 | `relink_media` |  | mcp, pinned | write | `project`? `media`? `path`? `folder`? |
 | `probe_media` |  | mcp, pinned | read | `project`? `media` |
-| `grab_frame` |  | mcp, pinned | read | `project`? `media` `at`? `width`? |
-| `filmstrip` |  | mcp, pinned | read | `project`? `media` `count`? `every`? `from`? `to`? `columns`? `tileWidth`? |
-| `detect_scenes` |  | mcp, pinned | read | `project`? `media` `threshold`? |
-| `audio_levels` |  | mcp, pinned | read | `project`? `media` `points`? |
+| `grab_frame` |  | in-app, mcp, pinned | read | `project`? `media` `at`? `width`? `grid`? |
+| `filmstrip` |  | in-app, mcp, pinned | read | `project`? `media` `count`? `every`? `from`? `to`? `columns`? `tileWidth`? `storyboard`? |
+| `detect_scenes` |  | in-app, mcp, pinned | read | `project`? `media` `threshold`? |
+| `audio_levels` |  | in-app, mcp, pinned | read | `project`? `media` `points`? |
 | `waveform_image` |  | mcp, pinned | read | `project`? `media` `width`? `height`? |
-| `detect_silence` |  | mcp, pinned | read | `project`? `media` `thresholdDb`? `minDuration`? |
+| `detect_silence` |  | in-app, mcp, pinned | read | `project`? `media` `thresholdDb`? `minDuration`? |
 | `measure_loudness` |  | mcp, pinned | read | `project`? `media` |
-| `look` |  | mcp, pinned | read | `project`? `at`? `every`? `count`? `width`? `stats`? |
+| `look` |  | in-app, mcp, pinned | read | `project`? `at`? `every`? `count`? `width`? `stats`? `grid`? `storyboard`? |
 | `screenshot` |  | mcp, pinned | read, app | `width`? |
 | `export_video` |  | mcp, pinned | write | `project`? `out` `height`? `fps`? |
 | `export_timeline_file` |  | mcp, pinned | read | `project`? `file` `fps`? |

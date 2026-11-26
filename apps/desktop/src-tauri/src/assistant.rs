@@ -458,7 +458,7 @@ impl ToolHost for DesktopHost {
         &mut self,
         tool: &'static ove_tools::ToolSpec,
         args: &serde_json::Map<String, serde_json::Value>,
-    ) -> Option<Result<String, String>> {
+    ) -> Option<Result<ove_agent::tools::ToolOutput, String>> {
         if matches!(tool.name, "add_media" | "seek") {
             return None;
         }
@@ -468,7 +468,11 @@ impl ToolHost for DesktopHost {
             Some((chat, turn)) => ove_tools::AppCtx::assistant_in(&mut host, chat, turn),
             None => ove_tools::AppCtx::assistant(&mut host),
         };
-        Some(ove_tools::call(&mut ctx, tool.name, args).map(|r| tool.model_text(&r)).map_err(|f| f.model_text()))
+        Some(
+            ove_tools::call(&mut ctx, tool.name, args)
+                .map(|r| ove_agent::tools::ToolOutput { text: tool.model_text(&r), images: r.images })
+                .map_err(|f| f.model_text()),
+        )
     }
     fn ask_user(&mut self, question_id: &str, _question: &str, _options: &[String]) -> Result<String, String> {
         let state = self.app.state::<AppState>();

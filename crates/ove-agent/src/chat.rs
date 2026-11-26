@@ -27,6 +27,9 @@ pub enum Record {
         #[serde(default)]
         is_error: bool,
     },
+    /// PNG images (base64) a tool returned with its result, sent to the model as image blocks inside that result.
+    #[serde(rename_all = "camelCase")]
+    ToolImages { tool_use_id: String, images: Vec<String> },
     #[serde(rename_all = "camelCase")]
     Question { id: String, questions: Vec<QuestionItem> },
     /// The end of a turn: its cost and token usage (`thread_usage` is the turn's own), and the note it stopped
@@ -374,6 +377,23 @@ pub fn messages(records: &[Record]) -> Vec<Value> {
                     b["is_error"] = json!(true);
                 }
                 push_user(&mut msgs, b);
+            }
+            Record::ToolImages { tool_use_id, images } => {
+                // Into the result it belongs to: its content becomes the text plus the images.
+                let block = msgs.last_mut().and_then(|m| m["content"].as_array_mut()).and_then(|c| {
+                    c.iter_mut().rev().find(|b| b["type"] == "tool_result" && b["tool_use_id"] == *tool_use_id)
+                });
+                if let Some(b) = block {
+                    let mut content = match b["content"].take() {
+                        Value::String(t) => vec![json!({"type": "text", "text": t})],
+                        Value::Array(a) => a,
+                        _ => vec![],
+                    };
+                    content.extend(images.iter().map(|d| {
+                        json!({"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": d}})
+                    }));
+                    b["content"] = Value::Array(content);
+                }
             }
             _ => {}
         }

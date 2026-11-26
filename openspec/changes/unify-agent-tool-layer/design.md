@@ -287,3 +287,21 @@ Additive. Old bundles open unchanged. The MCP whole-file `source` mode stays. Th
 - Task 4.2 is open: the app holds one project at a time (`projects.open`), so "a project open in the app but not in
   front" needs multi-window support first; through the control link, a write to a project the app does not hold
   goes to the bundle on disk, and one to the held project goes through the app.
+
+### Group 5: frames for agents
+
+- Grid: lines every twelfth of the reference width (160 units on 16:9, 90 on 9:16), so they fall on round transform
+  values; the design's "every 10 %" gave 192-unit steps on which a value such as −320 has no line. Labels use our own
+  3×5 bitmap glyphs (digits, lower-case letters, `-`, `_`, `:`, `.`). Golden pictures:
+  `crates/ove-analyze/tests/golden/grid-16x9-640.png` and `grid-9x16-360.png`.
+- Grid units check: a title with transform x = −320 rendered 640 px wide has its bright pixels centred within 4 px of
+  the grid line labelled −320 (213.3 px). Rendering the same frame again after grid frames were made gives
+  identical pixels (export path unchanged).
+- Storyboard: 120 samples, keyframe-snapped for media files (seek, then the first decoded frame), a frame is kept
+  when its 8×8 luma grid differs by 6 or more (0–255 scale) from the last kept frame, or on timeline sheets when
+  other items are visible. Above 36, the frame most like its predecessor is dropped until 36 remain.
+- 10-minute fixture (9 shots of 40–95 s, 160×90, 10 fps): 9 tiles, one in every shot `detect_scenes` reports;
+  2.1 s for the storyboard and scene detection together (debug build).
+- `look` gives the same receipt and image bytes in-app (`AppCtx`) and over MCP (`BundleCtx`), with and without the
+  grid. The in-app assistant's chat log stores a tool's images in a `toolImages` record after its result, and the
+  request turns them into image blocks inside that tool result.

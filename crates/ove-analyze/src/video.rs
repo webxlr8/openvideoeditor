@@ -10,7 +10,7 @@ use crate::{Error, Result};
 
 const US: f64 = 1_000_000.0;
 
-fn open(path: &Path, max_width: u32) -> Result<ove_media::FallbackDecoder> {
+pub(crate) fn open(path: &Path, max_width: u32) -> Result<ove_media::FallbackDecoder> {
     ove_media::init();
     let opts = DecoderOptions {
         hwaccel: HwAccel::Off,
@@ -97,7 +97,7 @@ fn grab_from(dec: &mut ove_media::FallbackDecoder, path: &Path, at: f64, width: 
     })
 }
 
-fn duration_of(path: &Path) -> Result<f64> {
+pub(crate) fn duration_of(path: &Path) -> Result<f64> {
     let info = ove_media::probe(path)?;
     Ok(info.video.as_ref().and_then(|v| v.duration_us).or(info.duration_us).unwrap_or(0) as f64 / US)
 }

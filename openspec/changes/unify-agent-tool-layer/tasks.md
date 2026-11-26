@@ -51,15 +51,15 @@
 
 ## 5. Frames for agents
 
-- [ ] 5.1 Add the grid overlay (transform units, safe boxes, built-in bitmap digits) to `look` and `grab_frame` in
+- [x] 5.1 Add the grid overlay (transform units, safe boxes, built-in bitmap digits) to `look` and `grab_frame` in
       `ove-analyze`. Verify:
       - golden PNGs;
       - the grid-units scenario on a fixture;
       - a golden test that export frames are unchanged.
-- [ ] 5.2 Add storyboard mode (keyframe-snapped sampling, near-duplicates dropped, at most 36 tiles, timecodes, visible
+- [x] 5.2 Add storyboard mode (keyframe-snapped sampling, near-duplicates dropped, at most 36 tiles, timecodes, visible
       item ids on timeline sheets). Verify: on a 10-minute fixture, at most 36 tiles and at least one tile per shot
       reported by `detect_scenes`.
-- [ ] 5.3 Expose the frame and analysis tools to the in-app assistant. Verify: an agent test with a mock model whose turn
+- [x] 5.3 Expose the frame and analysis tools to the in-app assistant. Verify: an agent test with a mock model whose turn
       calls `look` and receives an image block.
 
 ## 6. Generation tools

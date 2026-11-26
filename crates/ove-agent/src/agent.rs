@@ -12,7 +12,7 @@ use crate::chat::{
     ChatStore, QuestionItem, QuestionOption, Record, estimate_tokens, messages, summary_cut, transcript, user_indices,
 };
 use crate::prompt::SYSTEM_PROMPT;
-use crate::tools::{ToolHost, definitions, dispatch, label};
+use crate::tools::{ToolHost, definitions, dispatch_full, label};
 
 /// Default spend cap per turn, in US dollars.
 pub const DEFAULT_TURN_CAP_USD: f64 = 2.0;
@@ -456,6 +456,7 @@ pub fn run_turn(
                     .map_err(io)?;
                 continue;
             }
+            let mut images: Vec<String> = Vec::new();
             let (ok, out) = if let Some((_, raw)) = resp.invalid_tool_inputs.iter().find(|(i, _)| *i == id) {
                 (false, json!({"INVALID_JSON": raw}).to_string())
             } else if truncated {
@@ -480,13 +481,21 @@ pub fn run_turn(
                     store.append(chat_id, &Record::Question { id: id.clone(), questions: vec![item] }).map_err(io)?;
                     emit(AgentEvent::Question { id: id.clone(), question: q, options: opts });
                 }
-                match dispatch(host, &id, &name, &call["input"]) {
-                    Ok(s) => (true, s),
+                match dispatch_full(host, &id, &name, &call["input"]) {
+                    Ok(o) => {
+                        images = o.images.iter().map(|p| ove_tools::receipt::base64(&p.bytes)).collect();
+                        (true, o.text)
+                    }
                     Err(e) => (false, e),
                 }
             };
             emit(AgentEvent::ToolResult { id: id.clone(), ok, summary: summarize_result(&name, ok, &out) });
-            store.append(chat_id, &Record::ToolResult { tool_use_id: id, text: out, is_error: !ok }).map_err(io)?;
+            store
+                .append(chat_id, &Record::ToolResult { tool_use_id: id.clone(), text: out, is_error: !ok })
+                .map_err(io)?;
+            if !images.is_empty() {
+                store.append(chat_id, &Record::ToolImages { tool_use_id: id, images }).map_err(io)?;
+            }
             let made = host.take_revisions();
             if !made.is_empty() {
                 store.append(chat_id, &Record::Revisions { turn: turn_id.clone(), revs: made.clone() }).map_err(io)?;

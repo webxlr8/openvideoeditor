@@ -32,7 +32,7 @@ pub trait ToolHost: Send {
     }
     /// Runs any registry tool with the full arguments (hosts over the app's open project run them through
     /// `ove_tools::AppCtx`). `None`: this host has no generic runner, so the tool's dedicated method above is used.
-    fn run_tool(&mut self, _tool: &'static ToolSpec, _args: &Map<String, Value>) -> Option<Result<String, String>> {
+    fn run_tool(&mut self, _tool: &'static ToolSpec, _args: &Map<String, Value>) -> Option<Result<ToolOutput, String>> {
         None
     }
     /// A turn starts: the chat (the assistant's session) and turn its edits are recorded under.
@@ -79,6 +79,22 @@ impl ApplyRequest {
     }
 }
 
+/// A tool's result for the model: text, and images (frames, sheets) sent as image blocks.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ToolOutput {
+    pub text: String,
+    pub images: Vec<ove_tools::Png>,
+}
+
+impl From<String> for ToolOutput {
+    fn from(text: String) -> ToolOutput {
+        ToolOutput { text, images: Vec::new() }
+    }
+}
+
+/// Most images one tool call sends to the model.
+pub const MAX_IMAGES: usize = 12;
+
 /// Tool definitions, in the registry's fixed order (the request prefix must stay byte-stable for prompt caching).
 pub fn definitions() -> Vec<Value> {
     ove_tools::anthropic_list()
@@ -110,6 +126,16 @@ pub fn label(name: &str, input: &Value) -> String {
 
 /// Validates a tool input against the registry and runs it on the host. `Err` is an error result for the model.
 pub fn dispatch(host: &mut dyn ToolHost, tool_use_id: &str, name: &str, input: &Value) -> Result<String, String> {
+    dispatch_full(host, tool_use_id, name, input).map(|o| o.text)
+}
+
+/// [`dispatch`] with the images the tool returned.
+pub fn dispatch_full(
+    host: &mut dyn ToolHost,
+    tool_use_id: &str,
+    name: &str,
+    input: &Value,
+) -> Result<ToolOutput, String> {
     let spec = ove_tools::find(name)
         .filter(|t| t.on(Surface::InApp))
         .ok_or_else(|| ove_tools::unknown(name, Surface::InApp).model_text())?;
@@ -123,10 +149,13 @@ pub fn dispatch(host: &mut dyn ToolHost, tool_use_id: &str, name: &str, input: &
             .and_then(Value::as_array)
             .map(|o| o.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
             .unwrap_or_default();
-        return host.ask_user(tool_use_id, q, &options);
+        return host.ask_user(tool_use_id, q, &options).map(ToolOutput::from);
     }
     if let Some(r) = host.run_tool(spec, args) {
-        return r;
+        return r.map(|mut o| {
+            o.images.truncate(MAX_IMAGES);
+            o
+        });
     }
     let positive = |k: &str| -> Result<Option<usize>, String> {
         match a.i64(k) {
@@ -135,7 +164,7 @@ pub fn dispatch(host: &mut dyn ToolHost, tool_use_id: &str, name: &str, input: &
             Some(_) => Err(format!("`{k}` must be a positive integer")),
         }
     };
-    match spec.name {
+    let r = match spec.name {
         "print_timeline" => host.print_timeline(positive("from")?, positive("lines")?),
         "apply_timeline" => {
             let req = ApplyRequest {
@@ -168,7 +197,8 @@ pub fn dispatch(host: &mut dyn ToolHost, tool_use_id: &str, name: &str, input: &
             host.check_code(c, d)
         }
         other => Err(format!("`{other}` is not available here")),
-    }
+    };
+    r.map(ToolOutput::from)
 }
 
 /// Runs a registry tool on a project the caller holds, as the assistant: the model's text, or the refusal's.

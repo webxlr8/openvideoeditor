@@ -27,7 +27,7 @@ impl Image {
         [self.rgba[i], self.rgba[i + 1], self.rgba[i + 2], self.rgba[i + 3]]
     }
 
-    fn put(&mut self, x: u32, y: u32, c: [u8; 4]) {
+    pub(crate) fn put(&mut self, x: u32, y: u32, c: [u8; 4]) {
         let i = ((y * self.width + x) * 4) as usize;
         self.rgba[i..i + 4].copy_from_slice(&c);
     }

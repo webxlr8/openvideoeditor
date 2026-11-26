@@ -74,6 +74,26 @@ mod imp {
         if ctx.surface().is_agent() { Ok(vec![png(img)?]) } else { Ok(vec![]) }
     }
 
+    /// A copy of the frame with the coordinate grid of a canvas of `reference` units, when given.
+    fn with_grid(img: &ove_analyze::Image, reference: Option<(u32, u32)>) -> ove_analyze::Image {
+        let mut out = img.clone();
+        if let Some(r) = reference {
+            ove_analyze::grid::overlay(&mut out, r);
+        }
+        out
+    }
+
+    /// What the grid means, for the receipt.
+    fn grid_json(reference: (u32, u32)) -> Value {
+        json!({
+            "units": "transform units: reference pixels from the canvas centre, x right, y down",
+            "reference": [reference.0, reference.1],
+            "step": ove_analyze::grid::step(reference),
+            "titleSafe": 0.8,
+            "actionSafe": 0.9,
+        })
+    }
+
     fn fmt_db(v: Option<f64>) -> String {
         v.map(|x| format!("{x:.1}")).unwrap_or_else(|| "-inf".into())
     }
@@ -95,7 +115,9 @@ mod imp {
         let at = a.f64("at").unwrap_or(0.0);
         let width = a.i64("width").map(|w| w.clamp(2, 7680) as u32);
         let out = out(a);
-        let img = ove_analyze::grab(&file, at, width).map_err(fail)?;
+        let raw = ove_analyze::grab(&file, at, width).map_err(fail)?;
+        // A media frame's grid is in its own pixels from the centre.
+        let img = with_grid(&raw, a.bool("grid").then_some((raw.width, raw.height)));
         let images = deliver(ctx, &img, out.as_deref())?;
         let mut v =
             json!({"width": img.width, "height": img.height, "at": at, "stats": ove_analyze::frame_stats(&img)});
@@ -136,6 +158,10 @@ mod imp {
         };
         let file = media_or_file(ctx, a)?;
         let out = out(a);
+        if a.bool("storyboard") {
+            let (img, tiles) = ove_analyze::storyboard::media(&file, opts.tile_width).map_err(fail)?;
+            return storyboard_receipt(ctx, img, &tiles, out.as_deref(), None);
+        }
         let (img, times) = ove_analyze::filmstrip(&file, &opts).map_err(fail)?;
         let images = deliver(ctx, &img, out.as_deref())?;
         let list = times.iter().map(|t| format!("{t:.2}")).collect::<Vec<_>>().join(", ");
@@ -214,9 +240,39 @@ mod imp {
         Ok(Receipt::new(serde_json::to_value(&l).unwrap_or(Value::Null), text))
     }
 
+    /// A storyboard sheet: the image, and each tile's time and visible items.
+    fn storyboard_receipt(
+        ctx: &dyn ToolCtx,
+        img: ove_analyze::Image,
+        tiles: &[ove_analyze::storyboard::Tile],
+        out: Option<&Path>,
+        rev: Option<i64>,
+    ) -> Result<Receipt, Fail> {
+        let images = deliver(ctx, &img, out)?;
+        let list: Vec<Value> = tiles
+            .iter()
+            .map(|t| json!({"at": (t.at * 1000.0).round() / 1000.0, "timecode": ove_analyze::storyboard::timecode(t.at), "items": t.items}))
+            .collect();
+        let mut v = json!({"storyboard": true, "width": img.width, "height": img.height, "columns": ove_analyze::storyboard::COLUMNS, "tiles": list});
+        if let Some(r) = rev {
+            v["rev"] = json!(r);
+        }
+        if let Some(o) = out {
+            v["path"] = json!(o);
+        }
+        let text = format!("{} ({}x{}): storyboard of {} tiles", wrote(out), img.width, img.height, tiles.len());
+        Ok(Receipt::new(v, text).with_images(images))
+    }
+
     pub fn look(ctx: &mut dyn ToolCtx, a: &Args) -> Result<Receipt, Fail> {
         let bundle = ctx.bundle(a.project())?;
         let (doc, bundle, rev) = snapshot(ctx, &bundle)?;
+        if a.bool("storyboard") {
+            let width = a.u32_or("width", 240).clamp(16, 1920);
+            let (img, tiles) = ove_analyze::storyboard::timeline(&doc, Some(&bundle), width).map_err(fail)?;
+            let sheet = a.str("sheet").map(PathBuf::from);
+            return storyboard_receipt(ctx, img, &tiles, sheet.as_deref(), Some(rev));
+        }
         let times = match a.str("at") {
             Some(s) => parse_times(s)?,
             None => ove_analyze::timeline_times(&doc, a.u32_or("count", 6).max(1), a.f64("every")),
@@ -234,20 +290,24 @@ mod imp {
         }
         let images =
             ove_analyze::look(&doc, Some(&bundle), &times, a.u32_or("width", 640).clamp(16, 3840)).map_err(fail)?;
+        let reference = ove_render::eval::reference_size(&doc.project.aspect_ratio);
+        let grid = a.bool("grid");
+        // What is shown (with the grid when asked); statistics are of the frame itself.
+        let shown: Vec<ove_analyze::Image> = images.iter().map(|i| with_grid(i, grid.then_some(reference))).collect();
         let mut frames = Vec::new();
         let mut pngs = Vec::new();
-        for (t, img) in times.iter().zip(&images) {
+        for ((t, img), seen) in times.iter().zip(&images).zip(&shown) {
             let mut f = json!({"at": t, "width": img.width, "height": img.height});
             if let Some(dir) = &out {
                 let path = dir.join(format!("frame-{:08.3}.png", t));
-                write_png(img, &path)?;
+                write_png(seen, &path)?;
                 f["path"] = json!(path);
             }
             if stats {
                 f["stats"] = serde_json::to_value(ove_analyze::frame_stats(img)).unwrap_or(Value::Null);
             }
             if agent {
-                pngs.push(png(img)?);
+                pngs.push(png(seen)?);
             }
             frames.push(f);
         }
@@ -260,12 +320,15 @@ mod imp {
             text.push_str(&format!(" → {}", dir.display()));
         }
         let mut v = json!({"rev": rev, "frames": frames});
+        if grid {
+            v["grid"] = grid_json(reference);
+        }
         if let Some(sheet) = &sheet {
             let cols = match a.u32_or("columns", 0) {
                 0 => (images.len() as f64).sqrt().ceil() as u32,
                 c => c,
             };
-            let img = ove_analyze::sheet(&images, cols.max(1));
+            let img = ove_analyze::sheet(&shown, cols.max(1));
             write_png(&img, sheet)?;
             v["sheet"] = json!({"path": sheet, "width": img.width, "height": img.height});
             text.push_str(&format!("; sheet {}", sheet.display()));

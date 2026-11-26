@@ -403,6 +403,10 @@
           "width": {
             "type": "integer",
             "description": "Width in pixels (default: source width)"
+          },
+          "grid": {
+            "type": "boolean",
+            "description": "Overlay a labelled grid in the frame's pixels from its centre, with safe-area boxes"
           }
         },
         "required": [
@@ -453,6 +457,10 @@
           "tileWidth": {
             "type": "integer",
             "description": "Tile width in pixels (default 240)"
+          },
+          "storyboard": {
+            "type": "boolean",
+            "description": "A storyboard instead: frames across the whole file, repeats dropped, at most 36 tiles with timecodes"
           }
         },
         "required": [
@@ -649,6 +657,14 @@
           "stats": {
             "type": "boolean",
             "description": "Brightness and black/clipped shares"
+          },
+          "grid": {
+            "type": "boolean",
+            "description": "Overlay a labelled grid in transform units (pixels from the canvas centre) with title-safe and action-safe boxes"
+          },
+          "storyboard": {
+            "type": "boolean",
+            "description": "One storyboard sheet of the whole timeline instead: repeats dropped, at most 36 tiles, each with its timecode and the ids of the visible items"
           }
         },
         "required": [],
