@@ -30,11 +30,11 @@
 
 ## 3. Rebase in merge
 
-- [ ] 3.1 Record a time map on each ripple revision in `ove-core`; verify old revision records still decode (fuzz the
+- [x] 3.1 Record a time map on each ripple revision in `ove-core`; verify old revision records still decode (fuzz the
       decoder with old and new records).
-- [ ] 3.2 Map file-side times through later time maps in `ove-projection` merge; verify property: GUI ripple then agent
+- [x] 3.2 Map file-side times through later time maps in `ove-projection` merge; verify property: GUI ripple then agent
       edit equals the sequential result (10,000 cases), and added items keep their times.
-- [ ] 3.3 Report a ripple's touched set as one conflict group; verify with a forced-conflict property test.
+- [x] 3.3 Report a ripple's touched set as one conflict group; verify with a forced-conflict property test.
 
 ## 4. Links
 

@@ -230,7 +230,14 @@ pub(crate) fn plan_and_apply(app: &AppHandle, state: &AppState, req: ove_edit::R
         let p = g.as_ref().ok_or_else(|| bad("No project is open."))?;
         return Ok(crate::projects::cached_view(app, state, p));
     }
-    edit(app, state, plan.ops, &plan.summary)
+    if plan.time_map.is_empty() {
+        return edit(app, state, plan.ops, &plan.summary);
+    }
+    // A ripple records how it moved time, so a projection printed before it rebases onto it.
+    let mut g = lock(&state.projects.open)?;
+    let p = g.as_mut().ok_or_else(|| bad("No project is open."))?;
+    p.apply_mapped(plan.ops, ove_core::revision::Source::Gui, Some(plan.summary), plan.time_map)?;
+    crate::projects::emit_view(app, Some(p)).ok_or_else(|| AppError::new(ErrorCode::Internal, "No project is open."))
 }
 
 /// Trims an item's start or end edge to `time` (seconds on the timeline), keeping the source in sync and within the

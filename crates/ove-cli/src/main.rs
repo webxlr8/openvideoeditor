@@ -271,14 +271,17 @@ fn plan_for(p: &Project, text: &str, prefer: Prefer) -> Result<Plan, Refusal> {
             message: format!("the projection's base revision {rev} is not available ({e})"),
         })
     };
-    ove_projection::plan(&ApplyInput {
-        text,
-        current: p.doc(),
-        base_for: &base_for,
-        bundle: Some(p.bundle()),
-        prefer,
-        now_ms: ove_core::Clock::now_ms(&ove_core::SystemClock),
-    })
+    ove_projection::plan_rebased(
+        &ApplyInput {
+            text,
+            current: p.doc(),
+            base_for: &base_for,
+            bundle: Some(p.bundle()),
+            prefer,
+            now_ms: ove_core::Clock::now_ms(&ove_core::SystemClock),
+        },
+        &|rev| p.ripples_since(rev),
+    )
 }
 
 fn plan_json(p: &Plan) -> Value {

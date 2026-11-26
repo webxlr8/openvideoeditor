@@ -93,7 +93,9 @@ Aspects: 16:9, 4:3, 3:4, 9:16, 1:1, 4:5.
    by default, `--prefer editor` keeps GUI values; conflicts are reported.
 4. Items without `id` are new; items missing from the file are removed (reported as "removed N items"); a changed id
    means replace (loses undo trail).
-5. New revision written to `.revs/`; open app applies live (~200 ms) as one undo step.
+5. New revision written to `.revs/`; open app applies live (~200 ms) as one undo step. A ripple revision also
+   records a time map (`timeMap`: per track, steps `{at, delta}` in microseconds); a file printed before a ripple
+   has the times of the items it changed rebased through those maps before step 3.
 6. `pending` items render nothing, block export, and are counted by verify; filling keeps the id.
 
 MCP variant: `apply_timeline({project, rev, edits:[{oldText,newText}]})` — each oldText unique in the printed file,

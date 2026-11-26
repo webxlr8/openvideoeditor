@@ -139,6 +139,11 @@ verify (error). Filling = setting `src` and removing `pending`: the id, position
    aspect and fps are single values under the same rule. When the apply removes every other member of a link
    group, the plan lists the item left alone (`orphanedLinks`).
 5. A new item identical to one the editor gained since the base (the same file applied twice) is already applied.
+   Ripple edits made since the base (ripple delete, ripple trim, insert, extract, close gap, and their undo and
+   redo) are replayed onto the file first: for every item the file changed that is also in the base, the base's
+   start and end pass through each ripple's time map, and the file's start and end keep their distance from them.
+   So a file that moves item B 1 s later lands B 1 s after where the ripple put it. Items the file did not change,
+   and items the file adds, are not mapped. Conflicts on items a ripple touched carry `group: "ripple <rev>"`.
 6. The result is one batch through the document pipeline (invariants enforced, one revision, one undo step); an empty
    change set creates no revision.
 

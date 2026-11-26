@@ -6,6 +6,7 @@ use crate::diff::diff_documents;
 use crate::model::Document;
 use crate::ops::{BatchError, Op, apply_batch, summarise};
 use crate::schema::Issue;
+use crate::timemap::TimeMap;
 
 /// Where a batch came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -48,6 +49,10 @@ pub struct RevisionRecord {
     pub summary: String,
     pub ops: Vec<Op>,
     pub inverse: Vec<Op>,
+    /// How a ripple edit moved time per track, so projections printed before it can be rebased (absent for every
+    /// other batch and in records written before time maps existed).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub time_map: Option<TimeMap>,
 }
 
 /// Source of wall-clock time, injectable for tests.
@@ -79,6 +84,14 @@ pub struct Prepared {
     kind: StackAction,
 }
 
+impl Prepared {
+    /// Records how a ripple moved time (see [`TimeMap`]) on this batch. An empty map is not recorded.
+    pub fn with_time_map(mut self, map: TimeMap) -> Self {
+        self.record.time_map = (!map.is_empty()).then_some(map);
+        self
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum StackAction {
     Normal,
@@ -92,6 +105,8 @@ struct StackEntry {
     forward: Vec<Op>,
     inverse: Vec<Op>,
     summary: String,
+    /// The batch's time map, so its undo and redo record how they move time too.
+    time_map: Option<TimeMap>,
 }
 
 /// An open document with session-scoped undo/redo stacks. One batch = one undo step, whatever its source.
@@ -161,6 +176,7 @@ impl Session {
                 summary,
                 ops,
                 inverse: applied.inverse,
+                time_map: None,
             },
             warnings: applied.warnings,
             kind,
@@ -181,25 +197,31 @@ impl Session {
     /// Prepares undo of the most recent batch on the undo stack, or `None` when there is nothing to undo.
     pub fn prepare_undo(&self, clock: &dyn Clock) -> Option<Result<Prepared, BatchError>> {
         let e = self.undo.last()?;
-        Some(self.prepare_ops(
-            e.inverse.clone(),
-            Source::Undo,
-            Some(format!("undo: {}", e.summary)),
-            clock.now_ms(),
-            StackAction::Undo,
-        ))
+        Some(
+            self.prepare_ops(
+                e.inverse.clone(),
+                Source::Undo,
+                Some(format!("undo: {}", e.summary)),
+                clock.now_ms(),
+                StackAction::Undo,
+            )
+            .map(|p| p.with_time_map(e.time_map.as_ref().map(TimeMap::inverse).unwrap_or_default())),
+        )
     }
 
     /// Prepares redo of the most recently undone batch, or `None`.
     pub fn prepare_redo(&self, clock: &dyn Clock) -> Option<Result<Prepared, BatchError>> {
         let e = self.redo.last()?;
-        Some(self.prepare_ops(
-            e.forward.clone(),
-            Source::Redo,
-            Some(format!("redo: {}", e.summary)),
-            clock.now_ms(),
-            StackAction::Redo,
-        ))
+        Some(
+            self.prepare_ops(
+                e.forward.clone(),
+                Source::Redo,
+                Some(format!("redo: {}", e.summary)),
+                clock.now_ms(),
+                StackAction::Redo,
+            )
+            .map(|p| p.with_time_map(e.time_map.clone().unwrap_or_default())),
+        )
     }
 
     /// Prepares a batch that turns the current document into `target` (the document at an earlier revision).
@@ -234,6 +256,7 @@ impl Session {
                     forward: r.ops.clone(),
                     inverse: r.inverse.clone(),
                     summary: r.summary.clone(),
+                    time_map: r.time_map.clone(),
                 });
             }
             // `prepare_undo`/`prepare_redo` only produce these when the stack has an entry.
@@ -270,6 +293,48 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
+
+    fn record(with_map: bool) -> RevisionRecord {
+        let mut map = TimeMap::default();
+        map.push("v", crate::timemap::Step { at: 6_000_000, delta: -2_000_000 });
+        RevisionRecord {
+            rev: 10,
+            parent: 9,
+            time: 10,
+            source: Source::Gui,
+            summary: "ripple delete".into(),
+            ops: vec![Op::RemoveItems { ids: vec!["a".into()] }],
+            inverse: vec![],
+            time_map: with_map.then_some(map),
+        }
+    }
+
+    #[test]
+    fn records_with_and_without_a_time_map_round_trip() {
+        let old = r#"{"rev":10,"parent":9,"time":10,"source":"gui","summary":"ripple delete","ops":[{"op":"removeItems","ids":["a"]}],"inverse":[]}"#;
+        let r: RevisionRecord = serde_json::from_str(old).expect("an old record decodes");
+        assert_eq!(r, record(false));
+        assert_eq!(serde_json::to_string(&r).expect("encodes"), old, "no timeMap key is written when there is none");
+        let new = record(true);
+        let text = serde_json::to_string(&new).expect("encodes");
+        assert!(text.contains(r#""timeMap":{"tracks":{"v":[{"at":6000000,"delta":-2000000}]}}"#), "{text}");
+        assert_eq!(serde_json::from_str::<RevisionRecord>(&text).expect("decodes"), new);
+    }
+
+    proptest! {
+        /// Old and new records decode; damaged records are an error, never a panic.
+        #[test]
+        fn record_decoder_fuzz(with_map in any::<bool>(), cut in 0usize..400, byte in any::<u8>(), at in 0usize..400) {
+            let text = serde_json::to_string(&record(with_map)).expect("encodes");
+            prop_assert_eq!(serde_json::from_str::<RevisionRecord>(&text).ok(), Some(record(with_map)));
+            let mut bytes = text.into_bytes();
+            bytes.truncate(cut.max(1).min(bytes.len()));
+            let i = at % bytes.len();
+            bytes[i] = byte;
+            let _ = serde_json::from_slice::<RevisionRecord>(&bytes);
+        }
+    }
 
     #[test]
     fn rev_is_monotonic_with_frozen_and_backwards_clock() {

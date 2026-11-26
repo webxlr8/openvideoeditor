@@ -298,14 +298,17 @@ pub fn apply(p: &mut Project, req: ApplyRequest) -> Result<String, String> {
         let pr: &Project = p;
         let base_for =
             |rev: i64| pr.doc_at(rev).map_err(|e| BaseError { code: e.code().to_string(), message: e.to_string() });
-        ove_projection::plan(&ApplyInput {
-            text: &text,
-            current: pr.doc(),
-            base_for: &base_for,
-            bundle: Some(pr.bundle()),
-            prefer,
-            now_ms: ove_core::Clock::now_ms(&ove_core::SystemClock),
-        })
+        ove_projection::plan_rebased(
+            &ApplyInput {
+                text: &text,
+                current: pr.doc(),
+                base_for: &base_for,
+                bundle: Some(pr.bundle()),
+                prefer,
+                now_ms: ove_core::Clock::now_ms(&ove_core::SystemClock),
+            },
+            &|rev| pr.ripples_since(rev),
+        )
     };
     let plan = plan.map_err(|r| {
         let mut s = format!("Refused ({}): {}", r.code, r.message);

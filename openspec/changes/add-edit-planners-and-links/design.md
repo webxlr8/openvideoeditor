@@ -148,3 +148,22 @@ Measured on the Windows 11 x64 development machine (not a reference machine), 20
   undone with its inverse back to the original. Property run time 0.15 s; `cargo test -p ove-desktop --lib` 75
   passed.
 
+**Group 3 (rebase in merge).**
+- Revision records carry an optional `timeMap` (per track, steps `{at, delta}` in microseconds). Old records decode
+  unchanged and records without a map write no key (round-trip test plus a decoder fuzz property over truncated and
+  corrupted old and new records). The undo of a ripple records the inverse map and its redo the same map, so a file
+  printed before an undone ripple is not shifted.
+- Rebase is relative: for an item the file changed, each base edge maps through the ripples, and the file edge keeps
+  its offset from the base edge. Mapping both edges independently was tried first and failed the property test (an
+  item moved across the ripple point was stretched). An item end exactly at an opening stays (it belongs to the item
+  before), which a first version also got wrong.
+- The store gains `apply_mapped` and `ripples_since(rev)` (reads the records after `rev`); the CLI's and the
+  assistant's projection apply call `plan_rebased` with it; the desktop records the map for every planner edit that
+  rippled.
+- Property "GUI ripple then agent edit equals the sequential result": 10,000 cases (ripple delete, ripple trim or
+  insert, then a file that moves and restyles one item and adds one) in 4.9 s; added items keep their times; no
+  conflicts. Forced-conflict property: 10,000 cases where a ripple cut items' heads and the file changed their in
+  points; every conflict carries `group: "ripple <rev>"` and the same kept side.
+- Not done here: a conflict inside a ripple group does not pull the other fields of the group to the same side; the
+  group is reported so the user can see the ripple moved them together.
+
