@@ -45,7 +45,8 @@ esac
 export OVE_FFMPEG_TARGET="$TARGET"
 # shellcheck disable=SC1091
 source "$ROOT/tools/ffmpeg/env.sh"
-LIB="$ROOT/tools/ffmpeg/out/$TARGET"
+# Not `LIB`: on Windows that is the MSVC linker's library path, and overwriting it breaks every link.
+FFMPEG_OUT="$ROOT/tools/ffmpeg/out/$TARGET"
 GEN="$ROOT/apps/desktop/src-tauri/tauri.bundle.generated.json"
 CLI_PROFILE=release; [ "${PROFILE[0]}" = --debug ] && CLI_PROFILE=debug
 OUT_DIR="${CARGO_TARGET_DIR:-$ROOT/target}${CROSS:+/$CROSS}/$CLI_PROFILE"
@@ -54,14 +55,19 @@ TARGET_ARGS=(); [ -z "$CROSS" ] || TARGET_ARGS=(--target "$CROSS")
 
 shipped() {
   # The shipped FFmpeg libraries for this target (real files, not symlinks; never libavfilter or the CLI).
-  find "$LIB/lib" "$LIB/bin" -maxdepth 1 -type f \( -name '*.dylib' -o -name '*.dll' -o -name '*.so.*' \) 2>/dev/null \
-    | grep -E 'avcodec|avformat|avutil|swscale|swresample|dav1d' | sort
+  find "$FFMPEG_OUT/lib" "$FFMPEG_OUT/bin" -maxdepth 1 -type f \( -name '*.dylib' -o -name '*.dll' -o -name '*.so.*' \) 2>/dev/null \
+    | grep -E 'avcodec|avformat|avutil|swscale|swresample|dav1d' | sort | native_paths
+}
+
+native_paths() {
+  # Native Windows (MSYS2 / Git Bash): Tauri needs `H:/…` paths, not `/h/…`. Other hosts have no cygpath.
+  if command -v cygpath >/dev/null; then cygpath -m -f -; else cat; fi
 }
 
 case "$TARGET" in
   macos-arm64)
     # Self-contained libraries for Contents/Frameworks: dav1d bundled, @rpath references, signatures renewed.
-    python3 "$ROOT/tools/macos/bundle-libs.py" "$LIB/lib"
+    python3 "$ROOT/tools/macos/bundle-libs.py" "$FFMPEG_OUT/lib"
     export RUSTFLAGS="${RUSTFLAGS:-} -C link-arg=-Wl,-rpath,@executable_path/../Frameworks"
     python3 - "$GEN" <<PY
 import json, sys
