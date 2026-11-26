@@ -1,9 +1,10 @@
 //! Task 2.4 on real hardware: the hardware decoder (D3D11VA on Windows, VideoToolbox on macOS) gives the same frames
 //! as software decode, seeks frame-exactly, and a mid-stream hardware failure resumes in software at the same frame.
 //!
-//! Files whose codec the machine cannot decode in hardware open in software; they are listed and skipped. On a
-//! machine without hardware decode (Linux, CI runners without a GPU) every file is skipped. `OVE_REQUIRE_HW=1` makes
-//! the suite fail when no file used the hardware path, for runs on the reference machines.
+//! Files the machine cannot decode in hardware are checked to come out unchanged in software through `open_video`'s
+//! fallback, and listed. On a machine without hardware decode (Linux, CI runners without a GPU) that covers every
+//! file. `OVE_REQUIRE_HW=1` makes the suite fail when no file used the hardware path, for runs on the reference
+//! machines.
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -54,6 +55,13 @@ fn hardware_frames_seeks_and_fallback_match_software() {
     let (mut used, mut skipped) = (Vec::new(), Vec::new());
     for name in VIDEO_FILES {
         let Some(mut d) = hardware(name, None) else {
+            // Declined by the device (or no hardware decoder for it): `open_video` ends up in software with the same
+            // frames, whether the device refused at open, on the first frame, or on the first packet.
+            let mut d = ove_media::open_video(&media(name), opts(HwAccel::Auto)).unwrap();
+            let frames = decode_all(&mut d);
+            let got: Vec<(i64, String)> = frames.iter().map(|f| (f.pts_us, frame_md5(f))).collect();
+            assert_eq!(got, software(name), "{name}: frames after the hardware path declined it");
+            assert!(frames.iter().all(|f| f.decode_path == DecodePath::Software), "{name}: decoded in software");
             skipped.push(*name);
             continue;
         };

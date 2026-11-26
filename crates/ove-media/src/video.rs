@@ -316,9 +316,14 @@ impl FfmpegVideoDecoder {
                         && self.hw_active
                         && fmt != hw.pix_fmt.0
                     {
-                        // The platform decoder declined this stream (e.g. unsupported profile).
+                        // The platform decoder declined this stream (e.g. HEVC 4:2:2 on a GPU without it) and FFmpeg
+                        // went on in software inside this context, with the hardware path's thread count. Report it as
+                        // a hardware failure instead: `open_video`'s fallback reopens a software decoder (full thread
+                        // count) at the same position.
                         self.hw_active = false;
-                        self.hw_fallback_reason = Some("stream not supported by the hardware decoder".into());
+                        let reason = "stream not supported by the hardware decoder";
+                        self.hw_fallback_reason = Some(reason.into());
+                        return Err(MediaError::Hardware(reason.into()));
                     }
                     let dur_us = if dur > 0 { ts_to_us(dur, self.tb) } else { 0 };
                     return Ok(Some(RawFrame { frame: f, pts_us, dur_us }));
