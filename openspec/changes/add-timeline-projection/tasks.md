@@ -77,6 +77,8 @@ Code for the tasks above is done; these checks remain. Each needs a platform, a 
 - [ ] P.1 Owner review of `docs/spec/projection-format.md`.
 - [ ] P.2 Golden, property and CLI suites (2.1, 3.3, 6.1) on macOS and Windows (CI jobs exist; blocked like
       harden-for-alpha 6.5).
+      Windows: done 2026-11-26. Left: macOS.
 - [ ] P.3 30-minute nightly parser fuzz and 30-minute soak (needs CI).
 - [ ] P.4 `~/`, `..` and Windows drive paths with real files on macOS and Windows.
 - [ ] P.5 Print and check + apply timings on the macOS and Windows reference machines; record in Results.
+      Windows: done 2026-11-26 with mimalloc (print 23 ms, check + apply 51 ms; design.md Results). Left: macOS.

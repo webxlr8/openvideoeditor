@@ -83,5 +83,7 @@ Code for the tasks above is done; these checks remain. Each needs a platform, a 
 - [ ] P.1 Owner review of `docs/spec/project-schema-v1.md`.
 - [ ] P.2 30-minute nightly fuzz runs of `read_json` and `apply_batch` (needs CI).
 - [ ] P.3 Run 4.1, 4.3, 4.5, 5.2 and 6.2 on macOS and Windows (CI jobs exist; blocked like harden-for-alpha 6.5).
+      Windows: done 2026-11-26 (workspace tests, crash harness 1,000 kills). Left: macOS.
 - [ ] P.4 Network-volume refusal with a real SMB share on macOS and Windows.
 - [ ] P.5 Performance suite on the macOS and Windows reference machines; record in Results.
+      Windows: done 2026-11-26 (design.md Results). Left: macOS.

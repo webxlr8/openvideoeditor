@@ -68,6 +68,7 @@
       Status: Code done (`logging.rs` startup line with OS, GPU, decode; panic containment verified by harden-for-alpha
       1.1). Forced panic in the built app: P.9.
 - [ ] 4.5 Measure cold start to interactive UI; verify ≤ 1.5 s on both reference machines (record in Results).
+      Windows: 409–508 ms, release, warm cache (design.md Results). Left: macOS, first start after reboot.
 
 ## 5. Native viewer (R1 gate)
 
@@ -97,6 +98,7 @@
       UI idle and with a panel animating; record all numbers in design.md Results and compare to the
       media-playback performance requirement.
 - [ ] 6.2 Measure the release build installer size and idle RAM with one file open on both OSes; record in Results.
+      Windows: NSIS 25.5 MB, MSI 35.2 MB; idle RAM 257 MB (Home) to 660 MB (4K file), over the 250 MB note. Left: macOS.
 - [ ] 6.3 Write the gate decision in design.md (chosen layering per OS, unmet targets, follow-ups) and present it to the
       owner for sign-off before changes 5–7 start.
 
@@ -108,15 +110,20 @@ Code for the tasks above is done; these checks remain. Each needs a platform, a 
       harden-for-alpha 6.5).
 - [ ] P.2 Native FFmpeg builds on macOS arm64 (VideoToolbox) and Windows x64 MSVC (D3D11VA); `buildconf.txt` stored as a
       CI artefact; record library sizes.
+      Windows: done 2026-11-26 (MSVC, D3D11VA, 11.0 MB; design.md Results). Left: macOS, CI artefact.
 - [ ] P.3 Owner provides real camera footage (Apple ProRes, iPhone HDR, camera MXF, 1-hour long-GOP file); add it under
       `real` in the manifest.
 - [ ] P.4 Checksum suite on the hardware path: VideoToolbox (macOS) and D3D11VA (Windows); mid-stream fallback resumes
       at the same frame on real hardware.
+      Windows: done 2026-11-26 (`tests/hardware.rs`, 7 files on D3D11VA identical to software). Left: macOS.
 - [ ] P.5 Switch output devices during playback on macOS and Windows; record the manual test in Results.
 - [ ] P.6 `ove-bench` on every matrix file on macOS and Windows.
+      Windows: done 2026-11-26 (design.md Results). Left: macOS.
 - [ ] P.7 First-launch and disconnected-display scenarios on macOS and Windows; record in Results.
 - [ ] P.8 Single instance, Open with, drag-and-drop and Dock/taskbar routing: every specs/desktop-shell scenario on
       macOS and Windows.
+      Windows: second launch and launch with a file (focus, one process, file routed) checked by hand; drop on the
+      window covered by the app e2e suite (17/17 flows pass). Left: taskbar drop, macOS.
 - [ ] P.9 Forced worker panic in the built app on macOS and Windows: error shown, window usable, backtrace in the log.
 - [ ] P.10 Forced device-removal test on Windows.
 - [ ] P.11 Placement scenarios (resize, display/scale change, fullscreen, menu over viewer) for candidate 1 on macOS.
