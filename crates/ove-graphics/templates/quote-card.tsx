@@ -1,7 +1,8 @@
 // Quote card: a card lifts in, the quote appears word by word, then the attribution.
 type Props = { quote: string; author: string; card: string; color: string; accent: string };
 
-export default function QuoteCard({ time, duration, props }: { time: number; duration: number; props: Props }) {
+export default function QuoteCard({ time, duration, width, height, props }: { time: number; duration: number; width: number; height: number; props: Props }) {
+  const tall = height > width;
   const words = props.quote.split(/\s+/).filter(Boolean);
   const step = Math.min(0.08, 2 / Math.max(1, words.length));
   const card = easing.out(clamp(time / 0.5));
@@ -13,8 +14,8 @@ export default function QuoteCard({ time, duration, props }: { time: number; dur
         style={{
           display: "flex",
           flexDirection: "column",
-          width: 1320,
-          padding: "64px 88px 72px",
+          width: Math.min(1320, width - (tall ? 200 : 160)),
+          padding: tall ? "56px 60px 64px" : "64px 88px 72px",
           borderRadius: 32,
           backgroundColor: props.card,
           boxShadow: "0 30px 80px rgba(0,0,0,0.35)",

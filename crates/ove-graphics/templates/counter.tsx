@@ -3,16 +3,18 @@ type Props = { from: number; to: number; seconds: number; decimals: number; pref
 
 const group = (digits: string) => digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 
-export default function Counter({ time, duration, props }: { time: number; duration: number; props: Props }) {
+export default function Counter({ time, duration, width, props }: { time: number; duration: number; width: number; props: Props }) {
   const run = Math.max(0.3, Math.min(props.seconds, duration));
   const value = mix(props.from, props.to, easing.out(clamp(time / run)));
   const [whole, frac] = Math.abs(value).toFixed(Math.max(0, Math.min(4, props.decimals))).split(".");
   const text = (value < 0 ? "-" : "") + props.prefix + group(whole) + (frac ? "." + frac : "") + props.suffix;
+  // As large as the frame's width allows (long numbers on a narrow frame shrink).
+  const size = Math.min(210, ((width - 120) / Math.max(4, text.length)) * 1.7);
   const pop = spring({ time, from: 0.7, to: 1, stiffness: 220, damping: 14 });
   const out = 1 - easing.in(clamp((time - (duration - 0.4)) / 0.4));
   return (
     <Fill style={{ alignItems: "center", justifyContent: "center", opacity: out }}>
-      <div style={{ fontSize: 210, fontWeight: 800, color: props.color, transform: `scale(${pop})`, textShadow: "0 6px 30px rgba(0,0,0,0.35)" }}>
+      <div style={{ fontSize: size, fontWeight: 800, color: props.color, transform: `scale(${pop})`, textShadow: "0 6px 30px rgba(0,0,0,0.35)" }}>
         {text}
       </div>
       <div style={{ marginTop: 8, fontSize: 46, fontWeight: 500, color: props.color, opacity: 0.8 * easing.out(clamp((time - 0.2) / 0.5)) }}>

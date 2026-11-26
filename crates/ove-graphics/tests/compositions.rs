@@ -121,6 +121,38 @@ fn every_template_checks_clean_and_matches_its_golden() {
     }
 }
 
+/// Every template on a vertical (9:16) frame: checks clean, matches its golden, and nothing that overlays video runs
+/// off the sides (the outer columns stay clear, except the progress bar, which spans the frame on purpose).
+#[test]
+fn every_template_lays_out_for_vertical_video() {
+    const TALL: (u32, u32) = (1080, 1920);
+    for t in templates::all() {
+        let mut c = tpl(t.id, json!({}));
+        if t.id == "logo-sting" {
+            c.props.insert("logo".into(), json!("media-logo"));
+        }
+        let report = check(&c, TALL, t.duration, &images);
+        assert!(report.diagnostics.is_empty(), "{}: {:?}", t.id, report.diagnostics);
+        let p = prepare(&c, TALL).unwrap();
+        let r = render(
+            &p,
+            FrameTime { time: t.duration * 0.6, duration: t.duration, fps: 30.0 },
+            0.25,
+            &images,
+            Limits::default(),
+        )
+        .unwrap();
+        let (w, h) = (r.frame.width, r.frame.height);
+        assert_eq!((w, h), (270, 480));
+        if !t.full_frame && t.id != "progress-bar" {
+            let edge = (0..h).flat_map(|y| [0, 1, w - 2, w - 1].map(|x| ((y * w + x) * 4 + 3) as usize));
+            let touching = edge.filter(|&i| r.frame.rgba[i] > 8).count();
+            assert_eq!(touching, 0, "{} runs off the sides of a 9:16 frame", t.id);
+        }
+        golden(&format!("template-{}-9x16", t.id), w, h, &r.frame.rgba);
+    }
+}
+
 #[test]
 fn frames_animate_and_are_deterministic() {
     let c = tpl("kinetic-text", json!({"text": "one two three four"}));
