@@ -34,6 +34,7 @@ import { FLOWS } from "./flows.mjs";
 import { AppSession } from "./lib/session.mjs";
 import {
   ALLOWED_ERRORS,
+  DELIBERATE_CRASH,
   WINDOWS,
   appRunning,
   badLogRecords,
@@ -287,7 +288,10 @@ function assertLog() {
   if (records.length === 0) throw new Error(`no log records in ${logDir}`);
   const bad = badLogRecords(records);
   const crashes = path.join(logDir, "crash-reports");
-  const reports = fs.existsSync(crashes) ? fs.readdirSync(crashes) : [];
+  // Reports are crash-<ms>.txt (the folder also holds the app's `.seen` marker); the resilience flow's are expected.
+  const reports = (fs.existsSync(crashes) ? fs.readdirSync(crashes) : []).filter(
+    (r) => /^crash-.*\.txt$/.test(r) && !DELIBERATE_CRASH.test(fs.readFileSync(path.join(crashes, r), "utf8")),
+  );
   const problems = [...bad.map((r) => `log: ${r.slice(0, 600)}`), ...reports.map((r) => `crash report: ${r}`)];
   if (problems.length) throw new Error(problems.join("\n"));
 }

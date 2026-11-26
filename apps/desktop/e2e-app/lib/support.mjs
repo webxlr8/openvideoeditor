@@ -196,7 +196,12 @@ export function logRecords(dir) {
 export const ALLOWED_ERRORS = [
   { re: / ERROR wgpu_hal::vulkan::instance:/, why: "Vulkan loader probing missing GPU drivers (Linux CI, Xvfb)" },
   { re: / ERROR wgpu_hal::gles::egl:/, why: "EGL without a DRI driver (Linux CI, Xvfb)" },
+  // The panic record and the worker's "background task failed" record both name the forced panic.
+  { re: /forced (worker|viewer) panic \(diagnostics\)/, why: "the resilience flow's deliberate panics" },
 ];
+
+/** Crash reports the resilience flow causes on purpose (its forced panics). */
+export const DELIBERATE_CRASH = /Message: forced (worker|viewer) panic \(diagnostics\)/;
 
 /** ERROR and panic records in the log that are not allow-listed. */
 export function badLogRecords(records) {
