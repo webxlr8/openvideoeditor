@@ -16,6 +16,20 @@ beforeEach(() => {
 });
 
 describe("settings", () => {
+  it("chooses another library folder and goes back to the default", async () => {
+    window.__oveMock!.libraryFolderAnswer = "D:/Projects/Video";
+    await openSettings("library");
+    expect((await screen.findByTestId("library-dir")).textContent).toBe("/mock/library");
+    expect(screen.queryByTestId("library-default")).toBeNull();
+    fireEvent.click(screen.getByTestId("library-choose"));
+    await waitFor(() => expect(screen.getByTestId("library-dir").textContent).toBe("D:/Projects/Video"));
+    expect(screen.getByTestId("library-note").textContent).toContain("stay where they are");
+    fireEvent.click(screen.getByTestId("library-default"));
+    await waitFor(() => expect(screen.getByTestId("library-dir").textContent).toBe("/mock/library"));
+    expect(window.__oveMock!.calls).toContain("setLibrary:default");
+    window.__oveMock!.libraryFolderAnswer = null;
+  });
+
   it("reads spend caps as dollars, empty meaning no cap", () => {
     expect(parseCap("")).toBeNull();
     expect(parseCap(" $2.50 ")).toBe(2.5);

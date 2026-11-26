@@ -14,6 +14,7 @@ import type {
   VersionChange,
   VersionView_Serialize,
   AgentInfo_Serialize,
+  LibraryChoice_Serialize,
   AgentLimits_Deserialize,
   AgentLimits_Serialize,
   AgentStatus_Serialize,
@@ -169,6 +170,8 @@ export interface MockControl {
   mediaSearch: { result: Record<string, unknown>; status: MediaIndexStatus };
   /** The last edit-planner request (what a drop on the timeline asked for). */
   lastPlan?: Record<string, unknown>;
+  /** What the folder dialog for the library answers (`null`: cancelled). */
+  libraryFolderAnswer?: string | null;
   /** Onboarding state as the native side would keep it. Onboarding is over by default (the welcome would cover
    * every other test); a test of the first run puts `FIRST_RUN` here before rendering. */
   onboarding: OnboardingState;
@@ -1463,6 +1466,13 @@ function createMock(): {
   let turn: { stop: boolean; answer?: (a: string) => void } | null = null;
   // The chips of the message being sent (agentSendContext hands them to agentSend).
   let pendingMentions: MentionChip[] = [];
+  /** The library chosen in Settings (`null`: the default). */
+  let chosenLibrary: string | null = null;
+  const libraryNow = (): LibraryChoice_Serialize => ({
+    libraryDir: chosenLibrary ?? "/mock/library",
+    isDefault: chosenLibrary === null,
+    fromEnv: false,
+  });
   const agentStatus = (): AgentStatus_Serialize => ({
     hasKey: control.agent.hasKey,
     keySource: control.agent.hasKey ? "keychain" : null,
@@ -1658,6 +1668,14 @@ function createMock(): {
         logDir: null,
         libraryDir: "/mock/library",
       }),
+    libraryChoice: () => ok<LibraryChoice_Serialize>(libraryNow()),
+    setLibrary: (path: string | null) => {
+      track(`setLibrary:${path ?? "default"}`);
+      if (project) return fail("invalid_argument", "Close the project to change the library.");
+      chosenLibrary = path;
+      return ok<LibraryChoice_Serialize>(libraryNow());
+    },
+    chooseLibraryFolder: () => ok<string | null>(control.libraryFolderAnswer ?? null),
     detectAgents: () =>
       ok<AgentInfo_Serialize[]>(
         (
