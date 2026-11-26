@@ -4115,6 +4115,7 @@ dependencies = [
  "ove-agents",
  "ove-control",
  "ove-core",
+ "ove-edit",
  "ove-generate",
  "ove-gpu",
  "ove-graphics",
@@ -4145,6 +4146,16 @@ dependencies = [
  "tracing-subscriber",
  "ureq",
  "windows",
+]
+
+[[package]]
+name = "ove-edit"
+version = "0.1.0"
+dependencies = [
+ "ove-core",
+ "proptest",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

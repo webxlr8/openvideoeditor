@@ -45,10 +45,17 @@ export const commands = {
 	projectView: () => typedError<ProjectView_Serialize | null, AppError>(__TAURI_INVOKE("project_view")),
 	importMedia: (paths: string[]) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("import_media", { paths })),
 	importMediaDialog: () => typedError<ProjectView_Serialize | null, AppError>(__TAURI_INVOKE("import_media_dialog")),
-	/**  Moves an item to a new start time (and optionally another track), keeping its duration. */
+	/**
+	 *  Moves an item to a new start time (and optionally another track), keeping its duration. Linked items move with
+	 *  it. Landing on another item is allowed (the overlap plays as a crossfade).
+	 */
 	moveItem: (id: string, start: number | null, trackId: string | null) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("move_item", { id, start, trackId })),
 	removeItems: (ids: string[]) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("remove_items", { ids })),
-	/**  Splits a clip at a timeline time (seconds): the left part keeps the id, the right part is a new item. */
+	/**
+	 *  Splits a clip at a timeline time (seconds): the left part keeps the id, the right part is a new item. Linked
+	 *  items are split at the same time. Speed, reverse playback, keyframes, caption segments, fades and transitions are
+	 *  carried over so both parts look and sound exactly like the uncut clip.
+	 */
 	splitItem: (id: string, at: number | null) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("split_item", { id, at })),
 	setAspectRatio: (aspect: string) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("set_aspect_ratio", { aspect })),
 	renameProject: (name: string) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("rename_project", { name })),
@@ -130,7 +137,10 @@ export const commands = {
 	 *  relative timing and tracks. Items whose track no longer exists go to the first track of the same kind.
 	 */
 	pasteItems: (itemsJson: string, at: number | null) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("paste_items", { itemsJson, at })),
-	/**  Trims an item's start or end edge to `time` (seconds on the timeline). */
+	/**
+	 *  Trims an item's start or end edge to `time` (seconds on the timeline), keeping the source in sync and within the
+	 *  source. Linked items trim with it. The trimmed edge may overlap a neighbour (an overlap plays as a crossfade).
+	 */
 	trimItem: (id: string, edge: string, time: number | null) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("trim_item", { id, edge, time })),
 	/**  Adds a track. Video/caption/adjustment/layout tracks go on top, audio tracks at the bottom. */
 	addTrack: (kind: string, name: string) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("add_track", { kind, name })),

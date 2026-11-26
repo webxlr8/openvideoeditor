@@ -13,19 +13,19 @@
 
 ## 2. Planner crate
 
-- [ ] 2.1 Create `ove-edit` with the plan and refusal types and the retiming helper (speed, reverse, keyframes, caption
+- [x] 2.1 Create `ove-edit` with the plan and refusal types and the retiming helper (speed, reverse, keyframes, caption
       segments, fades, transitions); verify property test: evaluating any keyframed property at any timeline time is
       unchanged by a split or trim elsewhere.
-- [ ] 2.2 Implement split, trim, ripple trim, ripple delete (items and ranges), insert, overwrite, lift, extract and
+- [x] 2.2 Implement split, trim, ripple trim, ripple delete (items and ranges), insert, overwrite, lift, extract and
       close gap with sync lock and link expansion; verify properties: length change equals removed length; gaps
       between items on sync-locked tracks are preserved; apply then inverse returns the original document.
-- [ ] 2.3 Implement slip, slide and roll with source-limit clamping; verify properties: slip keeps start and end; roll
+- [x] 2.3 Implement slip, slide and roll with source-limit clamping; verify properties: slip keeps start and end; roll
       keeps the sum of the two durations; slide keeps duration and source range.
-- [ ] 2.4 Implement snap target collection (playhead, item edges, range points, optional beat times) with sticky
+- [x] 2.4 Implement snap target collection (playhead, item edges, range points, optional beat times) with sticky
       threshold; verify unit tests ported from `ui/src/snap.test.ts`.
-- [ ] 2.5 Post-plan overlap check and refusal codes; verify a property test over random documents finds no new overlap
+- [x] 2.5 Post-plan overlap check and refusal codes; verify a property test over random documents finds no new overlap
       unless a crossfade was requested.
-- [ ] 2.6 Move `split_item`, `trim_item` and `move_item` in `src-tauri` onto the planners; verify the existing desktop
+- [x] 2.6 Move `split_item`, `trim_item` and `move_item` in `src-tauri` onto the planners; verify the existing desktop
       tests pass and the old helpers are deleted.
 
 ## 3. Rebase in merge

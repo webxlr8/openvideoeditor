@@ -899,26 +899,16 @@ pub async fn import_media_dialog(app: AppHandle) -> AppResult<Option<ProjectView
     import_media(app, paths).await.map(Some)
 }
 
-/// Moves an item to a new start time (and optionally another track), keeping its duration.
+/// Moves an item to a new start time (and optionally another track), keeping its duration. Linked items move with
+/// it. Landing on another item is allowed (the overlap plays as a crossfade).
 #[tauri::command]
 #[specta::specta]
 pub async fn move_item(app: AppHandle, id: String, start: f64, track_id: Option<String>) -> AppResult<ProjectView> {
+    let start = ove_core::time::secs_to_micros(start.max(0.0))
+        .ok_or_else(|| AppError::new(ErrorCode::InvalidArgument, "The time is invalid."))?;
     serial(&app, "move_item", move |app, state| {
-        let (old_start, old_end) = {
-            let g = lock(&state.projects.open)?;
-            let p = g.as_ref().ok_or_else(|| AppError::new(ErrorCode::InvalidArgument, "No project is open."))?;
-            let i =
-                p.doc().item(&id).ok_or_else(|| AppError::new(ErrorCode::NotFound, "That clip no longer exists."))?;
-            (i.start, i.end)
-        };
-        let new_start = ove_core::time::secs_to_micros(start.max(0.0)).unwrap_or(old_start);
-        let mut set = Map::new();
-        set.insert("startTime".into(), ove_core::time::micros_to_json(new_start));
-        set.insert("endTime".into(), ove_core::time::micros_to_json(new_start + (old_end - old_start)));
-        if let Some(t) = track_id {
-            set.insert("trackId".into(), t.into());
-        }
-        edit(app, state, vec![Op::UpdateItem { id, set }], "move clip")
+        let req = ove_edit::Request::Move { item: id, start, track: track_id, linked: true, crossfade: true };
+        crate::edits::plan_and_apply(app, state, req)
     })
     .await
 }
@@ -933,37 +923,16 @@ pub async fn remove_items(app: AppHandle, ids: Vec<String>) -> AppResult<Project
     .await
 }
 
-/// Splits a clip at a timeline time (seconds): the left part keeps the id, the right part is a new item.
+/// Splits a clip at a timeline time (seconds): the left part keeps the id, the right part is a new item. Linked
+/// items are split at the same time. Speed, reverse playback, keyframes, caption segments, fades and transitions are
+/// carried over so both parts look and sound exactly like the uncut clip.
 #[tauri::command]
 #[specta::specta]
 pub async fn split_item(app: AppHandle, id: String, at: f64) -> AppResult<ProjectView> {
+    let at = ove_core::time::secs_to_micros(at).unwrap_or(0);
     serial(&app, "split_item", move |app, state| {
-        let (item, right_id) = {
-            let g = lock(&state.projects.open)?;
-            let p = g.as_ref().ok_or_else(|| AppError::new(ErrorCode::InvalidArgument, "No project is open."))?;
-            let item = p
-                .doc()
-                .item(&id)
-                .cloned()
-                .ok_or_else(|| AppError::new(ErrorCode::NotFound, "That clip no longer exists."))?;
-            let mut right_id = crate::edits::new_item_id();
-            while p.doc().item(&right_id).is_some() {
-                right_id = crate::edits::new_item_id();
-            }
-            (item, right_id)
-        };
-        let cut = ove_core::time::secs_to_micros(at).unwrap_or(0);
-        // Speed, reverse playback, keyframes, caption segments, fades and transitions are carried over so both
-        // parts look and sound exactly like the uncut clip.
-        let split = ove_core::retime::split(&item, cut, &right_id).ok_or_else(|| {
-            AppError::new(ErrorCode::InvalidArgument, "Move the playhead inside the clip to split it.")
-        })?;
-        let mut ops = vec![Op::UpdateItem { id: id.clone(), set: split.left_set }];
-        if !split.left_unset.is_empty() {
-            ops.push(Op::UnsetItemFields { id, fields: split.left_unset });
-        }
-        ops.push(Op::AddItem { item: split.right });
-        edit(app, state, ops, "split clip")
+        let req = ove_edit::Request::Split { items: vec![id], tracks: vec![], at, linked: true };
+        crate::edits::plan_and_apply(app, state, req)
     })
     .await
 }

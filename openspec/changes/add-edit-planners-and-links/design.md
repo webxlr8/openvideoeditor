@@ -124,3 +124,27 @@ Measured on the Windows 11 x64 development machine (not a reference machine), 20
 - Tests: `cargo test -p ove-core -p ove-projection` all pass (new: `edit_fields` 8 tests, corpus 2 tests); UI
   `pnpm test` 139 passed (21 files).
 
+**Group 2 (planner crate).**
+- `ove-edit` (depends on `ove-core` only) plans split, trim, ripple trim, ripple delete (items or ranges), delete,
+  insert, overwrite, lift, extract, close gap, slip, slide, roll and move. A planner edits a copy of the document and
+  the ops are the diff of the copy against the original, so one plan is one batch; `Plan` also carries the summary,
+  touched ids, time map, the ids an edit was clamped on (`limited`) and the resulting document (for previews).
+- Ripples are built from two primitives over a track set: open a gap at a time (items crossing it are cut) and
+  remove a span (items inside are removed, items crossing an end are trimmed, an item covering the span is cut in
+  two). Sync-locked tracks take the same edit, so a music bed under a ripple-deleted clip loses the same time and
+  stays in sync. Close gap refuses (`ripple.blocked`) when a sync-locked track has content in the gap, because
+  closing a gap must not remove anything.
+- Right halves of a split link group share a new link value, so the two halves edit as two pairs.
+- Known limit: a cut inside an eased keyframe segment keeps the values at the keyframes and the cut, but the curve
+  between them is re-eased (easing is per track, not per segment). The keyframe property test uses linear tracks.
+- `ove_core::retime` keeps only `ease` (the renderer uses it); split and trim retiming moved to `ove_edit::retime`
+  with their tests. The desktop's `split_item`, `trim_item` and `move_item` call the planners; the old `trimmed`
+  helper and its tests moved into `ove-edit/tests/trim.rs` unchanged in substance.
+- Tests: `cargo test -p ove-edit`: 13 unit (retime, snap), 7 property tests at 256 cases each (keyframes and source
+  frames across split and trim, ripple delete moves exactly the removed length and keeps gaps, extract and insert
+  change length by the range, slip/slide/roll invariants, no new overlaps, linked groups stay in sync, and a guard
+  that 290–300 of 300 random requests per verb plan successfully so the properties are not vacuous), 15 scenario
+  tests, 3 ported trim tests. Every successful plan in the tests is applied, compared with the plan's own result and
+  undone with its inverse back to the original. Property run time 0.15 s; `cargo test -p ove-desktop --lib` 75
+  passed.
+
