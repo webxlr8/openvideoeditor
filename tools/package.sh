@@ -73,7 +73,7 @@ case "$TARGET" in
     export RUSTFLAGS="${RUSTFLAGS:-} -C link-arg=-Wl,-rpath,@executable_path/../Frameworks"
     python3 - "$GEN" <<PY
 import json, sys
-libs = """$(shipped)""".split()
+libs = """$(shipped)""".splitlines()  # one path per line; paths may contain spaces
 json.dump({"bundle": {"macOS": {"frameworks": libs, "minimumSystemVersion": "14.0"}, "targets": ["app", "dmg"],
                      "resources": {"licenses/": "licenses/"}}},
           open(sys.argv[1], "w"), indent=2)
@@ -83,7 +83,7 @@ PY
     # The DLLs go next to the executables (the install folder), where Windows looks first.
     python3 - "$GEN" "$TARGET" <<PY
 import json, sys
-libs = """$(shipped)""".split()
+libs = """$(shipped)""".splitlines()  # one path per line; paths may contain spaces
 targets = ["nsis"] if sys.argv[2] == "windows-x64-gnu" else ["msi", "nsis"]
 resources = {l: "./" for l in libs}
 resources["licenses/"] = "licenses/"
