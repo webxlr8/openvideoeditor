@@ -190,7 +190,12 @@ impl Agent {
         let printed = mcp.call("print_timeline", json!({}));
         self.tool_done("t1", printed["isError"] != true);
         let text = printed.pointer("/structuredContent/text").and_then(Value::as_str).unwrap_or("").to_string();
-        let Some(start) = text.find("name=\"") else {
+        // The first clip's name: after the first element that is not the timeline or a track.
+        let first_item = text.match_indices('<').map(|(i, _)| i).find(|&i| {
+            let tag: String = text[i + 1..].chars().take_while(|c| c.is_ascii_alphabetic()).collect();
+            !tag.is_empty() && tag != "timeline" && tag != "track"
+        });
+        let Some(start) = first_item.and_then(|at| text[at..].find("name=\"").map(|i| at + i)) else {
             self.say("The timeline has nothing to rename.");
             return "end_turn";
         };

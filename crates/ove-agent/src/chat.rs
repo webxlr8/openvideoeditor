@@ -86,7 +86,8 @@ impl Spend {
 pub fn spend_of(records: &[Record], since_ms: i64) -> Spend {
     let mut s = Spend::default();
     for r in records {
-        if let Record::Result { cost_usd, thread_usage, time, .. } = r
+        // A turn on an installed agent's plan is not spend here.
+        if let Record::Result { cost_usd, thread_usage, time, plan: None, .. } = r
             && *time >= since_ms
         {
             s.usage.add(thread_usage);

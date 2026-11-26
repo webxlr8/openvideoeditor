@@ -11,6 +11,14 @@ import { WINDOWS, bundleItems, captureScreen, ffprobe, logRecords, makeSpeech, r
 // ---------------------------------------------------------------------------------------------------------------
 // Shared steps
 
+/** Chooses who answers in the chat (`null`: the built-in assistant) and reopens the panel so it reads the choice. */
+async function useAgent(app, id) {
+  await app.invoke("onboarding_update", { change: { kind: "setAssistant", assistant: id ?? "api-key" } });
+  if (await app.exists("chat")) await app.click("close-chat");
+  await app.click("toggle-chat");
+  await app.find("composer");
+}
+
 async function goHome(app) {
   if (await app.exists("go-home")) await app.click("go-home");
   await app.find("home");
@@ -776,6 +784,65 @@ export const FLOWS = [
       }, "the turn to be undone");
       await app.waitFor(async () => (await (await app.find("turn-review")).getAttribute("class")).includes("undone"), "the turn marked undone");
       assert.equal(await app.count(`[data-testid="clip"][data-id="${title.id}"]`), 0);
+    },
+  },
+
+  {
+    name: "local agent (stand-in for Claude): a turn edits through the app's tools, review, Undo this turn, uses your plan",
+    async run(ctx) {
+      const { app } = ctx;
+      await newProject(app, "Agent E2E");
+      await importWithButton(ctx, [ctx.media.video]);
+      const clip = (await app.project()).items.find((i) => i.kind === "video");
+      await useAgent(app, "claude");
+      await app.type("composer", "Rename the first clip");
+      await app.click("send");
+      const review = await app.find("turn-review", 60000);
+      assert.match(await app.textOf(review), /Changed 1 item/);
+      assert.match(await app.text("turn-usage"), /uses your Claude plan/);
+      assert.ok(!(await app.text("turn-usage")).includes("$"), "no price for a turn on the person's plan");
+      const renamed = (await app.project()).items.find((i) => i.id === clip.id);
+      assert.equal(renamed.name, "Edited by stand-in", "the agent's edit is on the timeline");
+      const chips = (await Promise.all((await app.all("tool-chip")).map((c) => app.textOf(c)))).join(" | ");
+      assert.match(chips, /Reading the timeline/, chips);
+      assert.ok(!/Not allowed/.test(chips), `the app's own tools are allowed: ${chips}`);
+      await app.click("turn-undo");
+      await app.waitFor(async () => (await app.project()).items.find((i) => i.id === clip.id)?.name !== "Edited by stand-in", "Undo this turn");
+      await useAgent(app, null);
+    },
+  },
+
+  {
+    name: "local agent (hostile stand-in for Codex): shell, files, terminal, network, other projects and imports are refused",
+    async run(ctx) {
+      const { app } = ctx;
+      await newProject(app, "Hostile E2E");
+      await importWithButton(ctx, [ctx.media.video]);
+      await useAgent(app, "codex");
+      await app.type("composer", "Do your worst");
+      await app.click("send");
+      await app.waitFor(async () => (await app.all("msg-assistant")).length > 0, "the hostile agent's report", 60000);
+      const report = (await Promise.all((await app.all("msg-assistant")).map((m) => app.textOf(m)))).join("\n");
+      for (const what of [
+        "permission:shell",
+        "permission:fetch",
+        "permission:write",
+        "permission:disguised shell",
+        "client:read",
+        "client:write",
+        "client:terminal",
+        "mcp:other project (project.pinned)",
+        "mcp:file outside (media.notInProject)",
+        "mcp:list projects (tool.unavailable)",
+        "mcp:import (tool.unavailable)",
+        "mcp:export (tool.unavailable)",
+      ])
+        assert.ok(report.includes(`REFUSED ${what}`), `${what} must be refused:\n${report}`);
+      assert.ok(!report.includes("ALLOWED"), report);
+      const chips = (await Promise.all((await app.all("tool-chip")).map((c) => app.textOf(c)))).join(" | ");
+      assert.match(chips, /Not allowed: .*rm -rf/, `the person sees what was tried: ${chips}`);
+      assert.equal((await app.project()).items.length, 1, "nothing changed on the timeline");
+      await useAgent(app, null);
     },
   },
 

@@ -309,6 +309,10 @@ jobs:
         run: |
           source tools/ffmpeg/env.sh
           cargo build -p ove-agent --example mock_server
+          # The in-app chat through a local agent: the stand-in agent, and the command line (its MCP server) next
+          # to the app.
+          cargo build -p ove-agents --example standin_acp
+          cargo build -p ove-cli --features media
       - name: debug app build
         working-directory: apps/desktop
         run: |

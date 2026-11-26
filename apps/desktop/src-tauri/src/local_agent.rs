@@ -97,17 +97,19 @@ fn token() -> String {
     ove_control::new_token()
 }
 
-/// Test hook: start a stand-in program instead of an agent (`OVE_AGENT_OVERRIDE` =
-/// `{"id": "claude", "program": "…", "args": […]}`), only in debug builds or with `OVE_DEV_ENDPOINTS=1`, like the
-/// other development endpoints. Used by the app end-to-end suite.
+/// Test hook: start stand-in programs instead of agents (`OVE_AGENT_OVERRIDE` = a list of
+/// `{"id": "claude", "program": "…", "args": […]}`, or one such object), only in debug builds or with
+/// `OVE_DEV_ENDPOINTS=1`, like the other development endpoints. Used by the app end-to-end suite.
 pub fn override_launch(id: &str) -> Option<acp::Launch> {
     if !(cfg!(debug_assertions) || std::env::var("OVE_DEV_ENDPOINTS").is_ok_and(|v| v == "1")) {
         return None;
     }
     let v: serde_json::Value = serde_json::from_str(&std::env::var("OVE_AGENT_OVERRIDE").ok()?).ok()?;
-    (v["id"].as_str()? == id).then(|| acp::Launch {
-        program: PathBuf::from(v["program"].as_str().unwrap_or_default()),
-        args: v["args"]
+    let list = if v.is_array() { v.as_array().cloned().unwrap_or_default() } else { vec![v] };
+    let o = list.into_iter().find(|o| o["id"].as_str() == Some(id))?;
+    Some(acp::Launch {
+        program: PathBuf::from(o["program"].as_str().unwrap_or_default()),
+        args: o["args"]
             .as_array()
             .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
             .unwrap_or_default(),
