@@ -1,14 +1,18 @@
 // Lower third: an accent bar grows, then the name and role slide in beside it; both leave before the end.
 type Props = { name: string; role: string; accent: string; color: string; plate: string; side: string };
 
-export default function LowerThird({ time, duration, props }: { time: number; duration: number; props: Props }) {
+export default function LowerThird({ time, duration, width, height, props }: { time: number; duration: number; width: number; height: number; props: Props }) {
+  // A tall (vertical video) frame keeps it above the bottom fifth, where phone apps put their own buttons and text.
+  const tall = height > width;
+  const side = tall ? 72 : 120;
+  const bottom = tall ? Math.round(height * 0.2) : 110;
   const exit = easing.in(clamp((time - (duration - 0.5)) / 0.5));
   const bar = easing.out(clamp(time / 0.45)) * (1 - exit);
   const text = easing.out(clamp((time - 0.2) / 0.5)) * (1 - exit);
   const right = props.side === "right";
   const shift = (1 - text) * (right ? 48 : -48);
   return (
-    <Fill style={{ justifyContent: "flex-end", alignItems: right ? "flex-end" : "flex-start", padding: "0 120px 110px" }}>
+    <Fill style={{ justifyContent: "flex-end", alignItems: right ? "flex-end" : "flex-start", padding: `0 ${side}px ${bottom}px` }}>
       <div style={{ display: "flex", flexDirection: right ? "row-reverse" : "row", alignItems: "stretch" }}>
         <div style={{ width: 12, borderRadius: 6, backgroundColor: props.accent, transform: `scaleY(${bar})` }} />
         <div
