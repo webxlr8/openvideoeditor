@@ -10,6 +10,7 @@
 //! the person installed, as that person.
 #![forbid(unsafe_code)]
 
+pub mod acp;
 mod detect;
 mod run;
 
@@ -39,8 +40,9 @@ pub enum McpSetup {
 pub enum AcpStart {
     /// The agent's own program with these arguments.
     Own(&'static [&'static str]),
-    /// A separate adapter program (an npm package) that drives the installed agent.
-    Adapter { package: &'static str },
+    /// A separate adapter program (an npm package, at a pinned version) that drives the installed agent; started
+    /// with `npx`.
+    Adapter { package: &'static str, version: &'static str },
 }
 
 /// One supported agent.
@@ -71,7 +73,8 @@ pub const AGENTS: &[AgentSpec] = &[
         vendor: "Anthropic",
         programs: &["claude"],
         version_args: &["--version"],
-        acp: AcpStart::Adapter { package: "@agentclientprotocol/claude-agent-acp" },
+        // Checked on npm 2026-11-26 (the package Zed's adapter is published as).
+        acp: AcpStart::Adapter { package: "@agentclientprotocol/claude-agent-acp", version: "0.112.0" },
         // Checked against Claude Code 2.1.325: `claude mcp add [options] <name> <commandOrUrl> [args...]`, default
         // scope `local` (one folder), so `--scope user` makes the server available wherever the agent is started.
         mcp: McpSetup::Command {
@@ -88,7 +91,8 @@ pub const AGENTS: &[AgentSpec] = &[
         vendor: "OpenAI",
         programs: &["codex"],
         version_args: &["--version"],
-        acp: AcpStart::Adapter { package: "@zed-industries/codex-acp" },
+        // Checked on npm 2026-11-26; `@zed-industries/codex-acp` is the old name (0.16).
+        acp: AcpStart::Adapter { package: "@agentclientprotocol/codex-acp", version: "2.12.1" },
         // From OpenAI's documentation; not yet run by us against a real install.
         mcp: McpSetup::Command {
             add: &["mcp", "add", SERVER_NAME, "--", "{ove}", "mcp"],
@@ -147,6 +151,27 @@ pub const AGENTS: &[AgentSpec] = &[
 /// The entry with this id.
 pub fn agent(id: &str) -> Option<&'static AgentSpec> {
     AGENTS.iter().find(|a| a.id == id)
+}
+
+/// How to start `spec` as an Agent Client Protocol agent: its own program (found by [`detect`]) with its arguments,
+/// or `npx` running its adapter at the pinned version. `None` when the program (or `npx`) is not there.
+pub fn launch(spec: &AgentSpec, program: Option<&Path>, env: &Env) -> Option<acp::Launch> {
+    match spec.acp {
+        AcpStart::Own(args) => Some(acp::Launch {
+            program: program?.to_path_buf(),
+            args: args.iter().map(|a| a.to_string()).collect(),
+            env: Vec::new(),
+        }),
+        AcpStart::Adapter { package, version } => {
+            // The adapter drives the installed agent, so the agent itself must be there too.
+            program?;
+            Some(acp::Launch {
+                program: find_program(&["npx"], env)?,
+                args: vec!["-y".into(), format!("{package}@{version}")],
+                env: Vec::new(),
+            })
+        }
+    }
 }
 
 /// What Connect did.
