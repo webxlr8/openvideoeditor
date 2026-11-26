@@ -7,6 +7,10 @@
     reason = "test code: a failure here is a failed test; clippy.toml only covers #[test] functions, not helpers"
 )]
 
+// The shipped binaries use mimalloc (see apps/desktop/src-tauri/src/main.rs); measure with the same allocator.
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 use std::time::Instant;
 
 use ove_core::ops::{Op, apply_batch};

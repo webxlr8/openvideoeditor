@@ -8,6 +8,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+mimalloc = { version = "0.1", default-features = false }
 
 ove-core = { path = "../ove-core" }
 ove-media = { version = "0.1.0", path = "../ove-media" }

@@ -31,6 +31,7 @@ ove-store = { path = "../ove-store" }
 ove-tools = { path = "../ove-tools" }
 serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
 tempfile = "3"
+mimalloc = { version = "0.1", default-features = false }
 
 [dev-dependencies]
 ove-tasks = { path = "../ove-tasks" }
