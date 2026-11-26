@@ -98,7 +98,8 @@
       UI idle and with a panel animating; record all numbers in design.md Results and compare to the
       media-playback performance requirement.
 - [ ] 6.2 Measure the release build installer size and idle RAM with one file open on both OSes; record in Results.
-      Windows: NSIS 25.5 MB, MSI 35.2 MB; idle RAM 257 MB (Home) to 660 MB (4K file), over the 250 MB note. Left: macOS.
+      Windows: NSIS 25.5 MB, MSI 35.2 MB; idle RAM 55 MB on Home, 329 MB (720p) to 492 MB (4K) with a file open, over
+      the 250 MB note with a file (design.md Results). Left: macOS.
 - [ ] 6.3 Write the gate decision in design.md (chosen layering per OS, unmet targets, follow-ups) and present it to the
       owner for sign-off before changes 5–7 start.
 
@@ -115,7 +116,7 @@ Code for the tasks above is done; these checks remain. Each needs a platform, a 
       `real` in the manifest.
 - [ ] P.4 Checksum suite on the hardware path: VideoToolbox (macOS) and D3D11VA (Windows); mid-stream fallback resumes
       at the same frame on real hardware.
-      Windows: done 2026-11-26 (`tests/hardware.rs`, 7 files on D3D11VA identical to software). Left: macOS.
+      Windows: done 2026-11-26 (`tests/hardware.rs`, 8 files on D3D11VA incl. AV1, identical to software). Left: macOS.
 - [ ] P.5 Switch output devices during playback on macOS and Windows; record the manual test in Results.
 - [ ] P.6 `ove-bench` on every matrix file on macOS and Windows.
       Windows: done 2026-11-26 (design.md Results). Left: macOS.
@@ -125,6 +126,8 @@ Code for the tasks above is done; these checks remain. Each needs a platform, a 
       Windows: second launch and launch with a file (focus, one process, file routed) checked by hand; drop on the
       window covered by the app e2e suite (17/17 flows pass). Left: taskbar drop, macOS.
 - [ ] P.9 Forced worker panic in the built app on macOS and Windows: error shown, window usable, backtrace in the log.
+      Windows: done 2026-11-26 by the app e2e flow "resilience: a forced panic in a worker and in the viewer" (also
+      runs on Linux CI). Left: macOS.
 - [ ] P.10 Forced device-removal test on Windows.
 - [ ] P.11 Placement scenarios (resize, display/scale change, fullscreen, menu over viewer) for candidate 1 on macOS.
 - [ ] P.12 Decide whether Windows needs candidate 2 or keeps candidate 3, from the 6.1 performance numbers.
