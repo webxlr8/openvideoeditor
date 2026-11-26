@@ -300,8 +300,14 @@ pub fn run_turn(app: &AppHandle, t: TurnInput) {
 }
 
 fn tool_label(title: &str) -> String {
-    // `mcp__openvideoeditor__apply_timeline` → the built-in assistant's wording for the same tool.
-    let bare = title.rsplit("__").next().unwrap_or(title);
+    // Agents name the app's tools `mcp__openvideoeditor__apply_timeline` (Claude Code), `openvideoeditor:
+    // apply_timeline` (Claude through its adapter), `openvideoeditor_apply_timeline` (OpenCode) or just the tool;
+    // all read as the built-in assistant words the same tool.
+    let after = match title.find(ove_agents::SERVER_NAME) {
+        Some(i) => &title[i + ove_agents::SERVER_NAME.len()..],
+        None => title,
+    };
+    let bare = after.trim_start_matches(|c: char| c == '_' || c == ':' || c == '/' || c == '.' || c.is_whitespace());
     if ove_agents::APP_TOOLS.contains(&bare) { ove_agent::tools::label(bare, &json!({})) } else { title.to_string() }
 }
 
@@ -425,7 +431,14 @@ mod tests {
 
     #[test]
     fn tool_titles_read_like_the_built_in_assistants() {
-        assert_eq!(tool_label("mcp__openvideoeditor__print_timeline"), "Reading the timeline");
+        for t in [
+            "mcp__openvideoeditor__print_timeline",
+            "openvideoeditor: print_timeline",
+            "openvideoeditor_print_timeline",
+            "print_timeline",
+        ] {
+            assert_eq!(tool_label(t), "Reading the timeline", "{t}");
+        }
         assert_eq!(tool_label("Something else"), "Something else");
     }
 

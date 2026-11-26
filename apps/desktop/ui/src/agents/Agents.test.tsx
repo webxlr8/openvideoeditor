@@ -62,14 +62,16 @@ describe("AssistantPicker", () => {
 
 describe("AgentsSection", () => {
   it("connects with a button where the command is checked, and shows the command to copy elsewhere", async () => {
-    window.__oveMock!.localAgents = ["claude", "codex"];
+    window.__oveMock!.localAgents = ["claude", "codex", "hermes"];
     render(<AgentsSection onError={() => undefined} />);
     fireEvent.click(await screen.findByTestId("agent-connect-claude"));
     await waitFor(() => expect(screen.getByTestId("agent-result-claude").textContent).toContain("Claude now has the editing tools"));
     expect(window.__oveMock!.calls).toContain("connectAgent:claude");
-    // Codex is installed, but its command has not been checked: no button, the command to copy.
-    expect(screen.queryByTestId("agent-connect-codex")).toBeNull();
-    expect(screen.getByTestId("agent-instructions-codex").textContent).toBe("codex mcp add openvideoeditor -- ove mcp");
+    // Codex's command was checked against a real install too: a button.
+    expect(screen.getByTestId("agent-connect-codex")).toBeTruthy();
+    // Hermes is installed, but its command asks questions: no button, the command to copy.
+    expect(screen.queryByTestId("agent-connect-hermes")).toBeNull();
+    expect(screen.getByTestId("agent-instructions-hermes").textContent).toBe("hermes mcp add openvideoeditor --command ove --args mcp");
     // Not installed: where to get it.
     expect(screen.getByTestId("agent-get-grok")).toBeTruthy();
     expect(screen.queryByTestId("agent-connect-grok")).toBeNull();

@@ -28,12 +28,30 @@ fn main() {
     let exe = std::env::current_exe().unwrap();
     let standin = exe.parent().unwrap().join(format!("standin_acp{}", std::env::consts::EXE_SUFFIX));
     let log = std::env::temp_dir().join(format!("acp-probe-{id}.jsonl"));
-    let server = McpServer {
-        name: ove_agents::SERVER_NAME.into(),
-        command: standin,
-        args: vec!["--mcp-fake".into(), log.display().to_string()],
+    // `OVE_PROBE_PROJECT=<bundle>` (and `OVE_PROBE_LIBRARY`): the real pinned server, `ove mcp --project`, next to
+    // this program; the agent's edits are written to that project.
+    let server = match std::env::var("OVE_PROBE_PROJECT") {
+        Ok(bundle) => McpServer {
+            name: ove_agents::SERVER_NAME.into(),
+            command: exe.parent().unwrap().parent().unwrap().join(format!("ove{}", std::env::consts::EXE_SUFFIX)),
+            args: vec![
+                "--library".into(),
+                std::env::var("OVE_PROBE_LIBRARY").expect("OVE_PROBE_LIBRARY"),
+                "mcp".into(),
+                "--project".into(),
+                bundle,
+            ],
+        },
+        Err(_) => McpServer {
+            name: ove_agents::SERVER_NAME.into(),
+            command: standin,
+            args: vec!["--mcp-fake".into(), log.display().to_string()],
+        },
     };
-    let allow = Allow { server: ove_agents::SERVER_NAME.into(), tools: vec!["print_timeline".into()] };
+    let allow = Allow {
+        server: ove_agents::SERVER_NAME.into(),
+        tools: ove_agents::APP_TOOLS.iter().map(|s| s.to_string()).collect(),
+    };
     let t = Instant::now();
     let mut s = match Session::start(&launch, &server, allow, Duration::from_secs(180)) {
         Ok(s) => s,

@@ -1211,23 +1211,25 @@ function createMock(): {
             state: installed ? "ready" : "notInstalled",
             version: installed ? version : null,
             getIt: `https://example.com/${id}`,
-            // As in the app: only Claude's command has been checked against a real install.
-            connectRuns: id === "claude",
+            // As in the app: Claude's and Codex's commands have been checked against a real install.
+            connectRuns: id === "claude" || id === "codex",
             connectInstructions:
               id === "claude"
                 ? "claude mcp add --scope user openvideoeditor -- ove mcp"
                 : id === "codex"
                   ? "codex mcp add openvideoeditor -- ove mcp"
-                  : `In ${name}, add an MCP server named openvideoeditor that runs: ove mcp`,
+                  : id === "hermes"
+                    ? "hermes mcp add openvideoeditor --command ove --args mcp"
+                    : `In ${name}, add an MCP server named openvideoeditor that runs: ove mcp`,
           };
         }),
       ),
     connectAgent: (id: string) => (
       track(`connectAgent:${id}`),
       ok<AgentConnect>({
-        status: id === "claude" ? "connected" : "manual",
+        status: id === "claude" || id === "codex" ? "connected" : "manual",
         instructions: `${id} mcp add openvideoeditor -- ove mcp`,
-        detail: id === "claude" ? "Added stdio MCP server openvideoeditor" : "set up in the agent's own settings",
+        detail: id === "claude" || id === "codex" ? "Added stdio MCP server openvideoeditor" : "set up in the agent's own settings",
       })
     ),
     takePendingOpenPaths: () => (

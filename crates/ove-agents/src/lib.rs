@@ -121,11 +121,12 @@ pub const AGENTS: &[AgentSpec] = &[
         version_args: &["--version"],
         // Checked on npm 2026-11-26; `@zed-industries/codex-acp` is the old name (0.16).
         acp: AcpStart::Adapter { package: "@agentclientprotocol/codex-acp", version: "2.12.1" },
-        // From OpenAI's documentation; not yet run by us against a real install.
+        // Checked against codex-cli 0.101.0 (2026-11-26): `codex mcp add <NAME> -- <COMMAND>...` adds a global server
+        // without asking anything; `codex mcp get <NAME>` exits 0 when it is there and 1 when it is not.
         mcp: McpSetup::Command {
             add: &["mcp", "add", SERVER_NAME, "--", "{ove}", "mcp"],
-            registered: None,
-            checked: false,
+            registered: Some(&["mcp", "get", SERVER_NAME]),
+            checked: true,
         },
         skills_dir: Some(".codex/skills"),
         get_it: "https://developers.openai.com/codex/cli",
@@ -137,6 +138,7 @@ pub const AGENTS: &[AgentSpec] = &[
         programs: &["opencode"],
         version_args: &["--version"],
         acp: AcpStart::Own(&["acp"]),
+        // OpenCode 1.18.15's `opencode mcp add` asks for a local server's command interactively: set up by hand.
         mcp: McpSetup::Manual { docs: "https://opencode.ai/docs/mcp-servers/" },
         skills_dir: None,
         get_it: "https://opencode.ai",
@@ -148,7 +150,13 @@ pub const AGENTS: &[AgentSpec] = &[
         programs: &["hermes"],
         version_args: &["--version"],
         acp: AcpStart::Own(&["acp"]),
-        mcp: McpSetup::Manual { docs: "https://hermes-agent.nousresearch.com/docs/user-guide/features/mcp" },
+        // Checked against Hermes 0.21.5 (2026-11-26): the command connects to the server and then asks which of its
+        // tools to enable, so it is shown to copy and run in a terminal, never run by the app.
+        mcp: McpSetup::Command {
+            add: &["mcp", "add", SERVER_NAME, "--command", "{ove}", "--args", "mcp"],
+            registered: None,
+            checked: false,
+        },
         skills_dir: None,
         get_it: "https://hermes-agent.nousresearch.com",
     },
@@ -344,9 +352,10 @@ mod tests {
     fn only_a_checked_command_is_ever_run() {
         for a in AGENTS {
             if let McpSetup::Command { checked, .. } = a.mcp {
+                // Run against a real install: Claude (2.1.325) and Codex (0.101.0). Hermes's asks questions.
                 assert_eq!(
                     checked,
-                    a.id == "claude",
+                    a.id == "claude" || a.id == "codex",
                     "{}: mark a command checked only after running it for real",
                     a.id
                 );
@@ -364,6 +373,10 @@ mod tests {
         assert_eq!(
             connect_instructions(agent("codex").unwrap(), Path::new("/usr/bin/ove")),
             "codex mcp add openvideoeditor -- /usr/bin/ove mcp"
+        );
+        assert_eq!(
+            connect_instructions(agent("hermes").unwrap(), Path::new("/usr/bin/ove")),
+            "hermes mcp add openvideoeditor --command /usr/bin/ove --args mcp"
         );
         let grok = connect_instructions(agent("grok").unwrap(), Path::new("/usr/bin/ove"));
         assert!(grok.starts_with("In Grok, add an MCP server named openvideoeditor that runs: /usr/bin/ove mcp"));
