@@ -150,3 +150,22 @@ Not yet verified (tasks left open): owner review of `docs/spec/project-schema-v1
 fuzz runs (2.4, workflow added, short local runs below); every "on both OSes" check (4.1, 4.3, 4.5, 5.1, 5.2, 6.2)
 until the macOS/Windows CI jobs have run; SMB-share library refusal on real network volumes (5.1, detection code is
 per-OS: `MNT_LOCAL`, `GetDriveTypeW`/UNC, Linux `f_type`); reference-machine performance (6.1).
+
+## Results (Windows 11, owner's machine)
+
+Measured 2026-11-26 on the machine described in add-desktop-shell-and-native-preview design.md (Ryzen 9 5950X,
+NVMe SSD, NTFS), Rust 1.97.0 MSVC, release build for timings.
+
+| Check | Result |
+|---|---|
+| Workspace tests incl. bundle sanitisation (`CON`, `NUL`, `COM1`), locking with real second processes, library listing/rename/duplicate/Trash, `ove-doc` end to end | pass |
+| Crash harness (4.3), child killed 1,000 times | every reopen valid; 316 s |
+| Open 5,000-item project (2.7 MB), p50 of 10 | **48 ms** (89 ms before mimalloc) (budget 200 ms) |
+| 1,000 single-op batches incl. durable record write, p95 over 4 runs | **5.6, 6.4, 7.1, 27 ms** (budget 10 ms; 3 of 4 runs inside) |
+| Durable record write alone (`FlushFileBuffers` + rename) | p50 2.9 ms, p95 3.6 ms (Linux 0.59 / 3.6 ms) |
+| 10,000-revision project | commit 7.5 ms each; open 38 ms; rebuild an old revision 0.68 s (1.86 s before mimalloc); prune 8,000 records 0.94 s |
+
+Notes: the system allocator made in-memory work several times slower than on Linux; the shipped binaries now use
+mimalloc (commit "mimalloc as the global allocator"). The apply p95 is bound by `FlushFileBuffers` and varies run to
+run on this disk; the one run over budget had a 480 ms single outlier. Not done here: SMB share (5.1), 30-minute fuzz
+(2.4), macOS.

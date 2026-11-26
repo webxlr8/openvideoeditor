@@ -147,3 +147,17 @@ Not yet verified (tasks left open): owner review of the format document (1.1); b
 property suites on macOS and Windows (2.1, 3.3 — CI jobs added); the nightly 30-minute parser fuzz (3.4, target
 added, short local runs below); `~/` paths and Windows drive paths with real files (5.1); the CLI suite on both OSes
 (6.1); the 30-minute soak (7.1, nightly job added; 60 s run here); reference-machine performance (7.2).
+
+## Results (Windows 11, owner's machine)
+
+Measured 2026-11-26 on the machine described in add-desktop-shell-and-native-preview design.md, Rust 1.97.0 MSVC,
+release build for timings.
+
+| Check | Result |
+|---|---|
+| Golden corpus byte-for-byte, property suites (round trip, merge), spec scenarios, CLI suite incl. lock-held refusal | pass |
+| Print a 5,000-item project (790 KB) | **23 ms** p50 with mimalloc; 122 ms with the system allocator (budget 100 ms) |
+| Check + apply a one-item edit on 5,000 items | **51 ms** p50, 57 ms max with mimalloc; 204 ms with the system allocator (budget 150 ms) |
+
+The Windows system heap caused the misses; the shipped binaries now use mimalloc. Not done here: the 30-minute soak
+and parser fuzz, drive-letter and `~\` paths with real files beyond the unit tests, macOS.

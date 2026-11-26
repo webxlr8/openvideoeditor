@@ -6,7 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { Key, sleep } from "./lib/session.mjs";
-import { WINDOWS, bundleItems, captureScreen, ffprobe, makeSpeech, revisionFiles } from "./lib/support.mjs";
+import { WINDOWS, bundleItems, captureScreen, ffprobe, logRecords, makeSpeech, revisionFiles } from "./lib/support.mjs";
 
 // ---------------------------------------------------------------------------------------------------------------
 // Shared steps
@@ -477,7 +477,8 @@ export const FLOWS = [
       view = await app.waitFor(async () => {
         const p = await app.project();
         const nb = p.items.find((i) => i.id === b.id);
-        return nb && nb.end < b.end - 0.1 ? p : null;
+        // The start stays: a grab that missed the handle would move the clip, which also brings its end in.
+        return nb && nb.end < b.end - 0.1 && Math.abs(nb.start - b.start) < 1e-6 ? p : null;
       }, "the trim");
       b = view.items.find((i) => i.id === b.id);
 
@@ -834,6 +835,42 @@ export const FLOWS = [
       ctx.log(`    key test: ${await app.textOf(check)}`);
       assert.match(await check.getAttribute("class"), /key-ok/, await app.textOf(check));
       ctx.rebound = true;
+    },
+  },
+
+  {
+    name: "resilience: a forced panic in a worker and in the viewer shows an error; the app stays usable; the log has the backtrace",
+    async run(ctx) {
+      const { app } = ctx;
+      await goHome(app);
+      await app.takePageEvents();
+      // A background worker panics: the command answers with the contained error instead of hanging.
+      await assert.rejects(app.invoke("debug_panic_worker"), /worker_panic/, "the worker's panic comes back as worker_panic");
+      // The viewer thread panics: the error reaches the window as a toast and the thread keeps serving.
+      await app.invoke("debug_panic_viewer");
+      // Exactly the viewer's error, as a worker_panic toast; anything else on the page is a problem of this flow.
+      const seen = { regionErrors: [], toasts: [], console: [] };
+      await app.waitFor(async () => {
+        const e = await app.takePageEvents();
+        for (const k of Object.keys(seen)) seen[k].push(...e[k]);
+        return seen.toasts.length > 0;
+      }, "an error toast for the viewer's panic");
+      assert.deepEqual(seen.toasts.map((t) => t.code), ["worker_panic"], "one toast, the viewer's worker_panic");
+      assert.deepEqual([...seen.regionErrors, ...seen.console], [], "no error cards or console errors from the panics");
+      // The window still works: a dialog opens and closes, and a project opens and imports a clip.
+      await app.click("nav-changelog");
+      await app.find("whats-new");
+      await app.keys(Key.ESCAPE);
+      await app.waitGone("whats-new");
+      await newProject(app, "After Panics");
+      await importWithButton(ctx, [ctx.media.video]);
+      // Both panics are in the log with a backtrace (the run's log check allows exactly these two messages).
+      const records = logRecords(app.info.logDir);
+      for (const what of ["forced worker panic (diagnostics)", "forced viewer panic (diagnostics)"]) {
+        const r = records.find((x) => x.includes(`panic: ${what}`));
+        assert.ok(r, `"${what}" is in the log`);
+        assert.match(r, /backtrace:\n\s*\S/, `"${what}" has a backtrace`);
+      }
     },
   },
 

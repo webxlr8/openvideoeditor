@@ -10,6 +10,10 @@
 
 mod common;
 
+// The shipped binaries use mimalloc (see apps/desktop/src-tauri/src/main.rs); measure with the same allocator.
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 use std::time::{Duration, Instant};
 
 use common::{clock, set};

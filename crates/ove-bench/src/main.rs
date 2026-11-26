@@ -6,6 +6,10 @@
 //! ```
 //! Exit codes: 0 success, 1 the file could not be opened or decoded, 2 bad arguments.
 
+// Same allocator as the app, so memory and timing numbers match it.
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 mod memory;
 
 use std::path::PathBuf;

@@ -226,3 +226,96 @@ card with chips and a templates/projects tray; editor icon rail with seven panel
 transport bar, four-track timeline (Text, Captions, Overlay, Main), assistant panel with composer, and the
 hidden-timeline mode with a scrub bar and timecodes. All copy, icons and branding are our own. Differences are later
 scope: the properties panel and per-item context menus, timeline zoom and snapshot controls (change 7).
+
+## Results (Windows 11, owner's machine)
+
+Measured 2026-11-26: Windows 11 Enterprise 26H1 (10.0.22635), AMD Ryzen 9 5950X (16 cores), 128 GB RAM, NVIDIA
+GeForce RTX 4070, NVMe SSD. Rust 1.97.0 (MSVC 14.44), FFmpeg 9.0.2 built by `tools/ffmpeg/build.sh` (MSVC toolchain,
+MSYS2 shell). Whether this machine is the Windows reference machine for the R1 gate is the owner's decision (6.3).
+
+### FFmpeg build (task 1.4, Windows x64 MSVC)
+LGPL 2.1+ (licence gate passes), shared, D3D11VA hardware decoders for H.264, HEVC, VP9 and AV1, Media Foundation
+encoders `h264_mf`/`hevc_mf`. Shipped libraries **11.0 MB** (avcodec 5.8, dav1d 1.8, swscale 1.2, avutil 1.1,
+avformat 1.0, swresample 0.2). dav1d 1.5.5 from vcpkg. Not done: the CI artefact upload (CI does not run yet).
+
+### Workspace
+`cargo clippy --workspace --all-targets --all-features -D warnings` clean; `cargo test --workspace --all-features`
+all pass (with the tests' `python3` and the full fixture `ffmpeg` CLI on PATH, as CI provides them); `cargo deny
+check` passes after updating `url` and `cookie` (two advisories published since the last run). UI: typecheck, lint,
+137 tests and the licence check pass.
+
+### Hardware decode (task 2.4, D3D11VA)
+New test `crates/ove-media/tests/hardware.rs`: on the hardware path, every frame's pts and pixels equal software
+decode, 20 random seeks per file are frame-exact, and a hardware failure injected at one third of the file continues
+in software with every frame present once and identical. Passes for the 8 files the RTX 4070 decodes in hardware:
+H.264 (long GOP, 60p, 3840×2160 60p, VFR), HEVC Main10 4:2:0, HEVC Main10 HDR VFR, VP9 and AV1. AV1 needed FFmpeg's
+native `av1` decoder (libdav1d has no hardware path): the build now includes it and the hardware path opens it, while
+software decode keeps libdav1d. Decoded in software on this machine: ProRes, DNxHR (no hardware decoder exists) and
+HEVC 4:2:2 10-bit (the device opens but declines the stream on the first frame).
+
+### Decoder threads
+FFmpeg's default thread count (0) starts one frame thread per logical CPU, 32 on this machine. Each thread holds frames
+of its own, and every seek has to refill the pipeline. Sweep with `ove-bench` on the 4K H.264 file (peak memory, seek
+p50): software 0 threads 550 MB / 77 ms, 8 threads 357 MB / 57 ms; hardware 0 threads 614 MB / 132 ms, 2 threads
+383 MB / 91 ms. The decoder now uses up to 8 threads in software (fewer CPUs keep their own count) and 2 on the
+hardware path, where the second thread overlaps the copy back to memory (14.9 → 11.1 ms per 4K frame against one).
+
+### Benchmark (task 3.3, Windows)
+`ove-bench` (release, 8-frame queue, 100 seeks), with the decoder thread counts above:
+
+| file | decode path | size | fps | played s | presented | dropped | A/V offset mean/p95/max (µs) | seek p50/p95/max (ms) | exact | peak RSS MB |
+|---|---|---|---|---|---|---|---|---|---|---|
+| av1.mkv | D3D11VA | 320×180 | 30.0 | 3.00 | 90 | 0 | 366 / 898 / 929 | 4.8 / 8.8 / 11.0 | yes | 76 |
+| dnxhr_hq.mxf | software | 1280×720 | 25.0 | 2.00 | 50 | 0 | 425 / 973 / 1042 | 7.5 / 13.3 / 14.4 | yes | 80 |
+| h264_4k60.mp4 | D3D11VA | 3840×2160 | 60.0 | 1.00 | 60 | 0 | 445 / 903 / 1006 | 87.1 / 135.5 / 142.8 | yes | 340 |
+| h264_60fps.mov | D3D11VA | 320×180 | 60.0 | 2.00 | 120 | 0 | 432 / 954 / 996 | 15.8 / 38.4 / 45.1 | yes | 104 |
+| h264_longgop.mp4 | D3D11VA | 320×180 | 30.0 | 4.00 | 120 | 0 | 344 / 891 / 1007 | 9.6 / 22.4 / 27.9 | yes | 108 |
+| hevc_hdr_vfr.mov | D3D11VA | 1280×720 | 29.3 VFR | 1.99 | 59 | 0 | 444 / 943 / 1195 | 13.9 / 27.1 / 29.9 | yes | 130 |
+| hevc_hlg_patches.mov | D3D11VA | 1280×720 | 30.0 | 1.00 | 30 | 0 | 321 / 901 / 996 | 9.3 / 13.1 / 13.9 | yes | 126 |
+| hevc_main10_420.mp4 | D3D11VA | 320×180 | 30.0 | 3.00 | 90 | 0 | 378 / 951 / 1035 | 8.0 / 12.8 / 14.3 | yes | 65 |
+| hevc_main422_10.mov | software | 320×180 | 30.0 | 3.00 | 90 | 0 | 343 / 869 / 972 | 10.6 / 16.9 / 18.4 | yes | 42 |
+| hevc_pq_patches.mov | D3D11VA | 1280×720 | 30.0 | 1.00 | 30 | 0 | 371 / 925 / 929 | 10.4 / 14.3 / 15.1 | yes | 130 |
+| prores_4444.mov | software | 320×180 | 30.0 | 3.00 | 90 | 0 | 344 / 876 / 956 | 2.5 / 2.7 / 2.7 | yes | 17 |
+| prores_hq.mov | software | 320×180 | 30.0 | 3.00 | 90 | 0 | 399 / 932 / 982 | 1.0 / 1.1 / 1.2 | yes | 28 |
+| prores_lt.mov | software | 320×180 | 30.0 | 3.00 | 90 | 0 | 355 / 933 / 1021 | 1.1 / 1.1 / 1.2 | yes | 15 |
+| prores_proxy.mov | software | 320×180 | 30.0 | 3.00 | 90 | 0 | 405 / 892 / 1105 | 0.5 / 0.6 / 0.6 | yes | 14 |
+| truncated_faststart.mp4 | software | 320×180 | 30.0 | 1.83 | 55 | 0 | 384 / 884 / 1030 | 3.7 / 4.3 / 4.4 | yes | 68 |
+| vfr_phone.mp4 | D3D11VA | 320×180 | 29.9 VFR | 3.98 | 119 | 0 | 336 / 868 / 953 | 11.5 / 22.6 / 33.5 | yes | 111 |
+| vp9_opus.webm | D3D11VA | 320×180 | 30.0 | 3.00 | 90 | 0 | 397 / 903 / 945 | 5.7 / 12.1 / 13.4 | yes | 101 |
+
+Observations:
+- 4K H.264 on the hardware path: seek p50 126 → 87 ms and peak memory 535 → 340 MB against the first sweep (default
+  thread count). Software decode on this 16-core CPU is still a little faster to seek (p50 57 ms); both are inside the
+  300 ms target, and the hardware path leaves the CPU free.
+- In the very first sweep after boot, the two HEVC Main10 HDR files dropped frames on the hardware path
+  (`hevc_hdr_vfr.mov` 21 of 44, `hevc_hlg_patches.mov` 10 of 26). No run since has dropped a frame, including direct
+  repeats; it did not come back without a reboot, so it could not be traced. Likely the driver's first HEVC Main10
+  session; check first play after a reboot on the R1 run (6.1).
+- The D3D11 device costs about 70–100 MB of resident memory per decoder even for small files.
+- `audio_*` files and `truncated_nomoov.mp4` are refused by `ove-bench` as expected (no video stream / damaged file).
+
+### App, installer, start-up and memory (tasks 4.3, 4.5, 6.2; Windows)
+- App e2e suite (`pnpm e2e:app`, debug build, tauri-driver + msedgedriver 159): **19/19 flows pass, three runs in a
+  row**, including first run, import by button and window drop, timeline edits, captions, effects, export, assistant
+  (mock API), close/reopen, kill/relaunch, the new forced-panic flow (worker and viewer panic: error shown, app usable,
+  backtrace in the log) and the clean-log check.
+- The timeline flow failed in 3 of 4 full runs after the decoder change. Cause: the timeline's vertical scrollbar
+  comes and goes (the ruler and five tracks are 241 px in a 236 px panel), Fit zoom rescales with the width, and the
+  clips moved by 4–6 px between the test measuring the trim handle and pressing it; the press then landed on the lane
+  (a seek that deselects) or on the clip body (a move the test accepted as a trim). Fixed in the app with
+  `scrollbar-gutter: stable` on the timeline scroller; the test now also checks that a trim leaves the start in place.
+- Single instance (4.3), checked by hand: a second launch with a media file leaves one process, logs
+  "second launch forwarded to the running instance", routes the path and creates a project from it.
+- Installers (`tools/package.sh`, release): NSIS **25.5 MB**, MSI **35.2 MB** (budget 60 MB). Two bugs in the script
+  showed up only on native Windows and are fixed: it assigned the FFmpeg folder to `LIB`, the MSVC linker's library
+  path, so every link failed (`cannot open input file 'kernel32.lib'`); and it handed Tauri MSYS paths (`/h/…`) for
+  the DLLs. Release builds so far were cross-built from Linux, which has neither problem.
+- Cold start (4.5), release binary, process start to the app's `ui ready` log line, 6 runs: **409–509 ms**, one run
+  846 ms (budget 1.5 s). Warm file cache; a first start after reboot is not measured.
+- Idle memory 15 s after launch (6.2), release binary, `ove-desktop` working set (private): **55 MB (53 MB)** on Home,
+  **329 MB (539 MB)** with a 720p HEVC file open, **492 MB (690 MB)** with a 3840×2160 H.264 file open; the six WebView2
+  processes add 340–370 MB. Before this round: 257, 362 and 660 MB. Two changes: the viewer opens the GPU device with
+  the first frame instead of at start (`GpuContext::probe` reads the adapter for the startup log; the device alone
+  holds about 100 MB working set and 250 MB private on this driver), and the decoder thread counts above. With a file
+  open the 250 MB note is still exceeded: the GPU device, the decoder and the 8-frame queue (about 12 MB per 4K frame).
+  The first frame waits for the device to open (about 300 ms on this machine).
