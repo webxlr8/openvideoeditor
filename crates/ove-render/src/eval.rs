@@ -64,24 +64,49 @@ pub enum Placement {
     Fit,
 }
 
+/// Layer blend modes: the 16 schema modes (W3C Compositing and Blending Level 1 formulas) plus `add`, a legacy
+/// alias kept for documents written before the full set existed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Blend {
     Normal,
     Multiply,
     Screen,
+    Overlay,
     Darken,
     Lighten,
+    ColorDodge,
+    ColorBurn,
+    HardLight,
+    SoftLight,
+    Difference,
+    Exclusion,
+    Hue,
+    Saturation,
+    Color,
+    Luminosity,
     Add,
 }
 
 impl Blend {
+    /// Maps a `blendMode` value; `None` and unknown values are Normal (the schema rejects unknown values on apply).
     pub fn parse(s: Option<&str>) -> Blend {
         match s {
             Some("multiply") => Blend::Multiply,
             Some("screen") => Blend::Screen,
+            Some("overlay") => Blend::Overlay,
             Some("darken") => Blend::Darken,
             Some("lighten") => Blend::Lighten,
-            Some("color-dodge") | Some("add") => Blend::Add,
+            Some("color-dodge") => Blend::ColorDodge,
+            Some("color-burn") => Blend::ColorBurn,
+            Some("hard-light") => Blend::HardLight,
+            Some("soft-light") => Blend::SoftLight,
+            Some("difference") => Blend::Difference,
+            Some("exclusion") => Blend::Exclusion,
+            Some("hue") => Blend::Hue,
+            Some("saturation") => Blend::Saturation,
+            Some("color") => Blend::Color,
+            Some("luminosity") => Blend::Luminosity,
+            Some("add") => Blend::Add,
             _ => Blend::Normal,
         }
     }
@@ -224,19 +249,8 @@ fn apply_transition(l: &mut Layer, tr: &Transition, q: f32, role: Role) {
 
 /// Easing curve value for progress `p` in 0..1.
 pub fn ease(name: &str, p: f64) -> f64 {
-    let p = p.clamp(0.0, 1.0);
-    match name {
-        "ease-in" => p * p,
-        "ease-out" => 1.0 - (1.0 - p) * (1.0 - p),
-        "ease-in-out" => {
-            if p < 0.5 {
-                2.0 * p * p
-            } else {
-                1.0 - (-2.0 * p + 2.0).powi(2) / 2.0
-            }
-        }
-        _ => p,
-    }
+    // One definition with split/trim retiming, so cut keyframes match what renders.
+    ove_core::retime::ease(name, p)
 }
 
 /// Value of a keyframed property at item-relative time `rel_us`, if the item animates it.

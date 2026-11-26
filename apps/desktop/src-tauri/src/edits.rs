@@ -230,6 +230,28 @@ pub fn trimmed(
     let speed = it.fields.get("playbackSpeed").and_then(Value::as_f64).unwrap_or(1.0).max(0.01);
     let has_source = it.media_id().is_some() && matches!(it.kind.as_str(), "video" | "audio");
     let trim = it.time_field("trimStart");
+    let reverse = it.fields.get("playbackDirection").and_then(Value::as_str) == Some("reverse");
+    if has_source && reverse {
+        // Reverse playback shows the source backwards: the start edge is the source's latest frame and the end edge
+        // is `trimStart`. So the end edge moves the in-point and the start edge is limited by the source length.
+        return match edge {
+            "start" => {
+                let mut start = time.clamp(0, it.end - MIN_DURATION);
+                if let Some(d) = media_duration {
+                    let earliest = it.end - ((d - trim).max(0) as f64 / speed).round() as Micros;
+                    start = start.max(earliest.min(it.end - MIN_DURATION));
+                }
+                Ok((start, it.end, trim))
+            }
+            "end" => {
+                let latest = it.end + (trim as f64 / speed).round() as Micros;
+                let end = time.max(it.start + MIN_DURATION).min(latest);
+                let new_trim = trim + ((it.end - end) as f64 * speed).round() as Micros;
+                Ok((it.start, end, new_trim.max(0)))
+            }
+            other => Err(format!("unknown edge {other}")),
+        };
+    }
     match edge {
         "start" => {
             let mut start = time.clamp(0, it.end - MIN_DURATION);
@@ -268,7 +290,8 @@ pub async fn trim_item(app: AppHandle, id: String, edge: String, time: f64) -> A
                 .and_then(|m| m.data().and_then(|d| d.get("duration")).and_then(json_to_micros));
             let t = secs_to_micros(time).ok_or_else(|| bad("The time is invalid."))?;
             let (s, e, tr) = trimmed(&it, dur, &edge, t).map_err(bad)?;
-            let mut set = Map::new();
+            // Keyframes and caption segments are stored relative to the start: keep them at the same timeline times.
+            let mut set = ove_core::retime::rebase_start(&it, s);
             set.insert("startTime".into(), micros_to_json(s));
             set.insert("endTime".into(), micros_to_json(e));
             if tr != it.time_field("trimStart") {
@@ -372,6 +395,21 @@ mod tests {
         assert_eq!(trimmed(&c, Some(15_000_000), "end", 40_000_000).unwrap(), (10_000_000, 23_000_000, 2_000_000));
         assert_eq!(trimmed(&c, Some(15_000_000), "end", 9_000_000).unwrap().1, 10_000_000 + MIN_DURATION);
         assert!(trimmed(&c, None, "middle", 0).is_err());
+    }
+
+    #[test]
+    fn reverse_trim_moves_the_other_source_edge() {
+        let mut c = clip(10.0, 20.0, 2.0, 1.0);
+        c.fields.insert("playbackDirection".into(), json!("reverse"));
+        // The start edge shows the latest source frame: trimming it leaves the in-point alone.
+        assert_eq!(trimmed(&c, Some(30_000_000), "start", 12_000_000).unwrap(), (12_000_000, 20_000_000, 2_000_000));
+        // Extending the start is limited by the source length: 30 s source, in-point 2 s → at most 28 s of clip.
+        assert_eq!(trimmed(&c, Some(30_000_000), "start", 0).unwrap(), (0, 20_000_000, 2_000_000));
+        assert_eq!(trimmed(&c, Some(14_000_000), "start", 0).unwrap(), (8_000_000, 20_000_000, 2_000_000));
+        // The end edge shows the in-point: pulling it in by 3 s moves the in-point 3 s later.
+        assert_eq!(trimmed(&c, None, "end", 17_000_000).unwrap(), (10_000_000, 17_000_000, 5_000_000));
+        // Extending the end reveals earlier source, down to the first frame (in-point 2 s → end at most 22 s).
+        assert_eq!(trimmed(&c, None, "end", 40_000_000).unwrap(), (10_000_000, 22_000_000, 0));
     }
 
     #[test]

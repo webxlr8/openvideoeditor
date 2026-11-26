@@ -237,18 +237,7 @@ fn start(ctx: &Ctx, kind: Kind, a: &GenArgs) -> Out {
         Ok((job, w.bundle().to_path_buf(), via(w)))
     })?;
     if a.no_wait {
-        let exe = std::env::current_exe().map_err(|e| Fail::new("worker.failed", e.to_string()))?;
-        std::process::Command::new(exe)
-            .arg("--library")
-            .arg(&ctx.root)
-            .args(["generate", "_run"])
-            .arg(&bundle)
-            .arg(&job.id)
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .map_err(|e| Fail::new("worker.failed", format!("could not start the background worker: {e}")))?;
+        spawn_worker(ctx, &bundle, &job.id)?;
         let mut v = job_json(&job);
         v["started"] = json!(true);
         return Ok((
@@ -262,6 +251,23 @@ fn start(ctx: &Ctx, kind: Kind, a: &GenArgs) -> Out {
         return Err(Fail::new("generate.failed", text).details(job_json(&done)));
     }
     Ok((job_json(&done), format!("{text}{how}")))
+}
+
+/// Starts a background worker (`ove generate _run`) for a saved job.
+fn spawn_worker(ctx: &Ctx, bundle: &Path, id: &str) -> Result<(), Fail> {
+    let exe = std::env::current_exe().map_err(|e| Fail::new("worker.failed", e.to_string()))?;
+    std::process::Command::new(exe)
+        .arg("--library")
+        .arg(&ctx.root)
+        .args(["generate", "_run"])
+        .arg(bundle)
+        .arg(id)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| Fail::new("worker.failed", format!("could not start the background worker: {e}")))
 }
 
 #[cfg(feature = "media")]
@@ -330,19 +336,24 @@ pub fn run_job(ctx: &Ctx, bundle: &Path, id: &str) -> Result<Job, Fail> {
     Ok(job)
 }
 
-/// Fails the project's jobs whose worker is gone (or that stopped making progress) and removes their pending
-/// placeholders, so they neither show as running forever nor block export.
+/// Settles the project's jobs whose worker is gone (or that stopped making progress): a fal request still queued at
+/// the provider gets a new background worker that resumes it (no second submit); the rest fail and their pending
+/// placeholders are removed, so they neither show as running forever nor block export.
 fn reap(ctx: &Ctx, bundle: &Path) {
     let reaped = ove_generate::job::reap_stale_jobs(bundle, now_ms());
-    if reaped.is_empty() {
+    for j in &reaped.resumable {
+        // If the worker cannot start, the job stays queued (placeholder kept) until it is given up as stale.
+        let _ = spawn_worker(ctx, bundle, &j.id);
+    }
+    if reaped.failed.is_empty() {
         return;
     }
     let _ = edit(ctx, &bundle.display().to_string(), |w| {
-        let ops: Vec<_> = reaped.iter().flat_map(|j| ove_generate::place::failed_ops(w.doc(), j)).collect();
+        let ops: Vec<_> = reaped.failed.iter().flat_map(|j| ove_generate::place::failed_ops(w.doc(), j)).collect();
         if ops.is_empty() {
             return Ok(0);
         }
-        w.apply(ops, ctx.source, format!("generate: {} stopped job(s)", reaped.len()))
+        w.apply(ops, ctx.source, format!("generate: {} stopped job(s)", reaped.failed.len()))
     });
 }
 

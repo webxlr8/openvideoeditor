@@ -8,6 +8,7 @@ pub mod jsonschema;
 pub mod migrate;
 pub mod model;
 pub mod ops;
+pub mod retime;
 pub mod revision;
 pub mod schema;
 #[cfg(feature = "testgen")]

@@ -147,7 +147,12 @@ pub fn start_generation(
     };
     let text = serde_json::to_string(&job).unwrap_or_default();
     let _ = GenerationUpdated(text.clone()).emit(&app);
-    let keys = g.keys.clone();
+    spawn_job(&app, bundle, job, g.keys.clone()).map_err(|e| AppError::new(ErrorCode::Internal, e.to_string()))?;
+    Ok(text)
+}
+
+/// Runs a saved job on a background thread: a new one, or one resumed after its worker died.
+fn spawn_job(app: &AppHandle, bundle: std::path::PathBuf, job: Job, keys: Arc<dyn KeyStore>) -> std::io::Result<()> {
     let a = app.clone();
     let task = format!("generate-{}", job.id);
     crate::worker::spawn_contained(&task, move || {
@@ -157,8 +162,7 @@ pub fn start_generation(
             give_up(&a, &bundle, &id, "an internal error stopped the generation (details are in the log)");
         }
     })
-    .map_err(|e| AppError::new(ErrorCode::Internal, e.to_string()))?;
-    Ok(text)
+    .map(|_| ())
 }
 
 /// Marks an unfinished job failed with `why`, removes its placeholder and tells the UI.
@@ -290,23 +294,31 @@ fn run(app: &AppHandle, bundle: &Path, mut job: Job, keys: &dyn KeyStore) {
 #[tauri::command]
 #[specta::specta]
 pub fn generation_jobs(app: AppHandle, state: State<'_, AppState>) -> AppResult<String> {
-    // Jobs whose worker is gone (the app or `ove` closed while it ran) or that stopped making progress are marked
-    // failed first and their placeholders removed. (Doc comment above is mirrored into ui/src/bindings.ts.)
+    // Jobs whose worker is gone (the app or `ove` closed while it ran) are resumed when their provider request is
+    // still queued, else failed with their placeholders removed; jobs that stopped making progress fail too.
+    // (Doc comment above is mirrored into ui/src/bindings.ts.)
     let mut g = lock(&state.projects.open)?;
     let Some(p) = g.as_mut() else { return Ok("[]".into()) };
     let now = ove_core::Clock::now_ms(&ove_core::SystemClock);
     let reaped = ove_generate::job::reap_stale_jobs(p.bundle(), now);
-    if !reaped.is_empty() {
-        let ops: Vec<_> = reaped.iter().flat_map(|j| ove_generate::place::failed_ops(p.doc(), j)).collect();
+    if !reaped.failed.is_empty() {
+        let ops: Vec<_> = reaped.failed.iter().flat_map(|j| ove_generate::place::failed_ops(p.doc(), j)).collect();
         if !ops.is_empty() {
-            match p.apply(ops, Source::Gui, Some(format!("generate: {} stopped job(s)", reaped.len()))) {
+            match p.apply(ops, Source::Gui, Some(format!("generate: {} stopped job(s)", reaped.failed.len()))) {
                 Ok(_) => emit(&app, Some(p)),
                 Err(e) => tracing::warn!(error = %e, "could not remove the placeholders of stopped jobs"),
             }
         }
-        for j in &reaped {
-            let _ = GenerationUpdated(serde_json::to_string(j).unwrap_or_default()).emit(&app);
+    }
+    let keys = app.state::<Generation>().keys.clone();
+    for j in &reaped.resumable {
+        // If the worker cannot start, the job stays queued (placeholder kept) until it is given up as stale.
+        if let Err(e) = spawn_job(&app, p.bundle().to_path_buf(), j.clone(), keys.clone()) {
+            tracing::warn!(job = %j.id, error = %e, "could not resume a generation job");
         }
+    }
+    for j in reaped.failed.iter().chain(&reaped.resumable) {
+        let _ = GenerationUpdated(serde_json::to_string(j).unwrap_or_default()).emit(&app);
     }
     let jobs = ove_generate::job::list(p.bundle());
     Ok(serde_json::to_string(&jobs).unwrap_or_else(|_| "[]".into()))

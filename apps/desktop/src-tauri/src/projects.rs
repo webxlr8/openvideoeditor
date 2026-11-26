@@ -929,25 +929,32 @@ pub async fn remove_items(app: AppHandle, ids: Vec<String>) -> AppResult<Project
 #[specta::specta]
 pub async fn split_item(app: AppHandle, id: String, at: f64) -> AppResult<ProjectView> {
     serial(&app, "split_item", move |app, state| {
-        let item = {
+        let (item, right_id) = {
             let g = lock(&state.projects.open)?;
             let p = g.as_ref().ok_or_else(|| AppError::new(ErrorCode::InvalidArgument, "No project is open."))?;
-            p.doc()
+            let item = p
+                .doc()
                 .item(&id)
                 .cloned()
-                .ok_or_else(|| AppError::new(ErrorCode::NotFound, "That clip no longer exists."))?
+                .ok_or_else(|| AppError::new(ErrorCode::NotFound, "That clip no longer exists."))?;
+            let mut right_id = crate::edits::new_item_id();
+            while p.doc().item(&right_id).is_some() {
+                right_id = crate::edits::new_item_id();
+            }
+            (item, right_id)
         };
         let cut = ove_core::time::secs_to_micros(at).unwrap_or(0);
-        if cut <= item.start || cut >= item.end {
-            return Err(AppError::new(ErrorCode::InvalidArgument, "Move the playhead inside the clip to split it."));
+        // Speed, reverse playback, keyframes, caption segments, fades and transitions are carried over so both
+        // parts look and sound exactly like the uncut clip.
+        let split = ove_core::retime::split(&item, cut, &right_id).ok_or_else(|| {
+            AppError::new(ErrorCode::InvalidArgument, "Move the playhead inside the clip to split it.")
+        })?;
+        let mut ops = vec![Op::UpdateItem { id: id.clone(), set: split.left_set }];
+        if !split.left_unset.is_empty() {
+            ops.push(Op::UnsetItemFields { id, fields: split.left_unset });
         }
-        let mut right = item.to_json();
-        right["id"] = format!("{}_b{}", item.id, ove_core::Clock::now_ms(&ove_core::SystemClock) % 100_000).into();
-        right["startTime"] = ove_core::time::micros_to_json(cut);
-        right["trimStart"] = ove_core::time::micros_to_json(item.time_field("trimStart") + (cut - item.start));
-        let mut set = Map::new();
-        set.insert("endTime".into(), ove_core::time::micros_to_json(cut));
-        edit(app, state, vec![Op::UpdateItem { id, set }, Op::AddItem { item: right }], "split clip")
+        ops.push(Op::AddItem { item: split.right });
+        edit(app, state, ops, "split clip")
     })
     .await
 }

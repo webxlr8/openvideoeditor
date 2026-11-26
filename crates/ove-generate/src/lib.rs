@@ -28,6 +28,7 @@ pub fn new_job(plan: &Plan, req: &Request, id: &str, now_ms: i64) -> Job {
         item_id: Some(plan.item_id.clone()),
         estimate_usd: plan.estimate_usd,
         remote_id: None,
+        remote: None,
         output: None,
         error: None,
         created_at: now_ms,
@@ -43,6 +44,10 @@ fn now() -> i64 {
 
 /// Runs a job to the end: calls the provider, saves the output under `media/generated/`, and keeps the job file
 /// current (status, progress, output, error). `cancelled` is checked between polls (and the job's cancel marker).
+///
+/// A fal request is saved on the job ([`Job::remote`]) as soon as it is queued. A job that already has one (its
+/// previous worker died, see [`job::reap_stale_jobs`]) is resumed: no second submit, polling picks up where it was,
+/// and the provider timeout still runs from the original submit.
 pub fn execute(
     bundle: &Path,
     job: &mut Job,
@@ -71,6 +76,20 @@ pub fn execute(
         let id = job.id.clone();
         let is_cancelled = || cancelled() || job::cancel_requested(bundle, &id);
         let aspect = job.request.aspect.clone().unwrap_or_else(|| "16:9".into());
+        let dir = job::output_dir(bundle);
+        std::fs::create_dir_all(&dir).map_err(|e| GenError::new("file.unwritable", e.to_string()))?;
+        if model.provider == Provider::Fal && job.remote.is_none() {
+            ove_guard::register_secret(&key);
+            if is_cancelled() {
+                return Err(GenError::new("cancelled", "cancelled"));
+            }
+            let remote = providers::fal::submit(&model, &job.request, &aspect, &key, now())?;
+            job.remote_id = remote.request_id.clone();
+            job.remote = Some(remote);
+            job.updated_at = now();
+            let _ = job::save(bundle, job);
+        }
+        // Progress saves write this copy, which already holds the remote handle.
         let mut snapshot = job.clone();
         let mut progress = |p: Option<f64>, remote: Option<&str>| {
             if p.is_some() {
@@ -82,14 +101,14 @@ pub fn execute(
             snapshot.updated_at = now();
             let _ = job::save(bundle, &snapshot);
         };
-        let dir = job::output_dir(bundle);
-        std::fs::create_dir_all(&dir).map_err(|e| GenError::new("file.unwritable", e.to_string()))?;
-        let out = providers::run(
-            &model,
-            &job.request,
-            &aspect,
-            &mut providers::Run { key: &key, cancelled: &is_cancelled, progress: &mut progress, out_dir: &dir },
-        )?;
+        let mut run = providers::Run { key: &key, cancelled: &is_cancelled, progress: &mut progress, out_dir: &dir };
+        let out = match &job.remote {
+            Some(remote) => {
+                ove_guard::register_secret(&key);
+                providers::fal::wait(&model, remote, &mut run)?
+            }
+            None => providers::run(&model, &job.request, &aspect, &mut run)?,
+        };
         job.remote_id = snapshot.remote_id.clone();
         let file = format!("{}.{}", job.id, out.ext);
         out.data.save(&dir.join(&file)).map_err(|e| GenError::new("file.unwritable", e.to_string()))?;
@@ -113,5 +132,6 @@ pub fn execute(
         }
     }
     let _ = job::save(bundle, job);
+    job::clear_resume_claims(bundle, &job.id);
     res
 }
