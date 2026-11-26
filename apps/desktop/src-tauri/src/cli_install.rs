@@ -253,7 +253,7 @@ mod tests {
         assert_eq!(path_with("", dir), dir);
         assert_eq!(path_with(r"C:\a;C:\b", dir), format!(r"C:\a;C:\b;{dir}"));
         assert_eq!(path_with(r"C:\a;", dir), format!(r"C:\a;{dir}"));
-        let with = format!(r"C:\a;c:\program files\openvideoeditor\;%USERPROFILE%\bin");
+        let with = r"C:\a;c:\program files\openvideoeditor\;%USERPROFILE%\bin".to_string();
         assert!(path_has(&with, dir), "case and a trailing separator do not matter");
         assert_eq!(path_with(&with, dir), with, "not added twice");
         assert_eq!(path_without(&with, dir), r"C:\a;%USERPROFILE%\bin", "only that entry goes");
