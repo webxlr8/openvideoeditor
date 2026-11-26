@@ -6,6 +6,11 @@
 // Without media support some options and helpers are parsed but unused.
 #![cfg_attr(not(feature = "media"), allow(dead_code))]
 
+// mimalloc instead of the system allocator: on Windows the system heap made projection print and apply (`ove source`) about
+// 4× slower than on Linux (5,000 items: print 122 ms → 24 ms, check + apply 204 ms → 50 ms).
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 mod analyze;
 mod app;
 mod common;
