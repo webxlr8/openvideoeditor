@@ -2,11 +2,14 @@
 
 ## 1. Runtime spike
 
-- [ ] 1.1 Export Silero VAD and Beat This (small) to ONNX with our own scripts and record their weight licences; verify
+- [x] 1.1 Export Silero VAD and Beat This (small) to ONNX with our own scripts and record their weight licences; verify
       each export matches the reference implementation (max absolute logit difference < 1e-3 on 3 fixtures).
+      Done: `tools/model-spike/export_models.py`; worst difference 1.64e-4; licences in design.md R1, parity in R2.
 - [ ] 1.2 Run both models under the dynamically loaded ONNX runtime and the pure-Rust runtime on macOS and Windows;
       verify and record in design.md Results: loads yes/no, parity, real-time factor, peak RSS, added binary size.
+      Windows measured (design.md R3, `tools/model-spike/bench`); the macOS row is still open.
 - [ ] 1.3 Record the decision (D4) with the numbers; verify the owner signs off in the change notes.
+      Recommendation recorded in design.md R4 (dynamically loaded runtime); waiting for the owner's sign-off.
 
 ## 2. Manifests, downloader and store
 

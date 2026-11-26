@@ -100,5 +100,86 @@ Whisper files are adopted in place (D3). No project data changes. Removing this 
 
 ## Results
 
-(Filled in during apply: spike table per runtime and model — loads, parity, real-time factor, peak RSS, binary size —
-on both reference machines.)
+### R1. Weight licences (task 1.1)
+
+| Model | Code licence | Weight licence | Evidence |
+|---|---|---|---|
+| Silero VAD 16 kHz (package 6.3) | MIT | MIT | The weights ship inside the package with its `LICENSE` file ("MIT License, Copyright (c) 2020-present Silero Team"); the package metadata classifies it as MIT. The project README shows a badge whose alt text says "CC BY-NC 4.0" while the badge itself and the licence file say MIT; the licence file governs, but a feature that pins this model should re-check it. |
+| Beat This, `small0` checkpoint (package 1.1.0) | MIT | MIT | Project README, License section: "The code and the published model weights are released under the MIT license." The README notes that some training data has other licences; that does not bind the weights. Checkpoints are served from the authors' university file share (`cloud.cp.jku.at/public.php/dav/files/7ik4RrBKTS273gp/<name>.ckpt`), which is not commit-pinned: a feature that pins this model must mirror the file on a versioned release asset. |
+| Whisper ggml (tiny, base, small) | MIT | MIT | Model card of the whisper.cpp model repository declares `license: mit`. The files are now fetched from commit `5359861c739e955e79d9a303bcbc70fb988958b1` instead of the moving `main` branch; the size and SHA-256 of `ggml-tiny.bin` at that commit match the pins already in the code. |
+
+### R2. Export and parity (task 1.1)
+
+Our own exporter (`tools/model-spike/export_models.py`, torch 2.15.0, opset 17, onnxruntime 1.32.0 in Python):
+
+- Silero VAD: the network is rebuilt as our own PyTorch module, loaded with the weights from the upstream TorchScript
+  file and exported. One 32 ms step: 64 samples of context plus 512 new samples and the recurrent state in;
+  speech probability and new state out. The LSTM cell is written out and `squeeze` is replaced by indexing, so the
+  graph holds only plain operators (see R3). File: 1,247,273 bytes.
+- Beat This `small0`: upstream's module exported with a fixed input of 1500 spectrogram frames (30 s, the chunk size
+  upstream inference uses). File: 9,961,009 bytes. The log-mel spectrogram stays outside the model.
+
+Reference: the upstream implementation in PyTorch (TorchScript model for Silero, run the way upstream runs it; the
+PyTorch module for Beat This). Fixtures: 30 s each, made by the script: repeated speech, speech with white noise,
+synthetic music (Silero); two synthetic drum loops at 100 and 128 BPM and the speech (Beat This).
+
+| Model | Fixture | Max absolute difference | Output compared |
+|---|---|---|---|
+| Silero VAD | speech | 1.64e-4 | speech probability (the model's output is after the sigmoid) |
+| Silero VAD | speech + noise | 2.2e-6 | speech probability |
+| Silero VAD | music | 5.1e-7 | speech probability |
+| Beat This small0 | drums 100 BPM | 2.9e-5 | beat and downbeat logits |
+| Beat This small0 | drums 128 BPM | 6.2e-5 | beat and downbeat logits |
+| Beat This small0 | speech | 1.4e-5 | beat and downbeat logits |
+
+All six are below the 1e-3 limit.
+
+### R3. Runtime spike on Windows (task 1.2)
+
+Machine: Windows 11 x64, AMD Ryzen 9 5950X (16 cores), 128 GB. Bench: `tools/model-spike/bench`, release profile
+as the workspace (`lto = "thin"`, `codegen-units = 1`), one model per process, median of 3 runs, 90 s of audio per
+model (three fixtures). Candidates: `ort` 2.0.0-rc.15 with `load-dynamic` and the onnxruntime 1.32.0 library;
+`tract-onnx` 0.23.10. Parity is against the PyTorch reference outputs from R2.
+
+| Runtime | Model | Loads | Max abs. difference | Load time | Real-time factor | Faster than real time | Peak RSS |
+|---|---|---|---|---|---|---|---|
+| onnxruntime, 1 thread | Silero VAD | yes | 1.64e-4 | 14 ms | 0.0027 | 368× | 37 MB |
+| onnxruntime, 4 threads | Silero VAD | yes | 1.64e-4 | 13 ms | 0.0026 | 381× | 37 MB |
+| tract, 1 thread | Silero VAD | yes (after the export change below) | 1.62e-4 | 16 ms | 0.0021 | 476× | 15 MB |
+| onnxruntime, 1 thread | Beat This small0 | yes | 6.2e-5 | 227 ms | 0.036 | 28× | 566 MB |
+| onnxruntime, 4 threads | Beat This small0 | yes | 6.2e-5 | 302 ms | 0.016 | 63× | 567 MB |
+| tract, 1 thread | Beat This small0 | yes | 8.4e-5 | 368 ms | 0.075 | 13× | 600 MB |
+
+Added size (Windows x64 release binary, against the same bench without a runtime, 163,328 bytes):
+
+| Runtime | Added to the binary | Compressed (zip, deflate 9) | Downloaded on first use |
+|---|---|---|---|
+| onnxruntime (load-dynamic) | +208 KB | +83 KB | `onnxruntime.dll` 22,668,640 bytes (7.6 MB compressed) |
+| tract | +25.3 MB | +8.1 MB | nothing |
+
+Findings:
+- Both runtimes load and run both models within tolerance on the CPU. tract first rejected the Silero export: the
+  exporter had turned `squeeze` into an `If` node whose two branches have different ranks. Replacing `squeeze` with
+  indexing fixed it. This is a sign of tract's narrower operator coverage: feature models must be exported with
+  tract in mind if tract is used.
+- Speed: for the tiny streaming model both are far faster than needed (tract slightly faster, it has less per-call
+  overhead). For the transformer, onnxruntime is 2.1× faster on one thread and 4.8× faster with 4 threads (tract runs
+  single-threaded here).
+- Memory: Beat This on a full 30 s chunk peaks near 570 to 600 MB in both runtimes (attention over 1500 frames).
+  This confirms D5: such a model must run in the worker, not in the editor. A feature can lower the peak with shorter
+  chunks.
+- Size: the measured size result is the opposite of the assumption in D4. tract is compiled into the binary and adds
+  8.1 MB compressed to every installer (the CLI is in the installer, and the worker is the same binary), which breaks
+  task 5.3 (installer unchanged within 1 MB). onnxruntime adds 83 KB compressed to the installer; its library is
+  downloaded on first use like a model (7.6 MB compressed, 22.7 MB on disk on Windows).
+- Not measured: macOS (Apple silicon). The table must be repeated there (`tools/model-spike/README.md`).
+
+### R4. Decision (task 1.3, awaiting owner sign-off)
+
+The D4 rule assumed that the pure-Rust runtime is the smaller one. Measured, it is not: it adds about 25 MB to the
+binary, while the dynamically loaded runtime adds 0.2 MB and downloads its library on first use. Both pass every model.
+Recommendation: the dynamically loaded ONNX runtime is the default, because it is the only candidate that keeps the
+installer within 1 MB (task 5.3) and it is 2 to 5 times faster on the transformer model. tract stays available only
+where a feature's own dependency brings it in, through the adapter (D5). The runtime library is downloaded through
+the model store with the same pins and consent rules as a model (it is under 50 MB, so it may download on first use
+with visible progress). This needs the owner's sign-off and the macOS row before task 1.3 is ticked.
