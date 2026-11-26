@@ -1569,7 +1569,15 @@ export const FLOWS = [
       await assert.rejects(app.invoke("debug_panic_worker"), /worker_panic/, "the worker's panic comes back as worker_panic");
       // The viewer thread panics: the error reaches the window as a toast and the thread keeps serving.
       await app.invoke("debug_panic_viewer");
-      await app.waitFor(async () => (await app.count("toast")) > 0, "an error toast for the viewer's panic");
+      // Exactly the viewer's error, as a worker_panic toast; anything else on the page is a problem of this flow.
+      const seen = { regionErrors: [], toasts: [], console: [] };
+      await app.waitFor(async () => {
+        const e = await app.takePageEvents();
+        for (const k of Object.keys(seen)) seen[k].push(...e[k]);
+        return seen.toasts.length > 0;
+      }, "an error toast for the viewer's panic");
+      assert.deepEqual(seen.toasts.map((t) => t.code), ["worker_panic"], "one toast, the viewer's worker_panic");
+      assert.deepEqual([...seen.regionErrors, ...seen.console], [], "no error cards or console errors from the panics");
       // The window still works: a dialog opens and closes, and a project opens and imports a clip.
       await app.click("nav-changelog");
       await app.find("whats-new");
@@ -1577,8 +1585,6 @@ export const FLOWS = [
       await app.waitGone("whats-new");
       await newProject(app, "After Panics");
       await importWithButton(ctx, [ctx.media.video]);
-      // These toasts were deliberate: not problems of this flow.
-      await app.takePageEvents();
       // Both panics are in the log with a backtrace (the run's log check allows exactly these two messages).
       const records = logRecords(app.info.logDir);
       for (const what of ["forced worker panic (diagnostics)", "forced viewer panic (diagnostics)"]) {
