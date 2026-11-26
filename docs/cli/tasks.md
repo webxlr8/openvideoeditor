@@ -100,6 +100,9 @@ Progress events go out at most 4 times per second per task, whatever rate the ta
 
 ## Seeing and cancelling tasks
 
+Not built yet (task group 6 of `add-background-tasks-and-media-derivatives`): the surfaces below are the planned
+contract.
+
 The status bar's Background Tasks popover lists running, waiting and paused tasks with their progress and pause
 reason. The CLI and MCP list, cancel and wait for tasks:
 
