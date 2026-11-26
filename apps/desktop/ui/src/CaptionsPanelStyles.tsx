@@ -15,6 +15,8 @@ export interface CaptionPreset {
   id: string;
   label: string;
   family: string;
+  /** The font library family that draws the style (the caption inspector's Font picker can change it). */
+  fontFamily?: string;
   fontSize: number;
   fontWeight: number;
   textColor: string;

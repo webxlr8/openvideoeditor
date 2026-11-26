@@ -118,6 +118,18 @@ pub struct Panel {
     pub alt: [u8; 4],
 }
 
+/// The bundled family (font library) that draws a family class: sans Inter, serif Lora, display Montserrat,
+/// condensed Oswald, script Dancing Script.
+pub fn class_family(class: &str) -> &'static str {
+    match class {
+        "serif" => "Lora",
+        "display" => "Montserrat",
+        "condensed" => "Oswald",
+        "script" => "Dancing Script",
+        _ => "Inter",
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CaptionPreset {
     pub id: &'static str,
@@ -517,6 +529,11 @@ pub fn hex(c: [u8; 4]) -> String {
 
 impl CaptionPreset {
     /// A summary for the UI (gallery previews) and the assistant.
+    /// The font library family that draws this style (from its family class).
+    pub fn font_family(&self) -> &'static str {
+        class_family(self.family)
+    }
+
     pub fn to_json(&self) -> Value {
         let mark = match self.mark {
             Mark::None => json!({"kind": "none"}),
@@ -529,6 +546,7 @@ impl CaptionPreset {
             "id": self.id,
             "label": self.label,
             "family": self.family,
+            "fontFamily": self.font_family(),
             "fontSize": self.size,
             "fontWeight": self.weight,
             "textColor": hex(self.color),

@@ -289,6 +289,15 @@ pub fn draw_caption(
     let words = &all[range.clone()];
     let stacked = p.anim == Anim::Stacked;
 
+    // The item's own font from the library (`captionFontFamily`), else the family that draws its style.
+    let family = fields
+        .get("captionFontFamily")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|f| !f.is_empty())
+        .unwrap_or(p.font_family())
+        .to_string();
+    let font = Some(crate::fonts::FontSpec { family, weight: p.weight, italic: false });
     let style = |sz: f32, c: [u8; 4]| TextStyle {
         size: sz,
         color: c,
@@ -301,7 +310,7 @@ pub fn draw_caption(
         background: None,
         max_width: 1e9,
         highlight: None,
-        font: None,
+        font: font.clone(),
     };
     let pad_of = |st: &TextStyle| {
         let sw = st.stroke.map(|s| s.1).unwrap_or(0.0);
@@ -562,6 +571,24 @@ mod tests {
             ink(&mut cache, &with("bold", json!({"fallback": "hide"}))) > 400,
             "front captions ignore the fallback"
         );
+    }
+
+    #[test]
+    fn styles_draw_with_their_library_family_or_the_items_own() {
+        assert_eq!(preset("butter-serif").unwrap().font_family(), "Lora");
+        assert_eq!(preset("bold").unwrap().font_family(), crate::captions_presets::class_family("sans"));
+        let draw = |f: &Map<String, Value>| {
+            let mut c = Rgba::filled(540, 960, [40, 40, 40, 255]);
+            draw_caption(&mut c, &mut CaptionCache::default(), f, &[], 1_000_000, at());
+            c.data
+        };
+        let base = fields("butter-serif");
+        let mut own = base.clone();
+        own.insert("captionFontFamily".into(), json!("Oswald"));
+        let mut blank = base.clone();
+        blank.insert("captionFontFamily".into(), json!("  "));
+        assert_ne!(draw(&base), draw(&own), "the item's font changes the drawing");
+        assert_eq!(draw(&base), draw(&blank), "a blank font keeps the style's family");
     }
 
     #[test]
