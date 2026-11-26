@@ -520,10 +520,13 @@ export function Settings({
             <h3>Privacy</h3>
             <ul className="set-list" data-testid="privacy-list">
               <li>
-                The assistant sends the timeline as text (item names and
-                times, text and caption words, media file names), the chat and
-                the results of its tools to Anthropic. It never sends media
-                files or video frames.
+                The assistant you choose sends the timeline as text (item names
+                and times, text and caption words, media file names), the chat
+                and the results of its tools to its provider: Anthropic for the
+                built-in assistant, or the provider of an assistant installed
+                on this computer. Those results include frames of your video and
+                sound measurements when it looks or listens. Media files
+                themselves never leave this computer.
               </li>
               <li>
                 Generation sends the prompt and any reference image you

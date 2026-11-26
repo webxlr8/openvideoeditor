@@ -1,5 +1,5 @@
 // What's new in this release, shown by Home → Changelog. Mirrors the highlights and known limitations in
-// docs/releases/0.1.0-alpha.1.md: change both together.
+// docs/releases/0.1.0-alpha.1.md and the draft for the next release, docs/releases/next.md: change them together.
 
 export interface ReleaseHighlight {
   title: string;
@@ -40,7 +40,11 @@ export const RELEASE_NOTES: ReleaseNotes = {
     },
     {
       title: "Assistant",
-      text: "Uses your own Anthropic API key and edits the same timeline you see. Each turn shows what it changed, with Show and Undo this turn. Costs are shown per turn, chat and project, and you can set spend caps in Settings → Assistant.",
+      text: "Uses your own Anthropic API key and edits the same timeline you see. Each turn shows what it changed, with Show and Undo this turn. Costs are shown per turn, chat and project, and you can set spend caps in Settings → Assistant. It can look at frames of your timeline and clips, and listen for levels, silences and loudness.",
+    },
+    {
+      title: "Your own assistant",
+      text: "Claude, Codex, OpenCode, Hermes, Kimi or Grok installed on this computer can chat in the app on your own plan with it: choose Chat here. It can only see and edit the open project; it gets no files, no terminal and no other projects, and every change it makes can be undone.",
     },
     {
       title: "Generate",
@@ -61,7 +65,7 @@ export const RELEASE_NOTES: ReleaseNotes = {
   ],
   privacy: [
     "No account, no sign-in, no telemetry. Media never leaves your computer.",
-    "The assistant sends the timeline as text, your chat and tool results to Anthropic, never media files or frames. Generation sends your prompt and any reference image to the provider you pick.",
+    "The assistant you choose sends the timeline as text, your chat and its tool results to its provider (Anthropic for the built-in one, or the provider of an assistant installed on your computer). Tool results include frames of your video and sound measurements when it looks or listens; media files themselves never leave your computer. Generation sends your prompt and any reference image to the provider you pick.",
     "Keys are kept in the system keychain. Crash reports stay on your computer unless you copy one into a bug report.",
   ],
   limitations: [

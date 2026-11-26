@@ -50,23 +50,64 @@
 
 ## 3. Chat through a local agent
 
-- [ ] 3.1 Assistant backend trait; the built-in assistant behind it unchanged.
-- [ ] 3.2 Agent Client Protocol client over stdio: initialise, new session with the pinned MCP server, prompt, stream,
+- [x] 3.1 Assistant backend trait; the built-in assistant behind it unchanged.
+      Verified: `agent_send` sends a turn to the installed agent chosen in Welcome, Settings or the chat
+      (`local_agent.rs`), else to the built-in assistant, unchanged; both write the same chat records and events
+      (`Record::AgentTool`, `Record::Result.plan`); a chat can mix both. UI: `ChatPanel.test.tsx` ("chats through an
+      installed agent").
+- [x] 3.2 Agent Client Protocol client over stdio: initialise, new session with the pinned MCP server, prompt, stream,
       permission requests, cancel.
-- [ ] 3.3 `ove mcp` pinned to one project and one turn (revisions attributed to the turn; other projects refused).
-- [ ] 3.3a Tools for seeing the project in the pinned server and for the built-in assistant: timeline and media
+      Verified: `ove-agents/src/acp.rs` against the stand-in agent (`tests/acp.rs`: a scripted turn, sign-in, cancel,
+      time limit, not an agent) and against real installs (3.7). Adapters pinned on npm:
+      `@agentclientprotocol/claude-agent-acp` 0.112.0, `@agentclientprotocol/codex-acp` 2.12.1.
+- [x] 3.3 `ove mcp` pinned to one project and one turn (revisions attributed to the turn; other projects refused).
+      Verified: `ove mcp --project … --turn …` (`ove-cli/tests/agent.rs`: only the seeing and editing tools, no project
+      argument, other projects refused, media by path refused, pictures capped at 1280 px, a turn's edits never
+      written without the app); the control link admits a token's edits only during its turn on its project
+      (`local_agent.rs` unit test) and records the revisions for Undo this turn (app end-to-end, 3.6).
+- [x] 3.3a Tools for seeing the project in the pinned server and for the built-in assistant: timeline and media
       frames, contact sheet, frame statistics, sound levels, silences, loudness, transcripts; pictures as images, at
       most 1280 pixels; media outside the open project refused.
-- [ ] 3.4 Harmless-agent rules (D6 layers 1 to 4 and 6) and the hostile stand-in agent in the suite on every platform.
-- [ ] 3.5 Sign-in needed: the agent's own instruction in the chat; "uses your plan" where a price would be.
-- [ ] 3.6 A scripted stand-in agent for the app end-to-end suite: a turn edits the timeline, Show, Undo this turn.
-- [ ] 3.7 Each of the six agents run once by hand against a real install; results recorded here.
+      Verified: the pinned server's `look`, `grab_frame`, `filmstrip`, `audio_levels`, `detect_silence`,
+      `measure_loudness`; the built-in assistant's same tools (`seeing.rs` tests, `ove-agent/tests/agent.rs`
+      "seeing tools"); pictures kept with the chat and sent for the last three results. Transcripts: captions are on
+      the timeline the agents print; a transcript tool is captions 1.5.
+- [x] 3.4 Harmless-agent rules (D6 layers 1 to 4 and 6) and the hostile stand-in agent in the suite on every platform.
+      Verified: layers 2 to 6 in the client, the pinned server and the control link; the hostile stand-in in
+      `ove-agents/tests/acp.rs` and in the app end-to-end suite (a shell command, a fetch, a file write, a disguised
+      shell, file and terminal methods, another project, a file outside the project, listing projects, import and
+      export: all refused and shown). Layer 1 (the agent's own switches) is not used: the adapters take no switches
+      through the protocol, and layers 2 to 4 hold without it.
+- [x] 3.5 Sign-in needed: the agent's own instruction in the chat; "uses your plan" where a price would be.
+      Verified: `tests/acp.rs` (sign-in recognised from -32000 or the agent's message); the chat shows the instruction
+      and "needs you to sign in" until a session starts; "uses your Claude plan" in the turn row and footer, not
+      counted as spend (app end-to-end and `ChatPanel.test.tsx`).
+- [x] 3.6 A scripted stand-in agent for the app end-to-end suite: a turn edits the timeline, Show, Undo this turn.
+      Verified on Windows: the flow passes (chips, "Changed 1 item", the clip renamed, Undo this turn restores it).
+      `OVE_AGENT_OVERRIDE` starts the stand-in in Claude's and Codex's place in development builds.
+- [x] 3.7 Each of the six agents run once by hand against a real install; results recorded here.
+      Results (Windows 11, 2026-11-26, `ove-agents/examples/acp_probe.rs` with the real pinned server):
+      - Claude 2.1.332 (adapter 0.112.0): session in 4 s (30 s the first time, npx download); printed and applied
+        the edit in 13 s. Tool titles `openvideoeditor: apply_timeline`.
+      - OpenCode 1.18.15: read the guide, printed, checked, applied, verified in 41 s. Titles
+        `openvideoeditor_apply_timeline`. Without the server it tried to read its own config file outside the session
+        folder; the client refused it.
+      - Codex 0.101.0 (adapter 2.12.1): the protocol works; this machine's Codex is set to a model its ChatGPT
+        sign-in does not allow, so it answered with that error. Not an app problem.
+      - Hermes 0.21.5: answers `initialize`; its own runtime lacks the `anthropic` package, so `session/new` fails
+        inside Hermes (the message now shows the agent's details).
+      - Kimi, Grok: not installed here; not run.
 
 ## 4. After
 
 - [x] 4.1 The assistants' own logos (owner's decision, 14 November 2026), from LobeHub's icon set (MIT), with a
       trademark notice in the app's licences. Verified: `agents/Agents.test.tsx`; screenshot.
-- [ ] 4.2 Connect buttons for Codex, OpenCode, Hermes, Kimi and Grok as each command is checked against a real
+- [x] 4.2 Connect buttons for Codex, OpenCode, Hermes, Kimi and Grok as each command is checked against a real
       install.
-- [ ] 4.3 Release notes and the in-app "What's new", with the changed privacy text (the assistant sees frames and
+      Verified 2026-11-26: Codex 0.101.0 (`codex mcp add` / `get` / `remove` run with a temporary server): a button.
+      Hermes 0.21.5's `hermes mcp add` asks which tools to enable: its exact command is shown to copy. OpenCode
+      1.18.15's `opencode mcp add` asks for the command: set up by hand. Kimi and Grok: not installed here, unchanged.
+- [x] 4.3 Release notes and the in-app "What's new", with the changed privacy text (the assistant sees frames and
       sound measurements; media files stay on the computer).
+      Done: `docs/releases/next.md` (draft for the next release), `releaseNotes.ts`, Settings → Privacy and the
+      chat's data list; tests updated.

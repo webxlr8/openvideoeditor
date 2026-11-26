@@ -634,15 +634,17 @@ function ChatLine({
   }
 }
 
-/** What the assistant sends to Anthropic, and what it never sends. */
+/** What the assistant sends, and what it never sends. */
 export function AssistantDataList() {
   return (
     <ul className="data-list small" data-testid="assistant-data">
       <li>
-        Sent to Anthropic: the timeline as text (item names and times, text and caption words, media file names), this
-        chat, and the results of the assistant's tools.
+        Sent to the assistant's provider (Anthropic for the built-in assistant, or the provider of an assistant installed
+        on this computer): the timeline as text (item names and times, text and caption words, media file names), this
+        chat, and the results of the assistant's tools, which include frames of your video and sound measurements when it
+        looks or listens.
       </li>
-      <li>Never sent: your media files or video frames.</li>
+      <li>Never sent: your media files themselves.</li>
       <li>Nothing else leaves this computer, and there is no telemetry.</li>
     </ul>
   );

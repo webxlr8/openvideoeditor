@@ -85,7 +85,9 @@ describe("settings", () => {
   it("privacy lists what leaves the computer and nothing vaguer", async () => {
     await openSettings("privacy");
     const list = (await screen.findByTestId("privacy-list")).textContent ?? "";
-    expect(list).toContain("never sends media files or video frames");
+    expect(list).toContain("frames of your video and");
+    expect(list).toContain("Media files");
+    expect(list).toContain("never leave this computer");
     expect(list).toContain("prompt and any reference image you attach to the provider you pick");
     expect(list).toContain("no telemetry");
   });

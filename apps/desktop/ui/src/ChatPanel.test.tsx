@@ -99,7 +99,8 @@ describe("ChatPanel", () => {
     await screen.findByTestId("editor");
     fireEvent.click(screen.getByTestId("toggle-chat"));
     const card = await screen.findByTestId("key-card");
-    expect(screen.getByTestId("assistant-data").textContent).toContain("Never sent: your media files or video frames");
+    expect(screen.getByTestId("assistant-data").textContent).toContain("Never sent: your media files themselves");
+    expect(screen.getByTestId("assistant-data").textContent).toContain("frames of your video and sound measurements");
     fireEvent.change(screen.getByTestId("key-input"), { target: { value: "sk-ant-test-0123456789" } });
     fireEvent.click(screen.getByTestId("key-save"));
     expect((await screen.findByTestId("key-error")).textContent).toContain("rejected");
