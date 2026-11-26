@@ -183,3 +183,19 @@ installer within 1 MB (task 5.3) and it is 2 to 5 times faster on the transforme
 where a feature's own dependency brings it in, through the adapter (D5). The runtime library is downloaded through
 the model store with the same pins and consent rules as a model (it is under 50 MB, so it may download on first use
 with visible progress). This needs the owner's sign-off and the macOS row before task 1.3 is ticked.
+
+### R5. Adapter and worker (tasks 3.1 and 3.2, Windows)
+
+- Protocol: a 4-byte length, a JSON header, then the raw little-endian tensor bytes; on both shipped platforms the
+  in-memory layout is the wire layout, so tensors are written and read without per-element conversion.
+- Round trip of a 1×256×256×3 float tensor through `ove model-worker` (echo model, 50 runs after 5 warm-up runs):
+  median 0.56 ms (min 0.52, max 0.96) in the test profile; median 0.69 ms in a release build. Limit: 2 ms. A first
+  version that converted each element took 3.5 ms in release, which is why the byte view exists.
+- Idle exit: with `--idle-secs 1` the worker had exited within 5 s of its last job, and the next job started a new
+  process. The default is 120 s.
+- Crash: killing the worker during a 10 s job failed that job within 3 s with "the model worker stopped during the
+  job"; the next job started a new worker and succeeded. A job that fails inside a healthy worker (for example a
+  model that cannot load) keeps the worker.
+- Parity through the adapter (ONNX Runtime 1.32.0 library): Silero VAD 1.64e-4 and Beat This 6.2e-5 against the
+  PyTorch reference, the same in process and in the worker. 2,814 VAD steps plus 3 Beat This chunks took 2.7 s in
+  the worker.

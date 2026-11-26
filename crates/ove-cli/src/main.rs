@@ -13,6 +13,7 @@ mod docs;
 mod generate;
 mod mcp;
 mod media;
+mod model_worker;
 mod models;
 mod project;
 
@@ -146,6 +147,13 @@ enum Cmd {
     Models {
         #[command(subcommand)]
         cmd: models::ModelsCmd,
+    },
+    /// Runs models for the app in a separate process (started by the app; binary protocol on stdin/stdout).
+    #[command(hide = true)]
+    ModelWorker {
+        /// Exit after this many seconds without a job.
+        #[arg(long, default_value_t = 120)]
+        idle_secs: u64,
     },
     /// Serve the commands as MCP tools on stdin/stdout (`claude mcp add openvideoeditor -- ove mcp`).
     Mcp,
@@ -327,6 +335,7 @@ fn run(cli: &Cli, source: Source) -> Out {
         Cmd::Agents { cmd: None | Some(AgentsCmd::List) } => return docs::agents_list(),
         Cmd::Agents { cmd: Some(AgentsCmd::Connect { agent }) } => return docs::agents_connect(agent),
         Cmd::Models { cmd } => return models::run(cmd, source),
+        Cmd::ModelWorker { .. } => return Err(Fail::new("argument.invalid", "the model worker is started by the app")),
         Cmd::Mcp => return Err(Fail::new("mcp.nested", "already serving MCP")),
         _ => {}
     }
@@ -496,9 +505,13 @@ fn run(cli: &Cli, source: Source) -> Out {
             })
         }
         // Answered before the library is opened.
-        Cmd::Docs { .. } | Cmd::Doctor | Cmd::Skills { .. } | Cmd::Agents { .. } | Cmd::Models { .. } | Cmd::Mcp => {
-            Err(Fail::new("internal", "this command does not use a library"))
-        }
+        Cmd::Docs { .. }
+        | Cmd::Doctor
+        | Cmd::Skills { .. }
+        | Cmd::Agents { .. }
+        | Cmd::Models { .. }
+        | Cmd::ModelWorker { .. }
+        | Cmd::Mcp => Err(Fail::new("internal", "this command does not use a library")),
     }
 }
 
@@ -557,6 +570,9 @@ fn exit_code(f: &Fail) -> u8 {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
+    if let Cmd::ModelWorker { idle_secs } = cli.cmd {
+        return model_worker::main(idle_secs);
+    }
     if matches!(cli.cmd, Cmd::Mcp) {
         let library = cli.library.clone();
         let runner = move |args: Vec<String>| -> Out {

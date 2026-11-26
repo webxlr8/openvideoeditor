@@ -23,6 +23,15 @@ pub enum ModelError {
     Cancelled,
     #[error("{0} is already downloading")]
     Busy(String),
+    /// The model worker failed or could not be reached.
+    #[error("{0}")]
+    Inference(String),
+    /// The model ran but the job failed (bad inputs, an operator error).
+    #[error("{0}")]
+    JobFailed(String),
+    /// The inference runtime library is not installed or could not be loaded.
+    #[error("{0}")]
+    RuntimeMissing(String),
 }
 
 impl ModelError {
@@ -37,6 +46,9 @@ impl ModelError {
             ModelError::Io(_) => "io",
             ModelError::Cancelled => "cancelled",
             ModelError::Busy(_) => "model.busy",
+            ModelError::Inference(_) => "model.inference",
+            ModelError::JobFailed(_) => "model.jobFailed",
+            ModelError::RuntimeMissing(_) => "model.runtimeMissing",
         }
     }
 }

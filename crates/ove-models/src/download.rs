@@ -5,6 +5,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
 use std::time::Duration;
 
 use sha2::{Digest, Sha256};
@@ -13,17 +14,85 @@ use crate::error::{ModelError, Result};
 use crate::manifest::ModelFile;
 
 /// Attempts in a row that receive no bytes before the download gives up (the partial file is kept for next time).
-/// With the 1 s read timeout and the back-off this is roughly 15 s of a dead connection.
-const MAX_ATTEMPTS_WITHOUT_PROGRESS: u32 = 8;
+const MAX_ATTEMPTS_WITHOUT_PROGRESS: u32 = 5;
+/// How often a cancel is checked while waiting for the network.
+const CANCEL_POLL: Duration = Duration::from_millis(100);
 const CHUNK: usize = 1 << 16;
 
-/// The HTTP client for model downloads: the platform's certificate verifier, and a short read timeout so a stalled
-/// connection is noticed (and a cancel honoured) within about a second; a stall is resumed with a new request.
+/// The HTTP client for model downloads: the platform's certificate verifier; a connection silent for 30 s counts as
+/// interrupted and is resumed with a new request. Network reads run on a helper thread, so a cancel never waits
+/// for them.
 pub fn agent() -> ureq::Agent {
     ove_guard::http::agent_builder()
         .timeout_connect(Duration::from_secs(15))
-        .timeout_read(Duration::from_secs(1))
+        .timeout_read(Duration::from_secs(30))
         .build()
+}
+
+/// What the network thread reports.
+enum Msg {
+    Head { status: u16, range_start: Option<u64> },
+    Status(u16),
+    Data(Vec<u8>),
+    End,
+    Failed(String),
+}
+
+/// Sends the request and streams the body on a helper thread. The thread ends by itself when the receiver is gone.
+fn start_request(agent: &ureq::Agent, url: &str, from: u64) -> mpsc::Receiver<Msg> {
+    let (tx, rx) = mpsc::sync_channel::<Msg>(8);
+    let mut request = agent.get(url);
+    if from > 0 {
+        request = request.set("Range", &format!("bytes={from}-"));
+    }
+    std::thread::spawn(move || {
+        let response = match request.call() {
+            Ok(r) => r,
+            Err(ureq::Error::Status(code, _)) => {
+                let _ = tx.send(Msg::Status(code));
+                return;
+            }
+            Err(e) => {
+                let _ = tx.send(Msg::Failed(e.to_string()));
+                return;
+            }
+        };
+        if tx.send(Msg::Head { status: response.status(), range_start: range_start(&response) }).is_err() {
+            return;
+        }
+        let mut reader = response.into_reader();
+        loop {
+            let mut buf = vec![0u8; CHUNK];
+            let msg = match reader.read(&mut buf) {
+                Ok(0) => Msg::End,
+                Ok(n) => {
+                    buf.truncate(n);
+                    Msg::Data(buf)
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(e) => Msg::Failed(format!("the connection was interrupted ({e})")),
+            };
+            let last = !matches!(msg, Msg::Data(_));
+            if tx.send(msg).is_err() || last {
+                return;
+            }
+        }
+    });
+    rx
+}
+
+/// The next message, checking the cancel flag while waiting. `None` when the network thread is gone.
+fn next(rx: &mpsc::Receiver<Msg>, cancel: &AtomicBool) -> Result<Option<Msg>> {
+    loop {
+        if cancel.load(Ordering::Relaxed) {
+            return Err(ModelError::Cancelled);
+        }
+        match rx.recv_timeout(CANCEL_POLL) {
+            Ok(m) => return Ok(Some(m)),
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => return Ok(None),
+        }
+    }
 }
 
 /// The partial file next to `dest`.
@@ -89,27 +158,29 @@ fn fetch_into(
         if failures > 0 {
             wait(Duration::from_millis((250 * u64::from(failures)).min(1000)), cancel)?;
         }
-        let mut request = agent.get(job.url);
-        if have > 0 {
-            request = request.set("Range", &format!("bytes={have}-"));
-        }
-        let response = match request.call() {
-            Ok(r) => r,
+        let rx = start_request(agent, job.url, have);
+        let (status, start) = match next(&rx, cancel)? {
+            Some(Msg::Head { status, range_start }) => (status, range_start),
             // The server says the range is past the end: the part is complete as far as it knows; verify it.
-            Err(ureq::Error::Status(416, _)) if have > 0 => break,
-            Err(ureq::Error::Status(code, _)) => {
+            Some(Msg::Status(416)) if have > 0 => break,
+            Some(Msg::Status(code)) => {
                 return Err(ModelError::Download(format!(
                     "could not download {} for {}: the server answered {code}",
                     job.file.name, job.model
                 )));
             }
-            Err(e) => {
+            Some(Msg::Failed(e)) => {
                 failures += 1;
-                last_error = e.to_string();
+                last_error = e;
+                continue;
+            }
+            Some(Msg::Data(_) | Msg::End) | None => {
+                failures += 1;
+                last_error = "the request failed".into();
                 continue;
             }
         };
-        let mut file = if have > 0 && response.status() == 206 && range_start(&response) == Some(have) {
+        let mut file = if have > 0 && status == 206 && start == Some(have) {
             OpenOptions::new().append(true).open(part).map_err(|e| io_err("write", part, e))?
         } else {
             // The server ignored the range (or this is a fresh start): begin again from byte 0.
@@ -118,27 +189,25 @@ fn fetch_into(
             on_bytes(0);
             File::create(part).map_err(|e| io_err("write", part, e))?
         };
-        let mut reader = response.into_reader();
-        let mut buf = vec![0u8; CHUNK];
         let before = have;
         loop {
-            if cancel.load(Ordering::Relaxed) {
-                return Err(ModelError::Cancelled);
-            }
-            match reader.read(&mut buf) {
-                Ok(0) => break,
-                Ok(n) => {
-                    if have + n as u64 > want {
+            match next(&rx, cancel)? {
+                Some(Msg::Data(chunk)) => {
+                    if have + chunk.len() as u64 > want {
                         return Err(ModelError::Corrupt { model: job.model.into(), file: job.file.name.clone() });
                     }
-                    file.write_all(&buf[..n]).map_err(|e| io_err("write", part, e))?;
-                    hasher.update(&buf[..n]);
-                    have += n as u64;
+                    file.write_all(&chunk).map_err(|e| io_err("write", part, e))?;
+                    hasher.update(&chunk);
+                    have += chunk.len() as u64;
                     on_bytes(have);
                 }
-                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
-                Err(e) => {
-                    last_error = format!("the connection was interrupted ({e})");
+                Some(Msg::End) => break,
+                Some(Msg::Failed(e)) => {
+                    last_error = e;
+                    break;
+                }
+                Some(Msg::Head { .. } | Msg::Status(_)) | None => {
+                    last_error = "the connection was interrupted".into();
                     break;
                 }
             }

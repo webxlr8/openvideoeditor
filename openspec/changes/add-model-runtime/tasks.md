@@ -30,12 +30,20 @@
 
 ## 3. Inference adapter and worker
 
-- [ ] 3.1 Implement the inference trait for the chosen runtime (and the second runtime if D4 keeps both); verify the
+- [x] 3.1 Implement the inference trait for the chosen runtime (and the second runtime if D4 keeps both); verify the
       two spike models run through it with recorded parity.
-- [ ] 3.2 Implement `ove model-worker` with the stdio protocol, lazy load, 120 s idle exit and restart on crash; verify
+      Done with the recommended runtime (design.md R4; the owner's sign-off is still open): `ove_models::infer` and
+      `ove_models::onnx`; `spike_models_run_through_the_adapter_with_parity` in `crates/ove-cli/tests/model_worker.rs`
+      (in process and in the worker, parity in design.md R5).
+- [x] 3.2 Implement `ove model-worker` with the stdio protocol, lazy load, 120 s idle exit and restart on crash; verify
       tests: idle exit, killed worker fails the job and the next job succeeds, 256×256×3 tensor round trip ≤ 2 ms.
+      Done: `crates/ove-cli/tests/model_worker.rs`; round trip median 0.56 ms (design.md R5).
 - [ ] 3.3 Implement on-demand download of the native runtime library (if chosen) through the consent gate; verify a
       clean-profile test reports "runtime not installed" and installs after consent.
+      Open: needs the D4 sign-off and a pinned, immutable location for the library on both platforms. The upstream
+      release page could not be reached at its old address during apply; the plan is to mirror the exact library
+      files as versioned release assets of this project (`add-distribution`) and pin those. The worker already
+      takes the library path (`OVE_ONNXRUNTIME_LIB`) and reports a missing runtime per job.
 
 ## 4. Consent and surfaces
 

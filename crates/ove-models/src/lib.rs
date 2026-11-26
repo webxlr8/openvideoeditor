@@ -4,9 +4,13 @@
 
 pub mod download;
 pub mod error;
+pub mod infer;
 pub mod manifest;
+#[cfg(feature = "onnx")]
+pub mod onnx;
 pub mod space;
 pub mod store;
+pub mod worker;
 
 pub use error::{ModelError, Result};
 pub use manifest::{Manifest, ModelFile, RuntimeKind};
