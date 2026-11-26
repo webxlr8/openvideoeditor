@@ -217,6 +217,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             fx::import_lut,
             fx::match_color,
             fx::color_scopes,
+            fx::scope_image,
             // Onboarding: the welcome and checklist state, and the sample project.
             onboarding::onboarding_state,
             onboarding::onboarding_update,

@@ -233,9 +233,46 @@ pub async fn color_scopes(app: AppHandle, time: f64) -> AppResult<Vec<Vec<f32>>>
     .await
 }
 
+/// A waveform (`waveform`) or vectorscope (`vectorscope`) of the timeline frame at `time` seconds, as a PNG data
+/// URL.
+#[tauri::command]
+#[specta::specta]
+pub async fn scope_image(app: AppHandle, time: f64, kind: String) -> AppResult<String> {
+    worker::blocking("scope_image", move || {
+        let state = app.state::<AppState>();
+        let state = &*state;
+        let (doc, bundle) = {
+            let g = lock(&state.projects.open)?;
+            let p = g.as_ref().ok_or_else(|| bad("No project is open."))?;
+            (p.doc().clone(), p.bundle().to_path_buf())
+        };
+        let frame = Renderer::new(Some(&bundle), 270).render(&doc, secs_to_micros(time.max(0.0)).unwrap_or(0));
+        let img = scope_of(&frame, &kind)?;
+        png_data_url(&img).ok_or_else(|| AppError::new(ErrorCode::Internal, "Could not encode the scope."))
+    })
+    .await
+}
+
+fn scope_of(frame: &Rgba, kind: &str) -> AppResult<Rgba> {
+    match kind {
+        "waveform" => Ok(color::waveform(frame, 256, 128)),
+        "vectorscope" => Ok(color::vectorscope(frame, 160)),
+        _ => Err(bad(format!("Unknown scope {kind}: use waveform or vectorscope."))),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scopes_have_their_shapes() {
+        let frame = Rgba::filled(32, 18, [200, 40, 40, 255]);
+        let w = scope_of(&frame, "waveform").unwrap();
+        assert_eq!((w.w, w.h), (256, 128));
+        assert_eq!(scope_of(&frame, "vectorscope").unwrap().w, 160);
+        assert!(scope_of(&frame, "histogram").is_err());
+    }
 
     #[test]
     fn catalog_lists_everything() {

@@ -134,5 +134,10 @@ describe("effects, transitions, layouts and colour", () => {
     await waitFor(async () => expect(((((await clipDetail()).colorGrade as Fields).wheels as Fields).gain as Fields).r).toBe(0.08));
     expect(((await clipDetail()).colorGrade as Fields).lut).toBeTruthy();
     expect(await screen.findByTestId("scopes")).toBeTruthy();
+    expect(await screen.findByTestId("scope-histogram")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("scope-tab-waveform"));
+    expect((await screen.findByTestId<HTMLImageElement>("scope-waveform")).src).toMatch(/^data:image/);
+    fireEvent.click(screen.getByTestId("scope-tab-vectorscope"));
+    expect(await screen.findByTestId("scope-vectorscope")).toBeTruthy();
   });
 });

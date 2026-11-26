@@ -737,6 +737,14 @@ export const FLOWS = [
       const shot = captureScreen(path.join(ctx.out, "viewer-screen.png"));
       if (shot) ctx.log(`    screen capture: ${shot}`);
       assert.equal(await app.count("region-error"), 0);
+      // The colour scopes of the frame: waveform and vectorscope pictures from the renderer.
+      await clickClip(app, first.id, 0.5);
+      await app.click("insp-tab-color");
+      for (const kind of ["waveform", "vectorscope"]) {
+        await app.click(`scope-tab-${kind}`);
+        const img = await app.find(`scope-${kind}`);
+        assert.match(await img.getAttribute("src"), /^data:image\/png;base64,/, `${kind} picture`);
+      }
     },
   },
 

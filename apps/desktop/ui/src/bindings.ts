@@ -239,6 +239,11 @@ export const commands = {
 	matchColor: (itemId: string, referenceTime: number | null, strength: number | null) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("match_color", { itemId, referenceTime, strength })),
 	/**  Histograms (red, green, blue, luma; 64 bins, 0..1) of the timeline frame at `time` seconds. */
 	colorScopes: (time: number | null) => typedError<((number | null)[])[], AppError>(__TAURI_INVOKE("color_scopes", { time })),
+	/**
+	 *  A waveform (`waveform`) or vectorscope (`vectorscope`) of the timeline frame at `time` seconds, as a PNG data
+	 *  URL.
+	 */
+	scopeImage: (time: number | null, kind: string) => typedError<string, AppError>(__TAURI_INVOKE("scope_image", { time, kind })),
 	/**  The onboarding state (a first run when there is none yet). */
 	onboardingState: () => typedError<OnboardingState_Serialize, AppError>(__TAURI_INVOKE("onboarding_state")),
 	/**  Changes the onboarding state and returns it as it is now. */

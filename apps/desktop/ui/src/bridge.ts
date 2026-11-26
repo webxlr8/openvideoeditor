@@ -1974,6 +1974,13 @@ function createMock(): {
         );
       return ok([bins(6), bins(0), bins(-6), bins(1)]);
     },
+    scopeImage: (time: number | null, kind: string) => {
+      track(`scopeImage:${kind}:${time ?? 0}`);
+      if (kind !== "waveform" && kind !== "vectorscope") return fail("invalid_argument", `Unknown scope ${kind}: use waveform or vectorscope.`);
+      const [w, h] = kind === "waveform" ? [256, 128] : [160, 160];
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><rect width="${w}" height="${h}" fill="#0b0b0c"/></svg>`;
+      return ok(`data:image/svg+xml;base64,${btoa(svg)}`);
+    },
     agentStatus: () => ok(agentStatus()),
     agentSetKey: (key: string) => {
       if (!/^sk-ant-[\w-]{8,}$/.test(key.trim()))
