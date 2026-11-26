@@ -1049,7 +1049,8 @@ fn send_local(
     std::thread::Builder::new()
         .name("assistant-local-turn".into())
         .spawn(move || {
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::local_agent::run_turn(&app2, input)));
+            let result =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::local_agent::run_turn(&app2, input)));
             if result.is_err() {
                 tracing::error!("the local agent turn panicked");
                 let _ = AgentUiEvent::Error {

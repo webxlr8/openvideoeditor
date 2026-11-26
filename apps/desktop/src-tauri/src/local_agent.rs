@@ -56,10 +56,9 @@ impl LocalAgents {
         let links = relock(&self.links);
         match links.get(token) {
             Some(l) if l.running && same_bundle(&l.bundle, bundle) => Ok(()),
-            Some(l) if l.running => Err(ove_control::Refusal::new(
-                "turn.otherProject",
-                "this assistant session works on another project",
-            )),
+            Some(l) if l.running => {
+                Err(ove_control::Refusal::new("turn.otherProject", "this assistant session works on another project"))
+            }
             Some(_) => Err(ove_control::Refusal::new(
                 "turn.notRunning",
                 "the assistant's turn has ended; edits are made during a turn only",
@@ -108,7 +107,10 @@ pub fn override_launch(id: &str) -> Option<acp::Launch> {
     let v: serde_json::Value = serde_json::from_str(&std::env::var("OVE_AGENT_OVERRIDE").ok()?).ok()?;
     (v["id"].as_str()? == id).then(|| acp::Launch {
         program: PathBuf::from(v["program"].as_str().unwrap_or_default()),
-        args: v["args"].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect()).unwrap_or_default(),
+        args: v["args"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
+            .unwrap_or_default(),
         env: vec![],
     })
 }
@@ -177,7 +179,10 @@ pub fn run_turn(app: &AppHandle, t: TurnInput) {
     let agents = app.state::<LocalAgents>();
     let store = ChatStore::for_bundle(&t.bundle);
     let Some(spec) = ove_agents::agent(&t.agent_id) else {
-        emit(app, AgentUiEvent::Error { code: "agent.unknown".into(), message: "That assistant is not supported.".into() });
+        emit(
+            app,
+            AgentUiEvent::Error { code: "agent.unknown".into(), message: "That assistant is not supported.".into() },
+        );
         return;
     };
     let turn_id = ove_agent::agent::new_turn_id();
@@ -253,7 +258,8 @@ pub fn run_turn(app: &AppHandle, t: TurnInput) {
         Event::Refused { what } => {
             let id = format!("refused-{}", ove_agent::agent::new_turn_id());
             let label = format!("Not allowed: {what}");
-            let _ = store.append(&t.chat_id, &Record::AgentTool { id: id.clone(), title: label.clone(), ok: Some(false) });
+            let _ =
+                store.append(&t.chat_id, &Record::AgentTool { id: id.clone(), title: label.clone(), ok: Some(false) });
             emit(app, AgentUiEvent::ToolCall { id: id.clone(), name: "refused".into(), label });
             emit(app, AgentUiEvent::ToolResult { id, ok: false, summary: "refused".into() });
         }
@@ -294,11 +300,7 @@ pub fn run_turn(app: &AppHandle, t: TurnInput) {
 fn tool_label(title: &str) -> String {
     // `mcp__openvideoeditor__apply_timeline` → the built-in assistant's wording for the same tool.
     let bare = title.rsplit("__").next().unwrap_or(title);
-    if ove_agents::APP_TOOLS.contains(&bare) {
-        ove_agent::tools::label(bare, &json!({}))
-    } else {
-        title.to_string()
-    }
+    if ove_agents::APP_TOOLS.contains(&bare) { ove_agent::tools::label(bare, &json!({})) } else { title.to_string() }
 }
 
 fn failure(spec: &ove_agents::AgentSpec, e: &AcpError) -> String {
@@ -387,7 +389,10 @@ fn start_session(spec: &ove_agents::AgentSpec, bundle: &Path) -> Result<Live, Ac
             token.clone(),
         ],
     };
-    let allow = Allow { server: ove_agents::SERVER_NAME.into(), tools: ove_agents::APP_TOOLS.iter().map(|s| s.to_string()).collect() };
+    let allow = Allow {
+        server: ove_agents::SERVER_NAME.into(),
+        tools: ove_agents::APP_TOOLS.iter().map(|s| s.to_string()).collect(),
+    };
     // Starting may download an adapter the first time (npx), so the start gets more time than a step.
     let session = Session::start(&launch, &server, allow, Duration::from_secs(180))?;
     tracing::info!(agent = spec.id, session = %session.session_id, name = %session.agent_name, "local agent session started");
