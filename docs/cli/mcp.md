@@ -28,3 +28,4 @@ Pass `--library <folder>` before `mcp` to serve another library. Tools:
 | export_video, export_timeline_file, import_timeline_file | `export`, `timeline export / import` |
 | app_context, open_in_app, seek, play, pause | `app context / open / seek / play / pause` |
 | docs | `docs` (`agents` is the editing guide) |
+| list_models_local | `models list` (read-only; installing a model over 50 MB needs the person's consent) |

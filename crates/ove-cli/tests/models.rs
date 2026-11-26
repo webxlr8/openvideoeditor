@@ -174,3 +174,49 @@ fn install_list_and_remove_with_the_tiny_speech_model() {
     assert_eq!(t["installed"], true);
     assert_eq!(t["location"].as_str().map(PathBuf::from), Some(store.path().to_path_buf()));
 }
+
+#[test]
+fn mcp_lists_the_local_models() {
+    use std::io::Read;
+    let store = tempfile::tempdir().unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_ove"))
+        .arg("mcp")
+        .env("OVE_MODELS_DIR", store.path())
+        .env_remove("OVE_WHISPER_MODEL_DIR")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    let msgs = [
+        serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "test", "version": "1"}}}),
+        serde_json::json!({"jsonrpc": "2.0", "method": "notifications/initialized"}),
+        serde_json::json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}),
+        serde_json::json!({"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "list_models_local", "arguments": {}}}),
+        serde_json::json!({"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "list_models_local", "arguments": {"id": "x"}}}),
+    ];
+    for m in &msgs {
+        writeln!(stdin, "{m}").unwrap();
+    }
+    drop(stdin);
+    let mut out = String::new();
+    child.stdout.take().unwrap().read_to_string(&mut out).unwrap();
+    child.wait().unwrap();
+    let replies: Vec<Value> = out.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+    let by_id = |id: i64| replies.iter().find(|r| r["id"] == id).unwrap_or_else(|| panic!("no reply {id}: {out}"));
+
+    let tools = by_id(2)["result"]["tools"].as_array().unwrap();
+    let tool = tools.iter().find(|t| t["name"] == "list_models_local").expect("list_models_local is listed");
+    assert_eq!(tool["inputSchema"]["type"], "object");
+    assert_eq!(tool["annotations"]["readOnlyHint"], true, "{tool}");
+
+    let call = by_id(3)["result"].clone();
+    assert_eq!(call["isError"], false, "{call}");
+    let models = call["structuredContent"]["models"].as_array().unwrap();
+    let ids: Vec<&str> = models.iter().map(|m| m["id"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["whisper-tiny", "whisper-base", "whisper-small"]);
+    assert!(models.iter().all(|m| m["installed"] == false && m["bytes"].as_u64().unwrap() > 0));
+
+    // Unknown arguments are refused as an error result, as for every tool.
+    assert_eq!(by_id(4)["result"]["isError"], true);
+}

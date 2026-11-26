@@ -41,15 +41,18 @@ fn open_store() -> Result<Store, Fail> {
 }
 
 pub fn run(cmd: &ModelsCmd, source: Source) -> Out {
-    let store = open_store()?;
+    run_in(&open_store()?, cmd, source)
+}
+
+fn run_in(store: &Store, cmd: &ModelsCmd, source: Source) -> Out {
     match cmd {
-        ModelsCmd::List => list(&store),
+        ModelsCmd::List => list(store),
         ModelsCmd::Install { id, yes } => {
             // `--yes` typed at a terminal is the person's consent; an MCP call never is.
             let origin = if *yes && source == Source::Cli { Origin::Person } else { Origin::Agent };
-            install(&store, id, origin)
+            install(store, id, origin)
         }
-        ModelsCmd::Remove { id } => remove(&store, id),
+        ModelsCmd::Remove { id } => remove(store, id),
     }
 }
 
@@ -121,5 +124,23 @@ fn remove(store: &Store, id: &str) -> Out {
             ))
         }
         None => Err(Fail::new("model.notInstalled", format!("{id} is not installed"))),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_mcp_call_never_consents_to_a_large_download() {
+        let dir = tempfile::tempdir().unwrap();
+        // A mirror nobody listens on: a download attempt would fail with a network error, not a consent refusal.
+        let store = Store::open(dir.path())
+            .with_url_override(Some(ove_models::UrlOverride::Mirror("http://127.0.0.1:9".into())));
+        let cmd = ModelsCmd::Install { id: "whisper-base".into(), yes: true };
+        let e = run_in(&store, &cmd, Source::Mcp).unwrap_err();
+        assert_eq!(e.code, "model.consent");
+        assert_eq!(e.details["bytes"], 147_951_465);
+        assert!(!dir.path().join("whisper-base").exists(), "nothing was downloaded");
     }
 }

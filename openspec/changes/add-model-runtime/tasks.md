@@ -47,13 +47,18 @@
 
 ## 4. Consent and surfaces
 
-- [ ] 4.1 Implement the consent gate (`NeedsConsent` over 50 MB, origin-aware); verify an MCP call for a large model
+- [x] 4.1 Implement the consent gate (`NeedsConsent` over 50 MB, origin-aware); verify an MCP call for a large model
       returns the result and downloads nothing, and a small model downloads with progress.
+      Done: `Store::ensure_installed`; store tests (agent and feature origins get "not installed" for a 50.1 MB model
+      and nothing is fetched; a 2 MB model downloads with progress); `ove models install … --yes` from MCP is refused
+      with `model.consent` (unit test in `crates/ove-cli/src/models.rs`). No feature MCP tool needs a model yet.
 - [x] 4.2 Add `ove models list|install|remove` with `--json` and `--yes`; verify CLI tests for success and refusal paths
       and exit codes.
       Done (ahead of group 3, because 2.5 needs the command): `crates/ove-cli/tests/models.rs`; the success path
       uses the real tiny model from a local mirror (`--ignored` with `OVE_WHISPER_MODEL_DIR`; passed on Windows).
-- [ ] 4.3 Add MCP `list_models_local`; verify an MCP contract test.
+- [x] 4.3 Add MCP `list_models_local`; verify an MCP contract test.
+      Done: one additive entry in `crates/ove-cli/src/mcp.rs` and `docs/cli/mcp.md`; `mcp_lists_the_local_models` in
+      `crates/ove-cli/tests/models.rs`.
 - [ ] 4.4 Add Settings → Storage "Models" (list, sizes, Remove, wait-while-in-use); verify a UI test removes a model
       and the feature then reports it missing.
 

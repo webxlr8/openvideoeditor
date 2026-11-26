@@ -399,6 +399,14 @@ pub static TOOLS: &[Tool] = &[
         args: &[opt_pos("topic", Kind::Str, "Topic name")],
         images: None,
     },
+    Tool {
+        name: "list_models_local",
+        about: "List the local machine-learning models (id, purpose, licence, size in bytes, whether installed,                 folder). Models over 50 MB install only with the person's consent: in the app's Settings > Storage,                 or `ove models install <id> --yes` typed by the person.",
+        read_only: true,
+        cmd: &["models", "list"],
+        args: &[],
+        images: None,
+    },
 ];
 
 pub fn tool(name: &str) -> Option<&'static Tool> {
