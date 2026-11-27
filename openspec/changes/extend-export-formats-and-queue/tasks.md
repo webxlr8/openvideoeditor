@@ -18,8 +18,8 @@
 - [x] 2.2 Implement per-codec encoder candidate lists with run-time filtering and reporting of the chosen encoder;
       verify a test with a mocked inventory picks the expected encoder and refuses HEVC when none exists.
 - [ ] 2.3 Implement ProRes (all profiles), DNxHR (all profiles), HEVC 8/10-bit, VP9 and hardware AV1 encoding paths;
-      verify an ffprobe matrix test (codec, profile, pixel format, colour tags) and SSIM ≥ 0.99 against the H.264
-      golden export on a 10 s test timeline.
+      verify an ffprobe matrix test (codec, profile, pixel format, colour tags) and luma SSIM ≥ 0.99 (ProRes Proxy ≥ 0.98)
+      against the H.264 golden export on a 10 s test timeline.
       Open: ProRes (all profiles) verified; HEVC, DNxHR, VP9 and AV1 paths are implemented but this build or machine has
       no encoder for them, so their matrix cases are skipped.
 - [ ] 2.4 Implement alpha export for ProRes 4444 and VP9 with a transparent canvas; verify the alpha scenarios with a

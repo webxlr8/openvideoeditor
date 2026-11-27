@@ -170,3 +170,4 @@ parallel unless they share a hot file (`ove-core/src/schema.rs`, `ove-projection
 - Apple Developer account (signing + notarisation) and a Windows code-signing certificate (change 16).
 - Test footage from real productions (camera originals, long interviews, multicam) for the media matrix.
 - Product name and brand (before change 16), and the production-house plan (changes 17+).
+- The checks only the owner's machines can run, batched in `docs/owner-checklist.md`.
