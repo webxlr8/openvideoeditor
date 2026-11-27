@@ -452,3 +452,34 @@ fn each_lint_positive_and_negative() {
     assert!(run_on(vec![], &offline).is_empty());
     assert!(parse(&print(&b, &Default::default())).diagnostics.is_empty());
 }
+
+#[test]
+fn volume_keyframes_apply_and_round_trip() {
+    let d = base();
+    let kf = r#"keyframeTracks={[{property: "volume", keyframes: [{time: 0, value: 100}, {time: 1, value: 0}]}]}"#;
+    let t = edit(&print(&d, &Default::default()), "name=\"Intro\"", &format!("name=\"Intro\" {kf}"));
+    let (p, after) = run(&t, &d, &d, Prefer::File).unwrap();
+    assert!(!p.ops.is_empty());
+    let tracks = field(&after, "A", "keyframeTracks").unwrap();
+    assert_eq!(tracks[0]["property"], "volume");
+    assert_eq!(tracks[0]["keyframes"][1]["value"], json!(0));
+    // Printed, parsed and applied again without edits: no ops, and the text is byte-for-byte the same.
+    let again = print(&after, &Default::default());
+    assert!(again.contains("property: \"volume\""), "{again}");
+    let (p2, after2) = run(&again, &after, &after, Prefer::File).unwrap();
+    assert!(p2.ops.is_empty() && p2.conflicts.is_empty(), "{:?}", p2.ops);
+    assert_eq!(print(&after2, &Default::default()), again);
+}
+
+#[test]
+fn volume_keyframe_out_of_range_refused() {
+    let d = base();
+    let kf = r#"keyframeTracks={[{property: "volume", keyframes: [{time: 0, value: 100}, {time: 1, value: 250}]}]}"#;
+    let t = edit(&print(&d, &Default::default()), "name=\"Middle\"", &format!("name=\"Middle\" {kf}"));
+    let e = run(&t, &d, &d, Prefer::File).unwrap_err();
+    let diag = e.diagnostics.iter().find(|x| x.code == "value.range").expect("value.range");
+    // Names the item and the keyframe.
+    assert!(diag.message.contains("item B"), "{}", diag.message);
+    assert!(diag.message.contains("keyframes[1]"), "{}", diag.message);
+    assert!(diag.message.contains("250"), "{}", diag.message);
+}

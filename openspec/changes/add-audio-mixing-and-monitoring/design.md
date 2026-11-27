@@ -148,3 +148,11 @@ that the true-peak limiter replaces the sample-peak limiter, covered by the gold
 To be filled during apply: analysis throughput (× real time), waveform draw time for 50 visible clips, scrub latency
 p95 (cached and cold), meter CPU use, export loudness accuracy on fixtures, on the macOS and Windows reference
 machines.
+
+Measured on the Windows 11 x64 development machine (debug test builds unless stated). The macOS reference machine
+and the built app (group 7) are not measured yet.
+
+- Volume keyframes (group 1): a 100 % → 0 % linear fade over 1 s reads −30.00 dB at 0.5 s in the mixed output
+  (`volume_keyframes_fade_in_db_and_preview_equals_export`); the 32-sample block gain stays within 0.1 dB of the dB
+  curve. Mixing the same timeline in 1024-frame blocks (preview), 1600/1601-frame blocks (export per video frame)
+  and odd 37/4093/512-frame blocks gives bit-identical samples.

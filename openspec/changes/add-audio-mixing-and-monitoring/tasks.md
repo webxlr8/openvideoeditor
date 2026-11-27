@@ -2,13 +2,13 @@
 
 ## 1. Volume keyframes
 
-- [ ] 1.1 Add `volume` to the keyframe property list in `ove-core` with the 0–200 range check, and to `timeline.d.ts`
+- [x] 1.1 Add `volume` to the keyframe property list in `ove-core` with the 0–200 range check, and to `timeline.d.ts`
       and the projection printer and reader; verify a golden projection with volume keyframes round-trips byte for
       byte and an out-of-range value gives the expected diagnostic.
-- [ ] 1.2 Evaluate volume keyframes in the mixer in dB per 32-sample block, multiplied with static volume and fades;
+- [x] 1.2 Evaluate volume keyframes in the mixer in dB per 32-sample block, multiplied with static volume and fades;
       verify a unit test of a 100→0 linear fade over 1 s against the expected dB curve within 0.1 dB, and a test that
       preview and export mixes of the same timeline are sample-identical.
-- [ ] 1.3 Document volume keyframes in `docs/cli` and the agent guide (`ove docs agents`); verify the executed doc
+- [x] 1.3 Document volume keyframes in `docs/cli` and the agent guide (`ove docs agents`); verify the executed doc
       example applies cleanly with `ove source apply`.
 
 ## 2. Import analysis cache

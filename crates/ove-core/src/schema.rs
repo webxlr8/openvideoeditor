@@ -87,7 +87,10 @@ pub const BLEND_MODES: &[&str] = &[
     "luminosity",
 ];
 pub const EASINGS: &[&str] = &["linear", "ease-in", "ease-out", "ease-in-out"];
-pub const KEYFRAME_PROPERTIES: &[&str] = &["x", "y", "scale", "rotation", "opacity", "gaussianBlur", "borderRadius"];
+pub const KEYFRAME_PROPERTIES: &[&str] =
+    &["x", "y", "scale", "rotation", "opacity", "gaussianBlur", "borderRadius", "volume"];
+/// Value ranges of keyframe properties whose values are bounded, checked on every keyframe of such a track.
+pub const KEYFRAME_VALUE_RANGES: &[(&str, f64, f64)] = &[("volume", 0.0, 200.0)];
 pub const PLAYBACK_DIRECTIONS: &[&str] = &["forward", "reverse"];
 pub const TEXT_ALIGNS: &[&str] = &["left", "center", "right", "justify"];
 pub const FONT_STYLES: &[&str] = &["normal", "italic"];
@@ -531,8 +534,33 @@ pub fn validate(kind: &Kind, v: &Value, path: &str, out: &mut Vec<Issue>) {
         },
         Kind::Obj { fields, open } => match v.as_object() {
             None => out.push(Issue::err("value.type", path, format!("{path} must be an object"))),
-            Some(o) => validate_object(fields, *open, o, path, out),
+            Some(o) => {
+                validate_object(fields, *open, o, path, out);
+                if is_keyframe_track(fields) {
+                    keyframe_ranges(o, path, out);
+                }
+            }
         },
+    }
+}
+
+fn is_keyframe_track(fields: &[Field]) -> bool {
+    fields.len() == KEYFRAME_TRACK.len() && fields.iter().zip(KEYFRAME_TRACK).all(|(a, b)| a.name == b.name)
+}
+
+/// Range check of each keyframe value for properties with a bounded value (for example `volume`, 0–200 %).
+fn keyframe_ranges(track: &Map<String, Value>, path: &str, out: &mut Vec<Issue>) {
+    let Some(prop) = track.get("property").and_then(Value::as_str) else { return };
+    let Some(&(_, min, max)) = KEYFRAME_VALUE_RANGES.iter().find(|r| r.0 == prop) else { return };
+    let Some(kfs) = track.get("keyframes").and_then(Value::as_array) else { return };
+    for (i, k) in kfs.iter().enumerate() {
+        if let Some(x) = k.get("value").and_then(Value::as_f64)
+            && x.is_finite()
+            && (x < min || x > max)
+        {
+            let p = format!("{path}.keyframes[{i}].value");
+            out.push(Issue::err("value.range", &p, format!("{p}: {prop} keyframes must be {min}–{max}, got {x}")));
+        }
     }
 }
 
@@ -693,6 +721,24 @@ mod tests {
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].severity, Severity::Warning);
         assert_eq!(out[0].code, "object.key.unknown");
+    }
+
+    #[test]
+    fn volume_keyframes_are_range_checked() {
+        let kind = &item_field("audio", "keyframeTracks").unwrap().kind;
+        let mut out = vec![];
+        let ok = json!([{"property": "volume", "keyframes": [{"time": 0, "value": 0}, {"time": 1, "value": 200}]}]);
+        validate(kind, &ok, "k", &mut out);
+        assert!(out.is_empty(), "{out:?}");
+        let bad = json!([{"property": "volume", "keyframes": [{"time": 0, "value": 100}, {"time": 1, "value": 250}]}]);
+        validate(kind, &bad, "k", &mut out);
+        assert_eq!(out.len(), 1, "{out:?}");
+        assert_eq!(out[0].code, "value.range");
+        assert_eq!(out[0].path, "k[0].keyframes[1].value");
+        // Other properties keep their unbounded values.
+        out.clear();
+        validate(kind, &json!([{"property": "scale", "keyframes": [{"time": 0, "value": 250}]}]), "k", &mut out);
+        assert!(out.is_empty());
     }
 
     #[test]
