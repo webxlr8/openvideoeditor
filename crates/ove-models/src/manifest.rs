@@ -381,9 +381,36 @@ pub fn runtime_manifest(platform: RuntimePlatform) -> Manifest {
     }
 }
 
-/// Every model this build knows: the speech models, and the inference runtime for this platform.
+/// The voice-activity model's id (add-transcript-editing: dead air and filler detection).
+pub const VAD_ID: &str = "silero-vad";
+
+/// Silero VAD (ONNX export from the Silero repository at a fixed commit), run through the shared inference runtime
+/// in the editor process (2.2 MB). Chosen over the recognition library's built-in voice activity by measurement
+/// (add-transcript-editing task 1.1, design.md R1: 37 times faster, no false speech in a music bed). Weights licence
+/// MIT: the repository's `LICENSE` ("MIT License, Copyright (c) 2020-present Silero Team") and README ("Published
+/// under permissive license (MIT)"); a README badge's alt text says "CC BY-NC 4.0" but the badge itself reads MIT
+/// and links to that `LICENSE`.
+pub fn vad_manifest() -> Manifest {
+    Manifest {
+        id: VAD_ID.into(),
+        version: "6-446da2a".into(),
+        purpose: "Voice activity, for removing dead air and finding fillers".into(),
+        licence: "MIT".into(),
+        files: vec![ModelFile::new(
+            "silero_vad.onnx",
+            "https://raw.githubusercontent.com/snakers4/silero-vad/446da2ad95fc90d67a3b12e12ea3f5410b9b3ec4/src/silero_vad/data/silero_vad.onnx",
+            "f6f4407b41e05e277e7f5cfd9b9ae957b1dfe763c6076a934734c0b448e09b31",
+            2_204_103,
+        )],
+        runtime: RuntimeKind::Onnx,
+        in_process: true,
+    }
+}
+
+/// Every model this build knows: the speech models, voice activity, and the inference runtime for this platform.
 pub fn catalog() -> Vec<Manifest> {
     let mut all: Vec<Manifest> = WHISPER.iter().map(WhisperPin::manifest).collect();
+    all.push(vad_manifest());
     all.extend(RuntimePlatform::current().map(runtime_manifest));
     all
 }

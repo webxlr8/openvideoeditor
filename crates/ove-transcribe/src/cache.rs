@@ -7,11 +7,62 @@ use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
-use crate::recognize::Transcript;
+use crate::transcript::Transcript;
 
 /// Cache key for a file with a content id: the id, the model and the language.
 pub fn content_key(content_id: &str, model: &str, language: Option<&str>) -> String {
     format!("{content_id}-{model}-{}", language.unwrap_or("auto"))
+}
+
+/// [`content_key`] plus the verbatim flag (add-transcript-editing 1.4): a verbatim transcript (disfluencies kept) is
+/// stored next to the normal one, and the normal key is unchanged, so existing entries stay valid.
+pub fn transcript_key(content_id: &str, model: &str, language: Option<&str>, verbatim: bool) -> String {
+    let k = content_key(content_id, model, language);
+    if verbatim { format!("{k}-verbatim") } else { k }
+}
+
+/// The cached transcript of a media file: under its content id when it has one, else (or when that is missing) under
+/// the legacy key of its path, which is then moved to the content id. `None` when it was never transcribed with this
+/// model, language and verbatim flag.
+pub fn lookup(
+    bundle: &Path,
+    media: &Path,
+    content_id: Option<&str>,
+    model: &str,
+    language: Option<&str>,
+    verbatim: bool,
+) -> Option<Transcript> {
+    let legacy = key(media, model, language);
+    let legacy = if verbatim { format!("{legacy}-verbatim") } else { legacy };
+    let current = content_id.map(|cid| transcript_key(cid, model, language, verbatim));
+    if let Some(k) = &current
+        && let Some(t) = load(bundle, k)
+    {
+        return Some(t);
+    }
+    let t = load(bundle, &legacy)?;
+    if let Some(k) = &current {
+        store(bundle, k, &t);
+    }
+    Some(t)
+}
+
+/// Every cached transcript of a media file with this content id, any model, language or verbatim flag: the most
+/// recently written first.
+pub fn any_for(bundle: &Path, content_id: &str) -> Vec<Transcript> {
+    let dir = bundle.join("cache").join("transcripts");
+    let Ok(rd) = std::fs::read_dir(&dir) else { return Vec::new() };
+    let prefix = format!("{content_id}-");
+    let mut found: Vec<(std::time::SystemTime, PathBuf)> = rd
+        .flatten()
+        .filter(|e| {
+            let n = e.file_name().to_string_lossy().into_owned();
+            n.starts_with(&prefix) && n.ends_with(".json") && !n.ends_with("-verbatim.json")
+        })
+        .map(|e| (e.metadata().and_then(|m| m.modified()).unwrap_or(std::time::UNIX_EPOCH), e.path()))
+        .collect();
+    found.sort_by_key(|e| std::cmp::Reverse(e.0));
+    found.into_iter().filter_map(|(_, p)| serde_json::from_slice(&std::fs::read(p).ok()?).ok()).collect()
 }
 
 /// Renames the legacy cache entries of the file at `media` (keyed by its path, size and modification time) to its
@@ -134,6 +185,22 @@ mod tests {
         assert!(load(&bundle, &old_en).is_none(), "moved, not copied");
         assert!(load(&bundle, &key(&other, "base", None)).is_some());
         assert_eq!(migrate_legacy(&bundle, &media, "c0ffee"), 0, "a second open has nothing to move");
+    }
+
+    #[test]
+    fn verbatim_transcripts_are_kept_apart_and_normal_keys_unchanged() {
+        assert_eq!(transcript_key("0123abcd", "base", None, false), "0123abcd-base-auto");
+        assert_eq!(transcript_key("0123abcd", "base", Some("en"), true), "0123abcd-base-en-verbatim");
+        let dir = tempfile::tempdir().unwrap();
+        let media = dir.path().join("a.wav");
+        std::fs::write(&media, b"x").unwrap();
+        let plain = Transcript { language: "en".into(), model: "base".into(), words: vec![], duration_us: 1 };
+        let verbatim = Transcript { duration_us: 2, ..plain.clone() };
+        store(dir.path(), &transcript_key("c", "base", None, false), &plain);
+        store(dir.path(), &transcript_key("c", "base", None, true), &verbatim);
+        assert_eq!(lookup(dir.path(), &media, Some("c"), "base", None, false), Some(plain.clone()));
+        assert_eq!(lookup(dir.path(), &media, Some("c"), "base", None, true), Some(verbatim));
+        assert_eq!(any_for(dir.path(), "c"), vec![plain], "verbatim entries are not the default transcript");
     }
 
     #[test]

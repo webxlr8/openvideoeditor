@@ -115,5 +115,40 @@ old entries are re-used when the identity matches. No document schema change: cu
 
 ## Results
 
-To be filled during implementation: realtime factor per model and OS, cut-planning time for a 1-hour interview,
-voice-activity precision and recall, seam peak levels.
+### R1. Voice-activity runtime (task 1.1, Windows 11 x64, Ryzen 9 5950X)
+
+Fixture (made on this machine with the system speech synthesiser and FFmpeg; not committed): 20.9 s at 16 kHz mono,
+speech, 2 s of digital silence, speech, 4 s of two sine tones mixed (a stand-in music bed), speech. Model: Silero
+VAD 6.x in both forms, one thread, test profile (optimised dependencies).
+
+| Path | Model file | Time for 20.9 s | Real-time factor | Speech runs found |
+|---|---|---|---|---|
+| Recognition library, built-in voice activity | `ggml-silero-v6.2.0.bin`, 885,098 bytes | 4.8–5.5 s | 0.23–0.26 | 7 |
+| Shared runtime (ONNX Runtime 1.32.0, `ove-models`) | `silero_vad.onnx`, 2,204,103 bytes | 129–149 ms (+128–187 ms to load the library and model) | 0.006–0.007 | 6 |
+
+- Agreement: each of the 6 runs of the runtime path has a run of the built-in path with both ends within one 32 ms
+  cell. The built-in path also marks 96 ms (3 cells) inside the tone bed as speech; the runtime path does not.
+  Counted over all cells, boundaries moved at most 2 cells because of that extra run.
+- Decision (D6): the shared runtime. The built-in path needs no download, but at a real-time factor of about 0.25 it
+  would spend about 15 minutes on a one-hour interview, against about 25 s with the runtime; it also marked part of
+  the tone bed as speech. Costs of the decision: the runtime library (16.7 MB download on Windows, 22.5 MB on macOS)
+  must be installed with consent before dead-air removal works, and the feature reports "runtime not installed"
+  until then.
+- Pinned model: `silero-vad` in the model catalog, `silero_vad.onnx` from the Silero repository at commit
+  `446da2ad95fc90d67a3b12e12ea3f5410b9b3ec4`, SHA-256 `f6f4407b41e05e277e7f5cfd9b9ae957b1dfe763c6076a934734c0b448e09b31`;
+  it runs in the editor process (2.2 MB, under the 10 MB in-process limit).
+- Weights licence: MIT. Evidence at that commit: `LICENSE` ("MIT License, Copyright (c) 2020-present Silero Team");
+  README: "Published under permissive license (MIT)". One README badge has the alt text "CC BY-NC 4.0", but the
+  badge image reads MIT and links to the MIT `LICENSE` (same finding as add-model-runtime R1). The ggml conversion
+  used for the comparison declares `license: mit` on its model card.
+
+### R2. Timeline transcript (tasks 1.3–1.5)
+
+- The mapping moved from the desktop crate to `ove_transcribe::timeline`; captions, `get_transcript` and
+  `ove transcript` use it. `ove-transcribe` now builds without the recognition library (feature `recognize`, on by
+  default), so the command line and the tool registry read transcripts without linking whisper.cpp.
+- Word ids `<mediaId>@<sourceMs>`; words repeated by overlapping recognition windows (same media, start in ms and
+  text) are listed once. Property test: 500 random move/trim/length/speed edits of another clip leave every id of
+  the first clip unchanged, and the edited clip's ids stay source ids.
+- Cache keys: `<contentId>-<model>-<language>`, plus `-verbatim` for verbatim transcripts; existing keys are
+  unchanged, so caches made before this change are used as they are.

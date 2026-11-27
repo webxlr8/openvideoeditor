@@ -217,10 +217,11 @@ fn mcp_lists_the_local_models() {
     assert_eq!(ids[..3], ["whisper-tiny", "whisper-base", "whisper-small"]);
     // The inference runtime is listed on the platforms it is pinned for.
     let runtime = ove_models::manifest::RuntimePlatform::current().is_some();
-    assert_eq!(ids.len(), if runtime { 4 } else { 3 }, "{ids:?}");
+    assert_eq!(ids[3], "silero-vad");
+    assert_eq!(ids.len(), if runtime { 5 } else { 4 }, "{ids:?}");
     if runtime {
-        assert_eq!(ids[3], "onnxruntime");
-        assert_eq!(models[3]["host"], "files.pythonhosted.org");
+        assert_eq!(ids[4], "onnxruntime");
+        assert_eq!(models[4]["host"], "files.pythonhosted.org");
     }
     assert!(models.iter().all(|m| m["installed"] == false && m["bytes"].as_u64().unwrap() > 0));
 

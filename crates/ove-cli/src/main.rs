@@ -112,6 +112,22 @@ enum Cmd {
     Verify { project: String },
     /// List revisions, oldest first.
     History { project: String },
+    /// The words said on the timeline, with word ids and timeline times, from the cached transcripts.
+    Transcript {
+        project: String,
+        /// Only these clip ids (comma separated).
+        #[arg(long, value_delimiter = ',')]
+        clips: Vec<String>,
+        /// Sentences instead of words.
+        #[arg(long)]
+        segments: bool,
+        /// First word of the page.
+        #[arg(long)]
+        offset: Option<i64>,
+        /// Words per page (at most 10000).
+        #[arg(long)]
+        limit: Option<i64>,
+    },
     /// Revert the latest revision, or return to revision REV, as a new revision. With --any and --session (or
     /// --turn), revert only that agent session's (or turn's) changes, keeping everyone else's.
     Undo {
@@ -324,6 +340,13 @@ fn run(cli: &Cli, source: Source) -> Out {
         Cmd::Edit(a) => edit::run(&ctx, a),
         Cmd::Verify { project } => ctx.tool("verify_timeline", json!({"project": project})),
         Cmd::History { project } => ctx.tool("timeline_history", json!({"project": project})),
+        Cmd::Transcript { project, clips, segments, offset, limit } => {
+            let mut a = json!({"project": project, "segments": segments, "offset": offset, "limit": limit});
+            if !clips.is_empty() {
+                a["clips"] = json!(clips);
+            }
+            ctx.tool("get_transcript", a)
+        }
         Cmd::Undo { project, rev, any, session, turn, kind } => {
             if session.is_some() || turn.is_some() {
                 if !any {

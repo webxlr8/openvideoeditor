@@ -4239,6 +4239,7 @@ dependencies = [
  "ove-render",
  "ove-store",
  "ove-tools",
+ "ove-transcribe",
  "serde_json",
  "tempfile",
 ]
@@ -4530,6 +4531,7 @@ dependencies = [
  "ove-projection",
  "ove-render",
  "ove-store",
+ "ove-transcribe",
  "proptest",
  "serde",
  "serde_json",
@@ -4541,8 +4543,11 @@ dependencies = [
 name = "ove-transcribe"
 version = "0.1.0"
 dependencies = [
+ "ove-core",
  "ove-media",
  "ove-models",
+ "ove-store",
+ "proptest",
  "serde",
  "serde_json",
  "sha2",

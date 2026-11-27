@@ -50,3 +50,4 @@ Tools:
 | docs | `docs` (`agents` is the editing guide) |
 | check_code | (none; checks a motion-graphics code item) |
 | list_models_local | `models list` (read-only; installing a model over 50 MB needs the person's consent) |
+| get_transcript | `transcript` (the words on the timeline with stable word ids; read-only) |

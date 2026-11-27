@@ -10,6 +10,7 @@ use crate::manifest::{RuntimePlatform, WHISPER, WhisperPin, runtime_manifest};
 /// Every pinned URL of every platform, once each.
 pub fn all_pinned_urls() -> Vec<String> {
     let mut manifests: Vec<crate::Manifest> = WHISPER.iter().map(WhisperPin::manifest).collect();
+    manifests.push(crate::manifest::vad_manifest());
     manifests.extend([RuntimePlatform::WindowsX64, RuntimePlatform::MacosArm64].map(runtime_manifest));
     let mut urls: Vec<String> = Vec::new();
     for m in &manifests {
