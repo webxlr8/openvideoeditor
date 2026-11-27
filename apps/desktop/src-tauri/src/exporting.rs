@@ -279,19 +279,30 @@ pub fn cancel_export() -> AppResult<()> {
     Ok(())
 }
 
-/// Save dialog for the export destination. `None` when cancelled.
+/// Save dialog for the export destination; `extension` is the container's (`mp4` when `None`). `None` when
+/// cancelled.
 #[tauri::command]
 #[specta::specta]
-pub async fn choose_export_path(app: AppHandle, default_name: String) -> AppResult<Option<String>> {
+pub async fn choose_export_path(
+    app: AppHandle,
+    default_name: String,
+    extension: Option<String>,
+) -> AppResult<Option<String>> {
     worker::blocking("choose_export_path", move || {
-        let name =
-            if default_name.to_lowercase().ends_with(".mp4") { default_name } else { format!("{default_name}.mp4") };
+        let ext = extension.unwrap_or_else(|| "mp4".into()).trim_start_matches('.').to_lowercase();
+        let suffix = format!(".{ext}");
+        let name = if default_name.to_lowercase().ends_with(&suffix) {
+            default_name
+        } else {
+            format!("{default_name}{suffix}")
+        };
+        let filter = format!("{} file", crate::exports::container_label(&ext));
         let picked = match crate::scripted_dialogs::save(&name) {
             Some(scripted) => scripted,
             None => app
                 .dialog()
                 .file()
-                .add_filter("MP4 video", &["mp4"])
+                .add_filter(filter, &[ext.as_str()])
                 .set_file_name(&name)
                 .blocking_save_file()
                 .and_then(|p| p.into_path().ok()),

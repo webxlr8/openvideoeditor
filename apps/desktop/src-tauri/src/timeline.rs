@@ -108,6 +108,8 @@ fn render_loop(
     let mut renderer = ove_render::Renderer::with_backend(Some(&bundle), preview_height(&status.backend), backend);
     *crate::worker::relock(&diag.backend) = crate::compositing::label(&status);
     let mut fell_back = false;
+    // Playback reads proxies when the project says so; export and agent frames never do.
+    renderer.set_use_proxies(ove_render::proxy::enabled(&doc));
     let end = doc.duration();
     let fps = doc.fps();
     let mut gen_now = 0u64;

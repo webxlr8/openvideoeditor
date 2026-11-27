@@ -110,6 +110,9 @@ const env = {
   OVE_ANTHROPIC_BASE_URL: mock.url,
   OVE_FAL_QUEUE_URL: fal.url,
   OVE_GENERATE_POLL_MS: "200",
+  // The export queue the app, `ove` and MCP share, kept out of the person's app data; its worker is the `ove` under test.
+  OVE_EXPORT_QUEUE_DIR: path.join(work, "exports"),
+  OVE_EXPORT_WORKER_PROGRAM: OVE,
   // The assistant and the generation panel read keys from the environment when the credential store has none.
   ANTHROPIC_API_KEY: "e2e-demo-key-not-real-0123456789",
   FAL_KEY: "e2e-fal-key-not-real-0123456789",

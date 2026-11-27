@@ -61,7 +61,12 @@ pub struct BundleCtx {
 
 /// How long a writer waits for another `ove` process (an MCP session keeping the project open between its calls)
 /// to let go of a project; such a session releases it after [`BundleCtx::hold`] without calls.
-pub const WAIT_FOR_SESSION: Duration = Duration::from_secs(3);
+///
+/// This must be at least the default hold of `ove mcp` (`HOLD` in `ove-cli/src/mcp.rs`, 2 s) plus 5 s of margin:
+/// the holder only notices it is idle when its read of the next call times out, and on a loaded machine that
+/// wake-up and the close can be late. With a shorter wait a second agent gets `project.locked` although the first
+/// one is about to let go. A test in `ove-cli` (which sees both constants) checks the relation.
+pub const WAIT_FOR_SESSION: Duration = Duration::from_secs(7);
 
 /// Opens `bundle` for writing. When another `ove` process holds it (a session between calls), waits up to
 /// [`WAIT_FOR_SESSION`] for it to be released; any other holder (the app) is reported at once.

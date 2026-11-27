@@ -18,8 +18,8 @@
 - [x] 2.2 Implement per-codec encoder candidate lists with run-time filtering and reporting of the chosen encoder;
       verify a test with a mocked inventory picks the expected encoder and refuses HEVC when none exists.
 - [ ] 2.3 Implement ProRes (all profiles), DNxHR (all profiles), HEVC 8/10-bit, VP9 and hardware AV1 encoding paths;
-      verify an ffprobe matrix test (codec, profile, pixel format, colour tags) and SSIM ≥ 0.99 against the H.264
-      golden export on a 10 s test timeline.
+      verify an ffprobe matrix test (codec, profile, pixel format, colour tags) and luma SSIM ≥ 0.99 (ProRes Proxy ≥ 0.98)
+      against the H.264 golden export on a 10 s test timeline.
       Open: ProRes (all profiles) verified; HEVC, DNxHR, VP9 and AV1 paths are implemented but this build or machine has
       no encoder for them, so their matrix cases are skipped.
 - [ ] 2.4 Implement alpha export for ProRes 4444 and VP9 with a transparent canvas; verify the alpha scenarios with a
@@ -57,16 +57,22 @@
 
 ## 5. UI
 
-- [ ] 5.1 Build the export dialog (presets, Advanced section, validation messages) and the Exports panel (progress,
+- [x] 5.1 Build the export dialog (presets, Advanced section, validation messages) and the Exports panel (progress,
       show file, cancel, export again); verify UI tests for preset choice, a refused combination and cancel.
-- [ ] 5.2 Add "Save range as media" and "Render in place" to the timeline range menu with a confirmation for replace;
+- [x] 5.2 Add "Save range as media" and "Render in place" to the timeline range menu with a confirmation for replace;
       verify a UI test that one undo restores the items.
+      Note: the menu opens with a right-click on the marked range in the ruler, and also offers "Export range…".
 
 ## 6. Integration checks
 
 - [ ] 6.1 In the built app on macOS and Windows: export ProRes 422 HQ, DNxHR HQ, HEVC 10-bit (where an encoder exists),
       VP9 WebM, ProRes 4444 with alpha and 24-bit WAV from the sample project; verify each file plays in the OS player
       and probes as expected.
+      Open: Windows half done for ProRes 422 HQ, ProRes 4444 with alpha, H.264 and 24-bit WAV (probe and full decode);
+      DNxHR, VP9 and HEVC have no encoder in this build or machine; OS-player playback and the macOS half need a person
+      and the macOS machine.
 - [ ] 6.2 In the built app on both OSes: queue three exports, quit, reopen; verify all finish, and record encode speed
       (× realtime) per codec at 1080p in design.md Results.
+      Open: Windows half done (e2e flow "export queue"; debug-build speeds in Results); macOS half not available here.
 - [ ] 6.3 Agent path: an MCP client queues an export, polls `job_status`, and cancels a second one; verify on both OSes.
+      Open: Windows half done (e2e flow "agent export"); macOS half not available here.

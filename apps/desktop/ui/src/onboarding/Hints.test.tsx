@@ -55,6 +55,7 @@ describe("hints in empty panels", () => {
       transitions: "Import media",
       effects: "Import media",
       generate: "Try an example",
+      exports: "Export…",
     });
   });
 

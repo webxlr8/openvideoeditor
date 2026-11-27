@@ -35,8 +35,11 @@ import {
   LayoutPanel,
   type PanelProps,
   TextPanel,
+  ExportsPanel,
   TransitionsPanel,
 } from "./Panels";
+import { RangeMediaDialog, openExport } from "./ExportDialog";
+import type { MenuItem } from "./Menu";
 import { MotionPanel } from "./Motion";
 import { GeneratePanel } from "./Generate";
 import { HistoryPanel } from "./HistoryPanel";
@@ -57,6 +60,7 @@ export const RAIL: { id: string; label: string; icon: IconName }[] = [
   { id: "transitions", label: "Transitions", icon: "transitions" },
   { id: "effects", label: "Effects", icon: "effects" },
   { id: "generate", label: "Generate", icon: "spark" },
+  { id: "exports", label: "Exports", icon: "upload" },
 ];
 
 export interface Layout {
@@ -138,6 +142,13 @@ export function Editor({
   const [tool, setTool] = useState<Tool>("select");
   const [range, setRange] = useState<{ in: number | null; out: number | null }>({ in: null, out: null });
   const [help, setHelp] = useState(false);
+  /** "Save range as media" or "Render in place" in progress. */
+  const [rangeMedia, setRangeMedia] = useState<{ start: number; end: number; replace: boolean } | null>(null);
+  const rangeMenu = (start: number, end: number): MenuItem[] => [
+    { id: "export-range", label: "Export range…", onSelect: () => openExport([start, end]) },
+    { id: "save-range", label: "Save range as media", onSelect: () => setRangeMedia({ start, end, replace: false }) },
+    { id: "render-in-place", label: "Render in place…", onSelect: () => setRangeMedia({ start, end, replace: true }) },
+  ];
   const [historyOpen, setHistoryOpen] = useState(false);
   /** Items an assistant turn changed, highlighted on the timeline while its "Show" is on (in the project it was
    * shown for: opening another project drops it). */
@@ -177,6 +188,19 @@ export function Editor({
     closedFor !== selected &&
     layout.panelOpen
   );
+  // Other parts of the app (the background-tasks popover, the export dialog) ask for a panel by id.
+  useEffect(() => {
+    const show = (e: Event) => {
+      const id = (e as CustomEvent<string>).detail;
+      if (!RAIL.some((r) => r.id === id)) return;
+      // As the rail does: the panel takes the place of the selected clip's properties.
+      setClosedFor(selected);
+      setPanel(id);
+      setLayout({ ...layout, panelOpen: true });
+    };
+    window.addEventListener("ove:open-panel", show);
+    return () => window.removeEventListener("ove:open-panel", show);
+  }, [layout, setLayout, selected]);
 
   const copy = useCallback(async (ids: string[]) => {
     const all = await Promise.all(ids.map((id) => itemDetail(id)));
@@ -513,6 +537,7 @@ export function Editor({
               highlight={review?.ids}
               tool={tool}
               range={range}
+              rangeMenu={project ? rangeMenu : undefined}
             />
           </ErrorBoundary>
         ) : (
@@ -545,6 +570,13 @@ export function Editor({
           rev={project?.rev}
           onClose={() => setHistoryOpen(false)}
           onEdit={onEdit}
+          onError={onError}
+        />
+      )}
+      {rangeMedia && (
+        <RangeMediaDialog
+          {...rangeMedia}
+          onClose={() => setRangeMedia(null)}
           onError={onError}
         />
       )}
@@ -725,6 +757,7 @@ function SidePanel({
           {id === "audio" && <AudioPanel {...panelProps} />}
           {id === "layout" && <LayoutPanel {...panelProps} />}
           {id === "generate" && <GeneratePanel {...panelProps} />}
+          {id === "exports" && <ExportsPanel onError={panelProps.onError} />}
         </div>
       ) : (
         <p className="muted panel-placeholder">

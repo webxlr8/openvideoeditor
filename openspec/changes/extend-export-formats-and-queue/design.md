@@ -75,6 +75,14 @@ revision through the existing restore path and renders it. Edits after queuing n
 revision has been pruned before the job starts, the job fails with a clear message. Retention already keeps at least
 2,000 revisions, and a queued job holds a pin that pruning respects.
 
+### D6a. Quality bar per profile (gate 2, 2026-11-27)
+The quality check compares luma SSIM against the H.264 golden export: at least 0.99 for every profile except ProRes
+Proxy, which is at least 0.98. Proxy is an offline editing format with a fixed, low data rate, so more bits are not an
+option; measured 0.9839 on Windows (`prores_ks`). The bar is luma-only; all-plane values are recorded in Results for
+information (ProRes 4444 all-plane 0.9898). Alternatives: one 0.99 bar for all (fails a format working as designed);
+all-plane SSIM (penalises 4:2:2 chroma against a 4:2:0 reference). The macOS `prores_videotoolbox` re-measure is in
+docs/owner-checklist.md.
+
 ### D7. Restart recovery
 On start, the app and the CLI scan job files. A job in `running` whose `worker_pid` is not alive and whose file has
 not changed for 30 seconds goes back to `queued` with `attempt += 1` and its partial output deleted. After 3 attempts
@@ -214,3 +222,74 @@ LGPL FFmpeg 9.0.2 build in `H:/Development/OpenvideoEditor/tools/ffmpeg/out/wind
 - Only the chosen tracks are rendered for render in place; when another visual track has content in the range the
   render is ProRes 4444 with alpha. An offline media file inside the range refused the call before rendering
   (`export.refused`, naming the file): no revision, no media, no file.
+
+### Group 5 (UI)
+
+- The export dialog lists the shared presets (the same table as the CLI and MCP) in two groups, Video and Sound only.
+  A preset this computer cannot write stays visible but disabled, with the reason as its tooltip ("No HEVC encoder on
+  this computer…"). Below the presets: "Sound only", a loudness target (as mixed, -14, -16, -23, -24 LUFS) and the
+  range (whole timeline, or a part; the marked range when the dialog opens from the timeline). "Advanced" holds
+  container, video codec, profile, bit depth, quality, size, frame rate, transparent background, audio codec and sample
+  depth. Every change is checked against the open timeline and this computer's encoders (`check_export`): a refused
+  combination shows its message, outlines the conflicting fields and disables Export; otherwise one summary line
+  ("MOV · ProRes 422 HQ · PCM 24-bit · 1920×1080 · 30 fps") says what will be written.
+- Export queues a job in the same queue files `ove` and MCP use (`ove-tools` `export_queue::enqueue`, recorded as
+  requested by "person"). The app keeps no job state of its own: the dialog and the Exports panel read the queue
+  files every 0.5 s while a job is queued or running, else every 3 s. The app also puts back jobs that a dead worker
+  left and starts the worker when it opens.
+- The Exports panel (rail item "Exports") lists queued and running jobs, then those finished in the last day, with
+  progress, encoder, time taken, loudness result and who asked; Cancel, Show in folder, Export again (same settings and
+  file, the open project as it is now) and Clear finished. `openExportsPanel()` opens it from elsewhere (the
+  background-tasks popover), and `useActiveExportCount()` gives that popover its count.
+- Right-click on the marked range in the ruler: Export range…, Save range as media, Render in place… (asks first).
+  Both run the `save_range_as_media` registry tool on the open project as the person's edit, so one undo restores
+  the covered items.
+- Tests: 5 Rust unit tests in `apps/desktop/src-tauri/src/exports.rs` (every preset round-trips through the form; a
+  refused combination names its fields; summaries; the panel's list and cancel over real queue files; a finished job's
+  encoder and loudness). 9 UI tests in `Export.test.tsx`: preset choice, a refused combination, WAV with a loudness
+  target, a range outside and inside the timeline, cancel from the dialog, two queued jobs in the panel with one
+  cancelled and one finished, save range as media, render in place undone in one step, and export range.
+
+### Group 6 (integration checks, Windows half)
+
+Built app (`ove-desktop` debug build) driven by `apps/desktop/e2e-app/run.mjs` on Windows 11 with tauri-driver and
+msedgedriver; the export worker is the debug `ove` built with `--features media`; media from
+`tests/media/files` (`h264_longgop.mp4`, 4 s, 1920×1080). The harness gives the app and `ove` a queue folder of their
+own (`OVE_EXPORT_QUEUE_DIR`) and names the worker program (`OVE_EXPORT_WORKER_PROGRAM`). Six flows pass:
+"split export", "export: MP4 …" (both moved to the preset dialog), "export formats", "export queue", "range" and
+"agent export". The run's final whole-log check fails only on crash reports and forced diagnostic panics dated
+2026-11-26 in the Windows profile's shared log folder (left by earlier runs, not by these flows); today's log has no
+ERROR line.
+
+- 6.1 (Windows): from the dialog's presets, each file probed with ffprobe and decoded end to end with a full FFmpeg
+  without errors:
+
+  | Preset | Probe |
+  |---|---|
+  | ProRes 422 HQ master | prores HQ, yuv422p10le, 1920×1080; pcm_s24le 48 kHz; 4.00 s |
+  | ProRes 4444 with alpha | prores 4444, yuva444p12le, 1920×1080; pcm_s24le 48 kHz; 4.00 s |
+  | YouTube 1080p (H.264) | h264 (h264_mf), yuv420p, 1920×1080; aac 48 kHz; 4.00 s |
+  | Audio WAV 24-bit | no video; pcm_s24le 48 kHz; 4.00 s |
+
+  Not on this machine, shown disabled with the reason: DNxHR HQ and HQX ("This build of the app has no DNxHR encoder
+  (dnxhd)…"), Web VP9 and VP9 with alpha ("…cannot write WebM files (webm muxer missing)"). HEVC 10-bit stays
+  selectable because `hevc_mf` is in the inventory, but it refuses the test picture at export time (group 2). Playback
+  in the OS player was not checked (needs a person; Windows has no ProRes player built in). Open: macOS half, DNxHR,
+  VP9 and HEVC on a build or machine that has them, OS-player playback.
+- 6.2 (Windows): three exports queued from the dialog (ProRes 422 HQ, H.264 1080p, sound-only WAV at -14 LUFS); the
+  H.264 one cancelled in the Exports panel while queued (status `cancelled` 1.6 s after the click, including the
+  panel's poll; no file, no `.partial`); the app closed while the ProRes export ran and the WAV waited, then reopened:
+  both finished (the worker is a separate process). The WAV measures -14 LUFS integrated (FFmpeg `ebur128`). Encode
+  speed at 1080p, 4 s timeline, debug build of the worker (a release build is faster; not measured here):
+  ProRes 422 HQ 0.10× realtime (38.5 s), ProRes 4444 with alpha 0.10× (38.8 s), H.264 (`h264_mf`) 0.16× (24.8 s),
+  24-bit WAV 4.4× (0.9 s). Open: macOS half and release-build speeds.
+- 6.3 (Windows): an MCP client ("e2e-agent") queued a ProRes export and an H.264 export with `export_video`,
+  cancelled the second with `cancel_job` (4 ms, while queued; nothing written), waited on the first with
+  `job_status {wait: true}` (done, ProRes file probes), got `job.unknown` for an unknown id, and the app's Exports
+  panel listed both jobs ("by e2e-agent", done and cancelled). Open: macOS half.
+- Range menu in the built app: the clip marked with X, "Save range as media" added one bundle-owned ProRes 422 HQ file
+  (1920×1080, 4.000 s) and left the clips as they were; "Render in place…" asked first, then put one clip of the new
+  media over the range; one Undo restored the clips. Found and fixed on the way: the rendered media had no content id,
+  so the app's background "media identities" revision landed on top of the render and Undo undid that instead. The
+  `save_range_as_media` tool now stores the file's identity (content id, size, time) with the media, as an import
+  does (`crates/ove-cli/tests/export_range.rs` checks it).

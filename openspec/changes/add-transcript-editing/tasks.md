@@ -99,6 +99,12 @@
 - [x] 5.5 Mark add-captions task 1.5 as taken over by this change; verify the add-captions tasks file points here.
       Done: `openspec/changes/add-captions/tasks.md` 1.5 names this change and its tasks.
 
+- [ ] 5.6 The shipped `ove` CLI is built without the `speech` feature (gate 2, 2026-11-27): `transcribe_media` and
+      `ove transcript transcribe` route through the running app over the control link; with no app running they fail
+      with `speech.unavailable` and the hint "Open OpenVideoEditor to transcribe". Verify: an MCP contract test for the
+      not-running path, a test through the app path, and the release size of `ove` with and without `speech` recorded
+      in design.md Results (if the difference is ≤ 1 MB compressed, revisit this decision).
+
 ## 6. Integration checks
 
 - [ ] 6.1 In the built app on macOS and on Windows: transcribe a 10-minute interview, cut words from the panel, remove

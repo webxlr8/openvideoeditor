@@ -14,6 +14,7 @@ import type {
 } from "./bindings";
 import { AgentsSection } from "./agents/AgentsSection";
 import { ModelsSection } from "./storage/ModelsSection";
+import { CachesSection } from "./storage/CachesSection";
 import { SpendCapField } from "./spend/SpendCard";
 import { commands } from "./bridge";
 import { AssistantDataList } from "./ChatPanel";
@@ -570,6 +571,8 @@ export function Settings({
             <h3>Storage</h3>
             <h4>Models</h4>
             <ModelsSection onError={onError} />
+            <h4>Derived data</h4>
+            <CachesSection onError={onError} />
           </section>
         )}
         {section === "rendering" && <RenderingSection onError={onError} />}

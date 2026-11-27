@@ -2061,6 +2061,80 @@
       }
     },
     {
+      "name": "list_tasks",
+      "description": "List the app's unfinished background tasks (thumbnails, skim sheets, proxies, captions, export, analysis): id, kind, label, project, priority, state (queued, running, paused with its reason) and progress. Background work runs only in the app: without it the list is empty.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "kind": {
+            "type": "string",
+            "description": "Only this kind (thumbnail, skim, proxy, captions, export, audio-analysis, …)"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "wait_tasks",
+      "description": "Wait until the matching background tasks are done (for example the proxies of a project), or until the time-out: the result says whether they are done and how many remain. Paused tasks (playback, battery) do not finish while paused.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "kind": {
+            "type": "string",
+            "description": "Only this kind (thumbnail, skim, proxy, captions, export, audio-analysis, …)"
+          },
+          "timeoutSeconds": {
+            "type": "number",
+            "description": "Seconds to wait at most (default 30, at most 600)"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "cancel_task",
+      "description": "Cancel one background task by id (from list_tasks). It stops within a second and leaves no partial output; the result reports it cancelled. Derived data (thumbnails, skim sheets, proxies) is queued again the next time it is needed.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "The task id"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
       "name": "inspect_color",
       "description": "Measure the colour of the exported frame at a time (snapped to the frame grid), or of one item alone with `isolate`: luma mean and 2nd/98th percentiles (percent), clipped-low and clipped-high shares, a 16-bin luma histogram, mean colour of shadows, midtones and highlights (RGB 0..1 and CIELAB), CIELAB a*/b* balance, mean saturation, a saturation-weighted 12-bin hue histogram, the share of colourful pixels and skin-line deviation in degrees. With `reference` (an item, measured alone, or a media file) adds the CIEDE2000 gap per zone and `suggestedOps`: a capped colorGrade patch (wheels and saturation) for the shot, also given as `suggestedEdit`, ready to pass to apply_timeline. Inspect again after applying; repeat until gap.mean is below 2.",
       "inputSchema": {

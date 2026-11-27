@@ -38,6 +38,11 @@ pub struct Renderer {
     backend: Box<dyn Backend>,
     /// Why the backend changed while rendering (a lost GPU device), for the diagnostics overlay.
     fallback: Option<String>,
+    /// Video layers read their media file's proxy when it exists (playback with "Use proxies" on). Export and agent
+    /// frames never set this.
+    use_proxies: bool,
+    /// The proxy found for each media id (`None`: none, the original is read), looked up once per renderer.
+    proxies: HashMap<String, Option<PathBuf>>,
 }
 
 fn num(f: &Map<String, Value>, k: &str) -> Option<f64> {
@@ -187,6 +192,8 @@ impl Renderer {
             transparent: false,
             backend: Box::new(CpuBackend::new()),
             fallback: None,
+            use_proxies: false,
+            proxies: HashMap::new(),
         }
     }
 
@@ -231,6 +238,36 @@ impl Renderer {
     /// the result: for exports with an alpha channel.
     pub fn set_transparent(&mut self, on: bool) {
         self.transparent = on;
+    }
+
+    /// Reads proxies instead of originals for video layers whose proxy exists (`proxies/<contentId>_1080.mp4` in the
+    /// bundle). For playback only: export and agent inspection frames always read the originals.
+    pub fn set_use_proxies(&mut self, on: bool) {
+        if self.use_proxies != on {
+            self.use_proxies = on;
+            self.proxies.clear();
+            // Open decoders read the other files.
+            let mut fresh = Sources::default();
+            fresh.hwaccel = self.sources.hwaccel.clone();
+            fresh.forward_window = self.sources.forward_window;
+            self.sources = fresh;
+        }
+    }
+
+    /// The file a video layer reads: the proxy when proxies are on and it exists, else the original.
+    fn video_path(&mut self, doc: &Document, media_id: &str) -> Option<PathBuf> {
+        if self.use_proxies
+            && let Some(bundle) = self.bundle.as_deref()
+        {
+            let found = self.proxies.entry(media_id.to_string()).or_insert_with(|| {
+                let cid = doc.registry.get(media_id)?.fields.get("contentId")?.as_str()?;
+                ove_media::proxy::existing(bundle, cid)
+            });
+            if let Some(p) = found {
+                return Some(p.clone());
+            }
+        }
+        media_path(doc, self.bundle.as_deref(), media_id)
     }
 
     pub fn size(&self, doc: &Document) -> (u32, u32) {
@@ -296,7 +333,12 @@ impl Renderer {
                     LayerKind::Video { src_us, .. } => *src_us,
                     _ => 0,
                 };
-                let Some(path) = media_path(doc, self.bundle.as_deref(), media_id) else { return };
+                let path = if image {
+                    media_path(doc, self.bundle.as_deref(), media_id)
+                } else {
+                    self.video_path(doc, media_id)
+                };
+                let Some(path) = path else { return };
                 // Decode at the size it is shown (up to 2× for zoomed layers), never above 2160 lines.
                 let max_h = ((h as f64 * x.scale.abs().clamp(1.0, 2.0)).ceil() as u32).min(2160);
                 let Some(frame) = self.sources.frame(&layer.item_id, &path, src_us, max_h, image) else { return };
