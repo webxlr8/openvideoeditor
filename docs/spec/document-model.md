@@ -49,7 +49,7 @@ the grid are allowed and reported by verify.
 Common: `id, trackId, type, name, startTime, endTime, trimStart, trimEnd, mediaItemId, pending, link (link group
 value: items sharing it edit together), transform{x,y,scale,
 rotation,flipX}` (pixels from frame centre), `crop{top,right,bottom,left}` (%), `opacity, hidden, zIndex, blendMode,
-keyframeTracks[{property: x|y|scale|rotation|opacity|gaussianBlur|borderRadius, keyframes[{time (item-relative), value}],
+keyframeTracks[{property: x|y|scale|rotation|opacity|gaussianBlur|borderRadius|volume, keyframes[{time (item-relative), value}],
 easing}], transitionIn/Out{type|presetId, duration, …}, effects[{id,type,…}], borderRadius, gaussianBlur,
 captionComposition{mode: front|behind-subject, fallback: front|hide}, autoReframe`.
 

@@ -1,10 +1,13 @@
-//! Audio mixdown of the timeline: every video/audio item with sound, volume (0–200 %), item and track mute, audio
-//! fades and `audio-fade` transitions, playback speed, to interleaved stereo f32 at 48 kHz, through a peak limiter.
+//! Audio mixdown of the timeline: every video/audio item with sound, volume (0–200 %) and volume keyframes, item and
+//! track mute, audio fades and `audio-fade` transitions, playback speed, to interleaved stereo f32 at 48 kHz, through
+//! a peak limiter.
 //! Reverse playback is silent in v1.
 //!
 //! - Sources are decoded and converted to 48 kHz by ove-media (libswresample, band-limited).
 //! - Playback speed resamples with a band-limited sinc resampler (rubato), so 2× speed does not alias; pitch changes
 //!   with speed (pitch preservation is not implemented).
+//! - Volume keyframes (percent, like `volume`) are interpolated in dB with a -60 dB floor, evaluated every 32 samples
+//!   on a grid fixed to timeline time, so preview and export give the same samples (design D1).
 //! - The sum goes through a soft-knee peak limiter with a -1 dBFS ceiling instead of being clipped.
 
 use std::collections::{HashMap, VecDeque};
@@ -202,6 +205,99 @@ fn fade_gain(item: &Item, t: Micros) -> f32 {
     g
 }
 
+/// Floor of the volume curve (dB): a keyframe value at or below it is silence.
+pub const VOLUME_FLOOR_DB: f64 = -60.0;
+/// Volume keyframes are evaluated once per block of this many sample frames, on a grid fixed to timeline time, and
+/// ramped linearly inside the block (design D1).
+pub const GAIN_BLOCK: usize = 32;
+
+/// A volume value in percent (100 = unity) as dB, floored at [`VOLUME_FLOOR_DB`].
+pub fn percent_to_db(percent: f64) -> f64 {
+    if percent <= 0.0 { VOLUME_FLOOR_DB } else { (20.0 * (percent / 100.0).log10()).max(VOLUME_FLOOR_DB) }
+}
+
+/// Linear gain for a level in dB; the floor and below are silence.
+pub fn db_to_gain(db: f64) -> f32 {
+    if db <= VOLUME_FLOOR_DB { 0.0 } else { 10f64.powf(db / 20.0) as f32 }
+}
+
+/// An item's volume keyframes, in dB, interpolated in dB with the track's easing (design D1).
+#[derive(Debug, Clone, PartialEq)]
+pub struct VolumeCurve {
+    easing: String,
+    /// (item-relative time, dB), in time order.
+    points: Vec<(Micros, f64)>,
+}
+
+impl VolumeCurve {
+    /// The item's `volume` keyframe track, if it has one with at least one keyframe.
+    pub fn of(item: &Item) -> Option<VolumeCurve> {
+        let tracks = item.fields.get("keyframeTracks")?.as_array()?;
+        let track = tracks.iter().find(|t| t.get("property").and_then(Value::as_str) == Some("volume"))?;
+        let easing = track.get("easing").and_then(Value::as_str).unwrap_or("linear").to_string();
+        let mut points: Vec<(Micros, f64)> = track
+            .get("keyframes")?
+            .as_array()?
+            .iter()
+            .filter_map(|k| {
+                let v = k.get("value")?.as_f64().filter(|v| v.is_finite())?.clamp(0.0, 200.0);
+                Some((k.get("time").and_then(json_to_micros)?, percent_to_db(v)))
+            })
+            .collect();
+        points.sort_by_key(|p| p.0);
+        (!points.is_empty()).then_some(VolumeCurve { easing, points })
+    }
+
+    /// Level in dB at item-relative time `rel`: held before the first and after the last keyframe.
+    pub fn db_at(&self, rel: Micros) -> f64 {
+        let (first, last) = (self.points[0], self.points[self.points.len() - 1]);
+        if rel <= first.0 {
+            return first.1;
+        }
+        if rel >= last.0 {
+            return last.1;
+        }
+        let i = self.points.partition_point(|p| p.0 <= rel);
+        let (a, b) = (self.points[i - 1], self.points[i]);
+        let p = (rel - a.0) as f64 / (b.0 - a.0).max(1) as f64;
+        a.1 + (b.1 - a.1) * crate::eval::ease(&self.easing, p)
+    }
+
+    /// Linear gain at item-relative time `rel`.
+    pub fn gain_at(&self, rel: Micros) -> f32 {
+        db_to_gain(self.db_at(rel))
+    }
+}
+
+/// Gain of a volume curve at global timeline sample frame `frame`: exact at multiples of [`GAIN_BLOCK`], linear in
+/// between, so the result does not depend on how the timeline is split into mix calls.
+struct BlockGain<'a> {
+    curve: &'a VolumeCurve,
+    item_start: Micros,
+    block: Option<(i64, f32, f32)>,
+}
+
+impl<'a> BlockGain<'a> {
+    fn new(curve: &'a VolumeCurve, item_start: Micros) -> Self {
+        BlockGain { curve, item_start, block: None }
+    }
+
+    fn at(&mut self, frame: i64) -> f32 {
+        let start = frame.div_euclid(GAIN_BLOCK as i64) * GAIN_BLOCK as i64;
+        let (s, g0, g1) = match self.block {
+            Some(b) if b.0 == start => b,
+            _ => {
+                let g = |f: i64| self.curve.gain_at(frame_to_us(f) - self.item_start);
+                let b = (start, g(start), g(start + GAIN_BLOCK as i64));
+                self.block = Some(b);
+                b
+            }
+        };
+        let p = (frame - s) as f32 / GAIN_BLOCK as f32;
+        g0 + (g1 - g0) * p
+    }
+}
+
 /// Peak limiter with a soft knee: gain reduction starts 3 dB below the -1 dBFS ceiling and the output never exceeds
 /// it. Attack is instant (the ceiling holds without look-ahead, so the result does not depend on how the timeline is
 /// split into blocks); release is smooth.
@@ -272,6 +368,7 @@ impl Mixer {
         self.tick += 1;
         let mut out = vec![0f32; frames * CHANNELS];
         let t1 = t0 + frames as Micros * 1_000_000 / RATE as Micros;
+        let base = frames_for(t0) as i64;
         for track in &doc.project.tracks {
             if track.fields.get("muted").and_then(Value::as_bool) == Some(true) {
                 continue;
@@ -307,9 +404,16 @@ impl Mixer {
                 } else {
                     src.read_speed(a, source_time(item, a), n, speed)
                 };
+                let curve = VolumeCurve::of(item);
+                let mut keyed = curve.as_ref().map(|c| BlockGain::new(c, item.start));
                 for i in 0..n {
-                    let t = a + i as Micros * 1_000_000 / RATE as Micros;
-                    let g = volume * fade_gain(item, t);
+                    // Times come from the global sample index, so any split into mix calls gives the same samples.
+                    let frame = base + (off + i) as i64;
+                    let t = frame_to_us(frame);
+                    let mut g = volume * fade_gain(item, t);
+                    if let Some(k) = keyed.as_mut() {
+                        g *= k.at(frame);
+                    }
                     for c in 0..CHANNELS {
                         out[(off + i) * CHANNELS + c] += samples[i * CHANNELS + c] * g;
                     }
@@ -387,5 +491,66 @@ mod tests {
         l.process(a);
         l.process(b);
         assert_eq!(whole, split);
+    }
+}
+
+#[cfg(test)]
+mod volume_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn item(tracks: Value) -> Item {
+        let v = json!({"id": "a", "trackId": "t", "type": "audio", "startTime": 2, "endTime": 10, "keyframeTracks": tracks});
+        Item::from_json(&v, "a").unwrap()
+    }
+
+    #[test]
+    fn linear_fade_follows_the_db_curve() {
+        let it =
+            item(json!([{"property": "volume", "keyframes": [{"time": 0, "value": 100}, {"time": 1, "value": 0}]}]));
+        let c = VolumeCurve::of(&it).unwrap();
+        // 100 % → 0 % over 1 s, linear in dB: 0 dB to the -60 dB floor.
+        for ms in (0..1000).step_by(50) {
+            let want = -60.0 * ms as f64 / 1000.0;
+            let got = c.db_at(ms * 1000);
+            assert!((got - want).abs() < 0.1, "{ms} ms: {got} dB, want {want}");
+        }
+        assert!((c.db_at(500_000) + 30.0).abs() < 1e-9);
+        assert_eq!(c.gain_at(1_000_000), 0.0, "silent from the last keyframe");
+        assert_eq!(c.gain_at(5_000_000), 0.0);
+        assert_eq!(c.gain_at(-5), 1.0, "held before the first keyframe");
+        // The block gain at the global grid tracks the curve within 0.1 dB away from the floor.
+        let mut b = BlockGain::new(&c, 2_000_000);
+        for frame in (96_000..96_000 + 40_000).step_by(7) {
+            let rel = frame_to_us(frame) - 2_000_000;
+            let want = c.db_at(rel);
+            let got = 20.0 * (b.at(frame) as f64).log10();
+            assert!((got - want).abs() < 0.1, "frame {frame}: {got} dB, want {want}");
+        }
+    }
+
+    #[test]
+    fn percent_and_db_conversions() {
+        assert_eq!(percent_to_db(100.0), 0.0);
+        assert!((percent_to_db(200.0) - 6.0206).abs() < 1e-3);
+        assert!((percent_to_db(50.0) + 6.0206).abs() < 1e-3);
+        assert_eq!(percent_to_db(0.0), VOLUME_FLOOR_DB);
+        assert_eq!(percent_to_db(0.01), VOLUME_FLOOR_DB);
+        assert_eq!(db_to_gain(VOLUME_FLOOR_DB), 0.0);
+        assert_eq!(db_to_gain(0.0), 1.0);
+    }
+
+    #[test]
+    fn easing_and_missing_tracks() {
+        let none = item(json!([{"property": "opacity", "keyframes": [{"time": 0, "value": 1}]}]));
+        assert!(VolumeCurve::of(&none).is_none());
+        let empty = item(json!([{"property": "volume", "keyframes": []}]));
+        assert!(VolumeCurve::of(&empty).is_none());
+        let eased = item(json!([{"property": "volume", "easing": "ease-in", "keyframes": [
+            {"time": 0, "value": 100}, {"time": 1, "value": 10}]}]));
+        let c = VolumeCurve::of(&eased).unwrap();
+        // -20 dB at the end; ease-in moves less than half way by the midpoint.
+        assert!((c.db_at(1_000_000) + 20.0).abs() < 1e-9);
+        assert!(c.db_at(500_000) > -10.0);
     }
 }

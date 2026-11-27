@@ -43,6 +43,15 @@ fn setup() -> (tempfile::TempDir, std::path::PathBuf) {
     p.close().unwrap();
     std::fs::write(d.path().join("edited.tsx"), text.replacen("name=\"Title\"", "name=\"Title card\"", 1)).unwrap();
     std::fs::write(d.path().join("broken.tsx"), text.replacen("start={2}", "start={1 + 1}", 1)).unwrap();
+    // Volume keyframes (docs/cli/timeline.md): a fade from 100 % to 0 % over the clip's first second, and a value
+    // over the 200 % limit, which is refused.
+    let fade = r#"pendingDescription="wide shot" keyframeTracks={[{property: "volume", keyframes: [{time: 0, value: 100}, {time: 1, value: 0}]}]}"#;
+    std::fs::write(d.path().join("fade.tsx"), text.replacen("pendingDescription=\"wide shot\"", fade, 1)).unwrap();
+    std::fs::write(
+        d.path().join("loud.tsx"),
+        text.replacen("pendingDescription=\"wide shot\"", &fade.replace("value: 0}", "value: 250}"), 1),
+    )
+    .unwrap();
     (d, lib)
 }
 

@@ -228,7 +228,8 @@ fn ten_separate_words_are_one_batch() {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(10_000))]
+    // 10,000 cases by default; `OVE_PROPTEST_CASES` changes it (reduced counts during per-group checks).
+    #![proptest_config(ProptestConfig::with_cases(cases(10_000)))]
     #[test]
     fn remaining_words_are_the_transcript_minus_the_selection(
         lens in prop::collection::vec((0.12f64..0.8, 0.0f64..0.9), 3..25),
@@ -253,4 +254,9 @@ proptest! {
         let want: Vec<String> = ids_of(&ws).into_iter().filter(|i| !sel_ids.contains(i)).collect();
         prop_assert_eq!(left, want);
     }
+}
+
+/// Property-test cases: `OVE_PROPTEST_CASES` when set, else `default`.
+fn cases(default: u32) -> u32 {
+    std::env::var("OVE_PROPTEST_CASES").ok().and_then(|s| s.parse().ok()).unwrap_or(default)
 }

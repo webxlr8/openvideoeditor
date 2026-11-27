@@ -147,4 +147,5 @@ ove source print Nope                              # exit 1
 | `find_fillers` |  | in-app, mcp, pinned | read | `project`? `clips`? |
 | `search_transcript` |  | in-app, mcp, pinned | read | `project`? `phrase` |
 | `transcribe_media` |  | in-app, mcp, pinned | write | `project`? `media` `format`? `language`? `model`? `verbatim`? `force`? |
+| `duck_audio` |  | in-app, mcp, pinned | write | `project`? `music` `under` `depth`? `attack`? `release`? `hold`? `source`? `mode`? `dryRun`? |
 <!-- tools:end -->
