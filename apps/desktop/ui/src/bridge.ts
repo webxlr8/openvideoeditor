@@ -7,6 +7,7 @@ import * as generated from "./bindings";
 import fxCatalogJson from "./fx-catalog.json?raw";
 import { fire } from "./notify";
 import type {
+  AgentActivity_Serialize,
   MentionChip,
   MentionInput,
   AgentConnect,
@@ -102,6 +103,8 @@ export interface MockControl {
   meter(batch: AudioMeter): void;
   /** A project opened from outside the window (an agent or the command line, through the control link). */
   remoteOpen(name: string): void;
+  /** Simulates the app showing what an agent reads or changes (`agentActivity`). */
+  activity(ev: Pick<AgentActivity_Serialize, "actor" | "name" | "kind" | "ids"> & Partial<AgentActivity_Serialize>): void;
   /** The simulated assistant: whether a key is stored, how long each streamed step takes, whether the key check
    * fails, and what each turn costs. */
   agent: {
@@ -759,6 +762,9 @@ function createMock(): {
     },
     routePaths(paths) {
       emit("open-paths-requested", { paths });
+    },
+    activity(ev) {
+      emit("agent-activity", { removed: [], start: null, end: null, ts: Date.now(), ...ev });
     },
     remoteOpen(name) {
       project = newProject(name);
@@ -1490,6 +1496,8 @@ function createMock(): {
       );
       revs.push(project?.rev ?? 0);
       changed.push(id);
+      // The app shows the assistant's change live on the timeline (from the revision it made).
+      setTimeout(() => emit("agent-activity", { actor: `assistant:${chatId}`, name: "Assistant", kind: "change", ids: [id], removed: [], start: null, end: null, ts: Date.now() }), 0);
       return "added 1";
     });
     await tool(
@@ -3153,6 +3161,7 @@ function createMock(): {
   });
   const events = {
     agentUiEvent: makeEvent("agent-ui-event"),
+    agentActivity: makeEvent("agent-activity"),
     appErrorRaised: makeEvent("app-error-raised"),
     audioAnalysisChanged: makeEvent("audio-analysis-changed"),
     audioMeter: makeEvent("audio-meter"),

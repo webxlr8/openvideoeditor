@@ -384,6 +384,7 @@ export const commands = {
 
 /** Events */
 export const events = {
+	agentActivity: makeEvent<AgentActivity_Serialize, AgentActivity_Deserialize>("agent-activity"),
 	agentUiEvent: makeEvent<AgentUiEvent_Serialize, AgentUiEvent_Deserialize>("agent-ui-event"),
 	appErrorRaised: makeEvent<AppErrorRaised, AppErrorRaised>("app-error-raised"),
 	audioAnalysisChanged: makeEvent<AudioAnalysisChanged, AudioAnalysisChanged>("audio-analysis-changed"),
@@ -405,6 +406,47 @@ export const events = {
 };
 
 /* Types */
+/**  One thing an agent did on the timeline. */
+export type AgentActivity = AgentActivity_Serialize | AgentActivity_Deserialize;
+
+/**  One thing an agent did on the timeline. */
+export type AgentActivity_Deserialize = {
+	/**  Who, as a stable key: the actor kind and its session (`mcp:<session>`, `assistant:<chat>`). */
+	actor: string,
+	/**  The badge's name: Assistant, the client's name (Claude Code), MCP agent or Command line. */
+	name: string,
+	/**  `read`, `change`, or `person` (the person's own edit; never outlined). */
+	kind: string,
+	/**  Items read, changed or added. */
+	ids: string[],
+	/**  Items removed. */
+	removed: string[],
+	/**  The time range read, seconds. */
+	start?: number | null,
+	end?: number | null,
+	/**  When, ms since the epoch. */
+	ts: number | null,
+};
+
+/**  One thing an agent did on the timeline. */
+export type AgentActivity_Serialize = {
+	/**  Who, as a stable key: the actor kind and its session (`mcp:<session>`, `assistant:<chat>`). */
+	actor: string,
+	/**  The badge's name: Assistant, the client's name (Claude Code), MCP agent or Command line. */
+	name: string,
+	/**  `read`, `change`, or `person` (the person's own edit; never outlined). */
+	kind: string,
+	/**  Items read, changed or added. */
+	ids: string[],
+	/**  Items removed. */
+	removed: string[],
+	/**  The time range read, seconds. */
+	start: number | null,
+	end: number | null,
+	/**  When, ms since the epoch. */
+	ts: number | null,
+};
+
 export type AgentConnect = {
 	status: AgentConnectStatus,
 	instructions: string,

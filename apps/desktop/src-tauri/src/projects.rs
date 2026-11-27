@@ -840,6 +840,8 @@ pub(crate) fn emit_view(app: &AppHandle, p: Option<&Project>) -> Option<ProjectV
     // The timeline preview follows every change.
     if let Some(p) = p {
         crate::exporting::notify_doc(&state, p.doc(), p.bundle());
+        // Agents' changes show live on the timeline.
+        crate::activity::after_change(app, p);
     }
     v
 }

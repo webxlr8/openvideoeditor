@@ -483,6 +483,10 @@ impl ove_tools::AppHost for DesktopApp<'_> {
     fn skills(&mut self) -> Option<ove_tools::skills::SkillStore> {
         skill_store(&self.host.app)
     }
+    /// The assistant's reads show live on the timeline.
+    fn notify(&mut self, actor: Option<&ove_core::revision::Actor>, activity: &ove_tools::activity::Activity) {
+        crate::activity::emit(&self.host.app, actor, Source::Agent, activity);
+    }
 }
 
 /// The skill store of the app's library.

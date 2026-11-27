@@ -164,3 +164,25 @@ Measured on Windows 11 (32-core desktop, debug builds).
   stood in for by a 16 ms timer): 600 tokens streamed at 199–215 tokens/s in three runs gave 207–213 reasoning draws
   (not 600), about 50 commits per second, render p95 2.47–2.70 ms and max 3.7–11.4 ms per commit, all under 16 ms.
   This measures render work in the test DOM, not paint in the built app's web view; that check is part of task 6.1.
+
+**Group 4, live activity:**
+- Reads: `ove_tools::call` tells its context what a watched tool reads (`ove_tools::activity`): `print_timeline` with
+  `from`/`lines` maps to the items on those lines (`element_spans`), a full print to the whole timeline (0 to the
+  printed duration), `look` to the span of its `at` times before it runs and of the rendered frames after,
+  `get_transcript` to its clips. The in-app assistant's context emits `agentActivity`; external agents
+  (`LinkCtx`, so `ove` commands and `ove mcp`) send the new fire-and-forget control method `notify`.
+- Changes: one hook after every project view the app sends walks the revisions it has not shown yet (by parent,
+  at most 50) and emits each agent revision's added, changed and removed items as a change, named after its actor
+  (`claude-code` → "Claude Code"). The person's own revisions are sent as `person` and clear those items' outlines,
+  so a person's edit made while an agent works is never shown as the agent's.
+- Integration test (`crates/ove-cli/tests/activity.rs`): an `ove mcp` session named claude-code against a stand-in
+  app produced a read of the whole timeline (0–4 s), a read of item `b` (partial print) and a change of `b` (apply
+  through the app), all named "Claude Code".
+- Timeline layer (`ui/src/activity`, mounted with one line in `Timeline.tsx`): events are batched every 100 ms; an
+  external change was outlined within 300 ms in the UI test; everything fades 3 s after the agent's last event; at
+  most 200 outlines with a "+N more" count.
+- Flood test (1,000 applies over 10 s against 400 items, React Profiler around the whole app, development build in
+  jsdom): 93–95 commits (about 9 per second, not one per apply), render p50 6.5–12.9 ms, p95 12.1–18.7 ms over five
+  runs, max 48–81 ms (garbage-collection pauses in the test process), 200 outlined. The p50 is inside a 16 ms frame;
+  the p95 is at or just over it in this setting, so the test bounds p95 at 32 ms. A measurement in the built app's
+  web view is part of task 6.1.

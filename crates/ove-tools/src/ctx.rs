@@ -133,6 +133,9 @@ pub trait ToolCtx {
     fn ask_spend(&mut self, _card: &Value) -> Result<bool, Fail> {
         Err(confirm_required())
     }
+    /// Tells the running app what this caller is reading in `bundle` (the live activity display). Fire and forget: a
+    /// context without an app, or an app that does not answer, ignores it.
+    fn notify(&mut self, _bundle: &Path, _activity: &crate::activity::Activity) {}
     /// Starts the generation worker for a saved job (`ove-generate` job file in `bundle`).
     fn start_generation(&mut self, _bundle: &Path, _job: &str) -> Result<(), Fail> {
         Err(Fail::new("generate.unavailable", "generation jobs cannot be started here"))

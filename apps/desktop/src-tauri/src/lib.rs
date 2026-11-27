@@ -1,6 +1,7 @@
 //! Desktop shell: window, single instance and open-file routing, typed bridge, logs and crash
 //! containment, the native viewer, and playback through ove-media / ove-playback (change 1).
 
+pub mod activity;
 pub mod agents;
 pub mod assistant;
 pub mod background;
@@ -298,6 +299,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             spend::SpendSettled,
             exporting::ExportProgress,
             assistant::AgentUiEvent,
+            activity::AgentActivity,
             captions::CaptionJobProgress,
             models::LocalModelsChanged,
             waveforms::AudioAnalysisChanged,

@@ -28,11 +28,11 @@
 
 ## 4. Live activity
 
-- [ ] 4.1 Emit `agentActivity` from the in-app tool layer (line ranges mapped to ids, `look` mapped to ranges, receipts
+- [x] 4.1 Emit `agentActivity` from the in-app tool layer (line ranges mapped to ids, `look` mapped to ranges, receipts
       mapped to changes). Verify with unit tests of the mapping.
-- [ ] 4.2 Emit change events for control-link applies, and add the optional `notify` method for external reads, called
+- [x] 4.2 Emit change events for control-link applies, and add the optional `notify` method for external reads, called
       by `ove` read commands. Verify with an integration test: an MCP read and apply produce read and change events.
-- [ ] 4.3 Draw the activity layer in the timeline: ruler band, outlines, actor badge, 100 ms coalescing, 3 s fade,
+- [x] 4.3 Draw the activity layer in the timeline: ruler band, outlines, actor badge, 100 ms coalescing, 3 s fade,
       skipped when the person is editing, capped at 200. Verify:
       - UI tests of each scenario;
       - the flood test (1,000 applies in 10 s) with frame time under 16 ms. Record in Results.
