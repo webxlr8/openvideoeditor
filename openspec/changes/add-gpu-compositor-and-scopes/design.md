@@ -215,3 +215,6 @@ ones change appearance once, which is the bug fix in fix-render-and-edit-correct
     arithmetic shared by both sides before they can move.
   - The effect noise uses the existing integer hash (`util::hash21`), ported bit for bit, rather than a new PCG
     hash: it is already an integer hash on both sides, and changing it would change every noise effect's look.
+- 4.4 (open): the timeline preview composites at 1080 lines when the GPU backend is active (540 on the CPU). The
+  gate (0 dropped frames over 60 s for the four-layer project) needs the reference machines (M1 with an 8-core GPU,
+  a laptop with Intel Iris Xe) and the built app; not measured here.

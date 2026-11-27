@@ -11,8 +11,16 @@ use ove_core::model::Document;
 use ove_playback::{FrameSource, PresentableFrame, SourcePoll};
 use ove_render::Rgba;
 
-/// Preview height of the composited timeline. The preview frame rate is the timeline's own (`fps`, default 30).
+/// Preview height of the composited timeline on the CPU backend. The preview frame rate is the timeline's own
+/// (`fps`, default 30).
 pub const PREVIEW_HEIGHT: u32 = 540;
+/// Preview height when the GPU backend composites (design: preview resolution).
+pub const GPU_PREVIEW_HEIGHT: u32 = 1080;
+
+/// The preview height for a backend.
+pub fn preview_height(backend: &str) -> u32 {
+    if backend == "gpu" { GPU_PREVIEW_HEIGHT } else { PREVIEW_HEIGHT }
+}
 
 /// Start of frame `i` on the timeline's frame grid.
 pub fn frame_us(i: i64, fps: f64) -> i64 {
@@ -96,7 +104,8 @@ fn render_loop(
     diag: Diag,
     done: Arc<AtomicU64>,
 ) {
-    let (mut renderer, status) = crate::compositing::renderer(Some(&bundle), PREVIEW_HEIGHT);
+    let (backend, status) = crate::compositing::backend();
+    let mut renderer = ove_render::Renderer::with_backend(Some(&bundle), preview_height(&status.backend), backend);
     *crate::worker::relock(&diag.backend) = crate::compositing::label(&status);
     let mut fell_back = false;
     let end = doc.duration();
@@ -193,4 +202,15 @@ impl FrameSource for TimelineSource {
 /// Converts a composited frame for the viewer.
 pub fn to_viewer(f: &TimelineFrame) -> ove_gpu::VideoFrame {
     ove_gpu::VideoFrame::rgba(f.image.w, f.image.h, f.image.data.clone(), f.pts_us)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_gpu_previews_at_1080_lines() {
+        assert_eq!(preview_height("gpu"), 1080);
+        assert_eq!(preview_height("cpu"), 540);
+    }
 }
