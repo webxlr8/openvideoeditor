@@ -30,6 +30,7 @@ thiserror = "2"
 ove-analyze = { path = "../ove-analyze" }
 ove-store = { path = "../ove-store" }
 ove-tasks = { path = "../ove-tasks" }
+png = "0.18"
 ove-models = { path = "../ove-models", features = ["onnx"] }
 proptest = "1.12"
 tempfile = "3"

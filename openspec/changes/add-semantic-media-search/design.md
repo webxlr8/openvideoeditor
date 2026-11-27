@@ -36,6 +36,9 @@ original framework, stay open (tasks.md 1.2, needs Python); they could make the 
 **Release is blocked on the owner's licence sign-off** (tasks.md 1.1, the two points under "Model and tokenizer
 licences"). Until then the model stays in the catalog for testing, downloads only on the person's request, and ships
 in no installer.
+**Found later during apply (parity against the original framework, Results):** the shipped text encoder fails the
+gate on one fixture text (cosine 0.9360). Our own export passes at 0.56 GB, and the conversion's half-precision pair
+passes at 0.76 GB; switching the manifest to either needs approval (and, for ours, an immutable hosting location).
 Alternatives: original CLIP ViT-B/32 (weaker on fine detail, older tokenizer); larger SigLIP variants (better recall,
 2–4× size and memory); a cloud embedding API (breaks local-first and costs money).
 
@@ -278,5 +281,46 @@ Not measured here: results within 300 ms on 10 hours of indexed footage in the b
   SHA-256 and nothing is installed; Remove frees the files and the model reads as not installed.
 - Without the model, Spoken, Timelines and Files still answer (CLI test on a closed project with an empty model folder;
   UI test with the not-installed result), and nothing is downloaded.
-- Task 1.2 stays open (parity against the original framework needs Python). Release is blocked on the owner's licence
-  sign-off (task 1.1).
+- Task 1.2 stays open (see below: the shipped text encoder fails against the original framework). Release is
+  blocked on the owner's licence sign-off (task 1.1).
+
+### Parity against the original framework (tasks.md 1.2, 1.3)
+
+Reference: the released checkpoint `google/siglip2-base-patch16-256` at `3f9f96cb90da5dbc758b01813f2f6f1aee24c1ab`,
+loaded by transformers 5.24.1 on torch 2.15.0 (CPU) in the dev venv, installed by hash
+(`tools/vision-export/requirements.txt`). Before loading, `model.safetensors` matched its pinned SHA-256
+`6125cacc…5dc863`, as did `tokenizer.json` and `tokenizer.model`; weights only, offline, no remote code. The
+reference's logit scale and bias (112.90118, −16.771803) equal the constants in `ove-vision`. Fixtures: 8 generated
+pictures (colour fields, stripes, checkerboard, gradient, disc, noise, a portrait) and 8 texts, written with the
+reference outputs to `crates/ove-vision/tests/reference/` by `tools/vision-export/siglip2_export.py`.
+
+Our preprocessing and tokenizer (`cargo test -p ove-vision --test reference`, the first test runs in every test run):
+token ids equal the reference's for all 8 texts, including a text cut at 64 tokens (the end-of-sequence id is kept,
+as our tokenizer does). The sampled preprocessed tensors differ by at most one 8-bit level (0.0078); channel means
+differ by at most 0.0004.
+
+Encoders, worst cosine against the reference embeddings (ONNX Runtime 1.32.0, CPU):
+
+| Encoder | Size | Reference inputs (Python) | Our preprocessing and tokens (Rust) | Gate |
+|---|---|---|---|---|
+| Shipped image, half precision | 186 MB | 1.0000 | 0.9996 | passes |
+| Shipped text, 4-bit + f16 | 443 MB | 0.9360 ("The Price Is Right!"; others 0.9917–0.9977) | 0.9360 | **fails** |
+| Conversion's text, half precision (pinned commit, not shipped) | 565 MB | 1.0000 | — | passes |
+| Our image, full precision | 372 MB | 1.0000 | — | passes |
+| Our image, half precision | 186 MB | 1.0000 | 0.9996 (with our text below) | passes |
+| Our image, 8-bit (matrix products only) | 102 MB | 0.8655 | — | fails |
+| Our text, full precision | 1,130 MB | 1.0000 | — | passes |
+| Our text, 8-bit (matrix products and embedding) | 284 MB | 0.8872 | — | fails |
+| Our text, 8-bit embedding table only | 540 MB | 0.9917 | — | passes |
+| **Our text, 8-bit embedding table, half-precision layers** | **368 MB** | **0.9917** | **0.9917** | **passes** |
+
+The earlier parity check (against the conversion's own full-precision graphs, on short texts only) missed the shipped
+text encoder's failure: a capitalised, punctuated text loses most in 4 bits. Two pairs pass on Windows CPU:
+
+- our half-precision image encoder and our text encoder with an 8-bit embedding table: 0.56 GB (186 + 368 + 4 MB),
+  smaller than the shipped 0.63 GB, but our exports are not hosted anywhere yet; the manifest needs an immutable
+  location (for example a versioned release asset of this repository);
+- the conversion's half-precision image and text encoders, already at the pinned commit: 0.76 GB.
+
+Until one of them is approved and pinned, the shipped text encoder does not meet the release gate, and task 1.2 stays
+open (macOS is open as well). Task 1.3 is done.
