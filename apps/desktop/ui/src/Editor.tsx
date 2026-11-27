@@ -28,6 +28,7 @@ import { type EditResult, firstTrack, itemDetail, snapToFrame } from "./edit";
 import { Inspector } from "./Inspector";
 import { EDIT_ACTIONS, MOD, type Tool, keyToAction } from "./keys";
 import { CaptionsPanel } from "./CaptionsPanel";
+import { TranscriptPanel } from "./TranscriptPanel";
 import {
   AudioPanel,
   EffectsPanel,
@@ -50,6 +51,7 @@ export const RAIL: { id: string; label: string; icon: IconName }[] = [
   { id: "layout", label: "Layout", icon: "layout" },
   { id: "audio", label: "Audio", icon: "audio" },
   { id: "captions", label: "Captions", icon: "captions" },
+  { id: "transcript", label: "Transcript", icon: "scissors" },
   { id: "text", label: "Text", icon: "text" },
   { id: "motion", label: "Motion", icon: "templates" },
   { id: "transitions", label: "Transitions", icon: "transitions" },
@@ -334,6 +336,7 @@ export function Editor({
         onSelect: (i) => onSelect(i),
         onError,
         onImport,
+        onSeek,
         // Selected from a panel's hint: the panel stays, as when a rail button is pressed with a clip selected.
         onPick: (i) => {
           setClosedFor(i.id);
@@ -716,6 +719,7 @@ function SidePanel({
           {id === "text" && <TextPanel {...panelProps} />}
           {id === "motion" && <MotionPanel {...panelProps} />}
           {id === "captions" && <CaptionsPanel {...panelProps} />}
+          {id === "transcript" && <TranscriptPanel {...panelProps} />}
           {id === "transitions" && <TransitionsPanel {...panelProps} />}
           {id === "effects" && <EffectsPanel {...panelProps} />}
           {id === "audio" && <AudioPanel {...panelProps} />}

@@ -27,6 +27,7 @@ pub mod scrub;
 pub mod support;
 pub mod tasks;
 pub mod timeline;
+pub mod transcript;
 pub mod transport;
 pub mod viewer;
 pub mod waveforms;
@@ -230,6 +231,9 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             models::remove_local_model,
             models::install_local_model,
             models::cancel_local_model_install,
+            // The Transcript panel (add-transcript-editing).
+            transcript::transcript_query,
+            transcript::transcript_cut,
         ])
         .events(collect_events![
             PlaybackChanged,

@@ -52,6 +52,8 @@ export interface PanelProps {
   onImport?: () => void;
   /** Selects an item and keeps this panel open (`onSelect` shows the item's properties in its place). */
   onPick?: (item: ItemView_Serialize) => void;
+  /** Moves the playhead to a timeline time (seconds). */
+  onSeek?: (seconds: number) => void;
 }
 
 const round = (t: number) => snapToFrame(t);

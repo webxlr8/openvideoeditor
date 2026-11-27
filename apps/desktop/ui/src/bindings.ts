@@ -272,6 +272,10 @@ export const commands = {
 	installLocalModel: (id: string) => typedError<null, AppError>(__TAURI_INVOKE("install_local_model", { id })),
 	/**  Cancels a download started with `install_local_model`. Returns false when none was running. */
 	cancelLocalModelInstall: (id: string) => typedError<boolean, AppError>(__TAURI_INVOKE("cancel_local_model_install", { id })),
+	/**  Runs a read-only transcript tool (or a cutting tool with `apply: false`, a dry run) and returns its JSON result. */
+	transcriptQuery: (tool: string, args: string) => typedError<string, AppError>(__TAURI_INVOKE("transcript_query", { tool, args })),
+	/**  Runs a cutting tool (`remove_words`, `remove_silence`) on the open project as one revision. */
+	transcriptCut: (tool: string, args: string) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("transcript_cut", { tool, args })),
 };
 
 /** Events */
