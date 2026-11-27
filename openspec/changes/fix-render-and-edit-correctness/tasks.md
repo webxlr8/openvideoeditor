@@ -4,10 +4,11 @@
 
 - [x] 1.1 Map all 16 schema blend modes plus the legacy `add` in `ove-render` (separable and non-separable
       formulas); verify `every_schema_blend_mode_is_rendered` and `blend_formulas` pass in `cargo test -p ove-render`.
-- [ ] 1.2 Add a golden render fixture with one layer per blend mode; verify frames by eye, then bless; verify the test
+- [x] 1.2 Add a golden render fixture with one layer per blend mode; verify frames by eye, then bless; verify the test
       fails if any mode falls back to Normal.
 - [ ] 1.3 Make the effect golden tests compare with a tolerance (max channel difference ≤ 1) and run them on macOS,
-      Windows and Linux; verify `cargo test -p ove-render` passes on all three.
+      Windows and Linux; verify `cargo test -p ove-render` passes on all three. (Implemented; passes on Windows.
+      Open until the CI matrix shows it passing on macOS and Linux: neither can run on this machine.)
 
 ## 2. Split and trim
 

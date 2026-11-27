@@ -84,3 +84,21 @@ to stored addresses as to fresh ones. Alternatives: fail as today (loses paid re
 - Generation resume: `cargo test -p ove-generate` passes, incl. `tests/fal_resume.rs` (resume without a second
   submission, timeout cancels at the provider, foreign status address refused); clippy clean.
 - Not run here: the 3 `ove-render` mixdown tests need a full FFmpeg CLI for test tones (`OVE_FIXTURE_FFMPEG`).
+- Blend-mode golden (task 1.2, `crates/ove-render/tests/blend_golden.rs`): a 4×4 grid on a 16:9 canvas with one
+  code-item layer per schema blend mode over a shared backdrop ramp. It renders at 320×180 and is stored as
+  `tests/golden/blend-modes-320x180.pam`. The frame was checked by eye before blessing. Each cell shows its mode's
+  expected result: darker for multiply and burn, lighter for screen, lighten and dodge, inversion for difference, and
+  backdrop luminance with the source hue for hue and color. A second test renders every cell with `normal` and
+  requires a difference above 8 steps. Mutation check: mapping `luminosity` to Normal fails both tests ("blend output
+  changed: luminosity (max channel difference 219)", "these modes render as normal: luminosity"). Windows 11,
+  2026-11-27.
+- Effect goldens (task 1.3, `crates/ove-render/tests/effects_golden.rs`): stored frames replace the Linux-only FNV
+  hash table. The file `tests/golden/effects-48x27.pam` holds the 41 effects stacked. The test compares with a
+  tolerance of one 8-bit step per channel and has no OS condition. Before the change, the old hash test ran once on
+  Windows with its condition removed: all 41 hashes equalled the table blessed on Linux x86-64, so the two systems
+  give identical frames today. Measured on Windows: max channel difference 0 for all 41 effects and all 16 blend
+  cells. macOS and Linux were not run on this machine (no macOS host, no Rust in the WSL distro); the CI matrix runs
+  them.
+- `cargo test -p ove-render` on Windows 11 (2026-11-27): lib 47, blend_golden 2, captions_golden 3 (1 ignored),
+  effects_golden 2, export_safety 6, mixdown 3, motion 5 and render 6 passed. The HDR fixture in `render.rs` needs
+  python3 and ran with `OVE_ALLOW_MISSING_MEDIA_TOOLS=1` (reported as skipped).
