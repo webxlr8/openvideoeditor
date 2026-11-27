@@ -84,6 +84,12 @@ pub struct Assistant {
 }
 
 impl Assistant {
+    /// The stored API key, if any, and the chosen model (drafting a skill uses them; add-agent-skills-and-connectors).
+    pub(crate) fn key_and_model(&self) -> (Option<String>, String) {
+        let model = self.model.lock().map(|m| m.clone()).unwrap_or_else(|e| e.into_inner().clone());
+        (self.keys.get().map(|(k, _)| k), model)
+    }
+
     pub fn new(settings_dir: Option<PathBuf>) -> Self {
         Self::with_keys(Box::new(OsKeyStore), settings_dir)
     }

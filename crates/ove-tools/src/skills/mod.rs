@@ -8,6 +8,7 @@
 //! Builtin skills ship inside the app and are never written to the store folder.
 
 pub mod catalog;
+pub mod draft;
 pub mod export;
 
 use std::collections::BTreeMap;

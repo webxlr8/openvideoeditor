@@ -8,6 +8,7 @@
 pub mod agent;
 pub mod api;
 pub mod chat;
+pub mod draft;
 pub mod keys;
 pub mod mock;
 pub mod prompt;

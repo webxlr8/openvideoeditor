@@ -61,6 +61,73 @@ pub enum SkillsCmd {
         #[arg(long)]
         yes: bool,
     },
+    /// Draft a skill from a finished project with the configured assistant: from the final timeline, the edit
+    /// history by actor, the presets in use and, with --with-chat, the latest chat. Saves nothing to the store:
+    /// review the draft, then `ove skills add <file>`.
+    Draft {
+        #[arg(long = "from-project", value_name = "PROJECT")]
+        from_project: String,
+        /// Include the project's latest chat with the assistant.
+        #[arg(long)]
+        with_chat: bool,
+        /// Write the draft here (default: print it).
+        #[arg(long)]
+        out: Option<PathBuf>,
+        /// Also save the context pack here (works without an assistant).
+        #[arg(long)]
+        pack_out: Option<PathBuf>,
+        /// The model to draft with (default: the assistant's default model).
+        #[arg(long)]
+        model: Option<String>,
+    },
+    /// Save a skill file you reviewed (a draft, or one you wrote) into the store.
+    Add {
+        file: PathBuf,
+        /// The id (default: from its name).
+        #[arg(long)]
+        id: Option<String>,
+    },
+}
+
+/// Drafts a skill from `pack` with `client` (none: no assistant is configured), writing the pack to `pack_out` and
+/// the draft to `out` or the output. Nothing is saved to the store.
+pub fn draft(
+    pack: &ove_tools::skills::draft::Pack,
+    out: Option<&Path>,
+    pack_out: Option<&Path>,
+    client: Option<ove_agent::Client>,
+    model: &str,
+) -> Out {
+    let write = |p: &Path, text: &str| {
+        std::fs::write(p, text).map_err(|e| Fail::new("file.unwritable", format!("{}: {e}", p.display())))
+    };
+    if let Some(p) = pack_out {
+        write(p, &ove_tools::skills::draft::pack_text(pack))?;
+    }
+    let Some(client) = client else {
+        let saved = match pack_out {
+            Some(p) => format!("The context pack was saved to {}.", p.display()),
+            None => "You can still save the context pack with --pack-out <file>.".into(),
+        };
+        return Err(Fail::new(
+            "draft.noAssistant",
+            format!(
+                "Drafting needs the assistant: add an Anthropic API key in Settings → Assistant (or set ANTHROPIC_API_KEY). {saved}"
+            ),
+        )
+        .details(json!({"packSaved": pack_out})));
+    };
+    let d = ove_agent::draft::draft_skill(&client, model, pack, &std::sync::atomic::AtomicBool::new(false))
+        .map_err(|e| Fail::new(e.code, e.message))?;
+    let review = "Nothing was saved. Review the draft, then save it with `ove skills add <file>`.";
+    let v = json!({"draft": d.text, "out": out, "packOut": pack_out, "costUsd": d.cost_usd});
+    match out {
+        Some(p) => {
+            write(p, &d.text)?;
+            Ok((v, format!("Wrote the draft to {}. {review}", p.display())))
+        }
+        None => Ok((v, format!("{}\n\n{review}", d.text.trim_end()))),
+    }
 }
 
 /// The library folder: `--library`, else `OVE_LIBRARY`, else the platform default.
@@ -208,6 +275,49 @@ pub fn run(cmd: &SkillsCmd, library_flag: Option<&Path>, source: Source) -> Out 
             };
             Ok((serde_json::to_value(&s).unwrap_or_default(), text))
         }
+        SkillsCmd::Draft { from_project, with_chat, out, pack_out, model } => {
+            let lib = ove_store::Library::open(library(library_flag)?, crate::common::clock())?;
+            let bundle = lib.find(from_project)?;
+            let p =
+                ove_store::project::Project::open(&bundle, ove_store::project::Mode::ReadOnly, crate::common::clock())?;
+            let chat = with_chat
+                .then(|| {
+                    let chats = ove_agent::ChatStore::for_bundle(&bundle);
+                    chats.list().first().map(|c| {
+                        ove_agent::chat::transcript(&chats.records(&c.id), ove_tools::skills::draft::MAX_CHAT_CHARS)
+                    })
+                })
+                .flatten();
+            let pack = ove_tools::skills::draft::pack(&p, chat)?;
+            use ove_agent::KeyStore;
+            let client = ove_agent::OsKeyStore.get().map(|(key, _)| ove_agent::Client::new(key));
+            let model = model.clone().unwrap_or_else(|| ove_agent::MODELS[0].id.to_string());
+            draft(&pack, out.as_deref(), pack_out.as_deref(), client, &model)
+        }
+        SkillsCmd::Add { file, id } => {
+            let store = store(library_flag)?;
+            let text = std::fs::read_to_string(file)
+                .map_err(|e| Fail::new("file.unreadable", format!("{}: {e}", file.display())))?;
+            let fm = ove_tools::skills::validate_text(&text)
+                .map_err(|why| Fail::new("skill.invalid", format!("not saved: {why}")))?;
+            let id = match id {
+                Some(i) => i.clone(),
+                None => store.free_id(&ove_tools::skills::id_from_name(fm.name.as_deref().unwrap_or("skill"))),
+            };
+            if std::fs::symlink_metadata(store.dir(&id)).is_ok() {
+                return Err(Fail::new("skill.exists", format!("a skill `{id}` already exists; pass another --id")));
+            }
+            let origin = if fm.source.as_deref() == Some("drafted") {
+                ove_tools::skills::Origin::Drafted
+            } else {
+                ove_tools::skills::Origin::Local
+            };
+            let s = store.write(&id, &text, origin, None)?;
+            Ok((
+                serde_json::to_value(&s).unwrap_or_default(),
+                format!("Saved skill `{}` ({}).", s.id, s.origin.label()),
+            ))
+        }
         SkillsCmd::Export { id, to, yes } => {
             let store = store(library_flag)?;
             let home = home()?;
@@ -255,3 +365,6 @@ pub fn run(cmd: &SkillsCmd, library_flag: Option<&Path>, source: Source) -> Out 
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -379,6 +379,43 @@ pub async fn skill_update_accept(app: AppHandle, id: String, sha256: String) -> 
     .await
 }
 
+/// Drafts a skill from the open project with the assistant (the person clicked Draft). Returns the draft for the
+/// editor; nothing is saved until the person saves it. `with_chat` includes the project's latest chat.
+#[tauri::command]
+#[specta::specta]
+pub async fn skill_draft(app: AppHandle, with_chat: bool) -> AppResult<String> {
+    use tauri::Manager;
+    worker::blocking("skill_draft", move || {
+        let state = app.state::<crate::AppState>();
+        let (key, model) = state.assistant.key_and_model();
+        let key = key.ok_or_else(|| {
+            AppError::new(
+                ErrorCode::InvalidArgument,
+                "Drafting needs the assistant: add an Anthropic API key in Settings → Assistant. You can also save the context pack with `ove skills draft --pack-out`.",
+            )
+        })?;
+        // The project is held only while the pack is built, not during the request.
+        let pack = {
+            let g = crate::projects::lock(&state.projects.open)?;
+            let p = g.as_ref().ok_or_else(|| AppError::new(ErrorCode::InvalidArgument, "Open the finished project first."))?;
+            let chat = with_chat
+                .then(|| {
+                    let chats = ove_agent::ChatStore::for_bundle(p.bundle());
+                    chats.list().first().map(|c| {
+                        ove_agent::chat::transcript(&chats.records(&c.id), ove_tools::skills::draft::MAX_CHAT_CHARS)
+                    })
+                })
+                .flatten();
+            ove_tools::skills::draft::pack(p, chat).map_err(fail)?
+        };
+        let client = ove_agent::Client::new(key);
+        ove_agent::draft::draft_skill(&client, &model, &pack, &std::sync::atomic::AtomicBool::new(false))
+            .map(|d| d.text)
+            .map_err(|e| AppError::new(ErrorCode::InvalidArgument, e.message))
+    })
+    .await
+}
+
 /// Exports a skill to the chosen agents. `overwrite`: the person confirmed replacing copies they changed there.
 #[tauri::command]
 #[specta::specta]

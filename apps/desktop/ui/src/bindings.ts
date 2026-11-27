@@ -300,6 +300,11 @@ export const commands = {
 	skillUpdateAccept: (id: string, sha256: string) => typedError<SkillRow_Serialize, AppError>(__TAURI_INVOKE("skill_update_accept", { id, sha256 })),
 	/**  Exports a skill to the chosen agents. `overwrite`: the person confirmed replacing copies they changed there. */
 	skillExport: (id: string, targets: string[], overwrite: boolean) => typedError<SkillExportOutcome_Serialize[], AppError>(__TAURI_INVOKE("skill_export", { id, targets, overwrite })),
+	/**
+	 *  Drafts a skill from the open project with the assistant (the person clicked Draft). Returns the draft for the
+	 *  editor; nothing is saved until the person saves it. `with_chat` includes the project's latest chat.
+	 */
+	skillDraft: (withChat: boolean) => typedError<string, AppError>(__TAURI_INVOKE("skill_draft", { withChat })),
 };
 
 /** Events */

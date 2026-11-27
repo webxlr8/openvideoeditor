@@ -247,6 +247,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             skills::skill_update_offer,
             skills::skill_update_accept,
             skills::skill_export,
+            skills::skill_draft,
         ])
         .events(collect_events![
             PlaybackChanged,

@@ -189,3 +189,21 @@ Measured on Windows 11 (x64), debug test builds.
 - UI: 9 tests in `ui/src/skills/Skills.test.tsx` (list, edit, install with preview, tampered refusal, update accept,
   update as a copy, export with replace, the 60-skill warning, no fetch when no catalog is set). The whole UI suite:
   194 tests in 32 files pass.
+
+### Group 3: drafting and starter skills
+
+- `ove skills draft --from-project` sends one request: our drafting instructions as the system prompt and the context
+  pack as the user message (timeline with media table, revisions grouped by actor, presets in use, the chat with
+  `--with-chat`, at most 60,000 characters of it). A mock assistant test checks all four parts and that nothing is
+  saved to the store. Without a key, drafting stops with `draft.noAssistant` and `--pack-out` still writes the pack.
+  A reply that is not a skill file is refused with `draft.invalid`. In the app, Draft (Settings → Skills → Local)
+  opens the draft in the editor; Save stores it with the source "drafted".
+- Starter skills: written for this app (`crates/ove-tools/skills/`). The lint finds no unknown tool names in any of
+  them or in the drafting instructions. A scripted mock model followed each one on a sample project (two clips, two
+  captions, a title and a 12 s interview with a cached transcript, speech mask and levels) through the in-app tools
+  with no tool error: caption styling (2 captions restyled in one apply), colour matching (one clip normalised, a LUT
+  look on a new adjustment item), interview cutting (dead air cut, the selected filler cut; "like" and every sentence
+  end kept). The frame tools answered with a stand-in picture in that test, as in `tests/frames.rs`, because the agent
+  crate is built without FFmpeg.
+- Task 3.3 (draft from the finished sample cut, run it in a new project, compare with `ove verify`) needs a real
+  assistant and is open.

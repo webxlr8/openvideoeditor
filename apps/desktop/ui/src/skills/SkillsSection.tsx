@@ -370,9 +370,24 @@ export function SkillsSection({ onError }: { onError: ErrorSink }) {
   const [tab, setTab] = useState<Tab>("installed");
   const [editing, setEditing] = useState<Editing | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [drafting, setDrafting] = useState(false);
+  const [withChat, setWithChat] = useState(false);
 
   const refresh = useCallback(() => runCommand(commands.skillsView(), setView, onError), [onError]);
   useEffect(refresh, [refresh]);
+
+  const draft = () => {
+    setDrafting(true);
+    setMessage(null);
+    runCommand(
+      commands.skillDraft(withChat).finally(() => setDrafting(false)),
+      (text) => {
+        setEditing({ id: null, text, readOnly: false, drafted: true });
+        setMessage("This is a draft. Read it and change what you need; nothing is saved until you click Save.");
+      },
+      (e) => setMessage(e.message),
+    );
+  };
 
   const open = (s: SkillRow) =>
     runCommand(
@@ -483,7 +498,24 @@ export function SkillsSection({ onError }: { onError: ErrorSink }) {
             onClick={() => setEditing({ id: null, text: NEW_SKILL, readOnly: false, drafted: false })}
           >
             New skill
-          </button>
+          </button>{" "}
+          <button className="btn" data-testid="skill-draft" onClick={draft} disabled={drafting}>
+            {drafting ? "Drafting…" : "Draft from the open project"}
+          </button>{" "}
+          <label className="small">
+            <input
+              type="checkbox"
+              checked={withChat}
+              data-testid="skill-draft-chat"
+              onChange={(e) => setWithChat(e.target.checked)}
+            />{" "}
+            include the chat
+          </label>
+          <p className="muted small">
+            Drafting sends the open project's timeline, its edit history and the presets it uses (and the chat, if you
+            include it) to the assistant, which writes a playbook to rebuild the edit and reuse its style. You review the
+            draft; nothing is saved until you click Save.
+          </p>
           {local.length === 0 && (
             <p className="muted small">
               No skills of your own yet. Write one, or ask the assistant to save a way of working as a skill.

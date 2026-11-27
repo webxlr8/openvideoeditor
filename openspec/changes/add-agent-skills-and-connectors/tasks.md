@@ -32,15 +32,16 @@
 
 ## 3. Drafting and starter skills
 
-- [ ] 3.1 Implement `ove skills draft --from-project` (context pack, our own drafting instructions, review editor in the
+- [x] 3.1 Implement `ove skills draft --from-project` (context pack, our own drafting instructions, review editor in the
       app). Verify:
       - a test with a mock assistant that the pack contains timeline, history and presets;
       - a test of the no-assistant path that saves the pack to a file.
-- [ ] 3.2 Write the 3 starter skills (caption styling, colour matching, interview cutting) as original text. Verify:
+- [x] 3.2 Write the 3 starter skills (caption styling, colour matching, interview cutting) as original text. Verify:
       - the lint passes (no unknown tool names);
       - an agent test with a mock model follows each skill on the sample project without tool errors.
 - [ ] 3.3 Draft a skill from the sample project's finished cut and run it on the same media in a new project. Verify:
       `ove verify` diff of the two timelines within tolerance (record in Results).
+      Open: drafting the skill needs a real assistant (API key); not run by this worker.
 
 ## 4. Connectors
 

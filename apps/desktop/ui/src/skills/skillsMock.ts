@@ -36,6 +36,8 @@ export type MockSkills = {
   changedExports: string[];
   /** Catalog requests made. */
   fetches: number;
+  /** Whether an assistant key is set (drafting needs one). */
+  hasAssistant: boolean;
 };
 
 export function hash(text: string): string {
@@ -55,7 +57,7 @@ const BUILTINS: MockSkill[] = [
 ].map(([id, name, d]) => ({ id, kind: "builtin" as const, text: skillText(name, d, "Steps.") }));
 
 export function initialSkills(): MockSkills {
-  return { store: BUILTINS.map((b) => ({ ...b })), catalogUrl: "", catalog: [], agents: [], changedExports: [], fetches: 0 };
+  return { store: BUILTINS.map((b) => ({ ...b })), catalogUrl: "", catalog: [], agents: [], changedExports: [], fetches: 0, hasAssistant: true };
 }
 
 function front(text: string): { name?: string; description?: string } {
@@ -250,6 +252,15 @@ export function createSkillsMock(
       k.text = e.text;
       k.installedHash = sha256;
       return ok(row(k));
+    },
+    skillDraft: (withChat: boolean): Res<string> => {
+      track(`skillDraft:${withChat}`);
+      if (!s().hasAssistant)
+        return fail("invalid_argument", "Drafting needs the assistant: add an Anthropic API key in Settings → Assistant.");
+      const body = `## Rebuild\n1. Step.\n\n## Reuse\n1. Step.${withChat ? "\n(from the chat)" : ""}`;
+      return ok(
+        skillText("Drafted style", "Rebuild and reuse this edit.", body).replace("---\n\n", "source: drafted\n---\n\n"),
+      );
     },
     skillExport: (id: string, targets: string[], overwrite: boolean): Res<SkillExportOutcome_Serialize[]> => {
       track(`skillExport:${id}:${targets.join(",")}:${overwrite}`);

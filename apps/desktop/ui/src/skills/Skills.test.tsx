@@ -150,6 +150,29 @@ describe("settings: skills", () => {
     expect(mock().calls).toContain("skillExport:interview-cutting:claude:true");
   });
 
+  it("drafts a skill from the open project into the editor and saves it only on Save", async () => {
+    await openSkills();
+    fireEvent.click(screen.getByTestId("skills-tab-local"));
+    fireEvent.click(screen.getByTestId("skill-draft-chat"));
+    fireEvent.click(screen.getByTestId("skill-draft"));
+    const text = await screen.findByTestId<HTMLTextAreaElement>("skill-editor-text");
+    expect(text.value).toContain("source: drafted");
+    expect(text.value).toContain("(from the chat)");
+    expect(mock().calls).toContain("skillDraft:true");
+    expect(mock().skills.store.some((k) => k.kind === "drafted")).toBe(false);
+    fireEvent.click(screen.getByTestId("skill-editor-save"));
+    expect((await screen.findByTestId("skill-source-drafted-style")).textContent).toBe("drafted");
+  });
+
+  it("says drafting needs the assistant when none is set", async () => {
+    mock().skills.hasAssistant = false;
+    await openSkills();
+    fireEvent.click(screen.getByTestId("skills-tab-local"));
+    fireEvent.click(screen.getByTestId("skill-draft"));
+    expect((await screen.findByTestId("skills-message")).textContent).toContain("Drafting needs the assistant");
+    expect(screen.queryByTestId("skill-editor")).toBeNull();
+  });
+
   it("warns above 60 skills", async () => {
     for (let i = 0; i < 60; i++)
       mock().skills.store.push({ id: `s${i}`, kind: "local", text: skillText(`S${i}`, "d", "b") });
