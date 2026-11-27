@@ -2,13 +2,13 @@
 
 ## 1. Numeric colour readout (CPU, ships first)
 
-- [ ] 1.1 Implement `ove-analyze::color_stats` with the full metric set, zones, CIELAB balance and skin-line deviation;
+- [x] 1.1 Implement `ove-analyze::color_stats` with the full metric set, zones, CIELAB balance and skin-line deviation;
       verify unit tests on synthetic frames with known values (grey ramp, colour bars, warm and cool casts).
-- [ ] 1.2 Add `ove color inspect` with `--at`, `--item`, `--isolate`, `--reference`, `--json`, measuring through the
+- [x] 1.2 Add `ove color inspect` with `--at`, `--item`, `--isolate`, `--reference`, `--json`, measuring through the
       compositor at the exact frame; verify byte-identical repeat output and the exit-code-1 cases in CLI tests.
-- [ ] 1.3 Add reference gap and `suggestedOps` built from `fit_match` with a strength cap; register MCP
+- [x] 1.3 Add reference gap and `suggestedOps` built from `fit_match` with a strength cap; register MCP
       `inspect_color`; document both in `docs/cli/`; verify the docs examples run in the integration tests.
-- [ ] 1.4 Mock-agent loop test; verify a warm-shifted shot reaches mean CIEDE2000 < 2 against the reference within
+- [x] 1.4 Mock-agent loop test; verify a warm-shifted shot reaches mean CIEDE2000 < 2 against the reference within
       3 iterations.
 
 ## 2. Backend trait and parity harness

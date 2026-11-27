@@ -46,6 +46,7 @@ Tools:
 | audio_levels, waveform_image, detect_silence, measure_loudness, duck_audio | `audio levels / waveform / silence / loudness / duck` |
 | extract_audio | `media extract-audio` |
 | look, screenshot | `look`, `screenshot` |
+| inspect_color | `color inspect` (colour readout, reference gap and a suggested grade patch) |
 | export_video, export_timeline_file, import_timeline_file | `export`, `timeline export / import` |
 | app_context, open_in_app, seek, play, pause | `app context / open / seek / play / pause` |
 | docs | `docs` (`agents` is the editing guide) |

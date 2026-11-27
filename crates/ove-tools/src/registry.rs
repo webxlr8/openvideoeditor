@@ -7,7 +7,7 @@ use crate::spec::{
     req,
 };
 use crate::tools::{
-    analyze, app, audio, code, deadair, docs, edit, exchange, media, models, project, timeline, transcript,
+    analyze, app, audio, code, color, deadair, docs, edit, exchange, media, models, project, timeline, transcript,
 };
 
 const PROJECT: Arg = arg(
@@ -671,6 +671,29 @@ pub static TOOLS: &[ToolSpec] = &[
         annotations: WRITE,
         surfaces: SERVERS,
         run: audio::extract_audio,
+        model: ModelText::Json,
+    },
+    ToolSpec {
+        name: "inspect_color",
+        aliases: &[],
+        about: "Measure the colour of the exported frame at a time (snapped to the frame grid), or of one item alone with `isolate`: luma mean and 2nd/98th percentiles (percent), clipped-low and clipped-high shares, a 16-bin luma histogram, mean colour of shadows, midtones and highlights (RGB 0..1 and CIELAB), CIELAB a*/b* balance, mean saturation, a saturation-weighted 12-bin hue histogram, the share of colourful pixels and skin-line deviation in degrees. With `reference` (an item, measured alone, or a media file) adds the CIEDE2000 gap per zone and `suggestedOps`: a capped colorGrade patch (wheels and saturation) for the shot, also given as `suggestedEdit`, ready to pass to apply_timeline. Inspect again after applying; repeat until gap.mean is below 2.",
+        args: &[
+            PROJECT,
+            arg("at", Num, "Timeline time in seconds (default: the item's middle)"),
+            arg("item", Str, "Item id: the shot to measure and to grade"),
+            arg("isolate", Bool, "Measure the item alone, without the layers above or below it"),
+            arg("reference", Str, "Item id or media id/file name to match"),
+            arg(
+                "referenceAt",
+                Num,
+                "Seconds: timeline time of a reference item (default its middle), source time of reference media (default 0)",
+            ),
+            arg("strength", Num, "0..1 share of the fitted correction to suggest (default 1; each step is capped)"),
+            arg("height", Int, "Measuring height in pixels (default 1080, the export default)"),
+        ],
+        annotations: READ,
+        surfaces: AGENTS,
+        run: color::inspect_color,
         model: ModelText::Json,
     },
 ];

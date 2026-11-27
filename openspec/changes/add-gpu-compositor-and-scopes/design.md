@@ -104,3 +104,26 @@ ones change appearance once, which is the bug fix in fix-render-and-edit-correct
 - DirectML is not used here; wgpu on D3D12 and Metal only.
 - Reference machines for the 1080p30 gate: M1 (8-core GPU) and a laptop with Intel Iris Xe, unless the owner names
   others.
+
+## Results
+
+### Group 1: numeric colour readout (CPU), measured 2026-11-27 on the Windows 11 x64 worker (CPU only, no GPU used)
+
+- `ove-analyze::color_stats`: 9 unit tests on synthetic frames (grey ramp: mean 50.00 %, p2 1.96 %, p98 98.04 %,
+  even 16-bin histogram; 75 % colour bars: saturation 6/7, six equal hue bins; warm and cool casts move CIELAB b* by
+  more than 10; skin tone within 8° of the 123° line, red and yellow shifts on the expected sides; CIEDE2000 matches 6
+  published reference pairs within 0.001).
+- Deviation from D8: the suggestion is not built from `fit_match`. On the warm-shift loop, the Lab mean and
+  standard-deviation fit of `fit_match` settled at a fixed point with mean ΔE00 4.2 (from 9.4) and did not improve
+  with more rounds. `suggestedOps` now fits a line per channel through matching quantiles (5 % … 95 %, clipped values
+  left out), composes it with the shot's current gain and offset wheels, and scales saturation to the reference's
+  CIELAB chroma. Each step is capped (gain ±0.35, offset ±0.25, saturation ×0.75…1.33). `fit_match` is unchanged and
+  still drives the app's Match colour action.
+- Mock-agent loop (task 1.4, `crates/ove-cli/tests/color.rs`, H.264 test clips at 320×180, measured at 180 lines):
+  mean ΔE00 per round 4.302 → 1.441 → 2.185 → 1.135. The first round, applied as `suggestedEdit` through the
+  projection, is below 2. Later rounds, applied as `suggestedOps`, stay within ±1 of the goal (a small overshoot comes
+  from composing per-channel wheels ahead of saturation).
+- Repeat output is byte-identical (CLI test). Refusals exit 1: time past the end (names the duration), missing
+  reference (names it), `--isolate` without `--item`, unknown item.
+- Fixture note: the LGPL FFmpeg build on this machine has no still-image demuxer, so the tests use short H.264 clips
+  made by the fixture FFmpeg instead of PNG stills.

@@ -84,6 +84,11 @@ enum Cmd {
         #[arg(long)]
         stats: bool,
     },
+    /// Colour readouts for matching shots: inspect.
+    Color {
+        #[command(subcommand)]
+        cmd: ColorCmd,
+    },
     /// Render the frame under the running app's playhead.
     Screenshot {
         out: PathBuf,
@@ -189,6 +194,36 @@ enum Cmd {
         /// Record this turn id on every revision the session makes (for `undo_my_changes` scope turn).
         #[arg(long)]
         turn: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum ColorCmd {
+    /// Measure the colour of the exported frame at a time (or of one item alone), optionally against a reference
+    /// item or media frame with a suggested grade patch.
+    Inspect {
+        project: String,
+        /// Timeline time in seconds (snapped to the frame grid; default: the item's middle).
+        #[arg(long)]
+        at: Option<f64>,
+        /// The shot to measure and to grade.
+        #[arg(long)]
+        item: Option<String>,
+        /// Measure the item alone, without the layers above or below it.
+        #[arg(long)]
+        isolate: bool,
+        /// Item id or media id/file name to match.
+        #[arg(long)]
+        reference: Option<String>,
+        /// Timeline time of a reference item (default its middle), or source time of reference media (default 0).
+        #[arg(long)]
+        reference_at: Option<f64>,
+        /// Share of the fitted correction to suggest, 0..1 (each step is capped).
+        #[arg(long)]
+        strength: Option<f64>,
+        /// Measuring height in pixels (default 1080, the export default).
+        #[arg(long)]
+        height: Option<u32>,
     },
 }
 
@@ -320,6 +355,13 @@ fn run(cli: &Cli, source: Source) -> Out {
             "look",
             json!({"project": project, "at": at, "every": every, "count": count, "width": width, "out": out,
                    "sheet": sheet, "columns": columns, "stats": stats}),
+        ),
+        Cmd::Color {
+            cmd: ColorCmd::Inspect { project, at, item, isolate, reference, reference_at, strength, height },
+        } => ctx.tool(
+            "inspect_color",
+            json!({"project": project, "at": at, "item": item, "isolate": isolate, "reference": reference,
+                       "referenceAt": reference_at, "strength": strength, "height": height}),
         ),
         Cmd::Screenshot { out, width } => ctx.tool("screenshot", json!({"out": out, "width": width})),
         Cmd::Source { cmd: SourceCmd::Print { project, from, lines } } => {
