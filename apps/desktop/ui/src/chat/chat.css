@@ -1,0 +1,128 @@
+/* Chat context (change add-agent-chat-context-and-activity): the @ and / menus over the input, mention chips, and
+   the collapsible reasoning block. */
+
+.composer {
+  position: relative;
+}
+
+.composer-menu {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: calc(100% + 6px);
+  max-height: 280px;
+  overflow: auto;
+  z-index: 20;
+  padding: 6px;
+  border-radius: 10px;
+  background: var(--bg-2);
+  border: 1px solid #34343b;
+  box-shadow: 0 10px 30px rgb(0 0 0 / 40%);
+}
+.composer-menu ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.composer-menu-tabs {
+  display: flex;
+  gap: 4px;
+  padding-bottom: 6px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--line);
+}
+.composer-menu-tab {
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.composer-menu-tab.on {
+  background: var(--bg-4);
+  color: var(--text);
+}
+.composer-menu-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  border-radius: 6px;
+  text-align: left;
+}
+.composer-menu-row.on {
+  background: var(--bg-4);
+}
+.composer-menu-row .grow {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.composer-menu-empty {
+  padding: 6px 8px;
+}
+
+.composer-mentions,
+.msg-mentions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.composer-mentions {
+  margin-bottom: 6px;
+}
+.msg-mentions {
+  margin-top: 6px;
+}
+.mention-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 220px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 12px;
+  background: var(--bg-4);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mention-chip.kind-skill {
+  outline: 1px solid color-mix(in srgb, var(--accent, #7c6cff) 60%, transparent);
+}
+.mention-remove {
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  color: var(--muted);
+}
+
+.reasoning {
+  margin: 4px 0;
+  border-left: 2px solid var(--line);
+  padding-left: 8px;
+}
+.reasoning-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 2px 0;
+  text-align: left;
+  color: var(--muted);
+  font-size: 12px;
+}
+.reasoning-head .first {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+.reasoning-body {
+  white-space: pre-wrap;
+  color: var(--muted);
+  font-size: 12px;
+  max-height: 240px;
+  overflow: auto;
+  contain: content;
+}

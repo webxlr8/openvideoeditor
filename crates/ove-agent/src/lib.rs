@@ -10,12 +10,14 @@ pub mod api;
 pub mod chat;
 pub mod draft;
 pub mod keys;
+pub mod mention;
 pub mod mock;
 pub mod prompt;
 pub mod tools;
 
-pub use agent::{AgentEvent, ProjectCap, TurnConfig, TurnSummary, run_turn};
+pub use agent::{AgentEvent, ProjectCap, TurnConfig, TurnSummary, run_turn, run_turn_with};
 pub use api::{ApiError, Client, MODELS, ModelInfo, Usage};
 pub use chat::{ChatStore, ChatSummary, Record, Spend};
 pub use keys::{KeySource, KeyStore, MemoryKeyStore, OsKeyStore};
+pub use mention::{Mention, MentionRef};
 pub use tools::{ApplyRequest, ToolHost};

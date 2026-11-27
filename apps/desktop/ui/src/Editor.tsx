@@ -553,6 +553,8 @@ export function Editor({
           <ChatPanel
             onClose={() => toggle("chatOpen")}
             projectId={project?.id}
+            project={project}
+            range={range}
             onError={onError}
             onSeek={onSeek}
             shownTurn={review?.turnId ?? null}

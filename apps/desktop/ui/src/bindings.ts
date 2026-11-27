@@ -242,7 +242,12 @@ export const commands = {
 	agentChats: () => typedError<ChatSummaryView[], AppError>(__TAURI_INVOKE("agent_chats")),
 	agentChat: (id: string) => typedError<ChatItem_Serialize[], AppError>(__TAURI_INVOKE("agent_chat", { id })),
 	/**  Starts a turn in a chat (a new chat when `chat_id` is empty). Progress arrives as `agentUiEvent`. */
-	agentSend: (chatId: string | null, text: string) => typedError<SendResult, AppError>(__TAURI_INVOKE("agent_send", { chatId, text })),
+	agentSend: (chatId: string | null, text: string) => typedError<SendResult_Serialize, AppError>(__TAURI_INVOKE("agent_send", { chatId, text })),
+	/**
+	 *  [`agent_send`] with what the message mentions (items, ranges, media, skills). Each mention is resolved now, as
+	 *  the exact printed lines with their revision, and kept in the chat log.
+	 */
+	agentSendContext: (chatId: string | null, text: string, mentions: MentionInput_Deserialize[]) => typedError<SendResult_Serialize, AppError>(__TAURI_INVOKE("agent_send_context", { chatId, text, mentions })),
 	agentStop: () => typedError<null, AppError>(__TAURI_INVOKE("agent_stop")),
 	agentAnswer: (questionId: string, answer: string) => typedError<null, AppError>(__TAURI_INVOKE("agent_answer", { questionId, answer })),
 	/**  Saves the spend caps and per-turn limits (Settings → Assistant). They apply from the next turn. */
@@ -718,6 +723,8 @@ export type ChatItem_Deserialize = {
 	usage?: TurnUsageView | null,
 	/**  role `changes`: what the turn changed. */
 	review?: TurnReview | null,
+	/**  role `user`: what the message mentioned (items, ranges, media, skills). */
+	mentions: MentionChip[],
 };
 
 /**  One line of the chat as the UI shows it. */
@@ -733,6 +740,8 @@ export type ChatItem_Serialize = {
 	usage: TurnUsageView | null,
 	/**  role `changes`: what the turn changed. */
 	review: TurnReview | null,
+	/**  role `user`: what the message mentioned (items, ranges, media, skills). */
+	mentions: MentionChip[],
 };
 
 export type ChatSummaryView = {
@@ -1514,6 +1523,38 @@ export type MediaView_Serialize = {
 	skim: SkimView | null,
 };
 
+/**  A mention as the chat shows it under a message. */
+export type MentionChip = {
+	kind: string,
+	label: string,
+	ids: string[],
+	/**  An image was attached. */
+	image: boolean,
+};
+
+/**  A mention as the chat input sends it: an item, media or skill by id, or a time range. */
+export type MentionInput = MentionInput_Serialize | MentionInput_Deserialize;
+
+/**  A mention as the chat input sends it: an item, media or skill by id, or a time range. */
+export type MentionInput_Deserialize = {
+	/**  `item`, `range`, `media` or `skill`. */
+	kind: string,
+	id?: string | null,
+	/**  A range's start and end, seconds. */
+	start?: number | null,
+	end?: number | null,
+};
+
+/**  A mention as the chat input sends it: an item, media or skill by id, or a time range. */
+export type MentionInput_Serialize = {
+	/**  `item`, `range`, `media` or `skill`. */
+	kind: string,
+	id: string | null,
+	/**  A range's start and end, seconds. */
+	start: number | null,
+	end: number | null,
+};
+
 /**  One reading as the UI uses it. Times are media seconds; levels are dB. */
 export type MeterReadingView = MeterReadingView_Serialize | MeterReadingView_Deserialize;
 
@@ -1800,8 +1841,18 @@ export type SavedRange_Serialize = {
 	format: string | null,
 };
 
-export type SendResult = {
+export type SendResult = SendResult_Serialize | SendResult_Deserialize;
+
+export type SendResult_Deserialize = {
 	chatId: string,
+	/**  Things the chat tells the person about the message (images left out, mentions that no longer exist). */
+	notices?: string[],
+};
+
+export type SendResult_Serialize = {
+	chatId: string,
+	/**  Things the chat tells the person about the message (images left out, mentions that no longer exist). */
+	notices: string[],
 };
 
 export type SkillDiffLine = {

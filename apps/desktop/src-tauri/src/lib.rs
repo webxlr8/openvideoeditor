@@ -229,6 +229,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             assistant::agent_chats,
             assistant::agent_chat,
             assistant::agent_send,
+            assistant::agent_send_context,
             assistant::agent_stop,
             assistant::agent_answer,
             assistant::agent_set_limits,

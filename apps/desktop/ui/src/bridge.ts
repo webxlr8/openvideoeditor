@@ -7,6 +7,8 @@ import * as generated from "./bindings";
 import fxCatalogJson from "./fx-catalog.json?raw";
 import { fire } from "./notify";
 import type {
+  MentionChip,
+  MentionInput,
   AgentConnect,
   AgentInfo_Serialize,
   AgentLimits_Deserialize,
@@ -108,6 +110,8 @@ export interface MockControl {
     ask: boolean;
     keyWorks?: boolean;
     turnCost?: number;
+    /** The mentions of the last message sent. */
+    sent?: MentionInput[];
   };
   /** Simulated speech models: which are on disk, and how long each progress step takes. */
   captions: { installed: string[]; stepMs: number };
@@ -950,7 +954,7 @@ function createMock(): {
             id: `m${n}`,
             name,
             path,
-            kind: audio ? "audio" : "video",
+            kind: audio ? "audio" : /\.(png|jpe?g|webp)$/i.test(path) ? "image" : "video",
             durationSeconds: 60,
             width: audio ? null : 1920,
             height: audio ? null : 1080,
@@ -1349,6 +1353,8 @@ function createMock(): {
     { title: string; updatedAt: number; items: ChatItem_Serialize[] }
   >();
   let turn: { stop: boolean; answer?: (a: string) => void } | null = null;
+  // The chips of the message being sent (agentSendContext hands them to agentSend).
+  let pendingMentions: MentionChip[] = [];
   const agentStatus = (): AgentStatus_Serialize => ({
     hasKey: control.agent.hasKey,
     keySource: control.agent.hasKey ? "keychain" : null,
@@ -1373,6 +1379,7 @@ function createMock(): {
     options: [],
     usage: null,
     review: null,
+    mentions: [],
   });
   const spendOf = (items: ChatItem_Serialize[]): SpendView => {
     const s = {
@@ -2676,10 +2683,46 @@ function createMock(): {
           items: [],
         });
       const turnId = `u_${++seq}`;
-      chats.get(id)!.items.push(item("user", text));
+      chats.get(id)!.items.push({ ...item("user", text), mentions: pendingMentions });
+      pendingMentions = [];
       turn = { stop: false };
       setTimeout(() => fire(runTurn(id, turnId)), 0);
-      return ok({ chatId: id });
+      return ok({ chatId: id, notices: [] });
+    },
+    // Mentions resolve as the native side does: chips for the log, at most 5 images with a notice naming the rest.
+    agentSendContext: (chatId: string | null, text: string, mentions: MentionInput[]) => {
+      control.agent.sent = mentions;
+      const chips: MentionChip[] = [];
+      const notices: string[] = [];
+      let images = 0;
+      const leftOut: string[] = [];
+      for (const m of mentions) {
+        const media = m.kind === "media" ? project?.media.find((x) => x.id === m.id) : undefined;
+        const it = m.kind === "item" ? project?.items.find((x) => x.id === m.id) : undefined;
+        if ((m.kind === "media" && !media) || (m.kind === "item" && !it)) {
+          notices.push(`${m.id} is no longer on the timeline, so it was not mentioned.`);
+          continue;
+        }
+        const image = media?.kind === "image" && images < 5;
+        if (media?.kind === "image" && !image) leftOut.push(media.name);
+        if (image) images++;
+        const label =
+          m.kind === "range"
+            ? `${(m.start ?? 0).toFixed(2)}–${(m.end ?? 0).toFixed(2)} s`
+            : m.kind === "skill"
+              ? (m.id ?? "")
+              : (media?.name ?? it?.name ?? m.id ?? "");
+        chips.push({ kind: m.kind, label, ids: m.id ? [m.id] : [], image });
+      }
+      if (leftOut.length)
+        notices.push(
+          `Only 5 images can be attached to one message. Not attached: ${leftOut.map((n) => `“${n}”`).join(", ")}. They are still mentioned by name.`,
+        );
+      pendingMentions = chips;
+      const r = commands.agentSend(chatId, text);
+      return r.then((x) =>
+        x.status === "ok" ? { status: "ok" as const, data: { chatId: x.data.chatId, notices } } : x,
+      );
     },
     agentStop: () => {
       if (turn) {

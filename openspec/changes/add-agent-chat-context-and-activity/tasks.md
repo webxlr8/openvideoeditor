@@ -2,14 +2,14 @@
 
 ## 1. Mentions
 
-- [ ] 1.1 Build the @ popover (media, items, selected range; tabs All, Video, Image, Audio). Verify with Vitest tests of
+- [x] 1.1 Build the @ popover (media, items, selected range; tabs All, Video, Image, Audio). Verify with Vitest tests of
       the popover filtering and keyboard selection.
-- [ ] 1.2 Resolve mentions at send time to excerpts: item lines with `rev`, range lines (capped at 40), media rows, and
+- [x] 1.2 Resolve mentions at send time to excerpts: item lines with `rev`, range lines (capped at 40), media rows, and
       images downscaled and limited to 5. Store them in the chat log as structured records. Verify:
       - unit tests of excerpt building;
       - a chat-log round-trip test;
       - the too-many-images notice.
-- [ ] 1.3 Verify with an agent test using a mock model: a turn with an item mention edits it with no print call, and an
+- [x] 1.3 Verify with an agent test using a mock model: a turn with an item mention edits it with no print call, and an
       edit after a concurrent GUI move merges. Document mentions in the in-app help.
 
 ## 2. Panel hand-off and `/` menu

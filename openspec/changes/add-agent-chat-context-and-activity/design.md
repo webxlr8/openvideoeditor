@@ -125,4 +125,19 @@ Additive. Chat logs without mention records open unchanged.
 
 ## Results
 
-(To be filled during apply.)
+Measured on Windows 11 (32-core desktop, debug builds).
+
+**Group 1, mentions:**
+- Excerpts: an item mention is the item's printed element (`ove_tools::edits::element_spans`), byte-exact and unique
+  in the projection, with the `rev` it was printed from. A range lists the overlapping items in print order, capped
+  at 40 lines (a 50-item range: 40 shown, `10 more`). A media mention is its row of the header's media table.
+- Mentions are logged as a `mentions` record after the user record and sent as one text block plus image blocks.
+  Logs without the record read unchanged (test `mentions_round_trip_and_follow_their_message`).
+- Images go through the registry's `grab_frame` at a width that keeps the long side at 1,568 px (4000×2000 → 1568
+  wide, 1000×4000 → 392 wide); the sixth and later images are named in a notice.
+- Agent tests with the mock model (`crates/ove-agent/tests/mentions.rs`): the edit lands with one tool call
+  (`apply_timeline`, no `print_timeline`); after a concurrent move in the editor the edit merges onto the moved item.
+- Decision made during apply: an edit whose merge would bring back an item deleted in the editor after the text's
+  revision is now refused with `edit.conflict` (nothing applied) unless the caller passes `prefer: "file"`. Before,
+  the default (`prefer: file`) re-created the item, which the "Mentioned item deleted" scenario forbids. The 3-way
+  merge itself is unchanged; the check sits in `apply_timeline`.

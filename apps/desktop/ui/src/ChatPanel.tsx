@@ -5,6 +5,8 @@ import type {
   ChatItem_Serialize,
   ChatSummaryView,
   KeyCheck,
+  MentionChip,
+  ProjectView_Serialize,
   TurnReview,
   TurnUsageView,
   UsageTotals_Serialize,
@@ -15,6 +17,18 @@ import { Icon } from "./icons";
 import { COMING_LATER, Dropdown } from "./Menu";
 import { fire, reportError, runCommand, unlisten } from "./notify";
 import { StarterPrompts } from "./onboarding/StarterPrompts";
+import "./chat/chat.css";
+import { ComposerMenu } from "./chat/ComposerMenu";
+import {
+  MENTION_TABS,
+  type MentionDraft,
+  type MentionTab,
+  filterMentions,
+  mentionCandidates,
+  mentionInputs,
+  mentionKey,
+  mentionQuery,
+} from "./chat/mentions";
 
 interface Item {
   role: "user" | "assistant" | "tool" | "question" | "note" | "error" | "changes" | "usage";
@@ -26,6 +40,14 @@ interface Item {
   answered?: boolean;
   review?: TurnReview | null;
   usage?: TurnUsageView | null;
+  /** role `user`: what the message mentioned. */
+  mentions?: MentionChip[];
+}
+
+const MENTION_ICON = { item: "timeline", range: "scissors", media: "media", skill: "spark" } as const;
+
+function chipOf(m: MentionDraft): MentionChip {
+  return { kind: m.kind, label: m.label, ids: m.id ? [m.id] : [], image: m.media === "image" };
 }
 
 function fromChat(items: ChatItem_Serialize[]): Item[] {
@@ -39,6 +61,7 @@ function fromChat(items: ChatItem_Serialize[]): Item[] {
     answered: i.role === "question" ? true : undefined,
     review: i.review,
     usage: i.usage,
+    mentions: i.mentions,
   }));
 }
 
@@ -124,6 +147,8 @@ export function ChatPanel({
   onSeek,
   shownTurn,
   onShowTurn,
+  project,
+  range,
 }: {
   onClose: () => void;
   /** Changes when another project opens (the chat list is per project). */
@@ -137,6 +162,10 @@ export function ChatPanel({
   shownTurn?: string | null;
   /** Highlights a turn's changed items on the timeline (`null`: stop). */
   onShowTurn?: (turnId: string | null, ids: string[]) => void;
+  /** The open project: what @ can mention. */
+  project?: ProjectView_Serialize | null;
+  /** The marked in and out points (mentionable as a range). */
+  range?: { in: number | null; out: number | null };
 }) {
   const [status, setStatus] = useState<AgentStatus_Serialize | null>(null);
   const [chats, setChats] = useState<ChatSummaryView[]>([]);
@@ -150,6 +179,15 @@ export function ChatPanel({
   const [keyCheck, setKeyCheck] = useState<KeyCheck | null>(null);
   const chatRef = useRef<string | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
+  const input = useRef<HTMLTextAreaElement>(null);
+  const [mentions, setMentions] = useState<MentionDraft[]>([]);
+  // What the app said about the last message sent (images left out, mentions that no longer exist).
+  const [notices, setNotices] = useState<string[]>([]);
+  // The @ popover: the query typed after @ and where the @ is.
+  const [menu, setMenu] = useState<{ query: string; at: number } | null>(null);
+  const [tab, setTab] = useState<MentionTab>("all");
+  const [active, setActive] = useState(0);
+  const rows = menu ? filterMentions(mentionCandidates(project, range), menu.query, tab) : [];
 
   const report = useCallback((e: AppError) => (onError ? onError(e) : reportError(e)), [onError]);
 
@@ -269,18 +307,69 @@ export function ChatPanel({
   const send = async () => {
     const t = text.trim();
     if (!t || running) return;
+    const sent = mentions;
+    setNotices([]);
     setText("");
-    setItems((xs) => [...xs, { role: "user", text: t }]);
+    setMentions([]);
+    setMenu(null);
+    setItems((xs) => [...xs, { role: "user", text: t, mentions: sent.map(chipOf) }]);
     setRunning(true);
-    const r = await commands.agentSend(chatRef.current, t);
+    const r = await commands.agentSendContext(chatRef.current, t, mentionInputs(sent));
     if (r.status === "error") {
       setRunning(false);
       setItems((xs) => [...xs, { role: "error", text: r.error.message }]);
       setText(t);
+      setMentions(sent);
       return;
     }
     chatRef.current = r.data.chatId;
     setChatId(r.data.chatId);
+    setNotices(r.data.notices ?? []);
+  };
+
+  /** The text was edited: open, follow or close the @ popover. */
+  const edited = (value: string, caret: number | null) => {
+    setText(value);
+    const q = mentionQuery(value.slice(0, caret ?? value.length));
+    setMenu(q);
+    if (!q || q.query !== menu?.query) setActive(0);
+  };
+
+  /** Picks a mention from the popover: the @query text becomes a chip. */
+  const pick = (m: MentionDraft | undefined) => {
+    if (!m || !menu) return;
+    const end = menu.at + 1 + menu.query.length;
+    const next = (text.slice(0, menu.at) + text.slice(end)).replace(/ {2,}/g, " ");
+    setText(next);
+    setMentions((ms) => (ms.some((x) => mentionKey(x) === mentionKey(m)) ? ms : [...ms, m]));
+    setMenu(null);
+    setActive(0);
+    input.current?.focus();
+  };
+
+  const onComposerKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (menu) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        const n = rows.length;
+        if (n) setActive((a) => (a + (e.key === "ArrowDown" ? 1 : n - 1)) % n);
+        return;
+      }
+      if ((e.key === "Enter" || e.key === "Tab") && rows.length) {
+        e.preventDefault();
+        pick(rows[Math.min(active, rows.length - 1)]);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setMenu(null);
+        return;
+      }
+    }
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      fire(send(), report);
+    }
   };
 
   const answer = async (id: string, value: string) => {
@@ -394,24 +483,59 @@ export function ChatPanel({
               busy={running}
             />
           ))}
+          {notices.map((n) => (
+            <div className="msg-note muted small" role="status" key={n} data-testid="chat-notice">
+              {n}
+            </div>
+          ))}
           {running && thinking && <div className="chat-thinking muted small">Thinking…</div>}
         </div>
       )}
 
       {footer && <div className="chat-footer muted small" data-testid="chat-footer">{footer}</div>}
       <div className="composer">
+        {menu && (
+          <ComposerMenu
+            testId="mention-menu"
+            title="Mention"
+            tabs={MENTION_TABS}
+            tab={tab}
+            onTab={(t) => {
+              setTab(t as MentionTab);
+              setActive(0);
+            }}
+            rows={rows.map((m) => ({ key: mentionKey(m), label: m.label, hint: m.kind === "item" ? m.media : m.kind, icon: MENTION_ICON[m.kind] }))}
+            active={active}
+            onHover={setActive}
+            onPick={(i) => pick(rows[i])}
+          />
+        )}
+        {mentions.length > 0 && (
+          <div className="composer-mentions" data-testid="composer-mentions">
+            {mentions.map((m) => (
+              <span className={`mention-chip kind-${m.kind}`} key={mentionKey(m)} data-testid="mention-chip">
+                <Icon name={MENTION_ICON[m.kind]} size={12} />
+                {m.label}
+                <button
+                  className="mention-remove"
+                  aria-label={`Remove ${m.label}`}
+                  onClick={() => setMentions((ms) => ms.filter((x) => mentionKey(x) !== mentionKey(m)))}
+                >
+                  <Icon name="close" size={10} />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
         <textarea
-          placeholder={status && !status.hasKey ? "Add your API key above to start." : "Describe an edit…"}
+          ref={input}
+          placeholder={status && !status.hasKey ? "Add your API key above to start." : "Describe an edit… (@ to mention)"}
           rows={3}
           value={text}
           data-testid="composer"
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              fire(send(), report);
-            }
-          }}
+          onChange={(e) => edited(e.target.value, e.target.selectionStart)}
+          onKeyDown={onComposerKey}
+          onBlur={() => setMenu(null)}
         />
         <div className="composer-row">
           <button className="icon-btn" title={COMING_LATER} aria-label="Attach files" data-testid="attach" disabled>
@@ -539,7 +663,21 @@ function ChatLine({
       );
     }
     case "user":
-      return <div className="msg msg-user" data-testid="msg-user">{item.text}</div>;
+      return (
+        <div className="msg msg-user" data-testid="msg-user">
+          {item.text}
+          {item.mentions && item.mentions.length > 0 && (
+            <span className="msg-mentions" data-testid="msg-mentions">
+              {item.mentions.map((m, i) => (
+                <span className={`mention-chip kind-${m.kind}`} key={i} title={m.image ? "Attached as an image" : undefined}>
+                  <Icon name={MENTION_ICON[m.kind as keyof typeof MENTION_ICON] ?? "link"} size={12} />
+                  {m.label}
+                </span>
+              ))}
+            </span>
+          )}
+        </div>
+      );
     case "assistant":
       return (
         <div className="msg msg-assistant" data-testid="msg-assistant">
