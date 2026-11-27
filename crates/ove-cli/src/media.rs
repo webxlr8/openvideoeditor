@@ -92,6 +92,14 @@ pub enum MediaCmd {
         #[arg(long, default_value_t = 0.3)]
         threshold: f64,
     },
+    /// Extract a media file's sound into the library as a new WAV or FLAC media entry.
+    ExtractAudio {
+        project: String,
+        media: String,
+        /// wav (24-bit) or flac.
+        #[arg(long, default_value = "wav")]
+        format: String,
+    },
 }
 
 pub fn run(ctx: &Ctx, cmd: &MediaCmd) -> Out {
@@ -115,6 +123,9 @@ pub fn run(ctx: &Ctx, cmd: &MediaCmd) -> Out {
             json!({"project": project, "media": media, "out": out, "count": count, "every": every, "from": from,
                    "to": to, "columns": columns, "tileWidth": tile_width}),
         ),
+        MediaCmd::ExtractAudio { project, media, format } => {
+            ctx.tool("extract_audio", json!({"project": project, "media": media, "format": format}))
+        }
         MediaCmd::Scenes { project, media, threshold } => {
             ctx.tool("detect_scenes", json!({"project": project, "media": media, "threshold": threshold}))
         }

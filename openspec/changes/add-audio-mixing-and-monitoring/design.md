@@ -195,3 +195,21 @@ and the built app (group 7) are not measured yet.
   than 120 ms are not speech. They suit dialogue at normal levels; very quiet dialogue needs the transcript source.
 - The design's "dialogue changed since last duck" note (Risks) is not built in this group: it needs a record of
   which revision a duck was made from, and no task covers it. Listed for the follow-up.
+- Loudness core (6.1): after the move to `ove-render/src/loudness.rs`, integrated loudness matches FFmpeg `ebur128`
+  on three fixtures (pink noise −28.60 vs −28.6, tone −26.01 vs −26.0, level steps −14.28 vs −14.3 LUFS).
+- True-peak limiter (6.2): two summed full-scale tones export at −1.04 dBTP; an 11 kHz tone at +6 dB with
+  inter-sample peaks stays under −1.0 dBTP; a quiet mix passes through bit-identical to the raw sum (0 difference).
+  Look-ahead 72 frames (1.5 ms) plus 7 frames for the true-peak estimate; the mixer reads ahead by that delay, so
+  output lines up with timeline time and block splits still give identical samples.
+- Loudness on export (6.3): a −30.0 LUFS mix exports at −14.0 LUFS (+16.00 dB, true peak −14.0 dBTP). A peaky
+  mix (quiet tone with loud clicks, −24.5 LUFS, −4.0 dBTP) first landed at −18.7 LUFS with one static gain, because
+  the limiter removed the clicks' loudness; the measuring pass now repeats with the gain and limiter until within
+  0.1 LU (at most five audio-only passes), and the file measures −14.04 LUFS at −1.04 dBTP (+16.89 dB). A silent
+  timeline exports without gain and reports `silent`.
+- Audio-only export (6.4): 24-bit WAV equals the mixer output within 1 LSB; a 3.5 s timeline exports to M4A with a
+  container duration of exactly 3 500 000 µs and 168 000 decoded frames (priming trimmed by the edit list).
+  FLAC is not verified on this machine: the local LGPL FFmpeg build has no FLAC muxer, so the FLAC checks print
+  "skipped" (they run where the muxer exists). Offline media is refused for every audio format with no file left.
+  Extract audio of a 3 s talk clip gives a 3.0 s WAV media entry; undo removes it; a video without audio is
+  refused with `media.noAudio`. The export dialog's loudness and audio-only choices are left to the export dialog
+  owner (extend-export-formats-and-queue); CLI and MCP have them.

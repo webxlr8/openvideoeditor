@@ -7,7 +7,8 @@ same settings.
 ```
 ove export <project> <out> [--preset <name>] [--format <container>] [--video-codec <codec>] [--profile <p>]
            [--bit-depth <8|10|12>] [--quality <level>] [--alpha] [--audio-codec <codec>] [--audio-bit-depth <16|24>]
-           [--range <start-end>] [--size <height|match>] [--height <px>] [--fps <n>] [--json]
+           [--range <start-end>] [--size <height|match>] [--height <px>] [--fps <n>] [--audio-only]
+           [--loudness off|-14|-16|-23|-24] [--detach] [--json]
 ```
 
 ## Settings
@@ -80,6 +81,26 @@ HDR: with `hdr` (`pq` or `hlg`) in the settings, HEVC 10-bit and ProRes exports 
 and mastering metadata. The timeline does not produce HDR frames yet, so such an export is refused with "HDR timelines
 are not available yet".
 
+## Audio only and loudness
+
+- `--audio-only` writes the mix alone and renders no video: `m4a` (AAC, with an edit list so players skip the
+  encoder's priming and the file has the timeline's duration), `wav` (24-bit PCM, the mixer's samples rounded once)
+  or `flac` (24-bit; needs an FFmpeg build with the FLAC muxer). `--format` picks it; without it the output's
+  extension decides, else `m4a`. MCP: `export_video` with `audioOnly` (`m4a`, `wav`, `flac` or empty). The same rules
+  as video export apply: refused while placeholders are pending or media is offline, nothing left behind when refused
+  or cancelled.
+- `--loudness` (MCP `loudness`) normalises the mix to an integrated loudness target: −14 (streaming), −16 (podcasts),
+  −23 (EBU R128) or −24 LUFS (ATSC A/85), with audio-only or video exports. Export first measures the mix (audio
+  only, no video), then applies one static gain before the true-peak limiter, so the file measures within 0.5 LU of
+  the target with its true peak at or under −1 dBTP. A mix that the limiter would make quieter (loud short peaks) is
+  measured again with the gain until it lands on the target. A silent timeline exports without gain. The JSON result
+  gains `"loudness": {"targetLufs", "beforeLufs", "beforeTruePeakDbtp", "afterLufs", "afterTruePeakDbtp", "gainDb",
+  "silent"}` (`beforeLufs`/`afterLufs` are `null` for silence). Queued exports carry the target and report it in the
+  job result.
+- Every export, with or without a target, keeps the mix's true peak at or under −1 dBTP (look-ahead true-peak
+  limiter; quieter audio passes through unchanged).
+- `ove audio loudness <project> --timeline` measures the timeline mix without exporting.
+
 ## Examples
 
 ```sh
@@ -100,6 +121,8 @@ ove export status x_unknown  # exit 1
 ove export cancel x_unknown  # exit 1
 ove export Title --as-media --range 0.5-1  # exit 0
 ove export Title --as-media --range 1-1.5 --replace --name Title-card  # exit 0
+ove export Title loud.wav --audio-only --loudness -14  # exit 0
+ove export Title loud.mp4 --audio-only  # exit 1
 ```
 
 ## Save a range as media

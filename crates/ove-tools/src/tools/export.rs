@@ -2,6 +2,8 @@
 //! a container, codecs, quality, size, frame rate and a range — shared by `ove export` and MCP.
 
 #[cfg(feature = "media")]
+use serde_json::Value;
+#[cfg(feature = "media")]
 use std::path::Path;
 
 #[cfg(feature = "media")]
@@ -20,7 +22,7 @@ use crate::spec::{Arg, arg, req};
 const RANGE: &str = r#"{"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2}"#;
 const SETTINGS: &str = r#"{"type": "object"}"#;
 
-pub const EXPORT_VIDEO_ABOUT: &str = "Render the timeline (or a range of it) to a video or audio file. Pick a `preset` (see `docs` topic `export`: \"YouTube 1080p\", \"ProRes 422 HQ master\", \"ProRes 4444 with alpha\", \"DNxHR HQ master\", \"Web VP9\", \"Audio WAV 24-bit\", …), or a `format` (mp4, mov, mkv, webm, m4a, wav, flac; default: the extension of `out`) with optional codec fields. HEVC and AV1 need a hardware encoder. Refused while placeholders are pending or media is offline, and for combinations that cannot be written (the error names the fields). Exports run one at a time in a queue shared with the app; the call returns a job id (use `job_status`, `cancel_job`), or the result with `wait`. The result names the encoder used.";
+pub const EXPORT_VIDEO_ABOUT: &str = "Render the timeline (or a range of it) to a video or audio file. Pick a `preset` (see `docs` topic `export`: \"YouTube 1080p\", \"ProRes 422 HQ master\", \"ProRes 4444 with alpha\", \"DNxHR HQ master\", \"Web VP9\", \"Audio WAV 24-bit\", …), or a `format` (mp4, mov, mkv, webm, m4a, wav, flac; default: the extension of `out`) with optional codec fields. HEVC and AV1 need a hardware encoder. Refused while placeholders are pending or media is offline, and for combinations that cannot be written (the error names the fields). Exports run one at a time in a queue shared with the app; the call returns a job id (use `job_status`, `cancel_job`), or the result with `wait`. `audioOnly` writes the mix alone; `loudness` normalises it to a target with a true-peak limit and the result reports loudness before and after. The result names the encoder used.";
 
 pub const EXPORT_VIDEO_ARGS: &[Arg] = &[
     PROJECT,
@@ -41,6 +43,16 @@ pub const EXPORT_VIDEO_ARGS: &[Arg] = &[
     arg("audioCodec", Str, "aac, pcm, flac, opus, or none"),
     arg("audioBitDepth", Int, "PCM and FLAC: 16 or 24"),
     arg("settings", Json(SETTINGS), "A whole export settings value (see `docs` topic `export`)"),
+    arg(
+        "audioOnly",
+        Str,
+        "Write the mix alone, no video: m4a (AAC), wav (24-bit) or flac (empty: from the out extension)",
+    ),
+    arg(
+        "loudness",
+        Num,
+        "Loudness target, integrated LUFS: -14, -16, -23 or -24 (default off); the result reports before and after",
+    ),
     arg(
         "wait",
         Bool,
@@ -80,6 +92,37 @@ pub fn settings_from_args(a: &Args, out: &Path) -> Result<ExportSettings, Fail> 
         && let Some(f) = a.str("format")
     {
         s.container = Container::parse(f).ok_or_else(|| invalid(format!("format {f:?} is not a container")))?;
+    }
+    // `audioOnly`: the mix alone in m4a, wav or flac (empty or true: from the out extension, else m4a).
+    match a.value("audioOnly") {
+        None | Some(Value::Bool(false)) => {}
+        Some(v) => {
+            let name = v.as_str().unwrap_or("");
+            let c = if name.is_empty() {
+                from_ext.filter(|c| c.audio_only()).unwrap_or(Container::M4a)
+            } else {
+                Container::parse(name)
+                    .filter(|c| c.audio_only())
+                    .ok_or_else(|| invalid(format!("audioOnly is m4a, wav or flac, not {name}")))?
+            };
+            let range = s.range;
+            s = ExportSettings { range, ..ExportSettings::for_container(c) };
+        }
+    }
+    // `loudness`: an integrated loudness target in LUFS (number, "-14 LUFS", or "off").
+    match a.value("loudness") {
+        None => {}
+        Some(Value::String(t)) if t.trim() == "off" => s.loudness = None,
+        Some(Value::String(t)) => {
+            s.loudness = Some(
+                t.trim()
+                    .trim_end_matches("LUFS")
+                    .trim()
+                    .parse::<f64>()
+                    .map_err(|_| invalid(format!("loudness is off, -14, -16, -23 or -24, not {t}")))?,
+            )
+        }
+        Some(v) => s.loudness = v.as_f64(),
     }
     if let Some(c) = a.str("videoCodec") {
         let codec = VideoCodec::parse(c)
@@ -194,6 +237,21 @@ pub fn result_text(res: &ove_render::ExportResult) -> String {
     };
     let mut text =
         format!("exported {} ({what}, {:.1} s) in {:.1} s", res.path, res.duration_seconds, res.seconds_taken);
+    if let Some(l) = &res.loudness {
+        let f = |v: Option<f64>| v.map_or("silent".to_string(), |v| format!("{v:.1} LUFS"));
+        text.push_str(&format!(
+            "\nloudness: {} → {} (target {} LUFS, gain {:+.1} dB), true peak {:.1} → {:.1} dBTP",
+            f(l.before_lufs),
+            f(l.after_lufs),
+            l.target_lufs,
+            l.gain_db,
+            l.before_true_peak_dbtp,
+            l.after_true_peak_dbtp
+        ));
+        if l.silent {
+            text.push_str(" — the mix is silent, so no gain was applied");
+        }
+    }
     if let Some(w) = &res.encoder_warning {
         text.push_str(&format!("\nwarning: {w}"));
     }
@@ -237,6 +295,24 @@ mod tests {
         .unwrap();
         assert_eq!((s.size, s.fps), (Size::Height(720), Fps::Rate(25)));
         assert_eq!(s.video.unwrap().quality, Quality::VeryHigh);
+    }
+
+    #[test]
+    fn audio_only_and_loudness() {
+        let s = settings(json!({"audioOnly": "wav", "loudness": -14, "range": [1, 2]}), "mix.wav").unwrap();
+        assert_eq!(
+            (s.container, s.video.is_none(), s.loudness, s.range),
+            (Container::Wav, true, Some(-14.0), Some([1.0, 2.0]))
+        );
+        let s = settings(json!({"audioOnly": ""}), "mix.m4a").unwrap();
+        assert_eq!(s.container, Container::M4a);
+        let s = settings(json!({"loudness": "-23 LUFS"}), "a.mov").unwrap();
+        assert_eq!((s.container, s.loudness), (Container::Mov, Some(-23.0)));
+        assert_eq!(settings(json!({"loudness": "off"}), "a.mp4").unwrap().loudness, None);
+        let e = settings(json!({"audioOnly": "mp4"}), "a.mp4").unwrap_err();
+        assert!(e.message.contains("m4a, wav or flac"), "{}", e.message);
+        let e = settings(json!({"audioOnly": ""}), "a.mp4").unwrap_err();
+        assert!(e.message.contains(".m4a"), "the default M4A does not match .mp4: {}", e.message);
     }
 
     #[test]

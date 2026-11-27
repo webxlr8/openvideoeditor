@@ -88,7 +88,7 @@ fn documented_examples_run_with_documented_exit_codes() {
         }
         ran += 1;
     }
-    assert_eq!(ran, 17);
+    assert_eq!(ran, 19);
     // The detached export finishes on its own.
     let q = ove_render::queue::Queue::new(d.path().join("queue"));
     for j in q.list() {

@@ -105,6 +105,13 @@ pub struct ExportArgs {
     pub height: Option<u32>,
     #[arg(long)]
     pub fps: Option<u32>,
+    /// Write the mix alone (no video): m4a (AAC), wav (24-bit) or flac; the format comes from --format or OUT.
+    #[arg(long)]
+    pub audio_only: bool,
+    /// Loudness target, integrated LUFS: off, -14, -16, -23 or -24 (true-peak limited; the result reports before
+    /// and after).
+    #[arg(long, allow_negative_numbers = true)]
+    pub loudness: Option<String>,
 }
 
 /// `START-END` (also `START,END` or `START:END`) in seconds.
@@ -144,6 +151,16 @@ pub fn tool_args(a: &ExportArgs) -> Result<Map<String, Value>, Fail> {
     put("fps", json!(a.fps));
     if let Some(r) = &a.range {
         put("range", json!(parse_range(r)?));
+    }
+    if a.audio_only {
+        put("audioOnly", json!(a.format.clone().unwrap_or_default()));
+    }
+    if let Some(l) = a.loudness.as_deref().map(str::trim).filter(|l| *l != "off") {
+        let v: f64 =
+            l.trim_end_matches("LUFS").trim().parse().map_err(|_| {
+                Fail::new("argument.invalid", format!("--loudness is off, -14, -16, -23 or -24, not {l}"))
+            })?;
+        put("loudness", json!(v));
     }
     Ok(m)
 }

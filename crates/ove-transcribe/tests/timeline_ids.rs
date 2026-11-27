@@ -47,7 +47,8 @@ fn ids(d: &Document, clip: &str) -> Vec<String> {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(500))]
+    // 500 cases by default; `OVE_PROPTEST_CASES` changes it.
+    #![proptest_config(ProptestConfig::with_cases(cases(500)))]
     #[test]
     fn ids_survive_edits_elsewhere(shift in 0.0f64..30.0, trim in 0.0f64..8.0, len in 1.0f64..10.0, speed in 0.5f64..3.0) {
         let before = doc();
@@ -64,4 +65,9 @@ proptest! {
         let all_b: Vec<String> = transcript(2).words.iter().map(|w| ove_transcribe::timeline::word_id("b", w.start_us)).collect();
         prop_assert!(b1.iter().all(|id| all_b.contains(id)));
     }
+}
+
+/// Property-test cases: `OVE_PROPTEST_CASES` when set, else `default`.
+fn cases(default: u32) -> u32 {
+    std::env::var("OVE_PROPTEST_CASES").ok().and_then(|s| s.parse().ok()).unwrap_or(default)
 }

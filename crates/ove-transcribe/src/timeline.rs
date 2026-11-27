@@ -175,6 +175,8 @@ pub struct TimelineWord {
     pub source_end: f64,
     /// A filler candidate (a word in the language's filler list).
     pub filler: bool,
+    /// A word that is a filler only in some contexts ("like"): flagged, never selected by default.
+    pub context_filler: bool,
 }
 
 /// A sentence of the timeline transcript (segments mode).
@@ -227,6 +229,7 @@ pub fn words(clips: &[SourceClip], transcripts: &HashMap<String, Transcript>) ->
             out.push(TimelineWord {
                 id: word_id(&clip.media_id, w.start_us),
                 filler: crate::fillers::is_filler(&w.text, &t.language),
+                context_filler: crate::fillers::is_context_filler(&w.text, &t.language),
                 text: w.text,
                 start: secs(s),
                 end: secs(e),

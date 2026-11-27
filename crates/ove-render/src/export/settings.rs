@@ -473,6 +473,10 @@ pub struct ExportSettings {
     pub fps: Fps,
     /// Tag the output as HDR (needs an HDR timeline).
     pub hdr: Option<HdrTransfer>,
+    /// Loudness target of the mix, integrated LUFS (-14, -16, -23 or -24); `None` = off. Export measures the mix
+    /// first and applies one static gain before the true-peak limiter (add-audio-mixing-and-monitoring, D8).
+    #[serde(default)]
+    pub loudness: Option<f64>,
     /// Video encoder to force (testing); `None` picks automatically.
     pub encoder: Option<String>,
 }
@@ -489,6 +493,7 @@ impl Default for ExportSettings {
             size: Size::Height(1080),
             fps: Fps::Rate(30),
             hdr: None,
+            loudness: None,
             encoder: None,
         }
     }
@@ -663,7 +668,12 @@ pub struct Plan {
     pub size: Size,
     pub fps: Fps,
     pub hdr: Option<HdrTransfer>,
+    /// Loudness target, integrated LUFS.
+    pub loudness: Option<f64>,
 }
+
+/// The loudness targets export offers (integrated LUFS): streaming, podcasts, EBU R128 broadcast, ATSC A/85.
+pub const LOUDNESS_TARGETS: [f64; 4] = [-14.0, -16.0, -23.0, -24.0];
 
 /// The codecs that can carry alpha, for messages.
 const ALPHA_CODECS: &str = "ProRes 4444 (MOV) and VP9 (WebM)";
@@ -731,11 +741,22 @@ impl ExportSettings {
         if s.hdr.is_some() && video.is_none() {
             return Err(SettingsError::new(&["hdr", "video"], "hdr needs video"));
         }
+        if let Some(l) = s.loudness {
+            if !LOUDNESS_TARGETS.contains(&l) {
+                return Err(SettingsError::new(
+                    &["loudness"],
+                    format!("loudness must be off or one of -14, -16, -23, -24 LUFS, not {l}"),
+                ));
+            }
+            if audio.is_none() {
+                return Err(SettingsError::new(&["loudness", "audio"], "a loudness target needs audio"));
+            }
+        }
         let range = match s.range {
             Some(r) => Some(validate_range(r, duration)?),
             None => None,
         };
-        Ok(Plan { container: c, video, audio, range, size: s.size, fps: s.fps, hdr: s.hdr })
+        Ok(Plan { container: c, video, audio, range, size: s.size, fps: s.fps, hdr: s.hdr, loudness: s.loudness })
     }
 }
 

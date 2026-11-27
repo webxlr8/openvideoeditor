@@ -122,11 +122,11 @@ ove source print Nope                              # exit 1
 | `detect_scenes` |  | in-app, mcp, pinned | read | `project`? `media` `threshold`? |
 | `audio_levels` |  | in-app, mcp, pinned | read | `project`? `media` `points`? |
 | `waveform_image` |  | mcp, pinned | read | `project`? `media` `width`? `height`? |
-| `detect_silence` |  | in-app, mcp, pinned | read | `project`? `media` `thresholdDb`? `minDuration`? |
-| `measure_loudness` |  | mcp, pinned | read | `project`? `media` |
+| `detect_silence` |  | in-app, mcp, pinned | read | `project`? `media` `thresholdDb`? `minDuration`? `mode`? `minPause`? `padding`? `relativeDb`? |
+| `measure_loudness` |  | mcp, pinned | read | `project`? `media`? `timeline`? |
 | `look` |  | in-app, mcp, pinned | read | `project`? `at`? `every`? `count`? `width`? `stats`? `grid`? `storyboard`? |
 | `screenshot` |  | mcp, pinned | read, app | `width`? |
-| `export_video` |  | mcp, pinned | write | `project`? `out` `preset`? `format`? `quality`? `resolution`? `height`? `frameRate`? `fps`? `range`? `videoCodec`? `profile`? `bitDepth`? `alpha`? `videoBitrate`? `audioCodec`? `audioBitDepth`? `settings`? `wait`? |
+| `export_video` |  | mcp, pinned | write | `project`? `out` `preset`? `format`? `quality`? `resolution`? `height`? `frameRate`? `fps`? `range`? `videoCodec`? `profile`? `bitDepth`? `alpha`? `videoBitrate`? `audioCodec`? `audioBitDepth`? `settings`? `audioOnly`? `loudness`? `wait`? |
 | `export_timeline_file` |  | mcp, pinned | read | `project`? `file` `fps`? |
 | `import_timeline_file` |  | mcp, pinned | write | `project`? `file` `fps`? |
 | `app_context` |  | mcp, pinned | read, app |  |
@@ -142,7 +142,13 @@ ove source print Nope                              # exit 1
 | `edit_timeline` |  | in-app, mcp, pinned | write | `project`? `request` `rev`? `preview`? |
 | `list_models_local` |  | in-app, mcp, pinned | read |  |
 | `get_transcript` |  | in-app, mcp, pinned | read | `project`? `clips`? `segments`? `offset`? `limit`? `model`? `language`? |
+| `remove_words` |  | in-app, mcp, pinned | write | `project`? `ids`? `ranges`? `match`? `pause`? `apply`? `rev`? |
+| `remove_silence` |  | in-app, mcp, pinned | write | `project`? `clips`? `minPause`? `padding`? `relativeDb`? `apply`? |
+| `find_fillers` |  | in-app, mcp, pinned | read | `project`? `clips`? |
+| `search_transcript` |  | in-app, mcp, pinned | read | `project`? `phrase` |
+| `transcribe_media` |  | in-app, mcp, pinned | write | `project`? `media` `format`? `language`? `model`? `verbatim`? `force`? |
 | `duck_audio` |  | in-app, mcp, pinned | write | `project`? `music` `under` `depth`? `attack`? `release`? `hold`? `source`? `mode`? `dryRun`? |
+| `extract_audio` |  | mcp, pinned | write | `project`? `media` `format`? |
 | `job_status` |  | mcp, pinned | read | `job_id` `wait`? |
 | `cancel_job` |  | mcp, pinned | write | `job_id` |
 | `list_export_jobs` |  | mcp, pinned | read | `all`? |

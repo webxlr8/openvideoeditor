@@ -1,0 +1,91 @@
+.transcript-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  outline: none;
+}
+
+.transcript-search .input {
+  width: 100%;
+}
+
+.transcript-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.transcript-words {
+  max-height: 55vh;
+  overflow-y: auto;
+  line-height: 1.6;
+}
+
+.transcript-row {
+  margin: 0 0 6px;
+}
+
+.transcript-time {
+  font-variant-numeric: tabular-nums;
+  margin-right: 4px;
+}
+
+.transcript-word {
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+.transcript-word:hover {
+  background: var(--hover, rgba(127, 127, 127, 0.15));
+}
+
+.transcript-word.current {
+  background: var(--accent-soft, rgba(90, 140, 255, 0.25));
+}
+
+.transcript-word.struck {
+  text-decoration: line-through;
+  opacity: 0.55;
+}
+
+.transcript-word.hit {
+  outline: 1px solid var(--accent, #5a8cff);
+}
+
+.transcript-word.filler {
+  font-style: italic;
+}
+
+.transcript-preview,
+.transcript-review {
+  border: 1px solid var(--border, rgba(127, 127, 127, 0.35));
+  border-radius: 6px;
+  padding: 8px;
+}
+
+.transcript-diff {
+  max-height: 200px;
+  overflow: auto;
+  font-size: 11px;
+  white-space: pre;
+}
+
+.transcript-hits,
+.transcript-ranges,
+.transcript-review ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* Ranges a previewed cut removes, over the timeline's clips (Timeline.tsx). */
+.cut-preview {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(220, 60, 60, 0.22);
+  border-left: 1px solid rgba(220, 60, 60, 0.7);
+  border-right: 1px solid rgba(220, 60, 60, 0.7);
+  pointer-events: none;
+  z-index: 2;
+}

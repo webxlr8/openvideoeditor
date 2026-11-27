@@ -9,6 +9,7 @@ import { type EditResult, TIMELINE_FPS, addItems, firstTrack, linkDrift, trackAc
 import { Icon, type IconName } from "./icons";
 import { ClipAudioLayer } from "./ClipAudioLayer";
 import { ContextMenu, type MenuItem } from "./Menu";
+import { useCutPreview } from "./cutPreview";
 import { resetScrub, scrubAudio } from "./scrubAudio";
 import { MOD, type Tool } from "./keys";
 
@@ -67,6 +68,7 @@ export function Timeline(props: TimelineProps) {
   const [ghosts, setGhosts] = useState<Ghost[]>([]);
   const previewSeq = useRef(0);
   const [menu, setMenu] = useState<{ at: { x: number; y: number }; items: MenuItem[] } | null>(null);
+  const cutPreview = useCutPreview();
   const items = project?.items ?? [];
   const tracks = project?.tracks ?? [];
 
@@ -473,6 +475,14 @@ export function Timeline(props: TimelineProps) {
             ))}
             {!items.length && <div className="timeline-empty muted">Import media to start your timeline.</div>}
           </div>
+          {cutPreview.map((r) => (
+            <div
+              key={`${r.start}-${r.end}`}
+              className="cut-preview"
+              style={{ left: HEADER_W + x(r.start), width: Math.max(1, x(r.end) - x(r.start)) }}
+              data-testid="cut-preview"
+            />
+          ))}
           <div className="playhead" style={{ left: HEADER_W + x(playhead) }} data-testid="playhead" />
         </div>
       </div>

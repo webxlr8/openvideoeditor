@@ -159,6 +159,81 @@ pub fn loudness_range(short: &[f64]) -> f64 {
     pct(0.95) - pct(0.10)
 }
 
+/// Integrated loudness, loudness range and true peak of interleaved stereo at 48 kHz, fed block by block (export's
+/// measuring pass and `ove audio loudness --timeline`).
+pub struct StereoLoudness {
+    filters: [[Biquad; 2]; 2],
+    tp: [TruePeak; 2],
+    sub_acc: f64,
+    sub_n: usize,
+    subs: Vec<f64>,
+    true_peak: f64,
+    frames: u64,
+}
+
+/// What [`StereoLoudness`] measured.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LoudnessSummary {
+    /// `None` when every block is below the −70 LUFS gate (silence).
+    pub integrated_lufs: Option<f64>,
+    pub loudness_range_lu: f64,
+    pub true_peak_dbtp: f64,
+    pub duration: f64,
+}
+
+impl Default for StereoLoudness {
+    fn default() -> Self {
+        let f = k_weighting(48_000.0);
+        StereoLoudness {
+            filters: [f, f],
+            tp: [TruePeak::default(), TruePeak::default()],
+            sub_acc: 0.0,
+            sub_n: 0,
+            subs: Vec::new(),
+            true_peak: 0.0,
+            frames: 0,
+        }
+    }
+}
+
+impl StereoLoudness {
+    pub fn push(&mut self, interleaved: &[f32]) {
+        for f in interleaved.chunks_exact(2) {
+            let mut e = 0.0;
+            for (c, s) in f.iter().enumerate() {
+                let x = f64::from(*s);
+                self.true_peak = self.true_peak.max(self.tp[c].push(x));
+                let [a, b] = &mut self.filters[c];
+                let z = b.run(a.run(x));
+                e += z * z;
+            }
+            self.sub_acc += e;
+            self.sub_n += 1;
+            if self.sub_n == 4_800 {
+                self.subs.push(self.sub_acc / 4_800.0);
+                self.sub_acc = 0.0;
+                self.sub_n = 0;
+            }
+            self.frames += 1;
+        }
+    }
+
+    pub fn summary(&self) -> LoudnessSummary {
+        let r2 = |v: f64| (v * 100.0).round() / 100.0;
+        LoudnessSummary {
+            integrated_lufs: integrated(&window_energies(&self.subs, 4)).map(r2),
+            loudness_range_lu: r2(loudness_range(&window_energies(&self.subs, 30))),
+            true_peak_dbtp: r2(if self.true_peak <= 0.0 {
+                -120.0
+            } else {
+                (20.0 * self.true_peak.log10()).max(-120.0)
+            }),
+            duration: self.frames as f64 / 48_000.0,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
