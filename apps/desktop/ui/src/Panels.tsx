@@ -612,7 +612,7 @@ export function EffectsPanel({
         </>
       )}
       {!catalog && <Empty>Loading effects…</Empty>}
-      {(["stylize", "distort", "background"] as const).map((g) => {
+      {(["key", "stylize", "distort", "background"] as const).map((g) => {
         const list = effects.filter((e) => e.group === g);
         if (!list.length) return null;
         return (

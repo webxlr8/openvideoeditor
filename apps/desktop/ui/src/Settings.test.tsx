@@ -89,4 +89,24 @@ describe("settings", () => {
     expect(list).toContain("prompt and any reference image you attach to the provider you pick");
     expect(list).toContain("no telemetry");
   });
+
+  it("turns GPU compositing off and on and shows the active backend", async () => {
+    window.__oveMock!.compositing = undefined;
+    await openSettings("rendering");
+    const box = await screen.findByTestId<HTMLInputElement>("gpu-compositing");
+    await waitFor(() => expect(box.disabled).toBe(false));
+    expect(box.checked).toBe(true);
+    expect(screen.getByTestId("compositing-status").textContent).toBe("Active: GPU (Mock GPU).");
+    fireEvent.click(box);
+    await waitFor(() =>
+      expect(screen.getByTestId("compositing-status").textContent).toBe(
+        "Active: CPU — the GPU is turned off in Settings.",
+      ),
+    );
+    expect(box.checked).toBe(false);
+    expect(window.__oveMock!.calls).toContain("setGpuCompositing:false");
+    fireEvent.click(box);
+    await waitFor(() => expect(box.checked).toBe(true));
+    window.__oveMock!.compositing = undefined;
+  });
 });

@@ -188,7 +188,7 @@ pub async fn match_color(
         if !matches!(item.kind.as_str(), "video" | "image") {
             return Err(bad("Colour match works on video and image items."));
         }
-        let mut r = Renderer::new(Some(&bundle), MATCH_HEIGHT);
+        let (mut r, _) = crate::compositing::renderer(Some(&bundle), MATCH_HEIGHT);
         let reference = r.render(&doc, secs_to_micros(reference_time.max(0.0)).unwrap_or(0));
         // The item alone, ungraded, at its middle.
         let mut ops: Vec<Op> = doc
@@ -211,6 +211,64 @@ pub async fn match_color(
         grade.insert("wheels".into(), wheels);
         let set = json!({ "colorGrade": grade }).as_object().cloned().unwrap_or_default();
         edit(app, state, vec![Op::UpdateItem { id: item_id, set }], "match colour")
+    })
+    .await
+}
+
+/// What a key colour sample did: the new colour and the project, or that the point was outside the layer.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct KeySample {
+    /// The click or rectangle missed the layer: nothing changed.
+    pub outside: bool,
+    /// The sampled colour (RGB 0..1), when set.
+    pub color: Option<Vec<f32>>,
+    pub project: Option<ProjectView>,
+}
+
+/// Sets the key colour of chroma key `effect_id` on `item_id` to the mean source colour (before grading) under a
+/// viewer point or rectangle (`rect`: x0, y0, x1, y1 as fractions of the frame) at `time` seconds: one revision.
+/// A point or rectangle that misses the layer changes nothing and reports `outside`.
+#[tauri::command]
+#[specta::specta]
+pub async fn sample_key_color(
+    app: AppHandle,
+    item_id: String,
+    effect_id: String,
+    time: f64,
+    rect: Vec<f64>,
+) -> AppResult<KeySample> {
+    serial(&app, "sample_key_color", move |app, state| {
+        let (doc, bundle) = {
+            let g = lock(&state.projects.open)?;
+            let p = g.as_ref().ok_or_else(|| bad("No project is open."))?;
+            (p.doc().clone(), p.bundle().to_path_buf())
+        };
+        let item =
+            doc.item(&item_id).cloned().ok_or_else(|| AppError::new(ErrorCode::NotFound, "That item is gone."))?;
+        let r = [0, 1, 2, 3].map(|i| rect.get(i).copied().unwrap_or(0.0));
+        let mut renderer = Renderer::new(Some(&bundle), crate::timeline::PREVIEW_HEIGHT);
+        let color =
+            renderer.sample_source(&doc, &item_id, secs_to_micros(time.max(0.0)).unwrap_or(0), r).map_err(bad)?;
+        let Some(color) = color else { return Ok(KeySample { outside: true, color: None, project: None }) };
+        let mut list = item.fields.get("effects").and_then(Value::as_array).cloned().unwrap_or_default();
+        let entry = list
+            .iter_mut()
+            .find(|e| e.get("id").and_then(Value::as_str) == Some(effect_id.as_str()))
+            .and_then(Value::as_object_mut)
+            .ok_or_else(|| bad("That key effect is gone."))?;
+        let rounded: Vec<f32> = color.iter().map(|c| (c * 1000.0).round() / 1000.0).collect();
+        match entry.get_mut("params").and_then(Value::as_object_mut) {
+            Some(params) => {
+                params.insert("keyColor".into(), json!(rounded));
+            }
+            None => {
+                entry.insert("keyColor".into(), json!(rounded));
+            }
+        }
+        let set = json!({ "effects": list }).as_object().cloned().unwrap_or_default();
+        let view = edit(app, state, vec![Op::UpdateItem { id: item_id, set }], "sample key colour")?;
+        Ok(KeySample { outside: false, color: Some(rounded), project: Some(view) })
     })
     .await
 }
@@ -240,7 +298,7 @@ mod tests {
     #[test]
     fn catalog_lists_everything() {
         let v: Value = serde_json::from_str(&fx_catalog().unwrap()).unwrap();
-        assert_eq!(v["effects"].as_array().unwrap().len(), 41);
+        assert_eq!(v["effects"].as_array().unwrap().len(), 42, "41 catalogue effects and the chroma key");
         assert_eq!(v["layouts"].as_array().unwrap().len(), 15);
         assert_eq!(v["luts"].as_array().unwrap().len(), 9);
         assert!(v["transitions"].as_array().unwrap().len() >= 23);

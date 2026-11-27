@@ -175,8 +175,56 @@ pub struct Scenes {
     pub frames: u64,
 }
 
-const SCENE_WIDTH: u32 = 64;
+/// Width frames are decoded at for cut detection.
+pub const SCENE_WIDTH: u32 = 64;
 const BINS: usize = 32;
+
+/// Opens `path` for cut detection: software decode, RGBA at [`SCENE_WIDTH`] pixels wide.
+pub fn open_for_cuts(path: &Path) -> Result<ove_media::FallbackDecoder> {
+    open(path, SCENE_WIDTH)
+}
+
+/// Cut scores of consecutive frames, one frame at a time (the scoring [`scenes`] uses).
+#[derive(Debug, Default)]
+pub struct CutScorer {
+    prev: Option<([f64; BINS], Vec<u8>)>,
+}
+
+impl CutScorer {
+    pub fn new() -> CutScorer {
+        CutScorer::default()
+    }
+
+    /// The difference (0–1) between `img` (at most [`SCENE_WIDTH`] wide) and the previous frame; `None` for the
+    /// first frame or a frame of another size.
+    pub fn push(&mut self, img: &Image) -> Option<f64> {
+        let sig = luma_signature(img);
+        let score = match &self.prev {
+            Some((ph, pl)) if pl.len() == sig.1.len() => {
+                let hist: f64 = ph.iter().zip(&sig.0).map(|(a, b)| (a - b).abs()).sum::<f64>() / 2.0;
+                let mad: f64 = pl.iter().zip(&sig.1).map(|(a, b)| (*a as f64 - *b as f64).abs()).sum::<f64>()
+                    / (pl.len() as f64 * 255.0);
+                Some(0.5 * hist + 0.5 * (mad * 4.0).min(1.0))
+            }
+            _ => None,
+        };
+        self.prev = Some(sig);
+        score
+    }
+}
+
+/// The cuts among `(time, score)` pairs: scores above `threshold` that are the maximum of their neighbourhood (two
+/// scores either side). Times and scores are rounded to milliseconds and thousandths.
+pub fn pick_cuts(scores: &[(f64, f64)], threshold: f64) -> Vec<SceneCut> {
+    let mut cuts = Vec::new();
+    for (i, &(t, s)) in scores.iter().enumerate() {
+        let neighbours = scores[i.saturating_sub(2)..(i + 3).min(scores.len())].iter();
+        if s > threshold && neighbours.clone().all(|&(_, o)| o <= s) {
+            cuts.push(SceneCut { time: (t * 1000.0).round() / 1000.0, score: (s * 1000.0).round() / 1000.0 });
+        }
+    }
+    cuts
+}
 
 /// Luma histogram (normalised) and the luma plane of a small frame.
 fn luma_signature(img: &Image) -> ([f64; BINS], Vec<u8>) {
@@ -199,7 +247,7 @@ fn luma_signature(img: &Image) -> ([f64; BINS], Vec<u8>) {
 /// where the score exceeds `threshold` (0.3 is a good default) and is the local maximum of its neighbourhood.
 pub fn scenes(path: &Path, threshold: f64) -> Result<Scenes> {
     let mut dec = open(path, SCENE_WIDTH)?;
-    let mut prev: Option<([f64; BINS], Vec<u8>)> = None;
+    let mut scorer = CutScorer::new();
     let mut scores: Vec<(f64, f64)> = Vec::new();
     let mut frames = 0u64;
     let mut end = 0f64;
@@ -209,24 +257,11 @@ pub fn scenes(path: &Path, threshold: f64) -> Result<Scenes> {
         end = end.max(t + f.duration_us.max(0) as f64 / US);
         let Some(img) = frame_to_image(&f) else { continue };
         let img = if img.width > SCENE_WIDTH { img.resize_to_width(SCENE_WIDTH) } else { img };
-        let sig = luma_signature(&img);
-        if let Some((ph, pl)) = &prev
-            && pl.len() == sig.1.len()
-        {
-            let hist: f64 = ph.iter().zip(&sig.0).map(|(a, b)| (a - b).abs()).sum::<f64>() / 2.0;
-            let mad: f64 = pl.iter().zip(&sig.1).map(|(a, b)| (*a as f64 - *b as f64).abs()).sum::<f64>()
-                / (pl.len() as f64 * 255.0);
-            scores.push((t, 0.5 * hist + 0.5 * (mad * 4.0).min(1.0)));
-        }
-        prev = Some(sig);
-    }
-    let mut cuts = Vec::new();
-    for (i, &(t, s)) in scores.iter().enumerate() {
-        let neighbours = scores[i.saturating_sub(2)..(i + 3).min(scores.len())].iter();
-        if s > threshold && neighbours.clone().all(|&(_, o)| o <= s) {
-            cuts.push(SceneCut { time: (t * 1000.0).round() / 1000.0, score: (s * 1000.0).round() / 1000.0 });
+        if let Some(s) = scorer.push(&img) {
+            scores.push((t, s));
         }
     }
+    let cuts = pick_cuts(&scores, threshold);
     Ok(Scenes { cuts, duration: (end * 1000.0).round() / 1000.0, frames })
 }
 

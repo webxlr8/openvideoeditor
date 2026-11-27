@@ -58,6 +58,11 @@ pub const EXPORT_VIDEO_ARGS: &[Arg] = &[
         Bool,
         "Return when the export has finished (default: return the job id at once; follow it with job_status)",
     ),
+    arg(
+        "backend",
+        Str,
+        "Compositing backend: auto (default; the GPU when its startup self-test matches the CPU reference), cpu or gpu",
+    ),
 ];
 
 #[cfg(feature = "media")]
@@ -108,6 +113,14 @@ pub fn settings_from_args(a: &Args, out: &Path) -> Result<ExportSettings, Fail> 
             let range = s.range;
             s = ExportSettings { range, ..ExportSettings::for_container(c) };
         }
+    }
+    // `backend`: the compositing backend the export renders with (design D9).
+    if let Some(b) = a.str("backend") {
+        let b = b.trim().to_ascii_lowercase();
+        if !["auto", "cpu", "gpu"].contains(&b.as_str()) {
+            return Err(Fail::new("argument.invalid", format!("backend is auto, cpu or gpu, not {b}")));
+        }
+        s.backend = Some(b);
     }
     // `loudness`: an integrated loudness target in LUFS (number, "-14 LUFS", or "off").
     match a.value("loudness") {

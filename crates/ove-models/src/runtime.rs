@@ -44,6 +44,7 @@ pub fn missing(store: &Store) -> NotInstalled {
             download_bytes: 0,
             host: String::new(),
             install: String::new(),
+            licence: String::new(),
             message: "runtime not installed: no inference runtime is available for this platform".into(),
         },
     }

@@ -143,6 +143,22 @@ pub struct MediaView {
     pub thumbnail: Option<String>,
     /// The hover-skim sheet, once built (served at `ove-skim://localhost/<contentId>.jpg`).
     pub skim: Option<SkimView>,
+    /// Media panel folder (add-semantic-media-search), `/`-separated; none at the top level.
+    pub folder: Option<String>,
+    pub tags: Vec<String>,
+    /// Saved source ranges, shown under the media and dragged like it.
+    pub subclips: Vec<SubclipView>,
+}
+
+/// A saved subclip of a media item: a named source range.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SubclipView {
+    pub id: String,
+    pub name: String,
+    /// Source seconds.
+    pub start: f64,
+    pub end: f64,
 }
 
 /// A skim sheet's image and layout: tile `i` of `count` sits at column `i % columns`, row `i / columns`.
@@ -440,7 +456,13 @@ fn view_from(
             let st = link(&m.id);
             MediaView {
                 id: m.id.clone(),
-                name: m.file_name().map(str::to_string).unwrap_or_else(|| m.id.clone()),
+                name: m
+                    .fields
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .or_else(|| m.file_name())
+                    .map(str::to_string)
+                    .unwrap_or_else(|| m.id.clone()),
                 path: st.as_ref().map(|s| s.path.clone()).unwrap_or_default(),
                 kind: get("type").and_then(Value::as_str).unwrap_or("video").to_string(),
                 duration_seconds: get("duration").and_then(Value::as_f64),
@@ -449,6 +471,30 @@ fn view_from(
                 status: status_name(st.map(|s| s.state).unwrap_or(MediaState::Online)).into(),
                 thumbnail: thumbnail(&m.id),
                 skim: None,
+                folder: m.fields.get("folder").and_then(Value::as_str).map(str::to_string),
+                tags: m
+                    .fields
+                    .get("tags")
+                    .and_then(Value::as_array)
+                    .map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect())
+                    .unwrap_or_default(),
+                subclips: m
+                    .fields
+                    .get("subclips")
+                    .and_then(Value::as_array)
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|s| {
+                                Some(SubclipView {
+                                    id: s.get("id")?.as_str()?.to_string(),
+                                    name: s.get("name").and_then(Value::as_str).unwrap_or("Subclip").to_string(),
+                                    start: s.get("in")?.as_f64()?,
+                                    end: s.get("out")?.as_f64()?,
+                                })
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default(),
             }
         })
         .collect();
@@ -783,6 +829,11 @@ fn refresh_once(app: &AppHandle, state: &AppState) {
             })
             .collect()
     };
+    let index_items = {
+        let online: BTreeSet<&str> =
+            links.iter().filter(|(_, _, l)| l.state == MediaState::Online).map(|(id, _, _)| id.as_str()).collect();
+        crate::search::indexable(&bundle, &doc, &online)
+    };
     // Released before the project is locked: the lock order is project, then media cache.
     let changed = relock(&state.projects.media).store(&bundle, links, thumbs);
     if !missing.is_empty() {
@@ -810,6 +861,8 @@ fn refresh_once(app: &AppHandle, state: &AppState) {
             });
         }
     }
+    // Footage search indexes (P3), keyed by content id; queued only when the visual search model is installed.
+    crate::search::queue_indexing(app, &bundle, index_items);
     if changed
         && let Ok(g) = lock(&state.projects.open)
         && let Some(p) = g.as_ref().filter(|p| p.bundle() == bundle)

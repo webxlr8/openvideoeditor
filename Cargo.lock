@@ -4244,6 +4244,7 @@ dependencies = [
  "ove-tasks",
  "ove-tools",
  "ove-transcribe",
+ "ove-vision",
  "serde_json",
  "tempfile",
 ]
@@ -4304,6 +4305,7 @@ dependencies = [
  "ove-tasks",
  "ove-tools",
  "ove-transcribe",
+ "ove-vision",
  "png",
  "raw-window-handle",
  "serde",
@@ -4359,9 +4361,13 @@ name = "ove-gpu"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
+ "ove-core",
  "ove-media",
+ "ove-render",
  "png",
  "pollster",
+ "serde_json",
+ "tempfile",
  "thiserror 2.0.21",
  "tracing",
  "wgpu",
@@ -4532,6 +4538,7 @@ dependencies = [
  "ove-core",
  "ove-edit",
  "ove-generate",
+ "ove-gpu",
  "ove-graphics",
  "ove-guard",
  "ove-interchange",
@@ -4541,6 +4548,7 @@ dependencies = [
  "ove-render",
  "ove-store",
  "ove-transcribe",
+ "ove-vision",
  "proptest",
  "serde",
  "serde_json",
@@ -4567,6 +4575,28 @@ dependencies = [
  "thiserror 2.0.21",
  "unicode-normalization",
  "whisper-rs",
+]
+
+[[package]]
+name = "ove-vision"
+version = "0.1.0"
+dependencies = [
+ "crc32fast",
+ "half",
+ "memmap2",
+ "ove-analyze",
+ "ove-media",
+ "ove-models",
+ "ove-store",
+ "ove-tasks",
+ "ove-transcribe",
+ "png",
+ "proptest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

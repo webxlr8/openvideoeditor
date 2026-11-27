@@ -342,7 +342,7 @@ pub fn cut_ids(rev: i64) -> impl FnMut() -> String {
 }
 
 /// The cached transcript of one media file (any model; the newest), with the legacy path key as a fallback.
-fn any_transcript(bundle: &Path, doc: &Document, media: &str) -> Option<Transcript> {
+pub(crate) fn any_transcript(bundle: &Path, doc: &Document, media: &str) -> Option<Transcript> {
     if let Some(t) = content_id(doc, media).and_then(|c| ove_transcribe::cache::any_for(bundle, &c).into_iter().next())
     {
         return Some(t);

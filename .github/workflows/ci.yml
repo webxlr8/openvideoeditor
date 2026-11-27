@@ -209,6 +209,17 @@ jobs:
           serial ove-tasks "--test scheduler" wait_times_out_with_the_remaining_count
           serial ove-desktop "--lib" scrub::tests::scrub_latency_and_edits
           exit "$status"
+      # add-gpu-compositor-and-scopes 2.3: CPU/GPU parity on the software adapter (WARP on Windows, lavapipe on
+      # Linux; macOS runners have a Metal device). Fails, naming the case, when a shader leaves the tolerance.
+      - name: GPU parity (software adapter)
+        if: ${{ !cancelled() }}
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ] && command -v apt-get >/dev/null && sudo -n true 2>/dev/null; then
+            sudo apt-get install -y mesa-vulkan-drivers
+          fi
+          source tools/ffmpeg/env.sh
+          if [ "$RUNNER_OS" != "macOS" ]; then export OVE_GPU_SOFTWARE=1; fi
+          OVE_REQUIRE_GPU=1 OVE_PARITY_HEIGHT=540 cargo test -p ove-gpu --test parity --test render_parity -- --nocapture
       - name: bindings drift
         if: ${{ !cancelled() }}
         run: |

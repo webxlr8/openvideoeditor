@@ -7,8 +7,8 @@ use crate::spec::{
     cli, req,
 };
 use crate::tools::{
-    analyze, app, audio, code, deadair, docs, edit, exchange, export, export_queue, export_range, feedback, generate,
-    media, models, project, skills, tasks, timeline, transcript,
+    analyze, app, audio, code, color, deadair, docs, edit, exchange, export, export_queue, export_range, feedback,
+    generate, media, models, organize, project, search, skills, tasks, timeline, transcript,
 };
 
 pub(crate) const PROJECT: Arg = arg(
@@ -17,6 +17,11 @@ pub(crate) const PROJECT: Arg = arg(
     "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)",
 );
 const MEDIA: Arg = req("media", Str, "Media id, file name or path");
+const BACKEND: Arg = arg(
+    "backend",
+    Str,
+    "Compositing backend: auto (default; the GPU when its startup self-test matches the CPU reference), cpu or gpu",
+);
 
 const EDITS: &str = r#"{"type": "array", "items": {"type": "object", "properties": {"oldText": {"type": "string"}, "newText": {"type": "string"}}, "required": ["oldText", "newText"], "additionalProperties": false}}"#;
 const PREFER: &str = r#"{"type": "string", "enum": ["file", "editor"]}"#;
@@ -378,6 +383,13 @@ pub static TOOLS: &[ToolSpec] = &[
             cli("out", Str, "Folder for one PNG per frame"),
             cli("sheet", Str, "Contact-sheet PNG to write"),
             cli("columns", Int, "Contact-sheet columns"),
+            BACKEND,
+            arg("view", Str, "result (default) or matte: every chroma key shows its matte (white kept, black removed)"),
+            arg(
+                "scope",
+                Str,
+                "waveform, parade or vectorscope: return that scope of each frame instead of the frame (the colour panel's binning)",
+            ),
         ],
         annotations: READ,
         surfaces: AGENTS,
@@ -955,6 +967,71 @@ pub static TOOLS: &[ToolSpec] = &[
         annotations: DESTRUCTIVE,
         surfaces: IN_APP,
         run: skills::manage_skills,
+        model: ModelText::Text,
+    },
+    ToolSpec {
+        name: "inspect_color",
+        aliases: &[],
+        about: "Measure the colour of the exported frame at a time (snapped to the frame grid), or of one item alone with `isolate`: luma mean and 2nd/98th percentiles (percent), clipped-low and clipped-high shares, a 16-bin luma histogram, mean colour of shadows, midtones and highlights (RGB 0..1 and CIELAB), CIELAB a*/b* balance, mean saturation, a saturation-weighted 12-bin hue histogram, the share of colourful pixels and skin-line deviation in degrees. With `reference` (an item, measured alone, or a media file) adds the CIEDE2000 gap per zone and `suggestedOps`: a capped colorGrade patch (wheels and saturation) for the shot, also given as `suggestedEdit`, ready to pass to apply_timeline. Inspect again after applying; repeat until gap.mean is below 2.",
+        args: &[
+            PROJECT,
+            arg("at", Num, "Timeline time in seconds (default: the item's middle)"),
+            arg("item", Str, "Item id: the shot to measure and to grade"),
+            arg("isolate", Bool, "Measure the item alone, without the layers above or below it"),
+            arg("reference", Str, "Item id or media id/file name to match"),
+            arg(
+                "referenceAt",
+                Num,
+                "Seconds: timeline time of a reference item (default its middle), source time of reference media (default 0)",
+            ),
+            arg("strength", Num, "0..1 share of the fitted correction to suggest (default 1; each step is capped)"),
+            arg("height", Int, "Measuring height in pixels (default 1080, the export default)"),
+            BACKEND,
+        ],
+        annotations: READ,
+        surfaces: AGENTS,
+        run: color::inspect_color,
+        model: ModelText::Json,
+    },
+    // Media search and organisation (add-semantic-media-search).
+    ToolSpec {
+        name: "organize_media",
+        aliases: &[],
+        about: organize::ABOUT,
+        args: &[PROJECT, req("ops", Json(organize::OPS_SCHEMA), "The steps, applied in order as one revision")],
+        annotations: WRITE,
+        surfaces: AGENTS,
+        run: organize::organize_media,
+        model: ModelText::Json,
+    },
+    ToolSpec {
+        name: "search_media",
+        aliases: &[],
+        about: search::SEARCH_ABOUT,
+        args: search::SEARCH_ARGS,
+        annotations: READ,
+        surfaces: AGENTS,
+        run: search::search_media,
+        model: ModelText::Text,
+    },
+    ToolSpec {
+        name: "media_transcript",
+        aliases: &[],
+        about: search::TRANSCRIPT_ABOUT,
+        args: search::TRANSCRIPT_ARGS,
+        annotations: READ,
+        surfaces: AGENTS,
+        run: search::media_transcript,
+        model: ModelText::Text,
+    },
+    ToolSpec {
+        name: "inspect_media",
+        aliases: &[],
+        about: search::INSPECT_ABOUT,
+        args: search::INSPECT_ARGS,
+        annotations: READ,
+        surfaces: AGENTS,
+        run: search::inspect_media,
         model: ModelText::Text,
     },
 ];
