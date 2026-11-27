@@ -22,14 +22,63 @@ pub enum RuntimeKind {
 
 /// One file of a model.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ModelFile {
     /// File name inside the model's folder.
     pub name: String,
-    /// Immutable download location.
+    /// Immutable download location (of the archive, when the file is an archive member).
     pub url: String,
-    /// Lower-case hex SHA-256 of the whole file.
+    /// Lower-case hex SHA-256 of the installed file.
     pub sha256: String,
+    /// Size of the installed file.
     pub bytes: u64,
+    /// Set when the file is one member of a zip archive (for example a library inside a Python wheel): the archive
+    /// at `url` is downloaded and checked against its own pins, then this member is extracted and checked against
+    /// `sha256` and `bytes`. Files of one model that share an archive share one download.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archive_member: Option<ArchiveMember>,
+}
+
+/// Where a file sits inside the archive it is extracted from.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchiveMember {
+    /// Path of the member inside the archive, with `/`.
+    pub path: String,
+    /// Lower-case hex SHA-256 of the whole archive.
+    pub archive_sha256: String,
+    /// Size of the whole archive.
+    pub archive_bytes: u64,
+}
+
+impl ModelFile {
+    /// A plain file, downloaded as it is.
+    pub fn new(name: &str, url: &str, sha256: &str, bytes: u64) -> ModelFile {
+        ModelFile { name: name.into(), url: url.into(), sha256: sha256.into(), bytes, archive_member: None }
+    }
+
+    /// The name of what is downloaded: the archive's file name (the last part of its URL) for an archive member,
+    /// otherwise the file's own name.
+    pub fn download_name(&self) -> &str {
+        match &self.archive_member {
+            Some(_) => archive_name(&self.url),
+            None => &self.name,
+        }
+    }
+
+    /// Size and SHA-256 of what is downloaded.
+    pub fn download_pin(&self) -> (u64, &str) {
+        match &self.archive_member {
+            Some(a) => (a.archive_bytes, &a.archive_sha256),
+            None => (self.bytes, &self.sha256),
+        }
+    }
+}
+
+/// The last path segment of a URL.
+pub fn archive_name(url: &str) -> &str {
+    let path = url.split(['?', '#']).next().unwrap_or_default();
+    path.rsplit('/').next().unwrap_or_default()
 }
 
 /// A model: identity, purpose, licence and files.
@@ -52,8 +101,31 @@ pub struct Manifest {
 pub const IN_PROCESS_MAX_BYTES: u64 = 10 * 1_000_000;
 
 impl Manifest {
+    /// Size of the installed files.
     pub fn total_bytes(&self) -> u64 {
         self.files.iter().map(|f| f.bytes).sum()
+    }
+
+    /// Bytes to download: each file, or each archive once however many members come from it.
+    pub fn download_bytes(&self) -> u64 {
+        self.downloads().iter().map(|f| f.download_pin().0).sum()
+    }
+
+    /// The files to download, one per archive: the first file of each archive stands for it.
+    pub fn downloads(&self) -> Vec<&ModelFile> {
+        let mut out: Vec<&ModelFile> = Vec::new();
+        for f in &self.files {
+            if f.archive_member.is_none() || !out.iter().any(|g| g.archive_member.is_some() && g.url == f.url) {
+                out.push(f);
+            }
+        }
+        out
+    }
+
+    /// The host the files come from, for the first-download prompt (for example `files.pythonhosted.org`).
+    pub fn host(&self) -> Option<&str> {
+        let f = self.files.first()?;
+        f.url.strip_prefix("https://")?.split('/').next()
     }
 
     pub fn file(&self, name: &str) -> Option<&ModelFile> {
@@ -92,6 +164,27 @@ impl Manifest {
             if let Err(reason) = check_pinned_url(&f.url) {
                 return bad(format!("the file {}: {reason}", f.name));
             }
+            if let Some(a) = &f.archive_member {
+                let archive = archive_name(&f.url);
+                if !plain_name(archive) || archive.ends_with(".part") || self.files.iter().any(|g| g.name == archive) {
+                    return bad(format!("the archive of {} has no file name of its own", f.name));
+                }
+                if a.path.is_empty() || a.path.split('/').any(|s| s.is_empty() || s == "." || s == "..") {
+                    return bad(format!("the archive member {:?} of {} is not a plain relative path", a.path, f.name));
+                }
+                if !is_sha256(&a.archive_sha256) || a.archive_bytes == 0 {
+                    return bad(format!("the archive of {} has no valid SHA-256 or size", f.name));
+                }
+                let pinned_differently = self.files[..i].iter().any(|g| {
+                    g.url == f.url
+                        && g.archive_member
+                            .as_ref()
+                            .is_none_or(|b| b.archive_sha256 != a.archive_sha256 || b.archive_bytes != a.archive_bytes)
+                });
+                if pinned_differently {
+                    return bad(format!("the archive of {} is pinned differently by another file", f.name));
+                }
+            }
         }
         Ok(())
     }
@@ -125,6 +218,15 @@ pub fn check_pinned_url(url: &str) -> std::result::Result<(), String> {
         return Err(format!("{url} points at a moving branch or the latest release, not a fixed revision"));
     }
     if segments.iter().any(|s| is_commit(s)) {
+        return Ok(());
+    }
+    // The Python package index stores each file under its own content hash: `/packages/<2>/<2>/<60 hex>/<file>`.
+    if segments.len() == 6
+        && segments[0] == "files.pythonhosted.org"
+        && segments[1] == "packages"
+        && segments[4].len() == 60
+        && segments[4].bytes().all(|b| b.is_ascii_hexdigit())
+    {
         return Ok(());
     }
     if let Some(i) = segments.windows(2).position(|w| w == ["releases", "download"])
@@ -182,21 +284,108 @@ impl WhisperPin {
             version: "ggml-1".into(),
             purpose: self.purpose.into(),
             licence: "MIT".into(),
-            files: vec![ModelFile {
-                name: self.file.into(),
-                url: format!("{WHISPER_REPO}/{}", self.file),
-                sha256: self.sha256.into(),
-                bytes: self.bytes,
-            }],
+            files: vec![ModelFile::new(self.file, &format!("{WHISPER_REPO}/{}", self.file), self.sha256, self.bytes)],
             runtime: RuntimeKind::WhisperCpp,
             in_process: false,
         }
     }
 }
 
-/// Every model this build knows.
+/// The id of the inference runtime (ONNX Runtime) in the model store.
+pub const RUNTIME_ID: &str = "onnxruntime";
+/// The pinned ONNX Runtime version. Its macOS library needs macOS 14 or later on Apple silicon (the wheel's platform
+/// tag is `macosx_14_0_arm64`), the same minimum as the app.
+pub const RUNTIME_VERSION: &str = "1.32.0";
+
+/// A platform the runtime library is pinned for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimePlatform {
+    WindowsX64,
+    MacosArm64,
+}
+
+impl RuntimePlatform {
+    /// The platform this build runs on, when the runtime is pinned for it.
+    pub fn current() -> Option<RuntimePlatform> {
+        if cfg!(all(windows, target_arch = "x86_64")) {
+            Some(RuntimePlatform::WindowsX64)
+        } else if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+            Some(RuntimePlatform::MacosArm64)
+        } else {
+            None
+        }
+    }
+}
+
+/// Pins of one runtime wheel and the members taken from it.
+struct RuntimePin {
+    url: &'static str,
+    wheel: (&'static str, u64),
+    library: (&'static str, &'static str, u64),
+    licence: (&'static str, u64),
+    notices: (&'static str, u64),
+}
+
+const RUNTIME_WINDOWS_X64: RuntimePin = RuntimePin {
+    url: "https://files.pythonhosted.org/packages/a9/3e/27039badc39a1b01628b6b40b1ff1bf4a886e6dfb2f311c483606b7c86f7/onnxruntime-1.32.0-cp312-cp312-win_amd64.whl",
+    wheel: ("efe7456952c243a05a53d5b8732953625144642c2f3989094277f6217f0c0c40", 16_698_767),
+    library: ("onnxruntime.dll", "443c0065fcdba17618ddef05050308f4b471893c5c7da0337d6957c9073ad8a7", 22_668_640),
+    licence: ("c250d6278f0b47a6439fb7592b08b58a55eb9f535aa49a1db63211c3f982b674", 1_094),
+    notices: ("bf8073fd6a112ac2a656bb60799652127e881689e51d37ad20df446cd5188b2d", 341_120),
+};
+
+const RUNTIME_MACOS_ARM64: RuntimePin = RuntimePin {
+    url: "https://files.pythonhosted.org/packages/6f/a4/480cd367bc135dd9951c89d461cc6af6be9302cd2ce91e231f6cb0e7ee1b/onnxruntime-1.32.0-cp312-cp312-macosx_14_0_arm64.whl",
+    wheel: ("d52510bbbcc880c13b826f7d75cdf33ac5cf0bb864d960000fc29ce73f0cb83e", 22_519_308),
+    library: (
+        "libonnxruntime.1.32.0.dylib",
+        "fa585fabbea65b823b9a8f7e27d46aee3989d1be7e36b528203d3a1fd613aae7",
+        35_272_344,
+    ),
+    licence: ("2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c", 1_073),
+    notices: ("d8696258afcf9df7827a5e01d6b6d55ee9b461b4e82020f5f48242deb9cc2270", 334_795),
+};
+
+/// ONNX Runtime from the official Python wheels on the Python package index (file locations there are content
+/// addressed, so they never change). The library, the wheel's licence and its third-party notices are extracted into
+/// the store next to each other; the wheel itself is deleted after extraction.
+pub fn runtime_manifest(platform: RuntimePlatform) -> Manifest {
+    let pin = match platform {
+        RuntimePlatform::WindowsX64 => RUNTIME_WINDOWS_X64,
+        RuntimePlatform::MacosArm64 => RUNTIME_MACOS_ARM64,
+    };
+    let member = |name: &str, path: &str, (sha256, bytes): (&str, u64)| ModelFile {
+        name: name.into(),
+        url: pin.url.into(),
+        sha256: sha256.into(),
+        bytes,
+        archive_member: Some(ArchiveMember {
+            path: path.into(),
+            archive_sha256: pin.wheel.0.into(),
+            archive_bytes: pin.wheel.1,
+        }),
+    };
+    let (lib, lib_sha, lib_bytes) = pin.library;
+    Manifest {
+        id: RUNTIME_ID.into(),
+        version: RUNTIME_VERSION.into(),
+        purpose: "Inference runtime for voice activity and other local models (ONNX Runtime)".into(),
+        licence: "MIT".into(),
+        files: vec![
+            member(lib, &format!("onnxruntime/capi/{lib}"), (lib_sha, lib_bytes)),
+            member("LICENSE", "onnxruntime/LICENSE", pin.licence),
+            member("ThirdPartyNotices.txt", "onnxruntime/ThirdPartyNotices.txt", pin.notices),
+        ],
+        runtime: RuntimeKind::Library,
+        in_process: false,
+    }
+}
+
+/// Every model this build knows: the speech models, and the inference runtime for this platform.
 pub fn catalog() -> Vec<Manifest> {
-    WHISPER.iter().map(WhisperPin::manifest).collect()
+    let mut all: Vec<Manifest> = WHISPER.iter().map(WhisperPin::manifest).collect();
+    all.extend(RuntimePlatform::current().map(runtime_manifest));
+    all
 }
 
 /// The built-in manifest with this id.
@@ -214,12 +403,12 @@ mod tests {
             version: "1".into(),
             purpose: "test".into(),
             licence: "MIT".into(),
-            files: vec![ModelFile {
-                name: "demo.onnx".into(),
-                url: "https://example.org/org/repo/resolve/0123456789abcdef0123456789abcdef01234567/demo.onnx".into(),
-                sha256: "a".repeat(64),
-                bytes: 10,
-            }],
+            files: vec![ModelFile::new(
+                "demo.onnx",
+                "https://example.org/org/repo/resolve/0123456789abcdef0123456789abcdef01234567/demo.onnx",
+                &"a".repeat(64),
+                10,
+            )],
             runtime: RuntimeKind::Onnx,
             in_process: true,
         }
@@ -234,6 +423,41 @@ mod tests {
         for (i, m) in all.iter().enumerate() {
             assert!(all[..i].iter().all(|n| n.id != m.id), "duplicate id {}", m.id);
         }
+    }
+
+    #[test]
+    fn both_runtime_manifests_are_valid_and_download_one_wheel() {
+        for p in [RuntimePlatform::WindowsX64, RuntimePlatform::MacosArm64] {
+            let m = runtime_manifest(p);
+            m.validate().unwrap();
+            assert_eq!(m.downloads().len(), 1, "one wheel per platform");
+            assert_eq!(m.host(), Some("files.pythonhosted.org"));
+            assert!(m.download_bytes() < m.total_bytes());
+            assert!(m.files.iter().all(|f| f.archive_member.is_some()));
+        }
+        assert_eq!(runtime_manifest(RuntimePlatform::WindowsX64).download_bytes(), 16_698_767);
+        assert_eq!(runtime_manifest(RuntimePlatform::MacosArm64).download_bytes(), 22_519_308);
+    }
+
+    #[test]
+    fn archive_members_are_checked() {
+        let mut m = runtime_manifest(RuntimePlatform::WindowsX64);
+        m.files[0].archive_member.as_mut().unwrap().path = "../onnxruntime.dll".into();
+        assert!(m.validate().is_err());
+        let mut m = runtime_manifest(RuntimePlatform::WindowsX64);
+        m.files[1].archive_member.as_mut().unwrap().archive_sha256 = "b".repeat(64);
+        assert!(m.validate().unwrap_err().to_string().contains("pinned differently"));
+        let mut m = runtime_manifest(RuntimePlatform::WindowsX64);
+        m.files[2].archive_member.as_mut().unwrap().archive_bytes = 0;
+        assert!(m.validate().is_err());
+    }
+
+    #[test]
+    fn content_addressed_package_index_files_are_accepted() {
+        let hash = "27039badc39a1b01628b6b40b1ff1bf4a886e6dfb2f311c483606b7c86f7";
+        check_pinned_url(&format!("https://files.pythonhosted.org/packages/a9/3e/{hash}/x.whl")).unwrap();
+        assert!(check_pinned_url("https://files.pythonhosted.org/packages/a9/3e/x.whl").is_err());
+        assert!(check_pinned_url(&format!("https://example.org/packages/a9/3e/{hash}/x.whl")).is_err());
     }
 
     #[test]

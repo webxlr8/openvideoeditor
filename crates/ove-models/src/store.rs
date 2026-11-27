@@ -47,7 +47,12 @@ pub enum Ensure {
 pub struct NotInstalled {
     pub id: String,
     pub purpose: String,
+    /// Size of the installed files.
     pub bytes: u64,
+    /// Bytes to download (an archive counts once).
+    pub download_bytes: u64,
+    /// Where the download comes from.
+    pub host: String,
     /// How to install it.
     pub install: String,
     pub message: String,
@@ -56,20 +61,43 @@ pub struct NotInstalled {
 impl NotInstalled {
     pub fn for_manifest(m: &Manifest) -> NotInstalled {
         let bytes = m.total_bytes();
+        let download_bytes = m.download_bytes();
+        let host = m.host().unwrap_or_default().to_string();
         let install = format!("ove models install {} --yes", m.id);
+        let what = if m.runtime == RuntimeKind::Library {
+            format!("runtime not installed: the inference runtime {} ({})", m.id, m.purpose)
+        } else {
+            format!("the model {} ({}) is not installed", m.id, m.purpose)
+        };
         NotInstalled {
             id: m.id.clone(),
             purpose: m.purpose.clone(),
             bytes,
+            download_bytes,
             message: format!(
-                "the model {} ({}) is not installed; it is a {} MB download that needs your consent: install it in                  Settings > Storage or run `{install}`",
-                m.id,
-                m.purpose,
-                crate::error::mb_up(bytes)
+                "{what}; it is a {} MB download from {host} that needs your consent: install it in Settings > Storage \
+                 or run `{install}`",
+                crate::error::mb_up(download_bytes)
             ),
+            host,
             install,
         }
     }
+}
+
+/// True when downloading `m` needs the person's consent: over [`CONSENT_ABOVE_BYTES`], or a native runtime library
+/// (code from a third-party host is never fetched without the person's action, whatever its size).
+pub fn needs_consent(m: &Manifest) -> bool {
+    m.total_bytes() > CONSENT_ABOVE_BYTES || m.runtime == RuntimeKind::Library
+}
+
+/// Where [`Store::install`] takes the downloads from.
+#[derive(Debug, Clone, Copy)]
+enum Source<'a> {
+    /// The pinned locations (or the URL override).
+    Network,
+    /// A folder holding the downloads under their own names (an offline install).
+    Folder(&'a Path),
 }
 
 /// Download progress of a whole model.
@@ -115,6 +143,10 @@ pub struct ModelStatus {
     pub installed: bool,
     /// The folder holding the model's files, when installed.
     pub location: Option<PathBuf>,
+    /// The host the files download from.
+    pub host: Option<String>,
+    /// Bytes to download (an archive counts once).
+    pub download_bytes: u64,
 }
 
 /// Result of [`Store::install`].
@@ -220,9 +252,9 @@ impl Store {
         match &self.url_override {
             None => file.url.clone(),
             Some(UrlOverride::Mirror(base)) => {
-                format!("{}/{}/{}/{}", base.trim_end_matches('/'), m.id, m.version, file.name)
+                format!("{}/{}/{}/{}", base.trim_end_matches('/'), m.id, m.version, file.download_name())
             }
-            Some(UrlOverride::Flat(base)) => format!("{}/{}", base.trim_end_matches('/'), file.name),
+            Some(UrlOverride::Flat(base)) => format!("{}/{}", base.trim_end_matches('/'), file.download_name()),
         }
     }
 
@@ -249,6 +281,8 @@ impl Store {
             bytes: m.total_bytes(),
             installed: paths.is_some(),
             location: paths.and_then(|p| p.first().and_then(|f| f.parent().map(Path::to_path_buf))),
+            host: m.host().map(str::to_string),
+            download_bytes: m.download_bytes(),
         }
     }
 
@@ -281,70 +315,132 @@ impl Store {
             .collect()
     }
 
-    /// Downloads a model unless it is installed. Checks free space first (remaining bytes plus 10 % of the model);
-    /// one download per model at a time in this process; `cancel` is checked at every chunk.
+    /// Downloads a model unless it is installed. Checks free space first (bytes still to download, plus the files
+    /// still to extract from archives, plus 10 % of the model); one download per model at a time in this process;
+    /// `cancel` is checked at every chunk. Progress counts downloaded bytes (an archive once).
     pub fn install(
         &self,
         id: &str,
         progress: &mut dyn FnMut(&Progress),
         cancel: &AtomicBool,
     ) -> Result<InstallOutcome> {
+        self.install_with(id, Source::Network, progress, cancel)
+    }
+
+    /// Installs a model offline from `folder`, which holds what would be downloaded under its own name (the file
+    /// name at the end of each pinned URL: the model files, or the archive they come from). Every size and hash is
+    /// checked as for a download; nothing is fetched from the network.
+    pub fn install_from_folder(
+        &self,
+        id: &str,
+        folder: &Path,
+        progress: &mut dyn FnMut(&Progress),
+    ) -> Result<InstallOutcome> {
+        self.install_with(id, Source::Folder(folder), progress, &AtomicBool::new(false))
+    }
+
+    fn install_with(
+        &self,
+        id: &str,
+        source: Source<'_>,
+        progress: &mut dyn FnMut(&Progress),
+        cancel: &AtomicBool,
+    ) -> Result<InstallOutcome> {
         let m = self.manifest(id)?.clone();
         m.validate()?;
+        let total = m.download_bytes();
         if let Some(paths) = self.installed_paths(id) {
-            let total = m.total_bytes();
             progress(&Progress { model: m.id.clone(), file: String::new(), done: total, total });
             return Ok(InstallOutcome { already: true, paths });
         }
         let _busy = Busy::take(&self.root, &m.id)?;
         let dir = self.model_dir(&m);
-        let total = m.total_bytes();
+        let finished = |f: &manifest::ModelFile| {
+            let dest = dir.join(&f.name);
+            std::fs::metadata(&dest).is_ok_and(|md| md.len() == f.bytes)
+        };
 
-        // Bytes already on disk: finished files that still verify by size, and partial files.
-        let on_disk: Vec<u64> = m
-            .files
-            .iter()
-            .map(|f| {
-                let dest = dir.join(&f.name);
-                match std::fs::metadata(&dest) {
-                    Ok(md) if md.len() == f.bytes => f.bytes,
-                    _ => std::fs::metadata(part_path(&dest)).map(|md| md.len().min(f.bytes)).unwrap_or(0),
-                }
-            })
-            .collect();
-        let remaining = total - on_disk.iter().sum::<u64>();
-        let needed = remaining + total / 10;
+        // Bytes already on disk: finished downloads that still verify by size, and partial files. Archives whose
+        // members are all extracted need nothing more.
+        let downloads = m.downloads();
+        let mut remaining = 0u64;
+        for d in &downloads {
+            let members_done = m.files.iter().filter(|f| f.url == d.url && f.archive_member.is_some()).all(finished);
+            if d.archive_member.is_some() && members_done || d.archive_member.is_none() && finished(d) {
+                continue;
+            }
+            let (bytes, _) = d.download_pin();
+            let dest = dir.join(d.download_name());
+            let have = match std::fs::metadata(&dest) {
+                Ok(md) if md.len() == bytes => bytes,
+                _ => std::fs::metadata(part_path(&dest)).map(|md| md.len().min(bytes)).unwrap_or(0),
+            };
+            remaining += bytes - have;
+        }
+        let to_extract: u64 =
+            m.files.iter().filter(|f| f.archive_member.is_some() && !finished(f)).map(|f| f.bytes).sum();
+        let needed = remaining + to_extract + m.total_bytes() / 10;
         let free = (self.free_space)(&self.root).map_err(|e| io_err("check the free space of", &self.root, e))?;
         if free < needed {
             return Err(ModelError::NoSpace { model: m.id.clone(), needed, free });
         }
 
-        let mut paths = Vec::with_capacity(m.files.len());
         let mut base = 0u64;
-        for f in &m.files {
-            let dest = dir.join(&f.name);
-            let finished = std::fs::metadata(&dest).is_ok_and(|md| md.len() == f.bytes)
-                && sha256_file(&dest).is_ok_and(|h| h == f.sha256);
-            if !finished {
+        for d in &downloads {
+            let (bytes, sha256) = d.download_pin();
+            let name = d.download_name().to_string();
+            let members: Vec<&manifest::ModelFile> = match d.archive_member {
+                Some(_) => m.files.iter().filter(|f| f.archive_member.is_some() && f.url == d.url).collect(),
+                None => Vec::new(),
+            };
+            let dest = dir.join(&name);
+            let all_members_done = !members.is_empty()
+                && members.iter().all(|f| {
+                    let p = dir.join(&f.name);
+                    finished(f) && sha256_file(&p).is_ok_and(|h| h == f.sha256)
+                });
+            let done_already = all_members_done
+                || std::fs::metadata(&dest).is_ok_and(|md| md.len() == bytes)
+                    && sha256_file(&dest).is_ok_and(|h| h == sha256);
+            if !done_already {
                 let _ = std::fs::remove_file(&dest);
-                let url = self.url_for(&m, f);
-                let job = FileJob { model: &m.id, file: f, url: &url, dest: &dest };
+                let pin = manifest::ModelFile::new(&name, &d.url, sha256, bytes);
                 let mut on_bytes = |done: u64| {
-                    progress(&Progress { model: m.id.clone(), file: f.name.clone(), done: base + done, total })
+                    progress(&Progress { model: m.id.clone(), file: name.clone(), done: base + done, total })
                 };
-                download::fetch_file(&self.agent, &job, &mut on_bytes, cancel)?;
+                match source {
+                    Source::Network => {
+                        let url = self.url_for(&m, d);
+                        let job = FileJob { model: &m.id, file: &pin, url: &url, dest: &dest };
+                        download::fetch_file(&self.agent, &job, &mut on_bytes, cancel)?;
+                    }
+                    Source::Folder(folder) => {
+                        crate::archive::copy_verified(&m.id, &pin, &folder.join(&name), &dest, &mut on_bytes)?
+                    }
+                }
             }
-            base += f.bytes;
-            progress(&Progress { model: m.id.clone(), file: f.name.clone(), done: base, total });
-            paths.push(dest);
+            for f in &members {
+                let out = dir.join(&f.name);
+                let ok = finished(f) && sha256_file(&out).is_ok_and(|h| h == f.sha256);
+                if !ok {
+                    crate::archive::extract_member(&m.id, &dest, f, &out)?;
+                }
+            }
+            if !members.is_empty() {
+                // The archive is only a carrier: its members are installed, so it goes.
+                let _ = std::fs::remove_file(&dest);
+            }
+            base += bytes;
+            progress(&Progress { model: m.id.clone(), file: name.clone(), done: base, total });
         }
+        let paths: Vec<PathBuf> = m.files.iter().map(|f| dir.join(&f.name)).collect();
         self.record(&m, &paths, false)?;
         Ok(InstallOutcome { already: false, paths })
     }
 
-    /// Makes sure a model is installed, honouring consent: a model over [`CONSENT_ABOVE_BYTES`] downloads only for
-    /// [`Origin::Person`]; for anyone else it returns [`Ensure::NeedsConsent`] and downloads nothing. Smaller models
-    /// download for any origin, with progress.
+    /// Makes sure a model is installed, honouring consent: a model over [`CONSENT_ABOVE_BYTES`], or a runtime
+    /// library, downloads only for [`Origin::Person`]; for anyone else it returns [`Ensure::NeedsConsent`] and
+    /// downloads nothing. Other models download for any origin, with progress.
     pub fn ensure_installed(
         &self,
         id: &str,
@@ -356,7 +452,7 @@ impl Store {
         if let Some(paths) = self.installed_paths(id) {
             return Ok(Ensure::Ready(paths));
         }
-        if m.total_bytes() > CONSENT_ABOVE_BYTES && origin != Origin::Person {
+        if needs_consent(m) && origin != Origin::Person {
             return Ok(Ensure::NeedsConsent(NotInstalled::for_manifest(m)));
         }
         Ok(Ensure::Ready(self.install(id, progress, cancel)?.paths))
