@@ -124,6 +124,11 @@ export const commands = {
 	 *  Sent once per hover, never per pointer move.
 	 */
 	requestSkim: (mediaId: string) => typedError<null, AppError>(__TAURI_INVOKE("request_skim", { mediaId })),
+	/**
+	 *  Peaks of a media file's source range (seconds) in `bins` columns, from the analysis cache. Never decodes: while
+	 *  the analysis is not ready the status is `pending`, and its task is moved to interactive priority.
+	 */
+	peakRange: (mediaId: string, start: number | null, end: number | null, bins: number) => typedError<PeakRangeView_Serialize, AppError>(__TAURI_INVOKE("peak_range", { mediaId, start, end, bins })),
 	/**  Save dialog for the export destination. `None` when cancelled. */
 	chooseExportPath: (defaultName: string) => typedError<string | null, AppError>(__TAURI_INVOKE("choose_export_path", { defaultName })),
 	/**  Shows a file in the system file manager. */
@@ -257,6 +262,7 @@ export const commands = {
 export const events = {
 	agentUiEvent: makeEvent<AgentUiEvent_Serialize, AgentUiEvent_Deserialize>("agent-ui-event"),
 	appErrorRaised: makeEvent<AppErrorRaised, AppErrorRaised>("app-error-raised"),
+	audioAnalysisChanged: makeEvent<AudioAnalysisChanged, AudioAnalysisChanged>("audio-analysis-changed"),
 	captionJobProgress: makeEvent<CaptionJobProgress_Serialize, CaptionJobProgress_Deserialize>("caption-job-progress"),
 	exportProgress: makeEvent<ExportProgress_Serialize, ExportProgress_Deserialize>("export-progress"),
 	generationUpdated: makeEvent<GenerationUpdated, GenerationUpdated>("generation-updated"),
@@ -422,6 +428,13 @@ export type AppInfo_Serialize = {
 	logDir: string | null,
 	/**  Where projects are kept. */
 	libraryDir: string | null,
+};
+
+/**  A media file's analysis finished (or failed): the UI asks for its peaks again. */
+export type AudioAnalysisChanged = {
+	contentId: string,
+	/**  ready | error */
+	status: string,
 };
 
 /**  What to caption. */
@@ -992,6 +1005,39 @@ export type OnboardingState_Serialize = {
 /**  Paths routed to the running app (second launch, Open With, Dock/taskbar drop, window drop). */
 export type OpenPathsRequested = {
 	paths: string[],
+};
+
+/**  Peaks of a source range, or why there are none yet. */
+export type PeakRangeView = PeakRangeView_Serialize | PeakRangeView_Deserialize;
+
+/**  Peaks of a source range, or why there are none yet. */
+export type PeakRangeView_Deserialize = {
+	/**  ready | pending | error | none (the media has no sound) */
+	status: string,
+	message?: string | null,
+	/**  The media's content id: the key for caching peaks in the UI and matching [`AudioAnalysisChanged`]. */
+	contentId?: string | null,
+	channels: number,
+	bins: number,
+	/**  Pyramid level read (bin size 256 × 2^level sample frames). */
+	level: number,
+	/**  `bins × channels × 2` values (min, max) from -127 to 127. */
+	data: number[],
+};
+
+/**  Peaks of a source range, or why there are none yet. */
+export type PeakRangeView_Serialize = {
+	/**  ready | pending | error | none (the media has no sound) */
+	status: string,
+	message: string | null,
+	/**  The media's content id: the key for caching peaks in the UI and matching [`AudioAnalysisChanged`]. */
+	contentId: string | null,
+	channels: number,
+	bins: number,
+	/**  Pyramid level read (bin size 256 × 2^level sample frames). */
+	level: number,
+	/**  `bins × channels × 2` values (min, max) from -127 to 127. */
+	data: number[],
 };
 
 /**  Playback state changed (frame, play/pause, speed, loop, volume). */

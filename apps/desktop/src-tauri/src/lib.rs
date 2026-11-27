@@ -26,6 +26,7 @@ pub mod tasks;
 pub mod timeline;
 pub mod transport;
 pub mod viewer;
+pub mod waveforms;
 pub mod window_state;
 pub mod worker;
 
@@ -166,6 +167,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             exporting::export_project,
             exporting::cancel_export,
             tasks::request_skim,
+            waveforms::peak_range,
             exporting::choose_export_path,
             exporting::reveal_path,
             edits::item_detail,
@@ -234,6 +236,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             assistant::AgentUiEvent,
             captions::CaptionJobProgress,
             models::LocalModelsChanged,
+            waveforms::AudioAnalysisChanged,
         ])
         .error_handling(tauri_specta::ErrorHandlingMode::Result)
 }

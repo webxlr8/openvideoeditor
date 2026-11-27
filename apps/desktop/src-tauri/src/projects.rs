@@ -530,6 +530,8 @@ pub struct MediaCache {
     skim_queued: BTreeSet<String>,
     /// content id → finished skim sheet.
     skims: HashMap<String, SkimView>,
+    /// Content ids an audio analysis was queued for (or found finished).
+    analysis_queued: BTreeSet<String>,
 }
 
 impl MediaCache {
@@ -731,6 +733,23 @@ fn refresh_once(app: &AppHandle, state: &AppState) {
             })
             .collect()
     };
+    // Audio analysis (peaks and loudness), keyed by content id: queued once per content for online media with sound.
+    let analyses: Vec<(String, PathBuf)> = {
+        let mut c = relock(&state.projects.media);
+        let online: BTreeSet<&str> =
+            links.iter().filter(|(_, _, l)| l.state == MediaState::Online).map(|(id, _, _)| id.as_str()).collect();
+        doc.registry
+            .values()
+            .filter(|e| online.contains(e.media_id.as_str()))
+            .filter_map(|e| {
+                let cid = e.fields.get("contentId")?.as_str()?;
+                let data = doc.project.media.get(&e.media_id)?.fields.get("data")?;
+                crate::waveforms::media_has_sound(data).then_some(())?;
+                c.analysis_queued.insert(cid.to_string()).then_some(())?;
+                Some((cid.to_string(), resolve_media_path(&bundle, &e.native_path)))
+            })
+            .collect()
+    };
     // Released before the project is locked: the lock order is project, then media cache.
     let changed = relock(&state.projects.media).store(&bundle, links, thumbs);
     if !missing.is_empty() {
@@ -746,6 +765,15 @@ fn refresh_once(app: &AppHandle, state: &AppState) {
                     relock(&a.state::<AppState>().projects.media).put_skim(&b, s);
                     emit_view_soon(&a);
                 }
+            });
+        }
+    }
+    if !analyses.is_empty() {
+        let project = crate::tasks::project_key(&bundle);
+        for (cid, source) in analyses {
+            let (a, c) = (app.clone(), cid.clone());
+            crate::waveforms::queue_analysis(&state.tasks, &project, &bundle, &cid, source, move |ok| {
+                crate::waveforms::emit_changed(&a, &c, ok);
             });
         }
     }

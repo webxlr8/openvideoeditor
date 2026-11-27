@@ -1651,6 +1651,23 @@ function createMock(): {
       }, 30);
       return ok(null);
     },
+    peakRange: async (mediaId: string, start: number | null, end: number | null, bins: number) => {
+      track("peakRange");
+      // A deterministic stand-in for analysed audio: a tone whose level rises and falls with source time.
+      const a = start ?? 0;
+      const b = end ?? a;
+      const n = Math.max(1, Math.min(16384, Math.floor(bins)));
+      const data: number[] = [];
+      for (let i = 0; i < n; i++) {
+        const t = a + ((i + 0.5) * (b - a)) / n;
+        const level = 0.15 + 0.6 * Math.abs(Math.sin(t * 1.3)) * (0.6 + 0.4 * Math.sin(t * 7.1));
+        for (let c = 0; c < 2; c++) {
+          const v = Math.round(Math.min(1, level * (c === 0 ? 1 : 0.8)) * 127);
+          data.push(-v, v);
+        }
+      }
+      return ok({ status: "ready", message: null, contentId: `mock-${mediaId}`, channels: 2, bins: n, level: 0, data });
+    },
     requestSkim: async (_mediaId: string) => {
       track("requestSkim");
       return ok(null);
@@ -2428,6 +2445,7 @@ function createMock(): {
   const events = {
     agentUiEvent: makeEvent("agent-ui-event"),
     appErrorRaised: makeEvent("app-error-raised"),
+    audioAnalysisChanged: makeEvent("audio-analysis-changed"),
     captionJobProgress: makeEvent("caption-job-progress"),
     localModelsChanged: makeEvent("local-models-changed"),
     exportProgress: makeEvent("export-progress"),

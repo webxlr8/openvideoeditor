@@ -13,13 +13,13 @@
 
 ## 2. Import analysis cache
 
-- [ ] 2.1 Implement the analysis pass: one decode producing the per-channel min/max peak pyramid, the loudness summary
+- [x] 2.1 Implement the analysis pass: one decode producing the per-channel min/max peak pyramid, the loudness summary
       and the onset envelope, written to the bundle cache under the media key; verify a test that counts decoder opens
       (exactly one for import, three waveform queries and one loudness query).
-- [ ] 2.2 Run the pass as a background task after import (on the scheduler when available, else the import worker) and
+- [x] 2.2 Run the pass as a background task after import (on the scheduler when available, else the import worker) and
       invalidate it when content changes; verify a changed-file test re-analyses and an unreadable-audio fixture
       reports an analysis error without blocking other media.
-- [ ] 2.3 Add the peak range query command (source range, bins per pixel); verify it picks the coarsest sufficient
+- [x] 2.3 Add the peak range query command (source range, bins per pixel); verify it picks the coarsest sufficient
       level and returns values equal to a brute-force reference on a fixture.
 
 ## 3. Waveforms and gain line

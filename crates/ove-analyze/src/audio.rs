@@ -8,7 +8,7 @@
 use std::path::Path;
 
 use ove_media::{AudioDecoder, AudioOutputSpec, SampleFormat, Samples};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::image::Image;
 use crate::{Error, Result};
@@ -100,7 +100,7 @@ fn tp_kernel() -> [[f64; TP_TAPS]; 3] {
 }
 
 /// Everything the public functions need, from one decode.
-struct Pass {
+pub(crate) struct Pass {
     channels: usize,
     weights: Vec<f64>,
     filters: Vec<[Biquad; 2]>,
@@ -122,7 +122,7 @@ struct Pass {
 }
 
 impl Pass {
-    fn new(channels: usize) -> Pass {
+    pub(crate) fn new(channels: usize) -> Pass {
         Pass {
             channels,
             weights: channel_weights(channels),
@@ -142,7 +142,7 @@ impl Pass {
         }
     }
 
-    fn push_frame(&mut self, frame: &[f32]) {
+    pub(crate) fn push_frame(&mut self, frame: &[f32]) {
         let sub_len = (RATE / 10) as usize;
         for (c, &s) in frame.iter().enumerate().take(self.channels) {
             let x = s as f64;
@@ -176,7 +176,7 @@ impl Pass {
         }
     }
 
-    fn close_window(&mut self) {
+    pub(crate) fn close_window(&mut self) {
         if self.win_n > 0 {
             let ms = self.win_sq / (self.win_n * self.channels) as f64;
             self.windows.push((self.win_peak as f32, ms as f32));
@@ -197,6 +197,7 @@ fn analyse(path: &Path) -> Result<Pass> {
     let info = ove_media::probe(path)?;
     let src = info.audio.as_ref().ok_or_else(|| Error::NoAudio(path.display().to_string()))?;
     let channels = src.channels.clamp(1, 8) as u16;
+    crate::analysis::note_decode();
     let mut dec = AudioDecoder::open(path, AudioOutputSpec { sample_rate: RATE, channels, format: SampleFormat::F32 })?;
     let mut pass = Pass::new(channels as usize);
     while let Some(chunk) = dec.next_chunk()? {
@@ -298,7 +299,7 @@ pub fn silence(path: &Path, threshold_db: f64, min_seconds: f64) -> Result<Vec<R
 }
 
 /// Loudness per BS.1770-4 / EBU R128.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Loudness {
     /// Integrated loudness (LUFS); `None` when every block is below the −70 LUFS gate (silence or too short).
@@ -366,7 +367,11 @@ pub(crate) fn loudness_range(short: &[f64]) -> f64 {
 
 /// Loudness of a file's audio.
 pub fn loudness(path: &Path) -> Result<Loudness> {
-    let pass = analyse(path)?;
+    Ok(loudness_of(&analyse(path)?))
+}
+
+/// The loudness summary of a finished pass.
+pub(crate) fn loudness_of(pass: &Pass) -> Loudness {
     let blocks = window_energies(&pass.subs, 4);
     let short = window_energies(&pass.subs, 30);
     let max_short = short
@@ -375,7 +380,7 @@ pub fn loudness(path: &Path) -> Result<Loudness> {
         .filter(|e| *e > 0.0)
         .map(lufs)
         .fold(None, |m: Option<f64>, v| Some(m.map_or(v, |m| m.max(v))));
-    Ok(Loudness {
+    Loudness {
         integrated_lufs: integrated(&blocks).map(r2),
         loudness_range_lu: r2(loudness_range(&short)),
         max_short_term_lufs: max_short.map(r2),
@@ -383,7 +388,7 @@ pub fn loudness(path: &Path) -> Result<Loudness> {
         true_peak_dbtp: r2(db(pass.true_peak.max(pass.sample_peak))),
         channels: pass.channels,
         duration: (pass.duration() * 1000.0).round() / 1000.0,
-    })
+    }
 }
 
 #[cfg(test)]

@@ -156,3 +156,10 @@ and the built app (group 7) are not measured yet.
   (`volume_keyframes_fade_in_db_and_preview_equals_export`); the 32-sample block gain stays within 0.1 dB of the dB
   curve. Mixing the same timeline in 1024-frame blocks (preview), 1600/1601-frame blocks (export per video frame)
   and odd 37/4093/512-frame blocks gives bit-identical samples.
+- Import analysis (group 2): one pass over a 10 s stereo 48 kHz WAV takes 118 ms in a debug build (85× real time);
+  three waveform range queries and one loudness query afterwards decode nothing (decoder opens: exactly 1). The
+  peak file is 16 148 bytes for 10 s of stereo, so about 5.8 MB per hour, not the 1.4 MB D2 estimated: the 256-frame
+  base level of two channels alone is 2.7 MB per hour and the upper levels add as much again. Still small next to
+  the media; the Storage pane will list and clear it (background-tasks task 6.3).
+- The analysis runs as a `derivative` task in the `cpu` class on the shared scheduler, keyed by the media content
+  id; the peak cache Storage row is deferred to the background-tasks change.

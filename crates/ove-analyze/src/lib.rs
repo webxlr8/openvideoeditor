@@ -3,10 +3,12 @@
 //! statistics. Results are plain serializable structs or RGBA images (`Image::png`); nothing is printed.
 #![forbid(unsafe_code)]
 
+pub mod analysis;
 pub mod audio;
 pub mod grid;
 pub mod image;
 pub mod look;
+pub mod peaks;
 pub mod storyboard;
 pub mod video;
 
