@@ -141,3 +141,27 @@ Measured on the Windows 11 build machine (debug build, `cargo test`).
 - Timeline UI: a marker lane under the ruler with a status filter (view state, no revision), M adds a point marker
   at the playhead, a click opens a popover (name, note, colour, status, assignee; Save and Delete are one revision
   each). Vitest: `ui/src/Markers.test.tsx`, 5 tests. The built-app check is task 5.1.
+
+### Group 3: keyframes
+
+- One evaluator (`ove_core::retime::value_at`) now serves the renderer, the audio mix's volume curve and the edit
+  planners' split and trim windowing, so per-keyframe easing and `hold` mean the same everywhere. A split keeps each
+  keyframe's easing, and the keyframe added at the cut takes the easing of the segment it cuts (a held value stays
+  held). Schema: keyframe `easing` (linear, ease-in, ease-out, ease-in-out, hold), the track easing accepts `hold`,
+  and `crop.top|right|bottom|left` (0–100 %) join the keyframable properties. The renderer animates crop edges and
+  `borderRadius`. `gaussianBlur` keyframes are accepted by the schema but nothing renders a blur from that field
+  yet; that is unchanged by this change.
+- Golden render (`crates/ove-render/tests/keyframes_golden.rs`, `tests/golden/keyframes-32x18.pam`): each of the five
+  easings at 0.5 s, 1 s and 1.5 s matches its curve within 2 of 255 grey levels, the hold scenario steps at 2 s,
+  and `crop.left` 0→50 % shows the left quarter cropped at 0.5 s. The frames come from `Renderer`, which export uses;
+  preview evaluates layers with the same `eval` code, and the built-app preview check is task 5.1.
+- Merge (`keyframeTracks` keyed by `property`): property tests in `crates/ove-projection/tests/keyframes.rs`
+  (10,000 cases each, 10 s): different properties never conflict under either preference and both edits are kept;
+  the same property gives exactly one conflict, `keyframeTracks.<property>`, resolved by the preference.
+- Lanes: a ◆ button on a track head with keyframed items opens one lane per property (view state). Diamonds drag in
+  time and value, Alt-click adds a keyframe at the current value, Delete removes the focused one; each gesture is one
+  `keyframes_set` revision through the shared planner. Volume keeps its existing gain line on the clip. Vitest:
+  `ui/src/KeyframeLanes.test.tsx`, 4 tests (expansion makes no revision; drag, add and delete make one each).
+- Commands: `ove edit keyframes <project> --item … --property … --set|--add|--remove`, and the MCP tool
+  `edit_keyframes`, both through `ove_edit::keyframes::plan_keyframes`. A keyframe outside the item is refused with
+  `keyframe.outOfRange` (exit 1). The documented examples in `docs/cli/edit.md` run in the CLI doc test.

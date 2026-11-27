@@ -255,28 +255,9 @@ pub fn ease(name: &str, p: f64) -> f64 {
 
 /// Value of a keyframed property at item-relative time `rel_us`, if the item animates it.
 pub fn keyframe_value(item: &Item, property: &str, rel_us: Micros) -> Option<f64> {
-    let tracks = item.fields.get("keyframeTracks")?.as_array()?;
-    let track = tracks.iter().find(|t| t.get("property").and_then(Value::as_str) == Some(property))?;
-    let easing = track.get("easing").and_then(Value::as_str).unwrap_or("linear");
-    let mut kfs: Vec<(Micros, f64)> = track
-        .get("keyframes")?
-        .as_array()?
-        .iter()
-        .filter_map(|k| Some((k.get("time").and_then(json_to_micros)?, k.get("value")?.as_f64()?)))
-        .collect();
-    kfs.sort_by_key(|k| k.0);
-    let (&first, &last) = (kfs.first()?, kfs.last()?);
-    if rel_us <= first.0 {
-        return Some(first.1);
-    }
-    if rel_us >= last.0 {
-        return Some(last.1);
-    }
-    // first.0 < rel_us < last.0, so the position is found and is at least 1.
-    let i = kfs.iter().position(|k| k.0 > rel_us)?;
-    let (a, b) = (kfs[i - 1], kfs[i]);
-    let p = (rel_us - a.0) as f64 / (b.0 - a.0).max(1) as f64;
-    Some(a.1 + (b.1 - a.1) * ease(easing, p))
+    // Per-keyframe easing and `hold` (add-markers-keyframe-lanes-and-versions D6) are shared with the audio mix and
+    // the edit planners.
+    ove_core::retime::track_value(ove_core::retime::find_track(item.fields.get("keyframeTracks"), property)?, rel_us)
 }
 
 /// Source time of a video/audio item at timeline time `t_us` (trim, speed, reverse).
@@ -388,7 +369,12 @@ fn layer_for(doc: &Document, item: &Item, t_us: Micros, opacity_mul: f32) -> Opt
         Placement::FillHeight
     };
     let c = f.get("crop").and_then(Value::as_object);
-    let cv = |k: &str| num(c.and_then(|c| c.get(k)), 0.0).clamp(0.0, 100.0) as f32;
+    // Crop edges animate with `crop.<edge>` keyframes (percent, like the field).
+    let cv = |k: &str| {
+        keyframe_value(item, &format!("crop.{k}"), rel)
+            .unwrap_or_else(|| num(c.and_then(|c| c.get(k)), 0.0))
+            .clamp(0.0, 100.0) as f32
+    };
     Some(Layer {
         item_id: item.id.clone(),
         kind,
@@ -397,7 +383,9 @@ fn layer_for(doc: &Document, item: &Item, t_us: Micros, opacity_mul: f32) -> Opt
         placement,
         crop: [cv("top"), cv("right"), cv("bottom"), cv("left")],
         blend: Blend::parse(f.get("blendMode").and_then(Value::as_str)),
-        border_radius: num(f.get("borderRadius"), 0.0).max(0.0) as f32,
+        border_radius: keyframe_value(item, "borderRadius", rel)
+            .unwrap_or_else(|| num(f.get("borderRadius"), 0.0))
+            .max(0.0) as f32,
         grade: Grade::from_fields(f),
         fields: f.clone(),
         rel_us: rel,

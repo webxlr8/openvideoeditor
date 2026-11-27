@@ -13,6 +13,7 @@ pub mod export_queue;
 pub mod export_range;
 pub mod feedback;
 pub mod generate;
+pub mod keyframes;
 pub mod markers;
 pub mod media;
 pub mod models;

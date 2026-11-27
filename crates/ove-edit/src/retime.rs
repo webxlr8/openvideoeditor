@@ -12,6 +12,7 @@
 use serde_json::{Map, Value, json};
 
 use ove_core::model::{Document, Item};
+use ove_core::retime::Key;
 use ove_core::time::{Micros, json_to_micros, micros_to_json};
 
 /// Fields that belong to the start edge of an item.
@@ -232,70 +233,56 @@ pub fn rebase_start(item: &Item, new_start: Micros) -> Map<String, Value> {
 
 /// Value of a keyframe track at item-relative time `t` with the track's easing, or `None` for an empty track.
 pub fn track_value(keyframes: &[(Micros, f64)], easing: &str, t: Micros) -> Option<f64> {
-    let (&first, &last) = (keyframes.first()?, keyframes.last()?);
-    if t <= first.0 {
-        return Some(first.1);
-    }
-    if t >= last.0 {
-        return Some(last.1);
-    }
-    let i = keyframes.iter().position(|k| k.0 > t)?;
-    let (a, b) = (keyframes[i - 1], keyframes[i]);
-    let p = (t - a.0) as f64 / (b.0 - a.0).max(1) as f64;
-    Some(a.1 + (b.1 - a.1) * ove_core::retime::ease(easing, p))
+    let keys: Vec<Key> = keyframes.iter().map(|&(time, value)| Key { time, value, easing: None }).collect();
+    ove_core::retime::value_at(&keys, easing, t)
 }
 
-/// Value of an item's keyframed property at timeline time `t`, or `None` when the property has no keyframes.
+/// Value of an item's keyframed property at timeline time `t`, or `None` when the property has no keyframes. Each
+/// segment uses its start keyframe's easing, else the track's.
 pub fn property_at(item: &Item, property: &str, t: Micros) -> Option<f64> {
-    let tracks = item.fields.get("keyframeTracks")?.as_array()?;
-    let track = tracks.iter().find(|tr| tr.get("property").and_then(Value::as_str) == Some(property))?;
-    let easing = track.get("easing").and_then(Value::as_str).unwrap_or("linear");
-    let mut kfs = keyframes_of(track);
-    kfs.sort_by_key(|k| k.0);
-    track_value(&kfs, easing, t - item.start)
-}
-
-fn keyframes_of(track: &Value) -> Vec<(Micros, f64)> {
-    track
-        .get("keyframes")
-        .and_then(Value::as_array)
-        .map(|list| {
-            list.iter()
-                .filter_map(|k| Some((k.get("time").and_then(json_to_micros)?, k.get("value")?.as_f64()?)))
-                .collect()
-        })
-        .unwrap_or_default()
+    let track = ove_core::retime::find_track(item.fields.get("keyframeTracks"), property)?;
+    ove_core::retime::track_value(track, t - item.start)
 }
 
 /// Keyframe tracks restricted to the item-relative window `[from, to]` and shifted so `from` becomes 0. A keyframe is
 /// added at each window edge that falls between keyframes, holding the value there, so the curve is unchanged
-/// inside the window for linear tracks (eased tracks keep their end values; the shape between is re-eased).
+/// inside the window for linear and hold segments (eased segments keep their end values; the shape between is
+/// re-eased). Kept keyframes keep their own easing; the keyframe added at `from` takes the easing of the segment it
+/// cuts.
 fn window_keyframes(tracks: &[Value], from: Micros, to: Micros) -> Vec<Value> {
     tracks
         .iter()
         .map(|track| {
             let mut out = track.clone();
-            let easing = track.get("easing").and_then(Value::as_str).unwrap_or("linear");
             if track.get("keyframes").and_then(Value::as_array).is_none() {
                 return out;
             }
-            let mut kfs = keyframes_of(track);
-            kfs.sort_by_key(|k| k.0);
-            let mut kept: Vec<(Micros, f64)> = Vec::new();
-            if let Some(v) = track_value(&kfs, easing, from)
-                && kfs.first().is_some_and(|f| f.0 < from)
+            let easing = ove_core::retime::track_easing(track);
+            let keys = ove_core::retime::keys(track);
+            let mut kept: Vec<Key> = Vec::new();
+            if let Some(v) = ove_core::retime::value_at(&keys, easing, from)
+                && keys.first().is_some_and(|f| f.time < from)
             {
-                kept.push((from, v));
+                let cut = keys.iter().rev().find(|k| k.time < from).and_then(|k| k.easing.clone());
+                kept.push(Key { time: from, value: v, easing: cut });
             }
-            kept.extend(kfs.iter().copied().filter(|k| k.0 >= from && k.0 <= to));
-            if let Some(v) = track_value(&kfs, easing, to)
-                && kfs.last().is_some_and(|l| l.0 > to)
+            kept.extend(keys.iter().filter(|k| k.time >= from && k.time <= to).cloned());
+            if let Some(v) = ove_core::retime::value_at(&keys, easing, to)
+                && keys.last().is_some_and(|l| l.time > to)
             {
-                kept.push((to, v));
+                kept.push(Key { time: to, value: v, easing: None });
             }
-            kept.dedup_by_key(|k| k.0);
+            kept.dedup_by_key(|k| k.time);
             out["keyframes"] = Value::Array(
-                kept.into_iter().map(|(t, v)| json!({"time": micros_to_json(t - from), "value": v})).collect(),
+                kept.into_iter()
+                    .map(|k| {
+                        let mut v = json!({"time": micros_to_json(k.time - from), "value": k.value});
+                        if let Some(e) = k.easing {
+                            v["easing"] = e.into();
+                        }
+                        v
+                    })
+                    .collect(),
             );
             out
         })
@@ -399,6 +386,25 @@ mod tests {
         assert_eq!(t(&right[0]["time"]), 0);
         assert_eq!(right[0]["value"].as_f64(), Some(0.25));
         assert_eq!(t(&right[1]["time"]), 3 * S);
+    }
+
+    #[test]
+    fn a_split_keeps_per_keyframe_easing_and_hold() {
+        let it = item(json!({"id": "a", "trackId": "v", "type": "text", "startTime": 0, "endTime": 4,
+            "keyframeTracks": [{"property": "opacity", "keyframes": [
+                {"time": 0, "value": 1, "easing": "hold"}, {"time": 2, "value": 0, "easing": "ease-in"}, {"time": 4, "value": 1}]}]}));
+        let s = split(&it, S, "b").expect("inside");
+        let left = &s.left_set["keyframeTracks"][0]["keyframes"];
+        let right = &s.right["keyframeTracks"][0]["keyframes"];
+        assert_eq!(left[0]["easing"], "hold");
+        assert_eq!(left[1]["value"].as_f64(), Some(1.0), "the hold value at the cut");
+        assert_eq!(right[0]["easing"], "hold", "the cut keyframe holds like the segment it cut");
+        assert_eq!(right[1]["easing"], "ease-in");
+        // The right part still shows 1 until its next keyframe, then 0.
+        let r = item(json!({"id": "b", "trackId": "v", "type": "text", "startTime": 1, "endTime": 4,
+            "keyframeTracks": [{"property": "opacity", "keyframes": right}]}));
+        assert_eq!(property_at(&r, "opacity", 1_900_000), Some(1.0));
+        assert_eq!(property_at(&r, "opacity", 2 * S), Some(0.0));
     }
 
     #[test]

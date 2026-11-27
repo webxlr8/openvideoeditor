@@ -22,13 +22,13 @@
 
 ## 3. Keyframes
 
-- [ ] 3.1 Per-keyframe easing with `hold`, crop-edge properties, schema and renderer evaluation; verify golden render
+- [x] 3.1 Per-keyframe easing with `hold`, crop-edge properties, schema and renderer evaluation; verify golden render
       frames for each easing and crop keyframes in preview and export.
-- [ ] 3.2 Merge `keyframeTracks` keyed by property; verify property tests: different properties never conflict, the
+- [x] 3.2 Merge `keyframeTracks` keyed by property; verify property tests: different properties never conflict, the
       same property conflicts by the existing policy.
-- [ ] 3.3 Keyframe lanes UI with add, drag, delete and a volume line on audio items; verify UI tests that each gesture
+- [x] 3.3 Keyframe lanes UI with add, drag, delete and a volume line on audio items; verify UI tests that each gesture
       is one revision and expansion creates none.
-- [ ] 3.4 `ove edit keyframes` and the MCP tool with range refusal; verify CLI integration tests and docs examples.
+- [x] 3.4 `ove edit keyframes` and the MCP tool with range refusal; verify CLI integration tests and docs examples.
 
 ## 4. Versions and scoped undo
 

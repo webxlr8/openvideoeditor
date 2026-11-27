@@ -17,6 +17,7 @@ pub mod feedback;
 pub mod fx;
 pub mod generation;
 pub mod interchange;
+pub mod keyframes;
 pub mod logging;
 pub mod markers;
 pub mod media;
@@ -219,6 +220,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             markers::marker_add,
             markers::marker_update,
             markers::marker_remove,
+            keyframes::keyframes_set,
             edits::edit_preview,
             edits::add_track,
             edits::rename_track,

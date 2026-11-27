@@ -87,10 +87,30 @@ pub const BLEND_MODES: &[&str] = &[
     "luminosity",
 ];
 pub const EASINGS: &[&str] = &["linear", "ease-in", "ease-out", "ease-in-out"];
-pub const KEYFRAME_PROPERTIES: &[&str] =
-    &["x", "y", "scale", "rotation", "opacity", "gaussianBlur", "borderRadius", "volume"];
+/// Keyframe easings: the curve easings plus `hold`, which keeps the value until the next keyframe.
+pub const KEYFRAME_EASINGS: &[&str] = &["linear", "ease-in", "ease-out", "ease-in-out", "hold"];
+pub const KEYFRAME_PROPERTIES: &[&str] = &[
+    "x",
+    "y",
+    "scale",
+    "rotation",
+    "opacity",
+    "gaussianBlur",
+    "borderRadius",
+    "volume",
+    "crop.top",
+    "crop.right",
+    "crop.bottom",
+    "crop.left",
+];
 /// Value ranges of keyframe properties whose values are bounded, checked on every keyframe of such a track.
-pub const KEYFRAME_VALUE_RANGES: &[(&str, f64, f64)] = &[("volume", 0.0, 200.0)];
+pub const KEYFRAME_VALUE_RANGES: &[(&str, f64, f64)] = &[
+    ("volume", 0.0, 200.0),
+    ("crop.top", 0.0, 100.0),
+    ("crop.right", 0.0, 100.0),
+    ("crop.bottom", 0.0, 100.0),
+    ("crop.left", 0.0, 100.0),
+];
 pub const PLAYBACK_DIRECTIONS: &[&str] = &["forward", "reverse"];
 pub const TEXT_ALIGNS: &[&str] = &["left", "center", "right", "justify"];
 pub const FONT_STYLES: &[&str] = &["normal", "italic"];
@@ -137,13 +157,16 @@ const CROP: &[Field] = &[
     fd("left", num(0.0, 100.0), Def::Num(0.0), "Percent of width removed from the left."),
 ];
 
-const KEYFRAME: &[Field] =
-    &[f("time", Kind::Time, "Seconds from the item's start."), f("value", NUM, "Property value at that time.")];
+const KEYFRAME: &[Field] = &[
+    f("time", Kind::Time, "Seconds from the item's start."),
+    f("value", NUM, "Property value at that time."),
+    f("easing", Kind::Enum(KEYFRAME_EASINGS), "Easing of the segment that starts here (overrides the track easing)."),
+];
 const KEYFRAME_KIND: Kind = Kind::Obj { fields: KEYFRAME, open: false };
 const KEYFRAME_TRACK: &[Field] = &[
     f("property", Kind::Enum(KEYFRAME_PROPERTIES), "Animated property."),
     f("keyframes", Kind::Arr(&KEYFRAME_KIND), "Keyframes in time order."),
-    fd("easing", Kind::Enum(EASINGS), Def::Str("linear"), "Interpolation between keyframes."),
+    fd("easing", Kind::Enum(KEYFRAME_EASINGS), Def::Str("linear"), "Interpolation between keyframes."),
 ];
 const KEYFRAME_TRACK_KIND: Kind = Kind::Obj { fields: KEYFRAME_TRACK, open: false };
 

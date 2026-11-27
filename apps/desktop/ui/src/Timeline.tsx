@@ -2,12 +2,13 @@
 // another compatible track), drag an edge to trim (the start edge moves the in-point), right-click for actions.
 // Snapping to the playhead, clip edges and markers is on by default. Every gesture commits one revision on release.
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Ghost, ItemView_Serialize, ProjectView_Serialize } from "./bindings";
 import { commands } from "./bridge";
 import { type EditResult, TIMELINE_FPS, addItems, firstTrack, linkDrift, trackAccepts, updateItem, updateItems, snapToFrame } from "./edit";
 import { Icon, type IconName } from "./icons";
 import { ClipAudioLayer } from "./ClipAudioLayer";
+import { KeyframeLanes, LANE_H, laneProperties } from "./KeyframeLanes";
 import { MarkerLane } from "./MarkerLane";
 import { ContextMenu, type MenuItem } from "./Menu";
 import { useCutPreview } from "./cutPreview";
@@ -71,6 +72,8 @@ export function Timeline(props: TimelineProps) {
   const [ghosts, setGhosts] = useState<Ghost[]>([]);
   const previewSeq = useRef(0);
   const [menu, setMenu] = useState<{ at: { x: number; y: number }; items: MenuItem[] } | null>(null);
+  // Tracks whose keyframe lanes are open (view state: no revision).
+  const [expanded, setExpanded] = useState<string[]>([]);
   const cutPreview = useCutPreview();
   const items = project?.items ?? [];
   const tracks = project?.tracks ?? [];
@@ -160,8 +163,14 @@ export function Timeline(props: TimelineProps) {
   const trackAtY = (clientY: number) => {
     const r = rows.current?.getBoundingClientRect();
     if (!r) return null;
-    const i = Math.floor((clientY - r.top) / ROW_H);
-    return tracks[Math.min(Math.max(i, 0), tracks.length - 1)] ?? null;
+    // Rows are ROW_H tall, plus LANE_H per keyframe lane of an expanded track.
+    let y = clientY - r.top;
+    for (const t of tracks) {
+      const h = ROW_H + (expanded.includes(t.id) ? laneProperties(items.filter((i) => i.trackId === t.id)).length * LANE_H : 0);
+      if (y < h) return t;
+      y -= h;
+    }
+    return tracks[tracks.length - 1] ?? null;
   };
 
   const startMove = (e: React.PointerEvent, item: ItemView_Serialize) => {
@@ -400,11 +409,22 @@ export function Timeline(props: TimelineProps) {
           <MarkerLane markers={project?.markers ?? []} pps={pps} headerW={HEADER_W} onEdit={onEdit} onSeek={onScrub} />
           <div className="tracks" ref={rows}>
             {tracks.map((t) => (
+              <Fragment key={t.id}>
               <div className={`track${t.visible ? "" : " track-hidden"}`} key={t.id} data-testid={`track-${t.name}`}>
                 <div className="track-head">
                   <Icon name={TRACK_ICON[t.kind] ?? "media"} size={14} />
                   <span>{t.name}</span>
                   <span className="track-tools">
+                    {laneProperties(items.filter((i) => i.trackId === t.id)).length > 0 && (
+                      <button
+                        className={`tiny kf-toggle${expanded.includes(t.id) ? " on" : ""}`}
+                        data-testid={`kf-toggle-${t.name}`}
+                        title={expanded.includes(t.id) ? "Hide keyframe lanes" : "Show keyframe lanes"}
+                        onClick={() => setExpanded((e) => (e.includes(t.id) ? e.filter((x) => x !== t.id) : [...e, t.id]))}
+                      >
+                        ◆
+                      </button>
+                    )}
                     {t.kind !== "caption" && (
                       <button
                         className={`tiny${t.muted ? " on" : ""}`}
@@ -489,6 +509,8 @@ export function Timeline(props: TimelineProps) {
                     })}
                 </div>
               </div>
+              {expanded.includes(t.id) && <KeyframeLanes items={items.filter((i) => i.trackId === t.id)} pps={pps} headerW={HEADER_W} onEdit={onEdit} />}
+              </Fragment>
             ))}
             {!items.length && <div className="timeline-empty muted">Import media to start your timeline.</div>}
           </div>

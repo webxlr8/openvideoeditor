@@ -227,7 +227,7 @@ fn documented_examples_run_with_documented_exit_codes() {
         }
         ran += 1;
     }
-    assert_eq!(ran, 9);
+    assert_eq!(ran, 11);
 }
 
 struct Mcp {

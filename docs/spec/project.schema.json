@@ -408,7 +408,11 @@
                       "opacity",
                       "gaussianBlur",
                       "borderRadius",
-                      "volume"
+                      "volume",
+                      "crop.top",
+                      "crop.right",
+                      "crop.bottom",
+                      "crop.left"
                     ],
                     "description": "Animated property."
                   },
@@ -425,6 +429,16 @@
                         "value": {
                           "type": "number",
                           "description": "Property value at that time."
+                        },
+                        "easing": {
+                          "enum": [
+                            "linear",
+                            "ease-in",
+                            "ease-out",
+                            "ease-in-out",
+                            "hold"
+                          ],
+                          "description": "Easing of the segment that starts here (overrides the track easing)."
                         }
                       }
                     },
@@ -435,7 +449,8 @@
                       "linear",
                       "ease-in",
                       "ease-out",
-                      "ease-in-out"
+                      "ease-in-out",
+                      "hold"
                     ],
                     "description": "Interpolation between keyframes.",
                     "default": "linear"
@@ -966,7 +981,11 @@
                       "opacity",
                       "gaussianBlur",
                       "borderRadius",
-                      "volume"
+                      "volume",
+                      "crop.top",
+                      "crop.right",
+                      "crop.bottom",
+                      "crop.left"
                     ],
                     "description": "Animated property."
                   },
@@ -983,6 +1002,16 @@
                         "value": {
                           "type": "number",
                           "description": "Property value at that time."
+                        },
+                        "easing": {
+                          "enum": [
+                            "linear",
+                            "ease-in",
+                            "ease-out",
+                            "ease-in-out",
+                            "hold"
+                          ],
+                          "description": "Easing of the segment that starts here (overrides the track easing)."
                         }
                       }
                     },
@@ -993,7 +1022,8 @@
                       "linear",
                       "ease-in",
                       "ease-out",
-                      "ease-in-out"
+                      "ease-in-out",
+                      "hold"
                     ],
                     "description": "Interpolation between keyframes.",
                     "default": "linear"
@@ -1455,7 +1485,11 @@
                       "opacity",
                       "gaussianBlur",
                       "borderRadius",
-                      "volume"
+                      "volume",
+                      "crop.top",
+                      "crop.right",
+                      "crop.bottom",
+                      "crop.left"
                     ],
                     "description": "Animated property."
                   },
@@ -1472,6 +1506,16 @@
                         "value": {
                           "type": "number",
                           "description": "Property value at that time."
+                        },
+                        "easing": {
+                          "enum": [
+                            "linear",
+                            "ease-in",
+                            "ease-out",
+                            "ease-in-out",
+                            "hold"
+                          ],
+                          "description": "Easing of the segment that starts here (overrides the track easing)."
                         }
                       }
                     },
@@ -1482,7 +1526,8 @@
                       "linear",
                       "ease-in",
                       "ease-out",
-                      "ease-in-out"
+                      "ease-in-out",
+                      "hold"
                     ],
                     "description": "Interpolation between keyframes.",
                     "default": "linear"
@@ -2007,7 +2052,11 @@
                       "opacity",
                       "gaussianBlur",
                       "borderRadius",
-                      "volume"
+                      "volume",
+                      "crop.top",
+                      "crop.right",
+                      "crop.bottom",
+                      "crop.left"
                     ],
                     "description": "Animated property."
                   },
@@ -2024,6 +2073,16 @@
                         "value": {
                           "type": "number",
                           "description": "Property value at that time."
+                        },
+                        "easing": {
+                          "enum": [
+                            "linear",
+                            "ease-in",
+                            "ease-out",
+                            "ease-in-out",
+                            "hold"
+                          ],
+                          "description": "Easing of the segment that starts here (overrides the track easing)."
                         }
                       }
                     },
@@ -2034,7 +2093,8 @@
                       "linear",
                       "ease-in",
                       "ease-out",
-                      "ease-in-out"
+                      "ease-in-out",
+                      "hold"
                     ],
                     "description": "Interpolation between keyframes.",
                     "default": "linear"
@@ -2470,7 +2530,11 @@
                       "opacity",
                       "gaussianBlur",
                       "borderRadius",
-                      "volume"
+                      "volume",
+                      "crop.top",
+                      "crop.right",
+                      "crop.bottom",
+                      "crop.left"
                     ],
                     "description": "Animated property."
                   },
@@ -2487,6 +2551,16 @@
                         "value": {
                           "type": "number",
                           "description": "Property value at that time."
+                        },
+                        "easing": {
+                          "enum": [
+                            "linear",
+                            "ease-in",
+                            "ease-out",
+                            "ease-in-out",
+                            "hold"
+                          ],
+                          "description": "Easing of the segment that starts here (overrides the track easing)."
                         }
                       }
                     },
@@ -2497,7 +2571,8 @@
                       "linear",
                       "ease-in",
                       "ease-out",
-                      "ease-in-out"
+                      "ease-in-out",
+                      "hold"
                     ],
                     "description": "Interpolation between keyframes.",
                     "default": "linear"
@@ -2885,7 +2960,11 @@
                       "opacity",
                       "gaussianBlur",
                       "borderRadius",
-                      "volume"
+                      "volume",
+                      "crop.top",
+                      "crop.right",
+                      "crop.bottom",
+                      "crop.left"
                     ],
                     "description": "Animated property."
                   },
@@ -2902,6 +2981,16 @@
                         "value": {
                           "type": "number",
                           "description": "Property value at that time."
+                        },
+                        "easing": {
+                          "enum": [
+                            "linear",
+                            "ease-in",
+                            "ease-out",
+                            "ease-in-out",
+                            "hold"
+                          ],
+                          "description": "Easing of the segment that starts here (overrides the track easing)."
                         }
                       }
                     },
@@ -2912,7 +3001,8 @@
                       "linear",
                       "ease-in",
                       "ease-out",
-                      "ease-in-out"
+                      "ease-in-out",
+                      "hold"
                     ],
                     "description": "Interpolation between keyframes.",
                     "default": "linear"
@@ -3285,7 +3375,11 @@
                       "opacity",
                       "gaussianBlur",
                       "borderRadius",
-                      "volume"
+                      "volume",
+                      "crop.top",
+                      "crop.right",
+                      "crop.bottom",
+                      "crop.left"
                     ],
                     "description": "Animated property."
                   },
@@ -3302,6 +3396,16 @@
                         "value": {
                           "type": "number",
                           "description": "Property value at that time."
+                        },
+                        "easing": {
+                          "enum": [
+                            "linear",
+                            "ease-in",
+                            "ease-out",
+                            "ease-in-out",
+                            "hold"
+                          ],
+                          "description": "Easing of the segment that starts here (overrides the track easing)."
                         }
                       }
                     },
@@ -3312,7 +3416,8 @@
                       "linear",
                       "ease-in",
                       "ease-out",
-                      "ease-in-out"
+                      "ease-in-out",
+                      "hold"
                     ],
                     "description": "Interpolation between keyframes.",
                     "default": "linear"
@@ -3819,7 +3924,11 @@
                       "opacity",
                       "gaussianBlur",
                       "borderRadius",
-                      "volume"
+                      "volume",
+                      "crop.top",
+                      "crop.right",
+                      "crop.bottom",
+                      "crop.left"
                     ],
                     "description": "Animated property."
                   },
@@ -3836,6 +3945,16 @@
                         "value": {
                           "type": "number",
                           "description": "Property value at that time."
+                        },
+                        "easing": {
+                          "enum": [
+                            "linear",
+                            "ease-in",
+                            "ease-out",
+                            "ease-in-out",
+                            "hold"
+                          ],
+                          "description": "Easing of the segment that starts here (overrides the track easing)."
                         }
                       }
                     },
@@ -3846,7 +3965,8 @@
                       "linear",
                       "ease-in",
                       "ease-out",
-                      "ease-in-out"
+                      "ease-in-out",
+                      "hold"
                     ],
                     "description": "Interpolation between keyframes.",
                     "default": "linear"

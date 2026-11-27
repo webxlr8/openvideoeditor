@@ -125,6 +125,10 @@ pub struct ItemView {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[specta(optional)]
     pub audio: Option<crate::waveforms::ItemAudio>,
+    /// Keyframe tracks other than volume (opacity, scale, crop, …), for the keyframe lanes (absent: none).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub keyframes: Option<Vec<crate::keyframes::KeyframeTrackView>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -513,6 +517,7 @@ fn view_from(
                 speed: i.fields.get("playbackSpeed").and_then(Value::as_f64).unwrap_or(1.0),
                 link: i.fields.get("link").and_then(Value::as_str).map(str::to_string),
                 audio: crate::waveforms::item_audio(i),
+                keyframes: crate::keyframes::views(i),
             })
             .collect(),
         media,

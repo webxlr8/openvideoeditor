@@ -147,7 +147,8 @@ verify (error). Filling = setting `src` and removing `pending`: the id, position
 3. Items with an `id` present in the base are edits of that item; items without `id`, or with an id not in the base,
    are new (they keep a given id if it is free, else get a new one); base items missing from the file are removed
    ("removed N items" with ids and names); a changed id is a removal plus an addition.
-4. Field-level 3-way merge (known objects one key deeper, arrays whole): base B, file F, current C. C = B → F;
+4. Field-level 3-way merge (known objects one key deeper, `keyframeTracks` one property deeper, other arrays
+   whole): base B, file F, current C. C = B → F;
    C = F → nothing; otherwise a conflict, file wins by default, `--prefer editor` keeps C; every conflict is reported
    with id, field, both values and the side kept. Removal vs edit is a conflict resolved the same way. Track order,
    aspect and fps are single values under the same rule. When the apply removes every other member of a link

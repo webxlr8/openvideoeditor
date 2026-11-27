@@ -219,12 +219,13 @@ pub fn db_to_gain(db: f64) -> f32 {
     if db <= VOLUME_FLOOR_DB { 0.0 } else { 10f64.powf(db / 20.0) as f32 }
 }
 
-/// An item's volume keyframes, in dB, interpolated in dB with the track's easing (design D1).
+/// An item's volume keyframes, in dB, interpolated in dB with each segment's easing (its start keyframe's, else the
+/// track's; design D1 and add-markers-keyframe-lanes-and-versions D6).
 #[derive(Debug, Clone, PartialEq)]
 pub struct VolumeCurve {
     easing: String,
-    /// (item-relative time, dB), in time order.
-    points: Vec<(Micros, f64)>,
+    /// Keyframes in time order, values in dB.
+    points: Vec<ove_core::retime::Key>,
 }
 
 impl VolumeCurve {
@@ -232,33 +233,18 @@ impl VolumeCurve {
     pub fn of(item: &Item) -> Option<VolumeCurve> {
         let tracks = item.fields.get("keyframeTracks")?.as_array()?;
         let track = tracks.iter().find(|t| t.get("property").and_then(Value::as_str) == Some("volume"))?;
-        let easing = track.get("easing").and_then(Value::as_str).unwrap_or("linear").to_string();
-        let mut points: Vec<(Micros, f64)> = track
-            .get("keyframes")?
-            .as_array()?
-            .iter()
-            .filter_map(|k| {
-                let v = k.get("value")?.as_f64().filter(|v| v.is_finite())?.clamp(0.0, 200.0);
-                Some((k.get("time").and_then(json_to_micros)?, percent_to_db(v)))
-            })
+        let easing = ove_core::retime::track_easing(track).to_string();
+        let points: Vec<ove_core::retime::Key> = ove_core::retime::keys(track)
+            .into_iter()
+            .filter(|k| k.value.is_finite())
+            .map(|k| ove_core::retime::Key { value: percent_to_db(k.value.clamp(0.0, 200.0)), ..k })
             .collect();
-        points.sort_by_key(|p| p.0);
         (!points.is_empty()).then_some(VolumeCurve { easing, points })
     }
 
     /// Level in dB at item-relative time `rel`: held before the first and after the last keyframe.
     pub fn db_at(&self, rel: Micros) -> f64 {
-        let (first, last) = (self.points[0], self.points[self.points.len() - 1]);
-        if rel <= first.0 {
-            return first.1;
-        }
-        if rel >= last.0 {
-            return last.1;
-        }
-        let i = self.points.partition_point(|p| p.0 <= rel);
-        let (a, b) = (self.points[i - 1], self.points[i]);
-        let p = (rel - a.0) as f64 / (b.0 - a.0).max(1) as f64;
-        a.1 + (b.1 - a.1) * crate::eval::ease(&self.easing, p)
+        ove_core::retime::value_at(&self.points, &self.easing, rel).unwrap_or(VOLUME_FLOOR_DB)
     }
 
     /// Linear gain at item-relative time `rel`.

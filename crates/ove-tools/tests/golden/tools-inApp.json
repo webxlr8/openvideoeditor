@@ -1461,5 +1461,116 @@
       "additionalProperties": false
     },
     "eager_input_streaming": true
+  },
+  {
+    "name": "edit_keyframes",
+    "description": "Set, add or remove the keyframes of one property of one item, as one revision. Properties: x, y, scale, rotation, opacity, gaussianBlur, borderRadius, volume (sound items, 0-200), crop.top, crop.right, crop.bottom, crop.left (percent). Times are seconds from the item's start and must lie inside the item (`keyframe.outOfRange` otherwise). Each keyframe may set `easing` for the segment that starts at it (linear, ease-in, ease-out, ease-in-out, hold: keep the value until the next keyframe). `set` replaces the list (empty removes it), `add` adds or replaces keyframes at their times, `remove` takes times.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "project": {
+          "type": "string",
+          "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+        },
+        "item": {
+          "type": "string",
+          "description": "Item id"
+        },
+        "property": {
+          "type": "string",
+          "description": "The keyframed property, e.g. opacity or crop.left"
+        },
+        "set": {
+          "type": [
+            "array",
+            "string"
+          ],
+          "items": {
+            "type": "object",
+            "properties": {
+              "time": {
+                "type": "number"
+              },
+              "value": {
+                "type": "number"
+              },
+              "easing": {
+                "type": "string",
+                "enum": [
+                  "linear",
+                  "ease-in",
+                  "ease-out",
+                  "ease-in-out",
+                  "hold"
+                ]
+              }
+            },
+            "required": [
+              "time",
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          "description": "Every keyframe: [{time, value, easing?}] or \"0:1,2:0\""
+        },
+        "add": {
+          "type": [
+            "array",
+            "string"
+          ],
+          "items": {
+            "type": "object",
+            "properties": {
+              "time": {
+                "type": "number"
+              },
+              "value": {
+                "type": "number"
+              },
+              "easing": {
+                "type": "string",
+                "enum": [
+                  "linear",
+                  "ease-in",
+                  "ease-out",
+                  "ease-in-out",
+                  "hold"
+                ]
+              }
+            },
+            "required": [
+              "time",
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          "description": "Keyframes to add: [{time, value, easing?}] or \"1:0.5:hold\""
+        },
+        "remove": {
+          "type": [
+            "array",
+            "string"
+          ],
+          "items": {
+            "type": "number"
+          },
+          "description": "Times of the keyframes to remove (seconds from the item's start)"
+        },
+        "easing": {
+          "type": "string",
+          "description": "The track's easing for segments without their own"
+        },
+        "preview": {
+          "type": "boolean",
+          "description": "Return the plan without applying it"
+        }
+      },
+      "required": [
+        "item",
+        "property"
+      ],
+      "additionalProperties": false
+    },
+    "eager_input_streaming": true
   }
 ]

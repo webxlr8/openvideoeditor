@@ -405,9 +405,9 @@ Fields in projection attribute order:
 
 | field | type / range | default | required | meaning |
 |---|---|---|---|---|
-| `property` | `x` \| `y` \| `scale` \| `rotation` \| `opacity` \| `gaussianBlur` \| `borderRadius` \| `volume` |  |  | Animated property. |
-| `keyframes` | array of object {time, value} |  |  | Keyframes in time order. |
-| `easing` | `linear` \| `ease-in` \| `ease-out` \| `ease-in-out` | `"linear"` |  | Interpolation between keyframes. |
+| `property` | `x` \| `y` \| `scale` \| `rotation` \| `opacity` \| `gaussianBlur` \| `borderRadius` \| `volume` \| `crop.top` \| `crop.right` \| `crop.bottom` \| `crop.left` |  |  | Animated property. |
+| `keyframes` | array of object {time, value, easing} |  |  | Keyframes in time order. |
+| `easing` | `linear` \| `ease-in` \| `ease-out` \| `ease-in-out` \| `hold` | `"linear"` |  | Interpolation between keyframes. |
 
 #### `keyframes`
 
@@ -415,6 +415,7 @@ Fields in projection attribute order:
 |---|---|---|---|---|
 | `time` | seconds ≥ 0 |  |  | Seconds from the item's start. |
 | `value` | number |  |  | Property value at that time. |
+| `easing` | `linear` \| `ease-in` \| `ease-out` \| `ease-in-out` \| `hold` |  |  | Easing of the segment that starts here (overrides the track easing). |
 
 #### `transitionIn`
 

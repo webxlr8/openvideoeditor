@@ -235,6 +235,11 @@ export const commands = {
 	markerUpdate: (id: string, setJson: string, unset: string[]) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("marker_update", { id, setJson, unset })),
 	/**  Removes markers. */
 	markerRemove: (ids: string[]) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("marker_remove", { ids })),
+	/**
+	 *  Replaces the keyframes of one property of an item (`keys_json`: `[{time, value, easing?}]`, seconds from the
+	 *  item's start; an empty list removes the property's keyframes) as one revision.
+	 */
+	keyframesSet: (item: string, property: string, keysJson: string, summary: string | null) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("keyframes_set", { item, property, keysJson, summary })),
 	/**  Plans an edit verb without applying it (no revision): what a drag would do while it is held. */
 	editPreview: (request: string) => typedError<EditPreview_Serialize, AppError>(__TAURI_INVOKE("edit_preview", { request })),
 	/**  Adds a track. Video/caption/adjustment/layout tracks go on top, audio tracks at the bottom. */
@@ -1221,6 +1226,8 @@ export type ItemView_Deserialize = {
 	link?: string | null,
 	/**  Volume, fades and volume keyframes of video and audio items, for the waveform and gain line. */
 	audio?: ItemAudio | null,
+	/**  Keyframe tracks other than volume (opacity, scale, crop, …), for the keyframe lanes (absent: none). */
+	keyframes?: KeyframeTrackView_Deserialize[] | null,
 };
 
 export type ItemView_Serialize = {
@@ -1245,6 +1252,8 @@ export type ItemView_Serialize = {
 	link: string | null,
 	/**  Volume, fades and volume keyframes of video and audio items, for the waveform and gain line. */
 	audio?: ItemAudio,
+	/**  Keyframe tracks other than volume (opacity, scale, crop, …), for the keyframe lanes (absent: none). */
+	keyframes?: KeyframeTrackView_Serialize[],
 };
 
 /**  The result of trying the saved key with a real (free) request. */
@@ -1252,6 +1261,46 @@ export type KeyCheck = {
 	ok: boolean,
 	/**  "Key works." or the provider's error in plain words. */
 	message: string,
+};
+
+/**  One keyframe as a lane shows it. */
+export type KeyView = KeyView_Serialize | KeyView_Deserialize;
+
+/**  One keyframe as a lane shows it. */
+export type KeyView_Deserialize = {
+	/**  Seconds from the item's start. */
+	time: number | null,
+	value: number | null,
+	/**  The easing of the segment that starts here, when it overrides the track's. */
+	easing?: string | null,
+};
+
+/**  One keyframe as a lane shows it. */
+export type KeyView_Serialize = {
+	/**  Seconds from the item's start. */
+	time: number | null,
+	value: number | null,
+	/**  The easing of the segment that starts here, when it overrides the track's. */
+	easing: string | null,
+};
+
+/**  One keyframed property of an item. */
+export type KeyframeTrackView = KeyframeTrackView_Serialize | KeyframeTrackView_Deserialize;
+
+/**  One keyframed property of an item. */
+export type KeyframeTrackView_Deserialize = {
+	property: string,
+	/**  The track's easing (`linear` when not set). */
+	easing: string,
+	keys: KeyView_Deserialize[],
+};
+
+/**  One keyframed property of an item. */
+export type KeyframeTrackView_Serialize = {
+	property: string,
+	/**  The track's easing (`linear` when not set). */
+	easing: string,
+	keys: KeyView_Serialize[],
 };
 
 /**  One model as the Storage list shows it. */

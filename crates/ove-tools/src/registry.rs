@@ -8,7 +8,7 @@ use crate::spec::{
 };
 use crate::tools::{
     analyze, app, audio, code, deadair, docs, edit, exchange, export, export_queue, export_range, feedback, generate,
-    markers, media, models, project, tasks, timeline, transcript,
+    keyframes, markers, media, models, project, tasks, timeline, transcript,
 };
 
 pub(crate) const PROJECT: Arg = arg(
@@ -966,6 +966,17 @@ pub static TOOLS: &[ToolSpec] = &[
         annotations: DESTRUCTIVE,
         surfaces: AGENTS,
         run: markers::remove_markers,
+        model: ModelText::Text,
+    },
+    // Keyframes (change add-markers-keyframe-lanes-and-versions, task 3.4).
+    ToolSpec {
+        name: "edit_keyframes",
+        aliases: &[],
+        about: keyframes::EDIT_KEYFRAMES_ABOUT,
+        args: keyframes::EDIT_KEYFRAMES_ARGS,
+        annotations: WRITE,
+        surfaces: AGENTS,
+        run: keyframes::edit_keyframes,
         model: ModelText::Text,
     },
 ];

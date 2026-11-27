@@ -200,4 +200,5 @@ ove source print Nope                              # exit 1
 | `add_marker` |  | in-app, mcp, pinned | write | `project`? `at` `dur`? `name`? `color`? `note`? `status`? `assignee`? |
 | `update_marker` |  | in-app, mcp, pinned | write | `project`? `id` `at`? `dur`? `name`? `color`? `note`? `status`? `assignee`? `unset`? |
 | `remove_markers` |  | in-app, mcp, pinned | destructive | `project`? `ids` |
+| `edit_keyframes` |  | in-app, mcp, pinned | write | `project`? `item` `property` `set`? `add`? `remove`? `easing`? `preview`? |
 <!-- tools:end -->

@@ -33,6 +33,8 @@ pub enum Verb {
     RemoveWords,
     /// Cut dead air found with voice activity (`--min-pause`, `--padding`, `--relative-db`).
     RemoveSilence,
+    /// Keyframes of one property of `--item`: `--set 0:1,2:0` (seconds:value[:easing]), `--add`, `--remove 1,2`.
+    Keyframes,
 }
 
 #[derive(Args)]
@@ -95,6 +97,21 @@ pub struct EditArgs {
     /// Markers follow a ripple: later markers shift with it, point markers inside a removed range are removed.
     #[arg(long)]
     pub markers: bool,
+    /// keyframes: the property (opacity, scale, crop.left, volume, …).
+    #[arg(long)]
+    pub property: Option<String>,
+    /// keyframes: every keyframe, `seconds:value[:easing]` comma-separated (seconds from the item's start).
+    #[arg(long, allow_hyphen_values = true)]
+    pub set: Option<String>,
+    /// keyframes: keyframes to add, as for --set.
+    #[arg(long, allow_hyphen_values = true)]
+    pub add: Option<String>,
+    /// keyframes: times of keyframes to remove, comma-separated seconds.
+    #[arg(long)]
+    pub remove: Option<String>,
+    /// keyframes: the track easing (linear, ease-in, ease-out, ease-in-out, hold).
+    #[arg(long)]
+    pub easing: Option<String>,
     /// remove-words: word ids (`<mediaId>@<sourceMs>`), comma separated.
     #[arg(long, value_delimiter = ',')]
     pub words: Vec<String>,
@@ -224,7 +241,7 @@ pub fn request(a: &EditArgs) -> Result<Request, Fail> {
             linked,
             crossfade: a.crossfade,
         },
-        Verb::RemoveWords | Verb::RemoveSilence => {
+        Verb::RemoveWords | Verb::RemoveSilence | Verb::Keyframes => {
             return Err(Fail::new("argument.invalid", format!("{} is not an edit request", v)));
         }
         Verb::Request => {
@@ -239,6 +256,13 @@ pub fn request(a: &EditArgs) -> Result<Request, Fail> {
 pub fn run(ctx: &Ctx, a: &EditArgs) -> Out {
     match a.verb {
         Verb::RemoveWords => return remove_words(ctx, a),
+        Verb::Keyframes => {
+            return ctx.tool(
+                "edit_keyframes",
+                json!({"project": a.project, "item": a.item, "property": a.property, "set": a.set, "add": a.add,
+                    "remove": a.remove, "easing": a.easing, "preview": a.dry_run}),
+            );
+        }
         Verb::RemoveSilence => {
             return ctx.tool(
                 "remove_silence",

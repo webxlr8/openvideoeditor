@@ -15,6 +15,8 @@ are the same planners the editor and the assistant use, so every writer gets the
 Times are seconds. `--dry-run` prints the plan and changes nothing. `--rev <rev>` names the revision the request was
 made against: its times are moved through the ripples made since, so a request made before someone else's ripple
 lands where it was meant. A revision newer than the project's is refused (`rev.newer`).
+`--markers` makes timeline markers follow a ripple: markers after the edit shift with it, a point marker inside a
+removed range is removed and a range marker that overlaps it shrinks. Without it, markers stay where they are.
 
 ## Verbs
 
@@ -35,6 +37,7 @@ lands where it was meant. A revision newer than the project's is refused (`rev.n
 | `roll` | `--left`, `--right`, `--to` | Move the edit point between two adjacent items. |
 | `move` | `--item`, `--start`, `[--track]` | Move an item (and its link partners) keeping its length. |
 | `request` | `--request '<json>'` | The whole request as JSON, as MCP's `edit_timeline` sends it, for example `{"op":"rippleDelete","tracks":["a1"],"ranges":[{"start":12.3,"end":14}]}`. |
+| `keyframes` | `--item`, `--property`, `--set T:V[:easing],…` or `--add …` or `--remove T,…`, `[--easing]` | Set, add or remove the keyframes of one property (x, y, scale, rotation, opacity, gaussianBlur, borderRadius, volume, crop.top, crop.right, crop.bottom, crop.left). Times are seconds from the item's start; each keyframe may name the easing of the segment that starts at it (linear, ease-in, ease-out, ease-in-out, hold). Same as MCP's `edit_keyframes`. |
 
 ## JSON shape
 
@@ -55,6 +58,8 @@ lands where it was meant. A revision newer than the project's is refused (`rev.n
 | `roll.notAdjacent` | The two items do not meet at an edit point. |
 | `range.empty` / `range.overlap` / `request.invalid` | The request is malformed. |
 | `rev.newer` | `--rev` is newer than the project's revision. |
+| `keyframe.outOfRange` | A keyframe time is before the item's start or after its end (`keyframes`). |
+| `keyframe.property`, `keyframe.easing`, `keyframe.missing` | Unknown property or easing, or no keyframe at a time to remove (`keyframes`). |
 
 ## Examples
 
@@ -70,5 +75,7 @@ ove edit slide Demo --item c --delta -0.5                                   # ex
 ove edit move Demo --item a --start 20 --json                               # exit 0
 ove edit close-gap Demo --track v1 --at 10                                  # exit 1
 ove edit split Demo --item nope --at 1                                      # exit 1
+ove edit keyframes Demo --item a --property opacity --set 0:1,2:0:hold    # exit 0
+ove edit keyframes Demo --item a --property opacity --add 9:0              # exit 1
 ove edit frobnicate Demo                                                    # exit 2
 ```

@@ -109,7 +109,7 @@ enum Cmd {
     },
     /// Edit verbs: split, trim, ripple-trim, ripple-delete, delete, insert, overwrite, lift, extract, close-gap, slip,
     /// slide, roll, move. One revision each; --dry-run prints the plan only.
-    Edit(edit::EditArgs),
+    Edit(Box<edit::EditArgs>),
     /// Report problems: overlaps, gaps, clips past their source, missing media, pending items.
     Verify { project: String },
     /// Timeline markers: list (by status and assignee), add, update, remove.

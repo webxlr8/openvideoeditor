@@ -102,13 +102,43 @@ fn is_obj_field(kind: &str, field: &str) -> bool {
     schema::item_field(kind, field).is_some_and(|f| matches!(f.kind, Kind::Obj { .. }))
 }
 
-/// Field-level changes from `b` to `f`; known object fields are compared one key deeper.
+/// The keyframe-track field. It merges as a map keyed by `property` (add-markers-keyframe-lanes-and-versions D6), so
+/// edits to different properties of one item merge; one property's track is one value.
+pub const KEYFRAME_TRACKS: &str = "keyframeTracks";
+
+/// A keyframe-track list as a map from property to track (absent: empty). `None` when the value is not a list of
+/// tracks with distinct properties; such a value merges as a whole.
+fn tracks_by_property(v: Option<&Value>) -> Option<BTreeMap<String, Value>> {
+    let Some(v) = v else { return Some(BTreeMap::new()) };
+    let mut m = BTreeMap::new();
+    for t in v.as_array()? {
+        let p = t.get("property")?.as_str()?;
+        if m.insert(p.to_string(), t.clone()).is_some() {
+            return None;
+        }
+    }
+    Some(m)
+}
+
+/// Field-level changes from `b` to `f`; known object fields are compared one key deeper, and keyframe tracks one
+/// property deeper.
 pub fn changes(kind_b: &str, b: &Map<String, Value>, f: &Map<String, Value>) -> Vec<(Path, Option<Value>)> {
     let mut out = Vec::new();
     let keys: BTreeSet<&String> = b.keys().chain(f.keys()).collect();
     for k in keys {
         let (bv, fv) = (b.get(k), f.get(k));
         if bv == fv {
+            continue;
+        }
+        if k == KEYFRAME_TRACKS
+            && let (Some(bm), Some(fm)) = (tracks_by_property(bv), tracks_by_property(fv))
+        {
+            let props: BTreeSet<&String> = bm.keys().chain(fm.keys()).collect();
+            for p in props {
+                if bm.get(p) != fm.get(p) {
+                    out.push(((k.clone(), Some(p.clone())), fm.get(p).cloned()));
+                }
+            }
             continue;
         }
         let objectish = is_obj_field(kind_b, k) && bv.is_none_or(Value::is_object) && fv.is_none_or(Value::is_object);
@@ -132,12 +162,42 @@ pub fn changes(kind_b: &str, b: &Map<String, Value>, f: &Map<String, Value>) -> 
 fn get(view: &Map<String, Value>, p: &Path) -> Option<Value> {
     match &p.1 {
         None => view.get(&p.0).cloned(),
+        Some(prop) if p.0 == KEYFRAME_TRACKS => view
+            .get(&p.0)
+            .and_then(Value::as_array)
+            .and_then(|a| a.iter().find(|t| t.get("property").and_then(Value::as_str) == Some(prop)))
+            .cloned(),
         Some(k) => view.get(&p.0).and_then(|o| o.get(k)).cloned(),
+    }
+}
+
+/// Sets (or removes, with `None`) one property's keyframe track on an item; the list is dropped when it empties.
+fn set_keyframe_track(item: &mut Item, prop: &str, v: Option<Value>) {
+    let mut list: Vec<Value> = item.fields.get(KEYFRAME_TRACKS).and_then(Value::as_array).cloned().unwrap_or_default();
+    let at = list.iter().position(|t| t.get("property").and_then(Value::as_str) == Some(prop));
+    match (at, v) {
+        (Some(i), Some(v)) => list[i] = v,
+        (Some(i), None) => {
+            list.remove(i);
+        }
+        (None, Some(v)) => list.push(v),
+        (None, None) => {}
+    }
+    if list.is_empty() {
+        item.fields.shift_remove(KEYFRAME_TRACKS);
+    } else {
+        item.fields.insert(KEYFRAME_TRACKS.into(), Value::Array(list));
     }
 }
 
 /// Sets (or removes, with `None`) a field path on an item.
 fn set_path(item: &mut Item, p: &Path, v: Option<Value>) {
+    if p.0 == KEYFRAME_TRACKS
+        && let Some(prop) = &p.1
+    {
+        set_keyframe_track(item, prop, v);
+        return;
+    }
     match p.0.as_str() {
         "trackId" => item.track_id = v.and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default(),
         "type" => item.kind = v.and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default(),

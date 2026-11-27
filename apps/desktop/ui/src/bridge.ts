@@ -998,6 +998,18 @@ function createMock(): {
       volumeEasing: typeof track?.easing === "string" ? track.easing : "linear",
     };
   };
+  /** The keyframe lanes' view of an item: its keyframe tracks other than volume (as the core builds it). */
+  const mockKeyframes = (f: Fields): ItemView_Serialize["keyframes"] => {
+    const tracks = ((f.keyframeTracks as Fields[] | undefined) ?? []).filter((t) => t.property !== "volume");
+    if (!tracks.length) return undefined;
+    return tracks.map((t) => ({
+      property: String(t.property),
+      easing: typeof t.easing === "string" ? t.easing : "linear",
+      keys: ((t.keyframes as Fields[] | undefined) ?? [])
+        .map((k) => ({ time: n(k.time), value: n(k.value), easing: typeof k.easing === "string" ? k.easing : null }))
+        .sort((a, b) => a.time - b.time),
+    }));
+  };
   const refresh = (i: MockItem) => {
     const f = i.fields;
     const tr = (k: string) => n((f[k] as Fields | undefined)?.duration);
@@ -1013,6 +1025,7 @@ function createMock(): {
     i.transitionOut = tr("transitionOut");
     i.speed = n(f.playbackSpeed, 1);
     i.audio = mockAudio(i.kind, f);
+    i.keyframes = mockKeyframes(f);
     return i;
   };
   function fromDetail(d: Fields): MockItem {
@@ -1839,6 +1852,22 @@ function createMock(): {
         if (left.length) p.markers = left;
         else delete p.markers;
       }),
+    // Keyframe lanes (add-markers-keyframe-lanes-and-versions 3.3): one revision per gesture.
+    keyframesSet: (id: string, property: string, keysJson: string, summary: string | null) => {
+      const i = mock(id);
+      if (!i) return fail("not_found", "That item no longer exists.");
+      const keys = JSON.parse(keysJson) as { time: number; value: number; easing?: string }[];
+      const len = (i.end ?? 0) - (i.start ?? 0);
+      if (keys.some((k) => k.time < 0 || k.time > len)) return fail("invalid_argument", "A keyframe is outside the item.");
+      return editProject(summary ?? `set ${property} keyframes`, () => {
+        const others = ((i.fields.keyframeTracks as Fields[] | undefined) ?? []).filter((t) => t.property !== property);
+        const old = ((i.fields.keyframeTracks as Fields[] | undefined) ?? []).find((t) => t.property === property);
+        const next = keys.length ? [...others, { ...(old ?? {}), property, keyframes: keys }] : others;
+        if (next.length) i.fields.keyframeTracks = next;
+        else delete i.fields.keyframeTracks;
+        refresh(i);
+      });
+    },
     duplicateItems: (ids: string[]) =>
       editProject("duplicate", (p) => {
         for (const id of ids) {

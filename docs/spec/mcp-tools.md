@@ -57,3 +57,4 @@ The CLI can serve itself as an stdio MCP server; tools mirror CLI commands. Para
 - `add_marker` — project:string, at*:number, dur:number, name:string, color:string, note:string, status:string, assignee:string
 - `update_marker` — project:string, id*:string, at:number, dur:number, name:string, color:string, note:string, status:string, assignee:string, unset:array. An agent may set `review`; `resolved` is refused with `marker.resolveByAgent`.
 - `remove_markers` (destructive) — project:string, ids*:array
+- `edit_keyframes` — project:string, item*:string, property*:string, set:array|string, add:array|string, remove:array|string, easing:string, preview:boolean. Keyframes {time, value, easing?} with time in seconds from the item's start; outside the item is refused with `keyframe.outOfRange`. (This app's addition: `ove edit keyframes`.)
