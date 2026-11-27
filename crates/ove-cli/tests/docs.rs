@@ -111,6 +111,24 @@ fn project_examples() {
 }
 
 #[test]
+fn skills_examples() {
+    let (d, lib) = setup();
+    assert_eq!(run_examples("skills.md", &lib, d.path()), 3);
+    let out = ove(&lib, d.path(), &["skills", "list", "--json"]);
+    let v: Value = serde_json::from_slice(&out.stdout).unwrap();
+    let ids: Vec<&str> = v["skills"].as_array().unwrap().iter().map(|s| s["id"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["caption-styling", "colour-matching", "interview-cutting"]);
+    let out = ove(&lib, d.path(), &["skills", "show", "nope", "--json"]);
+    let e: Value = serde_json::from_slice(&out.stderr).unwrap();
+    assert_eq!(e["error"]["code"], "skill.unknown");
+    // The guide written by `ove skills install` names the skill tools.
+    let guide = d.path().join("guide");
+    assert!(ove(&lib, d.path(), &["skills", "install", "--dir", guide.to_str().unwrap()]).status.success());
+    let text = std::fs::read_to_string(guide.join("openvideoeditor/SKILL.md")).unwrap();
+    assert!(text.contains("read_skill") && text.contains("list_skills"));
+}
+
+#[test]
 fn interchange_examples_and_round_trip() {
     let (d, lib) = setup();
     assert_eq!(run_examples("interchange.md", &lib, d.path()), 7);

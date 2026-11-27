@@ -25,6 +25,10 @@ pub trait AppHost {
     fn library(&mut self) -> Option<&Library> {
         None
     }
+    /// The skill store, when the host keeps it somewhere other than its library (or has no library open yet).
+    fn skills(&mut self) -> Option<crate::skills::SkillStore> {
+        None
+    }
 }
 
 /// Tools over the project open in the app. Edits are revisions of the app's session, recorded with `source`.
@@ -121,6 +125,12 @@ impl ToolCtx for AppCtx<'_> {
     }
     fn library(&mut self) -> Result<&Library, Fail> {
         self.host.library().ok_or_else(|| Fail::new("library.unavailable", "the project library is not available here"))
+    }
+    fn skills(&mut self) -> Result<crate::skills::SkillStore, Fail> {
+        match self.host.skills() {
+            Some(s) => Ok(s),
+            None => Ok(crate::skills::SkillStore::of_library(&self.library()?.root)),
+        }
     }
 }
 

@@ -11,5 +11,6 @@ pub mod exchange;
 pub mod media;
 pub mod models;
 pub mod project;
+pub mod skills;
 pub mod timeline;
 pub mod transcript;

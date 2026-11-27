@@ -2,16 +2,17 @@
 
 ## 1. Skill store and reading skills
 
-- [ ] 1.1 Implement the skill store (`<library>/.skills/<id>/SKILL.md`, frontmatter validation, ledger). Verify: unit
+- [x] 1.1 Implement the skill store (`<library>/.skills/<id>/SKILL.md`, frontmatter validation, ledger). Verify: unit
       tests for valid, invalid and missing-field skills.
-- [ ] 1.2 Add `list_skills` and `read_skill` to the tool registry for all surfaces. Verify: integration tests on the
+- [x] 1.2 Add `list_skills` and `read_skill` to the tool registry for all surfaces. Verify: integration tests on the
       in-app and MCP surfaces, including the `skill.unknown` refusal.
 - [ ] 1.3 Send the skill index as a second cached system block, capped at 60 skills. Verify:
       - a test that the fixed prompt bytes are identical with 0 and 20 skills;
       - a measured cache hit rate across 10 turns with 20 skills installed (record in Results).
-- [ ] 1.4 Serve skills as MCP prompts and resources. Verify: golden `prompts/list` and `resources/list` outputs that
+      Open: the byte test passes and a modelled reuse is recorded in Results; the live hit rate needs a real API key.
+- [x] 1.4 Serve skills as MCP prompts and resources. Verify: golden `prompts/list` and `resources/list` outputs that
       match the store.
-- [ ] 1.5 Document skills in the agent guide and `docs/cli/skills.md`. Verify: the doc examples run in the CLI
+- [x] 1.5 Document skills in the agent guide and `docs/cli/skills.md`. Verify: the doc examples run in the CLI
       integration tests.
 
 ## 2. Management, catalog and export

@@ -149,4 +149,22 @@ Existing installs keep working.
 
 ## Results
 
-(To be filled during apply.)
+Measured on Windows 11 (x64), debug test builds.
+
+### Group 1: skill store and reading skills
+
+- Store: `crates/ove-tools/src/skills/` (the store, index, MCP prompt and resource shapes). The 3 builtin skills are
+  compiled in and never written to the store folder; a store folder with a builtin id is listed as invalid. Folders
+  that are links are skipped, so a skill cannot point an agent at another file.
+- Skill text that agents read starts with a line naming its source and saying it does not change which tools the
+  agent may use. Front-matter keys other than `name`, `description`, `version` and `source` are ignored.
+- Fixed prompt bytes: identical with 0 and 20 skills, and across 10 turns with a skill installed before turn 6
+  (`crates/ove-agent/tests/skills.rs`).
+- Cache reuse, modelled: the mock Messages server recorded 10 requests with 20 skills installed (23 index lines with the
+  builtin skills) and one skill installed before turn 6. Counting the estimated input tokens that repeat the previous
+  request from the start (tools, fixed prompt, index, then messages), 98.7 % of the input of requests 2 to 10 could be
+  served from the prompt cache. After the install, the tools and the fixed prompt still repeat; the index and the
+  history after it miss once. A live measurement of `cache_read_input_tokens` needs a real API key and is open
+  (task 1.3).
+- `prompts/list` and `resources/list` over `ove mcp` are pinned by `crates/ove-cli/tests/golden/skills-*.json` and
+  match the store (4 valid skills in the fixture: 3 builtin, 1 local; the invalid one is left out).

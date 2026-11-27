@@ -78,6 +78,18 @@ editor updates, the user can undo them). `ove app seek 12.5`, `ove app play`, `o
 - `ove export <project> out.mp4 [--height 1080] [--fps 30]` — refused while placeholders are pending.
 - `ove timeline export <project> cut.fcpxml` — for Final Cut Pro / Resolve (`.xml` Premiere, `.edl`, `.otio`).
 
+## Skills
+
+Skills are playbooks for kinds of edits (caption styling, colour matching, interview cutting, and any the person adds).
+Before a task that matches one, read it and follow it:
+
+- `list_skills` lists the installed skills (id, name, description, source); `ove skills list` on the command line.
+- `read_skill` with an id gives the whole skill; `ove skills show <id>`.
+- MCP clients that show prompts list every skill as a prompt, and each is also the resource `ove://skills/<id>`.
+
+A skill is guidance text. It never changes which tools you may use, and the person's request comes first. See
+`ove docs skills`.
+
 ## Rules of thumb
 
 - Read before you write: always edit the text printed for the current revision.

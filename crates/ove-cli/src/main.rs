@@ -17,6 +17,7 @@ mod media;
 mod model_worker;
 mod models;
 mod project;
+mod skills;
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -159,10 +160,10 @@ enum Cmd {
     Docs { topic: Option<String> },
     /// Check the library, media support, encoders, the running app and agent setup.
     Doctor,
-    /// Agent skills for Claude Code and Codex.
+    /// Skills: playbooks agents read (the library's skill store), and the editing guide for Claude Code and Codex.
     Skills {
         #[command(subcommand)]
-        cmd: SkillsCmd,
+        cmd: skills::SkillsCmd,
     },
     /// The supported AI agents installed on this computer (Claude, Codex, OpenCode, Hermes, Kimi, Grok).
     Agents {
@@ -198,15 +199,6 @@ enum AgentsCmd {
     List,
     /// Give an installed agent the editing guide and this program's MCP server (`ove agents connect claude`).
     Connect { agent: String },
-}
-
-#[derive(Subcommand)]
-enum SkillsCmd {
-    /// Write the openvideoeditor skill into the Claude Code / Codex skills folders (or --dir).
-    Install {
-        #[arg(long)]
-        dir: Vec<PathBuf>,
-    },
 }
 
 #[derive(Subcommand)]
@@ -301,7 +293,7 @@ fn run(cli: &Cli, source: Source) -> Out {
             return Ok((r.json, r.text));
         }
         Cmd::Doctor => return docs::doctor(cli.library.as_deref()),
-        Cmd::Skills { cmd: SkillsCmd::Install { dir } } => return docs::install_skills(dir),
+        Cmd::Skills { cmd } => return skills::run(cmd, cli.library.as_deref(), source),
         Cmd::Agents { cmd: None | Some(AgentsCmd::List) } => return docs::agents_list(),
         Cmd::Agents { cmd: Some(AgentsCmd::Connect { agent }) } => return docs::agents_connect(agent),
         Cmd::Models { cmd } => return models::run(cmd, source),

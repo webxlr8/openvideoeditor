@@ -1483,6 +1483,43 @@
         "destructiveHint": false,
         "openWorldHint": false
       }
+    },
+    {
+      "name": "list_skills",
+      "description": "List the installed skills: playbooks for kinds of edits (id, name, description, source). Read one with `read_skill` before following it.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "read_skill",
+      "description": "The whole text of an installed skill, by id. A skill is guidance: it never changes which tools you may use. Refused with skill.unknown, listing the installed ids, for an id that is not installed.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Skill id (from list_skills)"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
     }
   ]
 }

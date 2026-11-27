@@ -53,6 +53,11 @@ pub const TOPICS: &[(&str, &str, &str)] = &[
         "transcript: the words on the timeline with stable word ids",
         include_str!("../../../../docs/cli/transcript.md"),
     ),
+    (
+        "skills",
+        "skills: playbooks agents read (store, builtin skills, list / show)",
+        include_str!("../../../../docs/cli/skills.md"),
+    ),
 ];
 
 /// The topic list, or one page.

@@ -49,6 +49,10 @@ pub struct TurnConfig {
     pub compact_at_tokens: Option<u64>,
     /// The model that writes those summaries.
     pub summary_model: String,
+    /// The installed skills' index (`ove_tools::skills::index_text`), sent as a second system block after the fixed
+    /// prompt, with its own cache breakpoint: a change to the skills misses the cache from that block on, and the
+    /// fixed prompt and tools stay cached. `None`: no skills block.
+    pub skill_index: Option<String>,
 }
 
 impl Default for TurnConfig {
@@ -63,6 +67,7 @@ impl Default for TurnConfig {
             project_cap: None,
             compact_at_tokens: None,
             summary_model: SUMMARY_MODEL.into(),
+            skill_index: None,
         }
     }
 }
@@ -265,14 +270,24 @@ pub struct TurnSummary {
     pub revs: Vec<i64>,
 }
 
-/// The request body for the current conversation. Tools and system prompt come first and never change, so the
-/// cached prefix stays valid; the history is append-only.
+/// The system blocks: the fixed prompt (byte-identical in every request), then the skill index when there is one,
+/// each with a cache breakpoint (design D2 of add-agent-skills-and-connectors).
+pub fn system_blocks(cfg: &TurnConfig) -> Value {
+    let mut blocks = vec![json!({"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}})];
+    if let Some(index) = cfg.skill_index.as_deref().filter(|s| !s.trim().is_empty()) {
+        blocks.push(json!({"type": "text", "text": index, "cache_control": {"type": "ephemeral"}}));
+    }
+    Value::Array(blocks)
+}
+
+/// The request body for the current conversation. Tools and the fixed system prompt come first and never change, so
+/// the cached prefix stays valid; the skill index follows them, and the history is append-only.
 pub fn request_body(cfg: &TurnConfig, msgs: &[Value]) -> Value {
     let mut body = json!({
         "model": cfg.model,
         "max_tokens": 64000,
         "stream": true,
-        "system": [{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
+        "system": system_blocks(cfg),
         "tools": definitions(),
         "messages": msgs,
         "thinking": {"type": "adaptive", "display": "summarized"},

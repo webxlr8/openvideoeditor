@@ -411,6 +411,15 @@ impl ove_tools::AppHost for DesktopApp<'_> {
             }
         }
     }
+    fn skills(&mut self) -> Option<ove_tools::skills::SkillStore> {
+        skill_store(&self.host.app)
+    }
+}
+
+/// The skill store of the app's library.
+pub(crate) fn skill_store(app: &AppHandle) -> Option<ove_tools::skills::SkillStore> {
+    let state = app.state::<AppState>();
+    crate::projects::with_library(&state.projects, |l| Ok(ove_tools::skills::SkillStore::of_library(&l.root))).ok()
 }
 
 impl ToolHost for DesktopHost {
@@ -991,6 +1000,8 @@ pub async fn agent_send(app: AppHandle, chat_id: Option<String>, text: String) -
                         max_duration: Duration::from_secs(u64::from(limits.max_minutes) * 60),
                         max_cost_usd: limits.turn_cap_usd,
                         project_cap,
+                        // Read each turn: a skill installed between turns shows in the next one.
+                        skill_index: skill_store(&app2).and_then(|s| ove_tools::skills::index_for(&s)),
                         ..TurnConfig::default()
                     };
                     let _ = run_turn(&client, &store, &chat2, &text, &mut host, &cfg, &cancel, &mut |e| {

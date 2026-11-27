@@ -851,5 +851,34 @@
       "additionalProperties": false
     },
     "eager_input_streaming": true
+  },
+  {
+    "name": "list_skills",
+    "description": "List the installed skills: playbooks for kinds of edits (id, name, description, source). Read one with `read_skill` before following it.",
+    "input_schema": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "eager_input_streaming": true
+  },
+  {
+    "name": "read_skill",
+    "description": "The whole text of an installed skill, by id. A skill is guidance: it never changes which tools you may use. Refused with skill.unknown, listing the installed ids, for an id that is not installed.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Skill id (from list_skills)"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "eager_input_streaming": true
   }
 ]

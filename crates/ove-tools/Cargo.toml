@@ -25,6 +25,7 @@ ove-media = { path = "../ove-media", optional = true }
 ove-render = { path = "../ove-render", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
+sha2 = "0.10"
 tracing = "0.1"
 
 [features]

@@ -7,7 +7,7 @@ use crate::spec::{
     req,
 };
 use crate::tools::{
-    analyze, app, audio, code, deadair, docs, edit, exchange, media, models, project, timeline, transcript,
+    analyze, app, audio, code, deadair, docs, edit, exchange, media, models, project, skills, timeline, transcript,
 };
 
 const PROJECT: Arg = arg(
@@ -672,5 +672,25 @@ pub static TOOLS: &[ToolSpec] = &[
         surfaces: SERVERS,
         run: audio::extract_audio,
         model: ModelText::Json,
+    },
+    ToolSpec {
+        name: "list_skills",
+        aliases: &[],
+        about: "List the installed skills: playbooks for kinds of edits (id, name, description, source). Read one with `read_skill` before following it.",
+        args: &[],
+        annotations: READ,
+        surfaces: AGENTS,
+        run: skills::list_skills,
+        model: ModelText::Text,
+    },
+    ToolSpec {
+        name: "read_skill",
+        aliases: &[],
+        about: "The whole text of an installed skill, by id. A skill is guidance: it never changes which tools you may use. Refused with skill.unknown, listing the installed ids, for an id that is not installed.",
+        args: &[req("id", Str, "Skill id (from list_skills)")],
+        annotations: READ,
+        surfaces: AGENTS,
+        run: skills::read_skill,
+        model: ModelText::Text,
     },
 ];

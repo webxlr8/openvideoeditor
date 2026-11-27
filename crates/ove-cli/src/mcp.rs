@@ -37,7 +37,9 @@ pub fn call(ctx: &mut dyn ToolCtx, name: &str, args: &Map<String, Value>) -> Val
 const INSTRUCTIONS: &str = "Edit OpenVideoEditor projects. Start with `docs` topic `agents` for the editing guide. \
 Typical loop: app_context (what the person has open) → print_timeline → apply_timeline with text edits and the \
 printed rev (one undo step; the receipt gives the new rev and the printed lines of what changed) → \
-verify_timeline. Times are seconds. When the app has the project open, edits appear in it at once.";
+verify_timeline. Times are seconds. When the app has the project open, edits appear in it at once. \
+Skills are playbooks for kinds of edits: `list_skills`, then `read_skill` (also served as prompts and as \
+`ove://skills/<id>` resources).";
 
 const PROTOCOLS: [&str; 3] = ["2025-06-18", "2025-03-26", "2024-11-05"];
 
@@ -125,7 +127,11 @@ pub fn handle(msg: &Value, ctx: &mut dyn ToolCtx) -> Option<Value> {
             let version = if PROTOCOLS.contains(&asked) { asked } else { PROTOCOLS[0] };
             Ok(json!({
                 "protocolVersion": version,
-                "capabilities": {"tools": {"listChanged": false}},
+                "capabilities": {
+                    "tools": {"listChanged": false},
+                    "prompts": {"listChanged": false},
+                    "resources": {"listChanged": false},
+                },
                 "serverInfo": {"name": "openvideoeditor", "title": "OpenVideoEditor", "version": env!("CARGO_PKG_VERSION")},
                 "instructions": INSTRUCTIONS,
             }))
@@ -147,8 +153,18 @@ pub fn handle(msg: &Value, ctx: &mut dyn ToolCtx) -> Option<Value> {
                 Some(_) => Ok(call(ctx, name, &args)),
             }
         }
-        "resources/list" => Ok(json!({"resources": []})),
-        "prompts/list" => Ok(json!({"prompts": []})),
+        // Skills (add-agent-skills-and-connectors D3): each valid skill is a prompt and an `ove://skills/<id>` resource.
+        "prompts/list" => skills(ctx).map(|s| ove_tools::skills::mcp_prompts(&s)),
+        "prompts/get" => skills(ctx).and_then(|s| {
+            let name = params.get("name").and_then(Value::as_str).unwrap_or("");
+            ove_tools::skills::mcp_prompt_get(&s, name).map_err(skill_error)
+        }),
+        "resources/list" => skills(ctx).map(|s| ove_tools::skills::mcp_resources(&s)),
+        "resources/templates/list" => Ok(json!({"resourceTemplates": []})),
+        "resources/read" => skills(ctx).and_then(|s| {
+            let uri = params.get("uri").and_then(Value::as_str).unwrap_or("");
+            ove_tools::skills::mcp_resource_read(&s, uri).map_err(skill_error)
+        }),
         other => Err((-32601, format!("method not found: {other}"), None)),
     };
     Some(match result {
@@ -161,6 +177,16 @@ pub fn handle(msg: &Value, ctx: &mut dyn ToolCtx) -> Option<Value> {
             json!({"jsonrpc": "2.0", "id": id, "error": e})
         }
     })
+}
+
+type RpcError = (i64, String, Option<Value>);
+
+fn skill_error(f: ove_tools::Fail) -> RpcError {
+    (-32602, f.message.clone(), Some(json!({"code": f.code, "details": f.details})))
+}
+
+fn skills(ctx: &mut dyn ToolCtx) -> Result<ove_tools::skills::SkillStore, RpcError> {
+    ctx.skills().map_err(|f| (-32603, f.message.clone(), Some(json!({"code": f.code}))))
 }
 
 /// [`handle`], with a panic anywhere in the message's handling answered as a JSON-RPC internal error, so one bad
