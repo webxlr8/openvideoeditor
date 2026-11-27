@@ -156,3 +156,56 @@ fn speed_blocks_join_seamlessly() {
     let diff = joined.iter().zip(&one).map(|(x, y)| (x - y).abs()).fold(0f32, f32::max);
     assert!(diff < 1e-6, "block joins differ by {diff}");
 }
+
+/// One tone on one track with volume keyframes 100 % at 0 s and 0 % at 1 s (linear).
+fn fade_doc(path: &Path) -> Document {
+    let mut d = doc(&[(path, 1.0)], 2.0);
+    let it = d.item("a0").unwrap().clone();
+    let mut set = serde_json::Map::new();
+    set.insert(
+        "keyframeTracks".into(),
+        json!([{"property": "volume", "keyframes": [{"time": 0, "value": 100}, {"time": 1, "value": 0}]}]),
+    );
+    set.insert("volume".into(), json!(100));
+    d = apply_batch(&d, &[Op::UpdateItem { id: it.id.clone(), set }]).unwrap().doc;
+    d
+}
+
+/// Mixes `frames` from 0 in blocks of the given sizes (cycled), as preview (fixed blocks) or export (per video frame).
+fn mix_in(doc: &Document, sizes: &[usize], frames: usize) -> Vec<f32> {
+    let mut m = Mixer::new(None);
+    let mut out = Vec::with_capacity(frames * CHANNELS);
+    let mut pos = 0usize;
+    let mut k = 0;
+    while pos < frames {
+        let n = sizes[k % sizes.len()].min(frames - pos);
+        let t0 = (pos as i128 * 1_000_000 / RATE as i128) as i64;
+        out.extend(m.mix(doc, t0, n));
+        pos += n;
+        k += 1;
+    }
+    out
+}
+
+#[test]
+fn volume_keyframes_fade_in_db_and_preview_equals_export() {
+    let dir = tempfile::tempdir().unwrap();
+    let Some(sine) = tone(dir.path(), 1000, 0.5, 3) else { return };
+    let d = fade_doc(&sine);
+    let frames = RATE as usize * 3 / 2;
+    // Preview mixes 1024-frame blocks; export mixes one block per encoder frame; a third split stresses odd sizes.
+    let preview = mix_in(&d, &[1024], frames);
+    let export = mix_in(&d, &[1600, 1601], frames);
+    let odd = mix_in(&d, &[37, 4093, 512], frames);
+    assert_eq!(preview, export, "preview and export mixes differ");
+    assert_eq!(preview, odd, "mix depends on block split");
+    // Level at 0.5 s is half way to the -60 dB floor (-30 dB) within 0.5 dB; silent from 1 s.
+    let left: Vec<f32> = preview.chunks(CHANNELS).map(|f| f[0]).collect();
+    let win = |c: usize| rms(&left[c - 240..c + 240]);
+    let level0 = 0.5 / 2f32.sqrt();
+    let at_half = 20.0 * (win(RATE as usize / 2) / level0).log10();
+    eprintln!("fade 100->0 %: level at 0.5 s {at_half:.2} dB");
+    assert!((at_half + 30.0).abs() < 0.5, "level at 0.5 s: {at_half} dB");
+    let after = rms(&left[RATE as usize + 48..]);
+    assert_eq!(after, 0.0, "silent after the last keyframe");
+}

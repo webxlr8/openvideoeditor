@@ -72,6 +72,18 @@ impl AudioRing {
         r.buf.extend(samples.iter().copied());
     }
 
+    /// Scrub: replaces the queued audio with `grain` (48 kHz stereo frames in the ring's format) for media time
+    /// `pts_us`, fading the queued audio out first ([`crate::scrub::splice`]) so the cut makes no click.
+    pub fn splice_grain(&self, pts_us: Micros, grain: &[f32]) {
+        let mut r = self.lock();
+        let queued: Vec<f32> =
+            r.buf.iter().take(crate::scrub::SPLICE_FADE_FRAMES * r.channels as usize).copied().collect();
+        let joined = crate::scrub::splice(&queued, grain);
+        r.buf.clear();
+        r.buf.extend(joined);
+        r.front_us = Some(pts_us);
+    }
+
     pub fn clear(&self) {
         let mut r = self.lock();
         r.buf.clear();

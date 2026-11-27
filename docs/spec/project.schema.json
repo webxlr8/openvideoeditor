@@ -196,6 +196,10 @@
         "modifiedAt": {
           "type": "integer",
           "description": "Last known modification time, ms since the epoch."
+        },
+        "contentId": {
+          "type": "string",
+          "description": "Content identity: hash of the size and sampled content; derived data is keyed by it."
         }
       }
     },
@@ -397,7 +401,8 @@
                       "rotation",
                       "opacity",
                       "gaussianBlur",
-                      "borderRadius"
+                      "borderRadius",
+                      "volume"
                     ],
                     "description": "Animated property."
                   },
@@ -954,7 +959,8 @@
                       "rotation",
                       "opacity",
                       "gaussianBlur",
-                      "borderRadius"
+                      "borderRadius",
+                      "volume"
                     ],
                     "description": "Animated property."
                   },
@@ -1442,7 +1448,8 @@
                       "rotation",
                       "opacity",
                       "gaussianBlur",
-                      "borderRadius"
+                      "borderRadius",
+                      "volume"
                     ],
                     "description": "Animated property."
                   },
@@ -1993,7 +2000,8 @@
                       "rotation",
                       "opacity",
                       "gaussianBlur",
-                      "borderRadius"
+                      "borderRadius",
+                      "volume"
                     ],
                     "description": "Animated property."
                   },
@@ -2455,7 +2463,8 @@
                       "rotation",
                       "opacity",
                       "gaussianBlur",
-                      "borderRadius"
+                      "borderRadius",
+                      "volume"
                     ],
                     "description": "Animated property."
                   },
@@ -2869,7 +2878,8 @@
                       "rotation",
                       "opacity",
                       "gaussianBlur",
-                      "borderRadius"
+                      "borderRadius",
+                      "volume"
                     ],
                     "description": "Animated property."
                   },
@@ -3268,7 +3278,8 @@
                       "rotation",
                       "opacity",
                       "gaussianBlur",
-                      "borderRadius"
+                      "borderRadius",
+                      "volume"
                     ],
                     "description": "Animated property."
                   },
@@ -3801,7 +3812,8 @@
                       "rotation",
                       "opacity",
                       "gaussianBlur",
-                      "borderRadius"
+                      "borderRadius",
+                      "volume"
                     ],
                     "description": "Animated property."
                   },

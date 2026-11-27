@@ -32,6 +32,7 @@ import {
   useCatalog,
   usePreview,
 } from "./fx";
+import { DuckPopover } from "./DuckPopover";
 import { Icon } from "./icons";
 import { fire } from "./notify";
 import { PanelHint, selectFirst } from "./onboarding/PanelHint";
@@ -661,6 +662,7 @@ export function AudioPanel({
     (i) => i.kind === "video" || i.kind === "audio",
   );
   const music = project.items.filter((i) => i.kind === "audio");
+  const [ducking, setDucking] = useState(false);
   const fade = (key: "audioFadeIn" | "audioFadeOut", d: number) =>
     onEdit(
       updateItems(
@@ -773,7 +775,17 @@ export function AudioPanel({
         >
           Lower music to 30 %
         </button>
+        <button
+          className="chip-sm"
+          disabled={!all.length}
+          data-testid="audio-duck-open"
+          title="Lowers the music only while someone speaks, with volume keyframes you can see and edit on the clips."
+          onClick={() => setDucking((d) => !d)}
+        >
+          Duck under dialogue…
+        </button>
       </div>
+      {ducking && <DuckPopover project={project} onEdit={onEdit} onClose={() => setDucking(false)} />}
       <h5 className="panel-sub">Audio clips</h5>
       {music.length === 0 && (
         <Empty>

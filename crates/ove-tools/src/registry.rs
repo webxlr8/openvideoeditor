@@ -6,7 +6,7 @@ use crate::spec::{
     AGENTS, APP_READ, APP_WRITE, Arg, DESTRUCTIVE, IN_APP, MCP, ModelText, READ, SERVERS, ToolSpec, WRITE, arg, cli,
     req,
 };
-use crate::tools::{analyze, app, code, docs, edit, exchange, media, models, project, timeline, transcript};
+use crate::tools::{analyze, app, audio, code, docs, edit, exchange, media, models, project, timeline, transcript};
 
 const PROJECT: Arg = arg(
     "project",
@@ -21,6 +21,7 @@ const OBJECT: &str = r#"{"type": "object"}"#;
 const REQUEST: &str = r#"{"type": ["object", "string"]}"#;
 const SCOPE: &str = r#"{"type": "string", "enum": ["session", "turn"]}"#;
 const OPTIONS: &str = r#"{"type": "array", "items": {"type": "string"}, "maxItems": 4}"#;
+const NAMES: &str = r#"{"type": ["array", "string"], "items": {"type": "string"}}"#;
 
 pub static TOOLS: &[ToolSpec] = &[
     ToolSpec {
@@ -542,6 +543,27 @@ pub static TOOLS: &[ToolSpec] = &[
         annotations: READ,
         surfaces: AGENTS,
         run: transcript::get_transcript,
+        model: ModelText::Json,
+    },
+    ToolSpec {
+        name: "duck_audio",
+        aliases: &[],
+        about: "Lower music under dialogue as one revision: writes volume keyframes on the music items (ramp down `attack` before each line of speech, `depth` dB during it, back up over `release`; lines closer than `hold` merge). Speech comes from the dialogue's cached transcript, else from its level. `mode` replace (default) rewrites volume keyframes only in the affected range, so running again replaces an earlier duck; merge multiplies with existing ones. `dryRun` returns the planned keyframes per music item without changing anything.",
+        args: &[
+            PROJECT,
+            req("music", Json(NAMES), "Music item ids or track ids/names (list, or comma-separated)"),
+            req("under", Json(NAMES), "Dialogue item ids or track ids/names (list, or comma-separated)"),
+            arg("depth", Num, "dB during speech, -60 to 0 (default -12)"),
+            arg("attack", Num, "Seconds of ramp down before speech (default 0.2)"),
+            arg("release", Num, "Seconds of ramp up after speech (default 0.4)"),
+            arg("hold", Num, "Lines closer than this many seconds merge (default 0.5)"),
+            arg("source", Str, "transcript, level or auto (default: transcript when cached, else level)"),
+            arg("mode", Str, "replace (default) or merge"),
+            arg("dryRun", Bool, "Return the plan without applying it"),
+        ],
+        annotations: WRITE,
+        surfaces: AGENTS,
+        run: audio::duck_audio,
         model: ModelText::Json,
     },
 ];

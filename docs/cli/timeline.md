@@ -77,3 +77,24 @@ ove source apply Demo broken.tsx                    # exit 1
 ove source apply Demo edited.tsx --prefer editor    # exit 0
 ove frobnicate                                      # exit 2
 ```
+
+## Volume keyframes
+
+`volume` is a keyframe property, like `opacity` or `scale`. Values are percent, the same unit as the static
+`volume` attribute (100 is unchanged, 0 is silent, 200 is the limit), at times in seconds from the item's start.
+What you hear is the static `volume` × the keyframe value × any fades. Between keyframes the level changes evenly in
+decibels, so a fade from 100 to 0 sounds even all the way down; values at or below 0.1 % are silent. A value outside
+0–200 is refused with `value.range`, naming the item and the keyframe.
+
+```tsx
+<audio id="i_music" start={0} end={30} src="score"
+  keyframeTracks={[{property: "volume", keyframes: [{time: 0, value: 100}, {time: 4, value: 25}, {time: 9, value: 100}]}]} />
+```
+
+These run in the same tests: `fade.tsx` fades the placeholder clip `a` from 100 % to 0 % over its first second, and
+`loud.tsx` uses 250 %.
+
+```sh
+ove source apply Demo fade.tsx                      # exit 0
+ove source apply Demo loud.tsx                      # exit 1
+```

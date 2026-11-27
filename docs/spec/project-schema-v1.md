@@ -68,6 +68,7 @@ Other project fields (`cast`, `temp`, `mediaBaseDirectory`, …) are preserved a
 | `probeStatus` | `awaiting-probe` \| `probed` \| `failed` | `"awaiting-probe"` |  | Probe state. |
 | `size` | integer ≥ 0 |  |  | Last known file size in bytes. |
 | `modifiedAt` | integer |  |  | Last known modification time, ms since the epoch. |
+| `contentId` | string |  |  | Content identity: hash of the size and sampled content; derived data is keyed by it. |
 
 ## Items
 
@@ -388,7 +389,7 @@ Fields in projection attribute order:
 
 | field | type / range | default | required | meaning |
 |---|---|---|---|---|
-| `property` | `x` \| `y` \| `scale` \| `rotation` \| `opacity` \| `gaussianBlur` \| `borderRadius` |  |  | Animated property. |
+| `property` | `x` \| `y` \| `scale` \| `rotation` \| `opacity` \| `gaussianBlur` \| `borderRadius` \| `volume` |  |  | Animated property. |
 | `keyframes` | array of object {time, value} |  |  | Keyframes in time order. |
 | `easing` | `linear` \| `ease-in` \| `ease-out` \| `ease-in-out` | `"linear"` |  | Interpolation between keyframes. |
 

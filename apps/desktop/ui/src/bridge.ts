@@ -19,6 +19,8 @@ import type {
   AutoCaptionRequest_Deserialize,
   ChatItem_Serialize,
   AppInfo_Serialize,
+  AudioMeter,
+  DuckRequest,
   Diagnostics_Serialize,
   MediaInfo_Serialize,
   PlaybackState,
@@ -82,6 +84,8 @@ export interface MockControl {
   calls: string[];
   /** Simulates the native side routing paths to the window. */
   routePaths(paths: string[]): void;
+  /** Simulates the engine sending a batch of level-meter readings. */
+  meter(batch: AudioMeter): void;
   /** A project opened from outside the window (an agent or the command line, through the control link). */
   remoteOpen(name: string): void;
   /** The simulated assistant: whether a key is stored, how long each streamed step takes, whether the key check
@@ -672,6 +676,9 @@ function createMock(): {
     rects: [],
     lastRect: null,
     calls: [],
+    meter(batch) {
+      emit("audio-meter", batch);
+    },
     routePaths(paths) {
       emit("open-paths-requested", { paths });
     },
@@ -892,6 +899,22 @@ function createMock(): {
     "pending",
   ];
   const n = (v: unknown, d = 0) => (typeof v === "number" ? v : d);
+  /** The audio view of a video or audio item, from its document fields (as the core builds it). */
+  const mockAudio = (kind: string, f: Fields): ItemView_Serialize["audio"] => {
+    if (kind !== "video" && kind !== "audio") return undefined;
+    const track = ((f.keyframeTracks as Fields[] | undefined) ?? []).find((t) => t.property === "volume");
+    const keys = ((track?.keyframes as Fields[] | undefined) ?? [])
+      .map((k) => ({ time: n(k.time), value: n(k.value) }))
+      .sort((a, b) => a.time - b.time);
+    return {
+      volume: n(f.volume, 100),
+      reverse: f.playbackDirection === "reverse",
+      fadeIn: n((f.audioFadeIn as Fields | undefined)?.duration),
+      fadeOut: n((f.audioFadeOut as Fields | undefined)?.duration),
+      volumeKeys: keys,
+      volumeEasing: typeof track?.easing === "string" ? track.easing : "linear",
+    };
+  };
   const refresh = (i: MockItem) => {
     const f = i.fields;
     const tr = (k: string) => n((f[k] as Fields | undefined)?.duration);
@@ -906,6 +929,7 @@ function createMock(): {
     i.transitionIn = tr("transitionIn");
     i.transitionOut = tr("transitionOut");
     i.speed = n(f.playbackSpeed, 1);
+    i.audio = mockAudio(i.kind, f);
     return i;
   };
   function fromDetail(d: Fields): MockItem {
@@ -944,6 +968,31 @@ function createMock(): {
     ...i.fields,
   });
   const mock = (id: string) => findItem(id) as MockItem | undefined;
+  /** A stand-in for the duck planner: speech is the middle third of each dialogue clip. */
+  const mockDuck = (r: DuckRequest): { items: string[]; speech: number[][] } | string => {
+    const resolve = (names: string[]) => {
+      const out: ItemView_Serialize[] = [];
+      for (const n of names) {
+        const item = project?.items.find((i) => i.id === n);
+        const track = project?.tracks.find((t) => t.id === n || t.name.toLowerCase() === n.toLowerCase());
+        if (item) out.push(item);
+        else if (track) out.push(...(project?.items.filter((i) => i.trackId === track.id) ?? []));
+        else return `Cannot duck: no item or track "${n}" in this project.`;
+      }
+      return out.filter((i) => i.kind === "audio" || i.kind === "video");
+    };
+    const music = resolve(r.music);
+    const under = resolve(r.under);
+    if (typeof music === "string") return music;
+    if (typeof under === "string") return under;
+    const speech = under.filter((i) => !i.muted).map((i) => {
+      const s = i.start ?? 0;
+      const len = (i.end ?? 0) - s;
+      return [s + len / 3, s + (2 * len) / 3];
+    });
+    if (!speech.length || !music.length) return "No speech was found in the dialogue, so nothing was changed.";
+    return { items: music.map((i) => i.id), speech };
+  };
   const applyEdit = (id: string, set: Fields, unset: string[]) => {
     const i = mock(id);
     if (!i) return;
@@ -1664,6 +1713,55 @@ function createMock(): {
         if (done) stopExport();
       }, 30);
       return ok(null);
+    },
+    peakRange: async (mediaId: string, start: number | null, end: number | null, bins: number) => {
+      track("peakRange");
+      // A deterministic stand-in for analysed audio: a tone whose level rises and falls with source time.
+      const a = start ?? 0;
+      const b = end ?? a;
+      const n = Math.max(1, Math.min(16384, Math.floor(bins)));
+      const data: number[] = [];
+      for (let i = 0; i < n; i++) {
+        const t = a + ((i + 0.5) * (b - a)) / n;
+        const level = 0.15 + 0.6 * Math.abs(Math.sin(t * 1.3)) * (0.6 + 0.4 * Math.sin(t * 7.1));
+        for (let c = 0; c < 2; c++) {
+          const v = Math.round(Math.min(1, level * (c === 0 ? 1 : 0.8)) * 127);
+          data.push(-v, v);
+        }
+      }
+      return ok({ status: "ready", message: null, contentId: `mock-${mediaId}`, channels: 2, bins: n, level: 0, data });
+    },
+    scrubAudio: async (t: number | null) => {
+      track(`scrubAudio:${t}`);
+      return ok(null);
+    },
+    duckPreview: async (request: DuckRequest) => {
+      track("duckPreview");
+      const plan = mockDuck(request);
+      if (typeof plan === "string") return fail("invalid_argument", plan);
+      return ok({ source: "level", lines: plan.speech.length, speech: plan.speech, musicItems: plan.items.length, keyframes: plan.items.length * plan.speech.length * 4 });
+    },
+    duckAudio: (request: DuckRequest) => {
+      track("duckAudio");
+      const plan = mockDuck(request);
+      if (typeof plan === "string") return fail("invalid_argument", plan);
+      return editProject(`duck music ${request.depth} dB under dialogue`, () => {
+        const ducked = Math.round(100 * Math.pow(10, (request.depth ?? -12) / 20) * 100) / 100;
+        for (const id of plan.items) {
+          const i = mock(id);
+          if (!i) continue;
+          const s0 = i.start ?? 0;
+          const keyframes = plan.speech.flatMap(([a, b]) => [
+            { time: a - (request.attack ?? 0) - s0, value: 100 },
+            { time: a - s0, value: ducked },
+            { time: b - s0, value: ducked },
+            { time: b + (request.release ?? 0) - s0, value: 100 },
+          ]);
+          const others = ((i.fields.keyframeTracks as Fields[] | undefined) ?? []).filter((t) => t.property !== "volume");
+          i.fields.keyframeTracks = [...others, { property: "volume", keyframes }];
+          refresh(i);
+        }
+      });
     },
     requestSkim: async (_mediaId: string) => {
       track("requestSkim");
@@ -2504,6 +2602,8 @@ function createMock(): {
   const events = {
     agentUiEvent: makeEvent("agent-ui-event"),
     appErrorRaised: makeEvent("app-error-raised"),
+    audioAnalysisChanged: makeEvent("audio-analysis-changed"),
+    audioMeter: makeEvent("audio-meter"),
     captionJobProgress: makeEvent("caption-job-progress"),
     localModelsChanged: makeEvent("local-models-changed"),
     localModelInstallProgress: makeEvent("local-model-install-progress"),
