@@ -195,3 +195,28 @@ Proxies as built (group 5):
 | Real-time check on files that need no proxy | ProRes 422 LT 10-bit 720p: 9.5×; H.264 640 × 360: 45× |
 | Cancel of a running proxy task to its cancelled state | 3–29 ms (0.5–0.8 s before the helper thread) |
 | Export with proxies on and off | identical frames (test) |
+
+Surfaces as built (group 6):
+
+- Popover: a button in the project bar that shows only while tasks exist (or while the person paused all work, or
+  while the export queue has jobs, through its `exports` entry). The app sends `tasksChanged` at most every 250 ms
+  after a change, and the last change always gets out. Export tasks have no Cancel in the popover, because the
+  export dialog cancels them.
+- CLI and MCP: background work runs only in the app, so `ove tasks` and `list_tasks` / `wait_tasks` / `cancel_task`
+  ask the running app over the control link (method `tasks`, `ove_tasks::remote`). "Headless on bundles" therefore
+  means: without the app there is no queue (D4), so `list` is empty with `"app": false`, `wait` is done at once, and
+  `cancel` is refused with `task.notFound`. One control-link `wait` blocks at most 10 s. Longer waits (up to 600 s)
+  call again, so the link's 20 s call time-out never cuts a wait short. A time-out is a result (`timedOut: true`,
+  `remaining`), not an error.
+- Storage: rows for thumbnails (`cache/thumbs`), skim sheets (`cache/skim`), proxies (`proxies`), transcripts
+  (`cache/transcripts`) and the audio peak cache (`cache/waveforms`). Each row shows the open project's size and
+  the total across the library. Clear cancels the kind's tasks, waits up to 2 s for them, makes playback let go of
+  proxy files, and then removes only regular files in that folder. It skips any registered media file and never
+  follows links. The app then forgets what it had derived, so the next media check rebuilds what is missing.
+  Proxies are rebuilt only while "Use proxies" is on.
+
+| Measure (Windows dev machine, tests) | Result |
+|---|---|
+| Cancel through the control link to the cancelled state | < 200 ms (asserted) |
+| `ove tasks wait --timeout 0.5` with a task still running | returns `timedOut: true, remaining: 1` after the time-out |
+| Popover updates while a task reports progress every 5 ms | at most 4 per second (250 ms coalescing) |

@@ -7,8 +7,8 @@ use crate::spec::{
     cli, req,
 };
 use crate::tools::{
-    analyze, app, audio, code, deadair, docs, edit, exchange, feedback, generate, media, models, project, timeline,
-    transcript,
+    analyze, app, audio, code, deadair, docs, edit, exchange, feedback, generate, media, models, project, tasks,
+    timeline, transcript,
 };
 
 const PROJECT: Arg = arg(
@@ -858,5 +858,43 @@ pub static TOOLS: &[ToolSpec] = &[
         surfaces: AGENTS,
         run: feedback::send_feedback,
         model: ModelText::Json,
+    },
+    // Background tasks (change add-background-tasks-and-media-derivatives, task 6.2).
+    ToolSpec {
+        name: "list_tasks",
+        aliases: &[],
+        about: "List the app's unfinished background tasks (thumbnails, skim sheets, proxies, captions, export, analysis): id, kind, label, project, priority, state (queued, running, paused with its reason) and progress. Background work runs only in the app: without it the list is empty.",
+        args: &[
+            PROJECT,
+            arg("kind", Str, "Only this kind (thumbnail, skim, proxy, captions, export, audio-analysis, …)"),
+        ],
+        annotations: APP_READ,
+        surfaces: AGENTS,
+        run: tasks::list_tasks,
+        model: ModelText::Text,
+    },
+    ToolSpec {
+        name: "wait_tasks",
+        aliases: &[],
+        about: "Wait until the matching background tasks are done (for example the proxies of a project), or until the time-out: the result says whether they are done and how many remain. Paused tasks (playback, battery) do not finish while paused.",
+        args: &[
+            PROJECT,
+            arg("kind", Str, "Only this kind (thumbnail, skim, proxy, captions, export, audio-analysis, …)"),
+            arg("timeoutSeconds", Num, "Seconds to wait at most (default 30, at most 600)"),
+        ],
+        annotations: APP_READ,
+        surfaces: AGENTS,
+        run: tasks::wait_tasks,
+        model: ModelText::Text,
+    },
+    ToolSpec {
+        name: "cancel_task",
+        aliases: &[],
+        about: "Cancel one background task by id (from list_tasks). It stops within a second and leaves no partial output; the result reports it cancelled. Derived data (thumbnails, skim sheets, proxies) is queued again the next time it is needed.",
+        args: &[req("id", Int, "The task id")],
+        annotations: DESTRUCTIVE,
+        surfaces: AGENTS,
+        run: tasks::cancel_task,
+        model: ModelText::Text,
     },
 ];

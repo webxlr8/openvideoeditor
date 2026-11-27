@@ -189,4 +189,7 @@ ove source print Nope                              # exit 1
 | `generation_status` |  | in-app, mcp, pinned | write | `id` `project`? `wait`? `cancel`? |
 | `cancel_generation` |  | in-app, mcp, pinned | destructive | `id` `project`? |
 | `send_feedback` |  | in-app, mcp, pinned | write | `category` `severity` `summary` |
+| `list_tasks` |  | in-app, mcp, pinned | read, app | `project`? `kind`? |
+| `wait_tasks` |  | in-app, mcp, pinned | read, app | `project`? `kind`? `timeoutSeconds`? |
+| `cancel_task` |  | in-app, mcp, pinned | destructive | `id` |
 <!-- tools:end -->

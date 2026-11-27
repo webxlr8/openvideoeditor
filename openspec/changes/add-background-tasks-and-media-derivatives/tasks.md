@@ -9,9 +9,9 @@
 - [ ] 1.3 Add OS background priority on macOS and Windows; verify a test reads back the thread priority on both OSes.
 - [x] 1.4 Add pause sources (playback, export, power, low-power, thermal) and the person's override; verify tests with
       injected state changes pause and resume tasks at checkpoints.
-- [ ] 1.5 Document the scheduler for feature authors in `docs/cli/tasks.md` (task kinds, priorities, how to add one);
+- [x] 1.5 Document the scheduler for feature authors in `docs/cli/tasks.md` (task kinds, priorities, how to add one);
       verify the docs' CLI examples run in tests.
-      (Written; its Rust example runs as a doc test. The `ove tasks` examples run once 6.2 adds the command.)
+      (Its Rust example runs as a doc test; its `ove tasks` examples run in `ove-cli` `tests/docs.rs` `tasks_examples`.)
 
 ## 2. Existing jobs onto the scheduler
 
@@ -45,7 +45,8 @@
 - [x] 4.2 Serve sheets through a custom URI protocol and add hover-skim to media thumbnails; verify a UI test: no IPC
       calls while skimming and first tile ≤ 16 ms after pointer move.
       (`ove-skim` protocol serving only `<contentId>.jpg` from the open project's `cache/skim`
-      (`tasks::protocol_tests`); `ui/src/SkimThumb.test.tsx` in jsdom. Checking it in the built app is part of 7.3.)
+      (`tasks::protocol_tests`); `ui/src/SkimThumb.test.tsx` in jsdom checks that skimming makes no core call. The
+      16 ms first-tile budget is a wall-clock measure of the built app, so it moved to 7.3 (CTO, gate 2).)
 
 ## 5. Proxies
 
@@ -63,12 +64,21 @@
 
 ## 6. Surfaces
 
-- [ ] 6.1 Add the status-bar Background Tasks popover (states, progress, pause reason, cancel, run anyway); verify UI
+- [x] 6.1 Add the status-bar Background Tasks popover (states, progress, pause reason, cancel, run anyway); verify UI
       tests for each state.
-- [ ] 6.2 Add `ove tasks list|cancel|wait` (headless on bundles) and MCP `list_tasks`, `wait_tasks`, `cancel_task`;
+      (`ui/src/tasks/TasksPopover.tsx` in the project bar; `tasksChanged` events at most every 250 ms;
+      `ui/src/tasks/TasksPopover.test.tsx`: none, running with progress, waiting, running alone, paused with reason
+      and run anyway, cancel, pause and resume all, the export queue entry. App side `background::tests`.)
+- [x] 6.2 Add `ove tasks list|cancel|wait` (headless on bundles) and MCP `list_tasks`, `wait_tasks`, `cancel_task`;
       verify CLI and MCP contract tests including time-out results.
-- [ ] 6.3 Add Settings → Storage rows per cache kind with size and Clear (cancel-then-clear); verify UI tests that
+      (Tools in the `ove-tools` registry; they reach the app's scheduler through the control-link method `tasks`
+      (`ove_tasks::remote`). Without the app no background work exists: list is empty, wait is done, cancel is
+      refused. `ove-cli` `tests/tasks.rs` (headless and with a stand-in app), `ove-tasks` `tests/remote.rs`.)
+- [x] 6.3 Add Settings → Storage rows per cache kind with size and Clear (cancel-then-clear); verify UI tests that
       clearing never touches media or the document.
+      (Thumbnails, skim sheets, proxies, transcripts and the audio peak cache (moved here from
+      add-audio-mixing-and-monitoring); "Use proxies" sits with the proxies row. `ui/src/storage/CachesSection.test.tsx`;
+      app `storage::tests::clearing_never_touches_media_or_the_document`.)
 
 ## 7. Integration checks
 
@@ -76,4 +86,5 @@
       verify zero dropped frames caused by background work and record numbers in design.md Results.
 - [ ] 7.2 Start an export during a heavy background load on both OSes; verify the export starts within 1 s.
 - [ ] 7.3 Import 200 files, skim them, build proxies, relink the folder, and reopen the project on both OSes; verify
-      derived data is reused and idle RAM with an empty queue stays ≤ 250 MB.
+      derived data is reused, the first skim tile shows within 16 ms of a pointer move, and idle RAM with an empty
+      queue stays ≤ 250 MB.

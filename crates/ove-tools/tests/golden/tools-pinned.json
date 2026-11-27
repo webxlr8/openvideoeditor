@@ -1859,6 +1859,80 @@
         "destructiveHint": false,
         "openWorldHint": false
       }
+    },
+    {
+      "name": "list_tasks",
+      "description": "List the app's unfinished background tasks (thumbnails, skim sheets, proxies, captions, export, analysis): id, kind, label, project, priority, state (queued, running, paused with its reason) and progress. Background work runs only in the app: without it the list is empty.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "kind": {
+            "type": "string",
+            "description": "Only this kind (thumbnail, skim, proxy, captions, export, audio-analysis, …)"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "wait_tasks",
+      "description": "Wait until the matching background tasks are done (for example the proxies of a project), or until the time-out: the result says whether they are done and how many remain. Paused tasks (playback, battery) do not finish while paused.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "kind": {
+            "type": "string",
+            "description": "Only this kind (thumbnail, skim, proxy, captions, export, audio-analysis, …)"
+          },
+          "timeoutSeconds": {
+            "type": "number",
+            "description": "Seconds to wait at most (default 30, at most 600)"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "cancel_task",
+      "description": "Cancel one background task by id (from list_tasks). It stops within a second and leaves no partial output; the result reports it cancelled. Derived data (thumbnails, skim sheets, proxies) is queued again the next time it is needed.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "The task id"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "openWorldHint": false
+      }
     }
   ]
 }

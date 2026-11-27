@@ -579,6 +579,12 @@ impl MediaCache {
         (v, stale)
     }
 
+    /// Forgets everything checked and derived, so the next media check reads it all again from disk (after
+    /// Settings → Storage cleared a cache).
+    pub fn forget(&mut self) {
+        *self = MediaCache::default();
+    }
+
     /// Records a finished skim sheet.
     pub fn put_skim(&mut self, bundle: &Path, skim: SkimView) {
         self.select(bundle);

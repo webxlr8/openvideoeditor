@@ -15,6 +15,7 @@ import type {
   AgentUiEvent_Serialize,
   HistoryRow_Serialize,
   SpendView,
+  TasksView_Serialize,
   AppError,
   AutoCaptionRequest_Deserialize,
   ChatItem_Serialize,
@@ -115,6 +116,11 @@ export interface MockControl {
   /** Simulates an agent asking to spend (the control method `confirm_spend`): over the cap it is refused without a
    * card, as the native session does; otherwise a price card shows. */
   requestSpend(card: { quoteId: string; estimateUsd: number; text?: string }): void;
+  /** The background tasks the status bar shows; `setTasks` replaces them and sends `tasksChanged`. */
+  tasks: TasksView_Serialize;
+  setTasks(view: TasksView_Serialize): void;
+  /** Settings → Storage rows of derived data (bytes in the open project and across the library). */
+  storage: { kind: string; label: string; projectBytes: number; totalBytes: number }[];
   /** Onboarding state as the native side would keep it. Onboarding is over by default (the welcome would cover
    * every other test); a test of the first run puts `FIRST_RUN` here before rendering. */
   onboarding: OnboardingState;
@@ -744,8 +750,25 @@ function createMock(): {
     transcript: { words: [], pauses: [] },
     localAgents: [],
     onboarding: { ...SETTLED },
+    tasks: { tasks: [], paused: [], runAnyway: [] },
+    setTasks(view) {
+      control.tasks = view;
+      emit("tasks-changed", structuredClone(view));
+    },
+    storage: [
+      { kind: "thumbnails", label: "Thumbnails", projectBytes: 120_000, totalBytes: 480_000 },
+      { kind: "skim", label: "Skim sheets", projectBytes: 2_400_000, totalBytes: 9_000_000 },
+      { kind: "proxies", label: "Proxies", projectBytes: 0, totalBytes: 0 },
+      { kind: "transcripts", label: "Transcripts", projectBytes: 56_000, totalBytes: 56_000 },
+      { kind: "waveforms", label: "Audio peak cache", projectBytes: 310_000, totalBytes: 1_200_000 },
+    ],
   };
   const track = (name: string) => control.calls.push(name);
+  const storageView = () => ({
+    project: project?.name ?? null,
+    rows: control.storage.map((r) => ({ ...r, projectBytes: project ? r.projectBytes : 0 })),
+    useProxies: project?.useProxies === true,
+  });
 
   const media = (path: string): MediaInfo_Serialize => ({
     path,
@@ -1827,6 +1850,48 @@ function createMock(): {
       track("requestSkim");
       return ok(null);
     },
+    listTasks: () => {
+      track("listTasks");
+      return ok(structuredClone(control.tasks));
+    },
+    cancelTask: (id: number) => {
+      track(`cancelTask:${id}`);
+      const before = control.tasks.tasks.length;
+      control.setTasks({ ...control.tasks, tasks: control.tasks.tasks.filter((t) => t.id !== id) });
+      return ok(control.tasks.tasks.length < before);
+    },
+    pauseTasks: (paused: boolean) => {
+      track(`pauseTasks:${paused}`);
+      const others = control.tasks.paused.filter((p) => p.reason !== "user");
+      const user = paused ? [{ reason: "user", label: "paused by you" }] : [];
+      control.setTasks({ ...control.tasks, paused: [...user, ...others] });
+      return ok(null);
+    },
+    runAnyway: (reason: string, on: boolean) => {
+      track(`runAnyway:${reason}:${on}`);
+      const t = control.tasks;
+      const label = t.paused.find((p) => p.reason === reason)?.label ?? reason;
+      control.setTasks({
+        tasks: t.tasks,
+        paused: on ? t.paused.filter((p) => p.reason !== reason) : [...t.paused, { reason, label }],
+        runAnyway: on ? [...t.runAnyway, reason] : t.runAnyway.filter((r) => r !== reason),
+      });
+      return ok(null);
+    },
+    storageUsage: () => ok(storageView()),
+    clearCache: (kind: string) => {
+      track(`clearCache:${kind}`);
+      const row = control.storage.find((r) => r.kind === kind);
+      if (!row) return fail("invalid_argument", `“${kind}” is not a kind of stored data.`);
+      if (!project) return fail("not_found", "No project is open.");
+      const freed = row.projectBytes;
+      row.totalBytes -= freed;
+      row.projectBytes = 0;
+      const taskKind = { thumbnails: "thumbnail", skim: "skim", proxies: "proxy", transcripts: "captions", waveforms: "audio-analysis" }[kind];
+      const cancelled = control.tasks.tasks.filter((t) => t.kind === taskKind).length;
+      if (cancelled > 0) control.setTasks({ ...control.tasks, tasks: control.tasks.tasks.filter((t) => t.kind !== taskKind) });
+      return ok({ freedBytes: freed, cancelledTasks: cancelled, left: 0, view: storageView() });
+    },
     cancelExport: () => {
       track("cancelExport");
       if (exportTimer) {
@@ -2774,6 +2839,7 @@ function createMock(): {
     generationUpdated: makeEvent("generation-updated"),
     spendRequested: makeEvent("spend-requested"),
     spendSettled: makeEvent("spend-settled"),
+    tasksChanged: makeEvent("tasks-changed"),
     viewerBackendChanged: makeEvent("viewer-backend-changed"),
     viewerFrameReady: makeEvent("viewer-frame-ready"),
   } as unknown as Events;
