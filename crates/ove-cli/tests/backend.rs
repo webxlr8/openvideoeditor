@@ -91,6 +91,17 @@ fn render_and_look_take_a_forced_backend() {
     let mean = |v: &Value| v["frames"][0]["stats"]["meanLuma"].as_f64().unwrap();
     assert!((mean(&look) - mean(&auto)).abs() < 0.01, "both backends show the same frame");
 
+    // Scope images (task 6.3): the vectorscope of the composited frame, and an unknown scope refused.
+    let v_png = d.path().join("v.png");
+    let v = ok(&lib, &["look", "B", "--at", "0.5", "--scope", "vectorscope", "--out", v_png.to_str().unwrap()]);
+    assert_eq!(v["scope"], "vectorscope", "{v}");
+    assert_eq!((v["frames"][0]["width"].as_u64(), v["frames"][0]["height"].as_u64()), (Some(512), Some(512)));
+    assert!(std::fs::read(&v_png).unwrap().starts_with(&[0x89, b'P', b'N', b'G']));
+    let bad_scope = run(&lib, &["look", "B", "--at", "0.5", "--scope", "histogram2", "--out", v_png.to_str().unwrap()]);
+    assert_eq!(bad_scope.status.code(), Some(1));
+    let err = String::from_utf8_lossy(&bad_scope.stderr);
+    assert!(err.contains("waveform, parade, vectorscope"), "{err}");
+
     // An unknown backend name is refused with the valid names.
     let bad = run(&lib, &["look", "B", "--at", "0.5", "--stats", "--backend", "metal"]);
     assert_eq!(bad.status.code(), Some(1));

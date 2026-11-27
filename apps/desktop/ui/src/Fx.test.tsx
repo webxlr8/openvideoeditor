@@ -166,4 +166,20 @@ describe("effects, transitions, layouts and colour", () => {
     expect(((await clipDetail()).colorGrade as Fields).lut).toBeTruthy();
     expect(await screen.findByTestId("scopes")).toBeTruthy();
   });
+
+  it("scopes follow a grade change while paused", async () => {
+    await editorWithClip();
+    fireEvent.click(screen.getByTestId("insp-tab-color"));
+    const canvas = await screen.findByTestId("scope-canvas");
+    await waitFor(() => expect(canvas.getAttribute("data-seq")).not.toBe(""));
+    expect(window.__oveMock!.calls).toContain("setScope:waveform");
+    fireEvent.click(screen.getByTestId("scope-vectorscope"));
+    await waitFor(() => expect(window.__oveMock!.calls).toContain("setScope:vectorscope"));
+    const before = canvas.getAttribute("data-seq");
+    fireEvent.click(await screen.findByTestId("lut-cinematic"));
+    const started = Date.now();
+    await waitFor(() => expect(canvas.getAttribute("data-seq")).not.toBe(before), { timeout: 1000 });
+    // The panel polls every 66 ms, well inside the 200 ms the scenario allows.
+    expect(Date.now() - started).toBeLessThan(400);
+  });
 });

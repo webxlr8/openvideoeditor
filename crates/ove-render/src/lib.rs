@@ -17,6 +17,7 @@ pub mod meter;
 pub mod parity;
 pub mod queue;
 pub mod render;
+pub mod scopes;
 pub mod sources;
 pub mod text;
 pub mod text_anim;

@@ -334,6 +334,50 @@ pub fn source(id: &str) -> Option<String> {
     Some(format!("{prelude}{body}{MAIN}"))
 }
 
+/// Scope binning (`ove_render::scopes::bin`): integer arithmetic on code values, atomic counters per bin.
+pub const SCOPE: &str = r#"
+struct Head {
+    a: vec4<u32>, // scope (0 waveform, 1 parade, 2 vectorscope), unused…
+}
+@group(0) @binding(0) var<uniform> head: Head;
+@group(0) @binding(1) var src: texture_2d<f32>;
+@group(0) @binding(2) var<storage, read_write> counts: array<atomic<u32>>;
+
+fn floor_div(n: i32, d: i32) -> i32 {
+    if (n >= 0) {
+        return n / d;
+    }
+    return -1;
+}
+
+@compute @workgroup_size(8, 8)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let dims = textureDimensions(src);
+    if (gid.x >= dims.x || gid.y >= dims.y) {
+        return;
+    }
+    let c = vec3<u32>(round(textureLoad(src, vec2<i32>(i32(gid.x), i32(gid.y)), 0).rgb * 255.0));
+    let kind = head.a.x;
+    if (kind == 0u) {
+        let l = (2126u * c.r + 7152u * c.g + 722u * c.b + 5000u) / 10000u;
+        let col = gid.x * 256u / dims.x;
+        atomicAdd(&counts[(255u - l) * 256u + col], 1u);
+    } else if (kind == 1u) {
+        let col = gid.x * 85u / dims.x;
+        atomicAdd(&counts[(255u - c.r) * 256u + col], 1u);
+        atomicAdd(&counts[(255u - c.g) * 256u + 85u + col], 1u);
+        atomicAdd(&counts[(255u - c.b) * 256u + 170u + col], 1u);
+    } else {
+        let y = 2126 * i32(c.r) + 7152 * i32(c.g) + 722 * i32(c.b);
+        let cb = i32(c.b) * 10000 - y;
+        let cr = i32(c.r) * 10000 - y;
+        let col = u32(clamp(floor_div(2 * cb + 255 * 18556, 2 * 18556), 0, 255));
+        let up = u32(clamp(floor_div(2 * cr + 255 * 15748, 2 * 15748), 0, 255));
+        atomicAdd(&counts[(255u - up) * 256u + col], 1u);
+    }
+}
+"#;
+
 /// Transition reveal masks (`TransState::apply_mask`): wipe (4 directions), radial wipe, ink bleed, mask glitch.
 pub const MASK: &str = r#"
 struct Head {

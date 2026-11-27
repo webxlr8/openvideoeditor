@@ -273,6 +273,10 @@ export const commands = {
 	 *  A point or rectangle that misses the layer changes nothing and reports `outside`.
 	 */
 	sampleKeyColor: (itemId: string, effectId: string, time: number | null, rect: (number | null)[]) => typedError<KeySample_Serialize, AppError>(__TAURI_INVOKE("sample_key_color", { itemId, effectId, time, rect })),
+	/**  Which scope the colour panel shows (`waveform`, `parade`, `vectorscope`), or none to stop binning. */
+	setScope: (scope: string | null) => typedError<null, AppError>(__TAURI_INVOKE("set_scope", { scope })),
+	/**  The latest scope grid, when newer than `since` (its `seq`). */
+	scopeFrame: (since: number | null) => typedError<ScopeFrame | null, AppError>(__TAURI_INVOKE("scope_frame", { since })),
 	/**  The current compositing status. */
 	compositingStatus: () => typedError<CompositingStatus_Serialize, AppError>(__TAURI_INVOKE("compositing_status")),
 	/**
@@ -1424,6 +1428,19 @@ export type RemoteOpened_Serialize = ProjectView_Serialize;
 export type RemoveStatus = "removed" | 
 /**  A running job uses the model; it is removed when the job ends (`localModelsChanged` follows). */
 "waiting" | "notInstalled";
+
+/**  The latest scope for the panel. */
+export type ScopeFrame = {
+	/**  Increases with every new grid. */
+	seq: number | null,
+	scope: string,
+	/**  Timeline time of the frame, microseconds. */
+	ptsUs: number | null,
+	width: number,
+	height: number,
+	/**  `width × height` density bytes (0 empty … 255 fullest), row-major, base64. */
+	data: string,
+};
 
 export type SendResult = {
 	chatId: string,

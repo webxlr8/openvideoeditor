@@ -22,7 +22,7 @@ import {
 } from "./fx";
 import { Icon } from "./icons";
 import { Slider } from "./Inspector";
-import { fire, runCommand } from "./notify";
+import { fire, logError, runCommand } from "./notify";
 
 const obj = (v: unknown): Fields => (v && typeof v === "object" && !Array.isArray(v) ? (v as Fields) : {});
 const num = (v: unknown, d: number) => (typeof v === "number" && Number.isFinite(v) ? v : d);
@@ -531,6 +531,69 @@ export function Histogram({ time }: { time: number }) {
   );
 }
 
+const SCOPES = [
+  { id: "waveform", label: "Waveform" },
+  { id: "parade", label: "Parade" },
+  { id: "vectorscope", label: "Vectorscope" },
+] as const;
+
+/** Draws a 256 × 256 density grid (base64 bytes) on a canvas, green over black. */
+function drawScope(canvas: HTMLCanvasElement | null, data: string) {
+  const ctx = canvas?.getContext("2d");
+  if (!canvas || !ctx) return;
+  const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
+  const img = ctx.createImageData(256, 256);
+  for (let i = 0; i < bytes.length && i < 65536; i++) {
+    const d = bytes[i];
+    img.data[i * 4] = d >> 1;
+    img.data[i * 4 + 1] = d;
+    img.data[i * 4 + 2] = (d >> 1) + (d >> 2);
+    img.data[i * 4 + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+}
+
+/** Live waveform, RGB parade or vectorscope of the frame the viewer shows (binned natively at up to 15 Hz). */
+export function Scopes() {
+  const [scope, setScope] = useState<(typeof SCOPES)[number]["id"]>("waveform");
+  const [seq, setSeq] = useState<number | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    runCommand(commands.setScope(scope), undefined, logError);
+    return () => runCommand(commands.setScope(null), undefined, logError);
+  }, [scope]);
+  useEffect(() => {
+    let last: number | null = null;
+    const poll = async () => {
+      const r = await commands.scopeFrame(last);
+      if (r.status === "ok" && r.data) {
+        last = r.data.seq;
+        setSeq(r.data.seq);
+        drawScope(canvasRef.current, r.data.data);
+      }
+    };
+    const id = setInterval(() => fire(poll(), logError), 66);
+    return () => clearInterval(id);
+  }, []);
+  return (
+    <div className="scopes-live" data-testid="scopes-live">
+      <div className="chips">
+        {SCOPES.map((s) => (
+          <button
+            key={s.id}
+            className={`chip-sm${scope === s.id ? " on" : ""}`}
+            data-testid={`scope-${s.id}`}
+            onClick={() => setScope(s.id)}
+          >
+            {s.label}
+          </button>
+        ))}
+      </div>
+      <canvas ref={canvasRef} width={256} height={256} data-testid="scope-canvas" data-seq={seq ?? ""} className="scope-canvas" />
+    </div>
+  );
+}
+
 function LutThumb({ id }: { id: string }) {
   const url = usePreview("lut", id);
   return url ? <img className="fx-thumb" src={url} alt="" /> : <span className="fx-thumb placeholder" />;
@@ -651,6 +714,7 @@ export function ColorGradeEditor({
           </div>
           <h5 className="panel-sub">Scopes</h5>
           <Histogram time={playhead} />
+          <Scopes />
       </>
     </div>
   );

@@ -400,6 +400,10 @@
         "view": {
           "type": "string",
           "description": "result (default) or matte: every chroma key shows its matte (white kept, black removed)"
+        },
+        "scope": {
+          "type": "string",
+          "description": "waveform, parade or vectorscope: return that scope of each frame instead of the frame (the colour panel's binning)"
         }
       },
       "required": [],

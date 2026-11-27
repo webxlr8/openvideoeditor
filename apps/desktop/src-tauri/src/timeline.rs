@@ -199,8 +199,10 @@ impl FrameSource for TimelineSource {
     }
 }
 
-/// Converts a composited frame for the viewer.
+/// Converts a composited frame for the viewer (the frame being presented).
 pub fn to_viewer(f: &TimelineFrame) -> ove_gpu::VideoFrame {
+    // The colour panel's scopes show the frame the viewer shows.
+    crate::scopes::offer(&f.image, f.pts_us);
     ove_gpu::VideoFrame::rgba(f.image.w, f.image.h, f.image.data.clone(), f.pts_us)
 }
 

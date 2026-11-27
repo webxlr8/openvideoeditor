@@ -90,6 +90,10 @@ enum Cmd {
         /// result (default) or matte: every chroma key shows its matte.
         #[arg(long)]
         view: Option<String>,
+        /// waveform, parade or vectorscope: write that scope instead of the frame (--out: a .png for one time, or a
+        /// folder).
+        #[arg(long)]
+        scope: Option<String>,
     },
     /// Colour readouts for matching shots: inspect.
     Color {
@@ -347,10 +351,11 @@ fn run(cli: &Cli, source: Source) -> Out {
         Cmd::App { cmd } => app::run(&ctx, cmd),
         Cmd::Audio { cmd } => analyze::audio(&ctx, cmd),
         Cmd::Generate { cmd } => generate::run(&ctx, cmd),
-        Cmd::Look { project, at, every, count, width, out, sheet, columns, stats, backend, view } => ctx.tool(
+        Cmd::Look { project, at, every, count, width, out, sheet, columns, stats, backend, view, scope } => ctx.tool(
             "look",
             json!({"project": project, "at": at, "every": every, "count": count, "width": width, "out": out,
-                   "sheet": sheet, "columns": columns, "stats": stats, "backend": backend, "view": view}),
+                   "sheet": sheet, "columns": columns, "stats": stats, "backend": backend, "view": view,
+                   "scope": scope}),
         ),
         Cmd::Color {
             cmd: ColorCmd::Inspect { project, at, item, isolate, reference, reference_at, strength, height, backend },

@@ -24,6 +24,7 @@ pub mod motion;
 pub mod onboarding;
 pub mod projects;
 pub mod sample;
+pub mod scopes;
 pub mod scripted_dialogs;
 pub mod scrub;
 pub mod spend;
@@ -234,6 +235,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             fx::match_color,
             fx::color_scopes,
             fx::sample_key_color,
+            scopes::set_scope,
+            scopes::scope_frame,
             compositing::compositing_status,
             compositing::set_gpu_compositing,
             // Onboarding: the welcome and checklist state, and the sample project.

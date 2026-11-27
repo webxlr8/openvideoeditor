@@ -155,7 +155,7 @@ ove source print Nope                              # exit 1
 | `waveform_image` |  | mcp, pinned | read | `project`? `media` `width`? `height`? |
 | `detect_silence` |  | in-app, mcp, pinned | read | `project`? `media` `thresholdDb`? `minDuration`? `mode`? `minPause`? `padding`? `relativeDb`? |
 | `measure_loudness` |  | mcp, pinned | read | `project`? `media`? `timeline`? |
-| `look` |  | in-app, mcp, pinned | read | `project`? `at`? `every`? `count`? `width`? `stats`? `grid`? `storyboard`? `backend`? `view`? |
+| `look` |  | in-app, mcp, pinned | read | `project`? `at`? `every`? `count`? `width`? `stats`? `grid`? `storyboard`? `backend`? `view`? `scope`? |
 | `screenshot` |  | mcp, pinned | read, app | `width`? |
 | `export_video` |  | mcp, pinned | write | `project`? `out` `preset`? `format`? `quality`? `resolution`? `height`? `frameRate`? `fps`? `range`? `videoCodec`? `profile`? `bitDepth`? `alpha`? `videoBitrate`? `audioCodec`? `audioBitDepth`? `settings`? `audioOnly`? `loudness`? `wait`? `backend`? |
 | `export_timeline_file` |  | mcp, pinned | read | `project`? `file` `fps`? |

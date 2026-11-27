@@ -2262,6 +2262,16 @@ function createMock(): {
           },
         };
       }),
+    setScope: (scope: string | null) => {
+      track(`setScope:${scope ?? "none"}`);
+      return ok(null);
+    },
+    // A new scope grid whenever the project changes (the engine re-renders the paused frame on every edit).
+    scopeFrame: (since: number | null) => {
+      const seq = project?.rev ?? 0;
+      if (since != null && seq <= since) return ok(null);
+      return ok({ seq, scope: "waveform", ptsUs: 0, width: 256, height: 256, data: btoa("\u0000".repeat(65536)) });
+    },
     colorScopes: (time: number | null) => {
       track(`colorScopes:${time ?? 0}`);
       const bins = (shift: number) =>

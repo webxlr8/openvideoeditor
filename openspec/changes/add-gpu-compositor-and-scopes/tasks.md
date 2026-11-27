@@ -59,11 +59,11 @@
 
 ## 6. Visual scopes
 
-- [ ] 6.1 Implement waveform, parade and vectorscope binning on CPU and as a GPU compute pass, reading the playback
+- [x] 6.1 Implement waveform, parade and vectorscope binning on CPU and as a GPU compute pass, reading the playback
       frame; verify the colour-bars scenario and cost ≤ 2 ms GPU or ≤ 6 ms CPU per 540p frame.
-- [ ] 6.2 Stream binned u8 arrays to the UI at up to 15 Hz and draw them in the colour panel; verify the paused-update
+- [x] 6.2 Stream binned u8 arrays to the UI at up to 15 Hz and draw them in the colour panel; verify the paused-update
       scenario in a UI test.
-- [ ] 6.3 Add `ove look --scope`; verify the vectorscope image and unknown-scope scenarios in CLI tests.
+- [x] 6.3 Add `ove look --scope`; verify the vectorscope image and unknown-scope scenarios in CLI tests.
 
 ## 7. Integration checks
 

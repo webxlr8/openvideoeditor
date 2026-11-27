@@ -247,3 +247,23 @@ ones change appearance once, which is the bug fix in fix-render-and-edit-correct
   band; the 41 existing bands are byte-identical.
 - Flaky under full parallel load (passes alone and on repeat): `ove-cli` `export_queue::mcp_export_video_job_status_
   and_cancel_job` failed once at its cancel step while every crate's tests ran at once.
+
+### Group 6: visual scopes
+
+- 6.1: `ove_render::scopes` bins a frame into 256 × 256 counts for the luma waveform, the RGB parade (three 85-column
+  panels) and the vectorscope (BT.709 Cb right, Cr up), with integer arithmetic on code values and log density as
+  u8. The GPU compute pass (`GpuBackend::scope`, atomic counters) gives exactly the CPU counts for all three scopes
+  (RTX 4070 and WARP). Colour bars: every 75 % bar lands in its target box (±2 bins) and every bar's waveform level is
+  within 1 bin. Cost per 960×540 frame: CPU 3.6 ms (waveform), 3.9 ms (parade), 3.9 ms (vectorscope) on this
+  32-core machine (target ≤ 6 ms); GPU 0.48 ms each on the RTX 4070 and 2.4–3.9 ms on WARP, including the 256 KB
+  readback (target ≤ 2 ms).
+- 6.2: the frame the viewer presents (`timeline::to_viewer`) is offered to a scope worker; it bins the scope the
+  colour panel shows at most every 66 ms (15 Hz) and drops frames while busy, so playback never waits. The panel
+  (Colour tab, under the histogram) polls `scope_frame` every 66 ms and draws the 64 KB grid (base64, about 87 KB
+  per update) on a canvas, with Waveform, Parade and Vectorscope buttons. UI test: after a grade change while
+  paused, a new scope frame is drawn well within 200 ms. Measured in the real app: not yet (task 7.1).
+- 6.3: `ove look --scope waveform|parade|vectorscope` (MCP `look` `scope`) writes the scope image (512 × 512, with
+  the graticule: level lines, or the centre cross, 75 % target boxes and skin line) to `--out` (a .png for one time,
+  else a folder) and returns it to agents; `--scope histogram2` exits 1 and lists the valid names.
+- Flaky under full parallel load (passes alone and on repeat): the app's `scrub::tests::scrub_latency_and_edits`
+  (a latency bound).

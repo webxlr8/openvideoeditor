@@ -145,6 +145,8 @@ pub struct GpuBackend {
     fx: HashMap<&'static str, Option<wgpu::ComputePipeline>>,
     /// The transition mask pipeline, built on first use (inner `None`: rejected by the driver; CPU fallback).
     mask: Option<Option<wgpu::ComputePipeline>>,
+    /// The scope binning pipeline, built on first use.
+    scope_pipe: Option<Option<wgpu::ComputePipeline>>,
     pub counters: Arc<Counters>,
 }
 
@@ -160,6 +162,7 @@ impl GpuBackend {
             luts: HashMap::new(),
             fx: HashMap::new(),
             mask: None,
+            scope_pipe: None,
             counters: Arc::new(Counters::default()),
         }
     }
@@ -190,6 +193,74 @@ impl GpuBackend {
     /// Waits until the GPU has finished all submitted work (timings).
     pub fn finish(&self) {
         let _ = self.ctx.device.poll(wgpu::PollType::wait_indefinitely());
+    }
+
+    /// The counts of `scope` for image `t` (`ove_render::scopes::SIZE`² bins), from a compute pass with atomic
+    /// counters; the same integer binning as `ove_render::scopes::bin`. `None` when the GPU cannot run it.
+    pub fn scope(&mut self, t: Tex, scope: ove_render::scopes::Scope) -> Option<Vec<u32>> {
+        let n = ove_render::scopes::SIZE * ove_render::scopes::SIZE;
+        let img = self.images.get(t)?;
+        let (w, h) = (img.w, img.h);
+        let view = img.tex.create_view(&Default::default());
+        let pipeline = match &self.scope_pipe {
+            Some(p) => p.clone()?,
+            None => {
+                let p = checked_pipeline(&self.ctx.device, "scope", effects::SCOPE.to_string());
+                self.scope_pipe = Some(p.clone());
+                p?
+            }
+        };
+        let kind = match scope {
+            ove_render::scopes::Scope::Waveform => 0u32,
+            ove_render::scopes::Scope::Parade => 1,
+            ove_render::scopes::Scope::Vectorscope => 2,
+        };
+        let head = self.uniform(&[kind, 0, 0, 0].iter().flat_map(|v| v.to_le_bytes()).collect::<Vec<u8>>());
+        let bytes = (n * 4) as u64;
+        let counts = self.ctx.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("scope counts"),
+            size: bytes,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let readback = self.ctx.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("scope readback"),
+            size: bytes,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let group = self.ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("scope"),
+            layout: &pipeline.get_bind_group_layout(0),
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: head.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&view) },
+                wgpu::BindGroupEntry { binding: 2, resource: counts.as_entire_binding() },
+            ],
+        });
+        let mut encoder = self.ctx.device.create_command_encoder(&Default::default());
+        encoder.clear_buffer(&counts, 0, None);
+        {
+            let mut pass = encoder
+                .begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("scope"), timestamp_writes: None });
+            pass.set_pipeline(&pipeline);
+            pass.set_bind_group(0, &group, &[]);
+            pass.dispatch_workgroups(w.div_ceil(8), h.div_ceil(8), 1);
+        }
+        encoder.copy_buffer_to_buffer(&counts, 0, &readback, 0, bytes);
+        self.ctx.queue.submit([encoder.finish()]);
+        let slice = readback.slice(..);
+        let (tx, rx) = std::sync::mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |r| {
+            let _ = tx.send(r);
+        });
+        self.ctx.device.poll(wgpu::PollType::wait_indefinitely()).ok()?;
+        rx.recv().ok()?.ok()?;
+        let mapped = slice.get_mapped_range().ok()?;
+        let out = mapped.chunks_exact(4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]])).collect();
+        drop(mapped);
+        readback.unmap();
+        Some(out)
     }
 
     /// Images currently held.

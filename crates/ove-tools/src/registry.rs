@@ -384,6 +384,11 @@ pub static TOOLS: &[ToolSpec] = &[
             cli("columns", Int, "Contact-sheet columns"),
             BACKEND,
             arg("view", Str, "result (default) or matte: every chroma key shows its matte (white kept, black removed)"),
+            arg(
+                "scope",
+                Str,
+                "waveform, parade or vectorscope: return that scope of each frame instead of the frame (the colour panel's binning)",
+            ),
         ],
         annotations: READ,
         surfaces: AGENTS,
