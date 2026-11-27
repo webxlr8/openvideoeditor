@@ -38,7 +38,7 @@ export function buildReport(
   return parts.join("\n\n") + "\n";
 }
 
-function Modal({
+export function Modal({
   label,
   testId,
   className,

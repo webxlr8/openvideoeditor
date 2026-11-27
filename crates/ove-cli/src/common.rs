@@ -32,6 +32,7 @@ impl Ctx {
     pub fn open(library: Option<&Path>, source: Source, json: bool, progress: bool) -> Result<Ctx, Fail> {
         let mut tools = LinkCtx::open(library, Surface::Cli, source)?;
         tools.inner.actor = Some(ove_core::revision::Actor::new(ove_core::revision::ActorKind::Cli));
+        tools.inner.runner = Some(crate::generate::runner(tools.root().to_path_buf()));
         if progress {
             tools.progress = Some(if json { ProgressStyle::JsonLines } else { ProgressStyle::Text });
         }

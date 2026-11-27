@@ -365,6 +365,7 @@ describe("help", () => {
       "Show the welcome again",
       "Try the sample project",
       "Keyboard shortcuts",
+      "Feedback",
     ]);
     for (const b of menu.getAllByRole("menuitem")) expect(b.hasAttribute("disabled")).toBe(false);
 

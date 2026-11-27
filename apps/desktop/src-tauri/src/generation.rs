@@ -5,7 +5,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use ove_core::revision::Source;
+use ove_core::revision::{Actor, Source};
 use ove_generate::keys::{KeyStore, MemoryKeyStore, OsKeyStore};
 use ove_generate::{Job, Kind, Provider, Request, Status};
 use serde::{Deserialize, Serialize};
@@ -32,6 +32,22 @@ impl Default for Generation {
         };
         Generation { keys }
     }
+}
+
+impl Generation {
+    /// The provider keys (agent sessions check that a key exists before asking the person to approve a spend).
+    pub fn keys(&self) -> Arc<dyn KeyStore> {
+        self.keys.clone()
+    }
+}
+
+/// Starts the worker for a job an agent saved after the person approved its price (the placeholder is already on the
+/// timeline).
+pub fn start_saved_job(app: &AppHandle, bundle: &Path, id: &str) -> Result<(), String> {
+    let job = ove_generate::job::load(bundle, id).ok_or_else(|| format!("no generation job {id}"))?;
+    let _ = GenerationUpdated(serde_json::to_string(&job).unwrap_or_default()).emit(app);
+    let keys = app.state::<Generation>().keys();
+    spawn_job(app, bundle.to_path_buf(), job, keys).map_err(|e| e.to_string())
 }
 
 /// A job changed (started, finished, failed). Payload: the job as JSON.
@@ -208,6 +224,7 @@ fn remove_placeholder(app: &AppHandle, bundle: &Path, job: &Job) {
             job.kind.as_str(),
             if job.status == Status::Cancelled { "cancelled" } else { "failed" }
         ),
+        job.actor.clone(),
     );
 }
 
@@ -224,7 +241,9 @@ fn probe(path: &Path) -> ove_generate::Probed {
 }
 
 /// Applies ops to the project the job belongs to: the open one, or the bundle itself when another is open.
-fn apply_to(app: &AppHandle, bundle: &Path, ops: Vec<ove_core::ops::Op>, summary: String) {
+/// A job an agent asked for is recorded as that agent's change (its undo then covers the fill too).
+fn apply_to(app: &AppHandle, bundle: &Path, ops: Vec<ove_core::ops::Op>, summary: String, actor: Option<Actor>) {
+    let source = if actor.is_some() { Source::Agent } else { Source::Gui };
     if ops.is_empty() {
         return;
     }
@@ -233,7 +252,7 @@ fn apply_to(app: &AppHandle, bundle: &Path, ops: Vec<ove_core::ops::Op>, summary
         && let Some(p) = g.as_mut()
         && p.bundle() == bundle
     {
-        match p.apply(ops, Source::Gui, Some(summary)) {
+        match p.apply_as(ops, source, Some(summary), actor) {
             Ok(_) => emit(app, Some(p)),
             Err(e) => tracing::warn!(error = %e, "could not place the generated media"),
         }
@@ -242,7 +261,7 @@ fn apply_to(app: &AppHandle, bundle: &Path, ops: Vec<ove_core::ops::Op>, summary
     let clock: Arc<dyn ove_core::Clock> = Arc::new(ove_core::SystemClock);
     match ove_store::project::Project::open(bundle, ove_store::project::Mode::Write, clock) {
         Ok(mut p) => {
-            if let Err(e) = p.apply(ops, Source::Gui, Some(summary)) {
+            if let Err(e) = p.apply_as(ops, source, Some(summary), actor) {
                 tracing::warn!(error = %e, "could not place the generated media");
             }
             let _ = p.close();
@@ -278,6 +297,7 @@ fn run(app: &AppHandle, bundle: &Path, mut job: Job, keys: &dyn KeyStore) {
                         job.kind.as_str(),
                         job.request.prompt.chars().take(60).collect::<String>()
                     ),
+                    job.actor.clone(),
                 );
             }
         }

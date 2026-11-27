@@ -173,10 +173,13 @@ Alternatives considered:
 - Drops exact duplicates within a session and accepts at most 8 per session.
 - Never sends anything.
 
-Help → Feedback lists queued entries. The person can edit, delete or send each one, as a prefilled issue URL or a copied
-report.
+Help → Feedback lists queued entries. The person can edit, delete or copy each one, and sends a copied report
+themselves. The app has no feedback destination: any place feedback would be sent to needs the owner, so none is
+built in (gate review).
 
-Alternative considered: send directly. Rejected: v1 has no accounts and no network telemetry.
+Alternatives considered:
+- Send directly. Rejected: v1 has no accounts and no network telemetry.
+- A prefilled issue URL. Rejected: it names a destination the owner has not chosen.
 
 ## Risks / Trade-offs
 
@@ -323,3 +326,68 @@ Additive. Old bundles open unchanged. The MCP whole-file `source` mode stays. Th
 
 - Task 3.2, app check: the "assistant (mock Messages API)" app e2e flow passes in the built app. A turn edits the
   timeline, and "Undo this turn" reverts it through `Project::undo_selected` (8.7 s).
+
+### Group 6: generation tools (Windows 11 x64, debug build)
+
+- The registry gains `list_models`, `generate_image`, `generate_video`, `generate_voice`, `generate_music`,
+  `generate_sfx`, `generation_status` and `cancel_generation` on every agent surface (48 tools with
+  `send_feedback`; in-app 27, MCP 47, pinned 45). The in-app tool list changed once more; the golden files pin it
+  again.
+- A session (`ove_tools::Session`) keeps the quotes, the confirmed spend, the last 15 tool names and the last error
+  code. `ove mcp` has one per process; the app keeps one per chat. A quote is bound to an FNV-1a hash of the tool,
+  the project bundle and every argument but `confirm`, with keys sorted.
+- The person's approval comes only from `ToolCtx::ask_spend`: `LinkCtx` asks the running app over the new control
+  method `confirm_spend` (a price card; the answer goes back to that call only), and without the app the MCP
+  client's prompt (`elicitation/create`, only when `initialize` declared `capabilities.elicitation`); `AppCtx` asks
+  the app's host, which shows the in-app question card with "Approve" and "Decline". Nothing stores an approval, so
+  no call can approve later.
+- The cap is read from `<config>/generation.json` (`sessionCapUsd`, default $5) on every check, by the app and by
+  `ove mcp`, so a change in Settings applies to running sessions. It is checked when quoting and again when
+  spending. A model without a list price is refused (`spend.unknown`), since the cap cannot be checked.
+- Jobs record the actor that asked for them (`Job.actor`, optional and additive). The worker fills the placeholder
+  as that actor's revision, so `undo_my_changes` reverts placeholder and fill together. `ove generate _run` and the
+  `generation_status` reaping moved into `ove-tools` (the command line calls them).
+- Tests (local stand-ins for the fal.ai queue, no keys, nothing leaves the machine):
+  - `crates/ove-tools/tests/generate.rs`, 9 tests: a quote spends nothing (no revision, no job, no submission);
+    approval places the placeholder, the worker fills it, and `undo_my_changes` undoes both; the placeholder is one
+    revision the agent can undo before it fills; the hostile stand-in agent (self-confirm, invented arguments such as
+    `approved: true`, calling `confirm_spend` or `approve_quote` as tools, a forged quote id, a quote reused for
+    another request, a person who declines) spends nothing, makes no revision, job or submission; an expired quote
+    and an approval that arrives after the quote expired are refused; the cap refuses at the quote and again at the
+    spend after the cap was lowered; in-app, the question card decides and the revision carries the chat's actor.
+  - `crates/ove-cli/tests/mcp_generate.rs`, 2 tests over a real `ove mcp` process: a client without elicitation gets
+    `confirm.required`; a client with it gets the price prompt (`$0.025`, the prompt and the project), a decline
+    spends nothing, an accept starts the background worker, the placeholder fills (one submission), and the agent's
+    undo removes it while the person's title stays.
+  - `apps/desktop/ui/src/spend/Spend.test.tsx`: the price card's buttons answer it (Decline has the focus), and a
+    limit changed in Settings refuses the next request above it.
+  - App e2e (`flows.mjs`, "agent spend", Windows 11 built debug app, fal.ai stand-in): an `ove mcp` session confirms
+    its quote; the app shows the price card (client name, $0.025, the prompt); Decline returns `confirm.declined` with
+    no submission and no revision; Approve returns the receipt 119 ms after the click and the placeholder is filled
+    479 ms after it (one submission); `undo_my_changes` then removes the clip in the app. Flow time 2.5–6.6 s.
+- Found by the app e2e run: in the app, new media get a bookkeeping revision (source `migration`, "media
+  identities") right after they are registered, and selective undo counted it as a later change, so an agent could
+  not undo a generated clip. `ove-store` now lets bookkeeping revisions pass when the undone revision added or
+  removed the whole object; a person's later change still conflicts (unit test in `crates/ove-store/src/undo.rs`).
+- Task 8.2 (both OSes, built apps, real flow) stays open: the timings above are Windows only, with the stand-in
+  provider.
+
+### Group 7: local feedback queue (Windows 11 x64)
+
+- `send_feedback {category, severity, summary}` writes `<config>/feedback/<id>.json` (`<config>` is `OVE_CONFIG_DIR`
+  or the app data folder, the same for the app and `ove mcp`) with the app version, OS, surface, client name,
+  session, the session's last 15 tool names and its last error code. Exact duplicates (same category and severity,
+  summary equal apart from spacing) are not stored again, whether the copy is in the queue or was filed earlier in
+  the session; a session stores at most 8 (`feedback.limit`). The receipt says `sent: false`.
+- No feedback destination exists: the reviewers ruled that any place feedback would be sent needs the owner, so
+  Help → Feedback lets the person edit and save, copy, or delete each report, and the person sends a copied report
+  themselves. The spec and D8 say copy instead of send.
+- Help → Feedback is a new entry of the Help menu (Home and editor), listing the queue newest first.
+- Tests: `crates/ove-tools/tests/feedback.rs` (duplicates, the limit of 8, the ninth refused with nothing stored, a
+  second session's own allowance, bad input refused) and unit tests for the queue (order, edit, delete, unsafe ids);
+  `crates/ove-cli/tests/mcp_feedback.rs` runs `ove mcp` with the HTTP(S) proxy variables and every provider, model
+  API and update address pointed at a local trap: the report is queued and the trap sees 0 connections;
+  `apps/desktop/ui/src/feedback/Feedback.test.tsx` (list, edit and save, copy, delete, no fetch).
+- App e2e (`flows.mjs`, "feedback", Windows 11 built debug app): an `ove mcp` session, with the same trap in place of
+  every network address, files a report and a duplicate; Help → Feedback shows it from `e2e-agent`; the person edits,
+  saves and deletes it. 0 trap connections and no request to the provider stand-in. Flow time 1.1–2.8 s.

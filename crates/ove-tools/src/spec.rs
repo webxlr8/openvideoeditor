@@ -62,6 +62,7 @@ pub const DESTRUCTIVE: Annotations =
     Annotations { read_only: false, destructive: true, spends: false, needs_app: false };
 pub const APP_READ: Annotations = Annotations { read_only: true, destructive: false, spends: false, needs_app: true };
 pub const APP_WRITE: Annotations = Annotations { read_only: false, destructive: false, spends: false, needs_app: true };
+pub const SPENDS: Annotations = Annotations { read_only: false, destructive: false, spends: true, needs_app: false };
 
 /// Surfaces a tool appears on (the command line reaches every tool).
 pub const IN_APP: u8 = 1;

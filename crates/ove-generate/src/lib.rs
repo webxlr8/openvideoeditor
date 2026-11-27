@@ -35,6 +35,7 @@ pub fn new_job(plan: &Plan, req: &Request, id: &str, now_ms: i64) -> Job {
         updated_at: now_ms,
         worker_pid: None,
         details: serde_json::Value::Null,
+        actor: None,
     }
 }
 

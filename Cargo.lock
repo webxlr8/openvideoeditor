@@ -4412,6 +4412,7 @@ dependencies = [
  "ove-control",
  "ove-core",
  "ove-edit",
+ "ove-generate",
  "ove-graphics",
  "ove-guard",
  "ove-interchange",

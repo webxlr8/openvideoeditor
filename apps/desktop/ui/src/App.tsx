@@ -26,6 +26,8 @@ import { Checklist } from "./onboarding/Checklist";
 import type { HelpActions } from "./onboarding/HelpMenu";
 import { useOnboarding } from "./onboarding/useOnboarding";
 import { Welcome } from "./onboarding/Welcome";
+import { SpendCards } from "./spend/SpendCard";
+import { FeedbackQueue } from "./feedback/FeedbackQueue";
 import { EDIT_ACTIONS, keyToAction } from "./keys";
 import {
   templateAspect,
@@ -230,11 +232,13 @@ export function App() {
     [openProjectView, showError],
   );
   const { showWelcome, setChecklistClosed, standAside } = onboarding;
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const help = useMemo<HelpActions>(
     () => ({
       gettingStarted: () => setChecklistClosed(false),
       welcome: showWelcome,
       sample: trySample,
+      feedback: () => setFeedbackOpen(true),
     }),
     [setChecklistClosed, showWelcome, trySample],
   );
@@ -608,6 +612,11 @@ export function App() {
           done={onboarding.state.stepsDone}
           onClose={() => setChecklistClosed(true)}
         />
+      )}
+      {/* An agent asks to spend: the person approves or declines the price. */}
+      <SpendCards />
+      {feedbackOpen && (
+        <FeedbackQueue onClose={() => setFeedbackOpen(false)} onError={showError} />
       )}
       {exporting && project && (
         <ErrorBoundary

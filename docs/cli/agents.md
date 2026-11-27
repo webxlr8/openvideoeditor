@@ -69,6 +69,12 @@ The app holds the project while it is open. `ove` then sends edits to the app, w
 editor updates, the user can undo them). `ove app seek 12.5`, `ove app play`, `ove app pause` drive the viewer;
 `ove screenshot out.png` renders the frame under the playhead.
 
+## Generation and feedback
+
+Generating media spends the person's money: call a `generate_*` tool once for a quote, then again with
+`confirm: <quoteId>`; a person approves the price before anything is spent (`ove docs tools`, section Generation).
+If the app gets in your way, `send_feedback` drafts a report the person reviews in Help → Feedback; nothing is sent.
+
 ## Finishing
 
 - `ove export <project> out.mp4 [--height 1080] [--fps 30]` — refused while placeholders are pending.

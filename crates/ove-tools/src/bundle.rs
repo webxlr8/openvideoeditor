@@ -12,8 +12,9 @@ use ove_store::Library;
 use ove_store::project::{Mode, Project};
 use serde_json::{Value, json};
 
-use crate::ctx::{Editor, LocalEditor, Surface, ToolCtx};
+use crate::ctx::{Editor, LocalEditor, Surface, ToolCtx, confirm_required};
 use crate::fail::Fail;
+use crate::session::Session;
 
 pub fn clock() -> Arc<dyn ove_core::Clock> {
     Arc::new(ove_core::SystemClock)
@@ -43,7 +44,18 @@ pub struct BundleCtx {
     pub binding: Binding,
     /// Recorded on every revision made here.
     pub actor: Option<Actor>,
+    /// Quotes, spend and recent calls of this session.
+    pub session: Session,
+    /// Asks the person to approve a spend when the app cannot (the MCP client's confirmation prompt).
+    pub confirm: Option<Confirm>,
+    /// Starts the generation worker for a saved job.
+    pub runner: Option<Runner>,
 }
+
+/// Asks a person to approve a priced request (see [`ToolCtx::ask_spend`]).
+pub type Confirm = Box<dyn FnMut(&Value) -> Result<bool, Fail>>;
+/// Starts the generation worker for job `id` of `bundle` (see [`ToolCtx::start_generation`]).
+pub type Runner = Arc<dyn Fn(&Path, &str) -> Result<(), Fail> + Send + Sync>;
 
 impl BundleCtx {
     /// Opens the library at `library` (`None`: `OVE_LIBRARY`, then the platform default).
@@ -62,6 +74,9 @@ impl BundleCtx {
             source,
             binding: Binding::default(),
             actor: None,
+            session: Session::new(),
+            confirm: None,
+            runner: None,
         })
     }
 
@@ -148,6 +163,21 @@ impl ToolCtx for BundleCtx {
     fn library(&mut self) -> Result<&Library, Fail> {
         Ok(&self.lib)
     }
+    fn session(&self) -> Option<Session> {
+        Some(self.session.clone())
+    }
+    fn ask_spend(&mut self, card: &Value) -> Result<bool, Fail> {
+        match &mut self.confirm {
+            Some(ask) => ask(card),
+            None => Err(confirm_required()),
+        }
+    }
+    fn start_generation(&mut self, bundle: &Path, job: &str) -> Result<(), Fail> {
+        match &self.runner {
+            Some(run) => run(bundle, job),
+            None => Err(Fail::new("generate.unavailable", "generation jobs cannot be started here")),
+        }
+    }
 }
 
 /// An edit sent to the running app, which holds the project open.
@@ -170,13 +200,17 @@ impl Editor for AppEditor {
         &self.view
     }
     fn apply(&mut self, ops: Vec<Op>, summary: String) -> Result<i64, Fail> {
+        let actor = self.actor.clone();
+        self.apply_by(ops, summary, actor)
+    }
+    fn apply_by(&mut self, ops: Vec<Op>, summary: String, actor: Option<Actor>) -> Result<i64, Fail> {
         let params = json!({
             "bundle": self.view.bundle(),
             "expectRev": self.view.rev(),
             "ops": ops,
             "summary": summary,
             "source": self.source,
-            "actor": self.actor,
+            "actor": actor.or_else(|| self.actor.clone()),
         });
         let v = ove_control::call(&self.root, "apply", params, Duration::from_secs(30))?;
         self.reload()?;
@@ -311,5 +345,29 @@ impl ToolCtx for LinkCtx {
         if self.progress == Some(ProgressStyle::Text) {
             eprintln!();
         }
+    }
+    fn session(&self) -> Option<Session> {
+        self.inner.session()
+    }
+    /// The running app's price card first; without the app, the MCP client's prompt (when it has one).
+    fn ask_spend(&mut self, card: &Value) -> Result<bool, Fail> {
+        let left = card.get("expiresAt").and_then(Value::as_i64).map(|t| t - crate::fail::now_ms()).unwrap_or(0);
+        let wait = Duration::from_millis(left.clamp(1_000, crate::session::QUOTE_TTL_MS) as u64 + 5_000);
+        match ove_control::call(&self.inner.root, "confirm_spend", card.clone(), wait) {
+            Ok(v) => {
+                // The answer must be for this quote.
+                if v.get("quoteId") != card.get("quoteId") {
+                    return Err(Fail::new("confirm.invalid", "the app answered for another quote; nothing was spent"));
+                }
+                Ok(v.get("approved").and_then(Value::as_bool) == Some(true))
+            }
+            // No app, or one too old to show price cards.
+            Err(ove_control::CallError::NotRunning) => self.inner.ask_spend(card),
+            Err(ove_control::CallError::Refused(r)) if r.code == "method.unknown" => self.inner.ask_spend(card),
+            Err(e) => Err(e.into()),
+        }
+    }
+    fn start_generation(&mut self, bundle: &Path, job: &str) -> Result<(), Fail> {
+        self.inner.start_generation(bundle, job)
     }
 }

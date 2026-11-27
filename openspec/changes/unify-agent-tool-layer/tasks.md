@@ -69,21 +69,21 @@
 
 ## 6. Generation tools
 
-- [ ] 6.1 Add `list_models`, `generate_*`, `generation_status` and `cancel_generation` to the registry, using the
+- [x] 6.1 Add `list_models`, `generate_*`, `generation_status` and `cancel_generation` to the registry, using the
       existing `ove-generate` jobs. Verify: tests against local stand-in providers, where the placeholder fills and can
       be undone.
-- [ ] 6.2 Implement quotes: request-hash binding, 10-minute expiry, and the `confirm_spend` control method with a price
+- [x] 6.2 Implement quotes: request-hash binding, 10-minute expiry, and the `confirm_spend` control method with a price
       card in the app, MCP elicitation, and the in-app question card. Verify:
       - the hostile-agent test (`confirm.required`);
       - an expired-quote test;
       - an e2e test where approving the card starts the job.
-- [ ] 6.3 Add a per-session spend cap in Settings (default $5) and the `spend.cap` refusal. Verify: a unit test, and a UI
+- [x] 6.3 Add a per-session spend cap in Settings (default $5) and the `spend.cap` refusal. Verify: a unit test, and a UI
       test where changing the cap takes effect.
 
 ## 7. Local feedback queue
 
-- [ ] 7.1 Implement `send_feedback` (local JSON queue, duplicate drop, limit of 8) and list the queue in Help → Feedback
-      with edit, delete and send. Verify:
+- [x] 7.1 Implement `send_feedback` (local JSON queue, duplicate drop, limit of 8) and list the queue in Help → Feedback
+      with edit, delete and copy (no send: the reviewers ruled out any feedback destination without the owner). Verify:
       - unit tests for duplicates and the limit;
       - an e2e test that the report appears and that no network call is made (network blocked in the test).
 

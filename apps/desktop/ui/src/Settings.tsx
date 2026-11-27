@@ -13,6 +13,7 @@ import type {
 } from "./bindings";
 import { AgentsSection } from "./agents/AgentsSection";
 import { ModelsSection } from "./storage/ModelsSection";
+import { SpendCapField } from "./spend/SpendCard";
 import { commands } from "./bridge";
 import { AssistantDataList } from "./ChatPanel";
 import { copyText } from "./clipboard";
@@ -398,6 +399,7 @@ export function Settings({
                 onError={onError}
               />
             ))}
+            <SpendCapField onError={onError} />
           </section>
         )}
         {section === "assistant" && (
