@@ -127,8 +127,13 @@ when they are next probed; missing values mean "no timecode".
   denoise model (a few MB) are below that limit but are listed in Settings → Storage.
 - DirectML stays off by default with a CPU fallback, pending a licence ruling.
 - SVT-AV1 stays excluded pending a licence ruling (not used by this change).
-- Verify that the Beat This checkpoints, not only its code, are under a permissive licence before pinning.
-- Verify that the DeepFilterNet3 weights carry the same permissive licence as the library before pinning.
+- Verified 2026-11-27: the Beat This README says "The code and the published model weights are released under the MIT
+  license" (https://github.com/CPJKU/beat_this). Recorded with the pins in tools/notices/beat-this.md.
+- Verified 2026-11-27: the DeepFilterNet README says "All code and model weights in this repository are
+  dual-licensed under either: MIT License … Apache License, Version 2.0" (https://github.com/Rikorose/DeepFilterNet).
+- Open: the exported beat model files have no immutable download location yet. The owner publishes them at a pinned
+  URL (a versioned release or a commit-pinned model repository) and adds them to the model catalog; until then they
+  are placed in `<models>/beat-this-small/` and checked against their pinned sizes and SHA-256.
 
 ## Results
 
@@ -179,3 +184,41 @@ Notes:
   4.14 s; a WAV or AAC read of one second is a few milliseconds.
 - The 2 h timing test asserts the 10 s budget with a 2.4× margin at opt-level 1. If it fails under load, it belongs
   in the serial timing lane (docs/flaky-tests.md).
+
+### Beats (group 3, Windows 11 x64)
+
+Export and parity (task 3.1), with `tools/model-spike/export_beat_this.py` in the dev venv (`OVE_PYTHON`, packages
+pinned with hashes in `tools/model-spike/requirements.txt`: torch 2.15.0+cpu, torchaudio 2.11.1+cpu, beat_this
+1.1.0, onnx 1.23.2, onnxruntime 1.32.0). The checkpoint was downloaded into its own folder, hashed before loading
+and loaded with `weights_only=True`.
+
+| Item | Value |
+| --- | --- |
+| `small0.ckpt` | 8,451,101 bytes, SHA-256 `6074be2c…7d47b` |
+| `beat_this_frontend.onnx` (our log-mel frontend) | 4,467,329 bytes, SHA-256 `3372aaf1…1fb01` |
+| `beat_this_small0.onnx` (network) | 10,555,597 bytes, SHA-256 `71793320…c727` |
+| Frontend against the upstream log-mel frontend, 30 s | max difference 8.5e-6 |
+| Parity, 120 BPM 4/4 click track (75 s) | max logit difference 1.44e-5; 229/229 beats and 29/29 downbeats within one frame |
+| Parity, 100 BPM 3/4 clicks (70 s) | max logit difference 7.63e-6; beats and downbeats identical |
+| Parity, 96 BPM 4/4 clicks (20 s) | max logit difference 9.89e-6; beats and downbeats identical |
+| Gate (logits within 1e-3, beats within one frame) | PASS, worst 1.44e-5 |
+
+Decision change from D6: the frontend is a separate graph, not inside the network graph. The network attends over a
+whole 30 s chunk, so its logits depend on where chunks start. A first export with chunks cut on the samples differed
+from the reference by up to 2.8 in logits. The app now cuts the spectrogram exactly as the network was trained and
+evaluated (1,500-frame chunks from −6 frames, 1,488 apart, the last one moved to the end, borders dropped, earlier
+chunks win), which needs the whole spectrogram first. The frontend graph runs on any stretch of the reflect-padded
+piece and gives the same frames.
+
+Detection (task 3.2) through ove-models ONNX Runtime 1.32 (`crates/ove-cli/tests/beats.rs`, model run when
+`OVE_BEAT_MODEL_DIR` and `OVE_ONNXRUNTIME_LIB` are set):
+
+| Check | Target | Measured |
+| --- | --- | --- |
+| 120 BPM click track, 40 s | beats every 500 ms ± 20 ms, 120 ± 0.5 BPM | all within one 20 ms frame of the grid, all intervals 500 ± 20 ms, 120.0 BPM, meter 4 |
+| Waltz at 150 BPM (bass on 1, chords on 2 and 3), 40 s | a downbeat every third beat | meter 3, 34 downbeats |
+| No model files | "model not installed" with size, no download | `modelNotInstalled`, 15.0 MB, nothing created |
+
+A click track whose three beats sound alike is read as one downbeat per beat by the model; the 3/4 fixture is a
+waltz with harmony, as music has it. Timeline mapping (task 3.3) is checked by a property test against the
+renderer's own source-time mapping under trim, speed (0.25–4×) and reverse.

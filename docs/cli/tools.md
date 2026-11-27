@@ -201,4 +201,5 @@ ove source print Nope                              # exit 1
 | `manage_skills` |  | in-app | destructive | `action` `id`? `text`? |
 | `inspect_color` |  | in-app, mcp, pinned | read | `project`? `at`? `item`? `isolate`? `reference`? `referenceAt`? `strength`? `height`? `backend`? |
 | `sync_items` |  | in-app, mcp, pinned | write | `project`? `reference` `targets` `mode`? `window`? `minConfidence`? `drift`? `dryRun`? |
+| `detect_beats` |  | in-app, mcp, pinned | read | `project`? `target` `from`? `to`? |
 <!-- tools:end -->

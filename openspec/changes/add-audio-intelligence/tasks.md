@@ -27,13 +27,13 @@
 
 ## 3. Beats
 
-- [ ] 3.1 Export the beat model to ONNX with our own script, record its weight licence, and register it with the
+- [x] 3.1 Export the beat model to ONNX with our own script, record its weight licence, and register it with the
       model runtime; verify the parity gate (logits within 1e-3, beats identical within one frame against the
       reference implementation on fixtures).
-- [ ] 3.2 Implement chunked inference, peak picking, downbeats, bars, tempo curve and the cache; verify a 120 BPM
+- [x] 3.2 Implement chunked inference, peak picking, downbeats, bars, tempo curve and the cache; verify a 120 BPM
       click track (500 ms ± 20 ms, 120 ± 0.5 BPM), a three-four fixture, and the "model not installed" status without
       download.
-- [ ] 3.3 Map beats to timeline seconds through trim, speed and reverse; expose `ove audio beats` and MCP
+- [x] 3.3 Map beats to timeline seconds through trim, speed and reverse; expose `ove audio beats` and MCP
       `detect_beats`; verify property tests under speed and reverse, a CLI golden test and an MCP contract test;
       update `docs/cli`.
 - [ ] 3.4 Feed beat targets to the snap engine, with downbeats ranked first, and draw beat marks behind the "Snap to

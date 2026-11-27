@@ -104,6 +104,18 @@ pub enum AudioCmd {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Beats, downbeats, bars, meter and tempo of music (local beat model; never downloads).
+    Beats {
+        project: String,
+        /// Item id (times also in timeline seconds) or media id, file name or path.
+        target: String,
+        /// Only times at or after this many seconds.
+        #[arg(long)]
+        from: Option<f64>,
+        /// Only times at or before this many seconds.
+        #[arg(long)]
+        to: Option<f64>,
+    },
 }
 
 pub fn audio(ctx: &Ctx, cmd: &AudioCmd) -> Out {
@@ -129,6 +141,9 @@ pub fn audio(ctx: &Ctx, cmd: &AudioCmd) -> Out {
                     "release": release, "hold": hold, "source": source,
                     "mode": if *merge { "merge" } else { "replace" }, "dryRun": dry_run}),
             )
+        }
+        AudioCmd::Beats { project, target, from, to } => {
+            ctx.tool("detect_beats", json!({"project": project, "target": target, "from": from, "to": to}))
         }
         AudioCmd::Sync { project, reference, targets, mode, window, min_confidence, drift, dry_run } => ctx.tool(
             "sync_items",

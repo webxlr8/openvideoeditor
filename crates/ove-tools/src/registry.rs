@@ -1012,4 +1012,19 @@ pub static TOOLS: &[ToolSpec] = &[
         run: audio_intel::sync_items,
         model: ModelText::Json,
     },
+    ToolSpec {
+        name: "detect_beats",
+        aliases: &[],
+        about: "Beats, downbeats, bars, meter (beats per bar) and tempo of music, with the local beat model (no network). `target` is a media file (times in source seconds) or an item: then `timelineBeats` and `timelineDownbeats` are timeline seconds with the item's trim, speed and reverse applied, ready for timeline.tsx. Results are cached per media and never written into the project. When the model is not installed the result is `status: modelNotInstalled` with its size; nothing is downloaded. `from` and `to` limit the times returned (timeline seconds for an item).",
+        args: &[
+            PROJECT,
+            req("target", Str, "Item id, or media id, file name or path"),
+            arg("from", Num, "Only times at or after this many seconds"),
+            arg("to", Num, "Only times at or before this many seconds"),
+        ],
+        annotations: READ,
+        surfaces: AGENTS,
+        run: audio_intel::detect_beats,
+        model: ModelText::Json,
+    },
 ];

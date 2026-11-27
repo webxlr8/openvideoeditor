@@ -5,6 +5,7 @@
 
 pub mod analysis;
 pub mod audio;
+pub mod beats;
 pub mod color_stats;
 pub mod duck;
 /// The BS.1770 core, shared with the meters and export (design D8).

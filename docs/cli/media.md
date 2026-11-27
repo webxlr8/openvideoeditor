@@ -18,6 +18,7 @@ ove audio loudness <project> --timeline
 ove media extract-audio <project> <media> [--format wav|flac]
 ove audio duck <project> --music <items|tracks> --under <items|tracks> [--depth <dB>] [--attack <s>] [--release <s>] [--hold <s>] [--source transcript|level|auto] [--merge|--replace] [--dry-run]
 ove audio sync <project> --ref <item> --targets <items|tracks> [--mode auto|timecode|audio] [--window <s>] [--min-confidence <0-1>] [--drift auto|off] [--dry-run]
+ove audio beats <project> <item|media> [--from <s>] [--to <s>]
 ```
 
 `<media>` is a media id, a file name or a path already in the project; the analysis commands also take any file.
@@ -77,6 +78,22 @@ ove audio sync <project> --ref <item> --targets <items|tracks> [--mode auto|time
   not placed. When no target is placed the command exits 1 with `sync.unmatched` and the same details. MCP:
   `sync_items`. In the app: select the clips, right-click the reference clip, then Synchronise selection; a summary
   shows what moved.
+- **beats** detects beats, downbeats, bars, the meter (`meter`: beats per bar) and tempo (`bpm`, the median, and
+  `tempo`, one value per 8 s) with the local beat model (Beat This small, MIT; no network). For a media file the
+  times are source seconds. For an item they are also given as `timelineBeats` and `timelineDownbeats` in
+  timeline seconds, with the item's trim, speed and reverse applied, plus `timelineBpm`; paste them into
+  `timeline.tsx` as they are. `--from` and `--to` limit the times returned (timeline seconds for an item). Results
+  are cached per media file in `cache/beats/` and never written into the project. When the model is not installed
+  the result is `{"status": "modelNotInstalled", "bytes": …, "folder": …, "files": […]}` and nothing is downloaded:
+  the two model files go in `<models>/beat-this-small/` and are checked against their pinned sizes and SHA-256
+  (tools/notices/beat-this.md). MCP: `detect_beats` (`target`, `from`, `to`).
+
+  ```json
+  {"status": "ready", "media": "m_song", "item": "i_song", "cached": false, "meter": 4, "bpm": 120.0,
+   "beats": [1.0, 1.5, 2.0, …], "downbeats": [1.0, 3.0, …], "timelineBeats": [10.0, 10.25, 10.5, …],
+   "timelineDownbeats": [10.0, 11.0, …], "timelineBpm": 240.0,
+   "bars": [{"start": 1.0, "end": 3.0, "beats": 4}, …], "tempo": [{"at": 0.0, "bpm": 120.0}, …]}
+  ```
 
   ```json
   {"reference": "cam", "placed": 1, "groupShift": 0.0, "dryRun": true, "rev": 1762000000000,

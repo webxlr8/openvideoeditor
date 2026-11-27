@@ -51,9 +51,16 @@ enum State {
     Failed(String),
 }
 
+/// The Python that runs tests/media/media.py: `OVE_PYTHON` (the dev venv, see tools/model-spike) when set, else
+/// `python3` on PATH.
+fn python() -> String {
+    std::env::var("OVE_PYTHON").ok().filter(|s| !s.is_empty()).unwrap_or_else(|| "python3".into())
+}
+
 fn generate() -> State {
-    if !runs("python3", "--version") {
-        return State::Missing("`python3` is not available (it runs tests/media/media.py)".into());
+    let py = python();
+    if !runs(&py, "--version") {
+        return State::Missing(format!("`{py}` is not available (it runs tests/media/media.py; set OVE_PYTHON)"));
     }
     let ff = fixture_ffmpeg();
     if !runs(&ff, "-version") {
@@ -62,7 +69,7 @@ fn generate() -> State {
         ));
     }
     let script = repo_root().join("tests/media/media.py");
-    match Command::new("python3").arg(&script).arg("generate").env("OVE_FIXTURE_FFMPEG", &ff).output() {
+    match Command::new(&py).arg("-I").arg(&script).arg("generate").env("OVE_FIXTURE_FFMPEG", &ff).output() {
         Ok(o) if o.status.success() => {
             let err = String::from_utf8_lossy(&o.stderr);
             for line in err.lines().filter(|l| l.starts_with("warning:")) {

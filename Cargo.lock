@@ -4198,6 +4198,7 @@ dependencies = [
  "ove-media",
  "ove-render",
  "png",
+ "proptest",
  "rustfft",
  "serde",
  "serde_json",

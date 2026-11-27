@@ -1476,5 +1476,35 @@
       "additionalProperties": false
     },
     "eager_input_streaming": true
+  },
+  {
+    "name": "detect_beats",
+    "description": "Beats, downbeats, bars, meter (beats per bar) and tempo of music, with the local beat model (no network). `target` is a media file (times in source seconds) or an item: then `timelineBeats` and `timelineDownbeats` are timeline seconds with the item's trim, speed and reverse applied, ready for timeline.tsx. Results are cached per media and never written into the project. When the model is not installed the result is `status: modelNotInstalled` with its size; nothing is downloaded. `from` and `to` limit the times returned (timeline seconds for an item).",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "project": {
+          "type": "string",
+          "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+        },
+        "target": {
+          "type": "string",
+          "description": "Item id, or media id, file name or path"
+        },
+        "from": {
+          "type": "number",
+          "description": "Only times at or after this many seconds"
+        },
+        "to": {
+          "type": "number",
+          "description": "Only times at or before this many seconds"
+        }
+      },
+      "required": [
+        "target"
+      ],
+      "additionalProperties": false
+    },
+    "eager_input_streaming": true
   }
 ]
