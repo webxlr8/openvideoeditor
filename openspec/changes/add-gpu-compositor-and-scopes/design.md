@@ -148,3 +148,39 @@ ones change appearance once, which is the bug fix in fix-render-and-edit-correct
 - Tasks 2.2 and 2.3 stay open until a CI run: the harness runs in the workspace test step on Linux, macOS and Windows
   and the new "GPU parity (software adapter)" step and nightly `gpu-parity` job are written, but no CI run was made
   from this worker (no push). Local results are under Group 3.
+
+### Group 3: GPU compositor core (Windows 11 worker; adapters named per measurement)
+
+- `crates/ove-gpu/src/compositor/`: `GpuBackend` implements the backend trait with wgpu compute shaders for layer
+  drawing (inverse affine map, crop, rounded corners, bilinear sampling, opacity, all 16 blend modes and `add`), the
+  basic grade (per-channel tables from `canvas::grade_tables`, then saturation and vibrance), LUTs and baked grade
+  lattices (tetrahedral lookup), partial mixes and the final alpha pass. Effects, transition masks and captions run
+  per layer on the CPU (readback, CPU code, upload) until they are ported (D2).
+- Deviations from D1 and 3.1, with reasons: images are `rgba8unorm` storage textures and every shader rounds to 8
+  bits where the CPU reference does (the reference is 8-bit, so this keeps parity at 1 step; 16-bit float
+  intermediates come with add-color-management-and-subject-mattes). Lattices are storage buffers read with the same
+  tetrahedral arithmetic as the CPU, not 3D textures (hardware filtering is trilinear and less exact). Which pixels a
+  hard layer edge covers is decided on the CPU per row with the reference's f64 arithmetic and passed as spans:
+  computed in f32 on the GPU, single edge pixels flipped (one case measured max 184/255 at one pixel before this).
+- Parity (`cargo test -p ove-gpu --test parity`, 113 cases at 1920×1080, every case within tolerance):
+  - NVIDIA GeForce RTX 4070 (Dx12, DiscreteGpu, driver 32.0.16.1088): worst max 1/255, worst mean 0.000/255,
+    CIEDE2000 p99 0.000 everywhere; CPU 7.5 s, GPU 5.2 s for all cases including uploads and readbacks.
+  - Microsoft Basic Render Driver (WARP; Dx12, Cpu, driver 10.0.22621.5160): worst max 1/255; GPU 113 s.
+  - 97 native GPU passes and 57 CPU fallbacks per run (effects, masks).
+- Wrong shader (task 2.3 check): the difference blend scaled by 0.9 fails exactly "blend difference" (max 25/255,
+  mean 3.222/255, CIEDE2000 p99 5.347) and "blend difference, transformed" on both the RTX 4070 and WARP.
+- Whole project (`render_parity`, 360p, 53 frames: one clip per effect for all 41 effects, 8 blend modes over
+  transformed, cropped, rounded clips, grade with wheels and a LUT, a wipe join, a push, a shader item, text):
+  RTX 4070 worst max 1/255, worst mean 0.010/255.
+- Selection (D9): `select(auto)` opens a hardware adapter (software adapters are not used automatically), runs the
+  self-test (draws, 3 blend modes, grade, lattice, LUT, mix at 192×108) once per adapter and process, and falls back
+  to the CPU with the reason. RTX 4070: "GPU self-test passed". A forced self-test failure gives the CPU backend and
+  "GPU self-test failed …". A device loss during rendering (simulated with `LossHandle::trigger`) switches the
+  renderer to the CPU backend, logs it, and the next frame equals the CPU frame byte for byte.
+- `ove render` (alias of `export`), `look` and `color inspect` take `--backend auto|cpu|gpu` (also `OVE_BACKEND`)
+  and report `"backend": {"name", "adapter", "reason"}`; an unknown name exits 1 naming the valid ones. The app keeps
+  the choice in `compositing.json` (Settings → Rendering, on by default), runs the self-test at startup in the
+  background, uses it for the timeline preview, Match colour and export, and the diagnostics overlay shows
+  "timeline compositor (GPU, <adapter>; N ms/frame)" or "(CPU — <reason>; …)". UI test: the toggle switches the
+  status between "Active: GPU (…)" and "Active: CPU — the GPU is turned off in Settings."
+- Not measured here: the built app on macOS and Windows (task 7.1).

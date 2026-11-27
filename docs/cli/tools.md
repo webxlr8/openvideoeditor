@@ -124,9 +124,9 @@ ove source print Nope                              # exit 1
 | `waveform_image` |  | mcp, pinned | read | `project`? `media` `width`? `height`? |
 | `detect_silence` |  | in-app, mcp, pinned | read | `project`? `media` `thresholdDb`? `minDuration`? `mode`? `minPause`? `padding`? `relativeDb`? |
 | `measure_loudness` |  | mcp, pinned | read | `project`? `media`? `timeline`? |
-| `look` |  | in-app, mcp, pinned | read | `project`? `at`? `every`? `count`? `width`? `stats`? `grid`? `storyboard`? |
+| `look` |  | in-app, mcp, pinned | read | `project`? `at`? `every`? `count`? `width`? `stats`? `grid`? `storyboard`? `backend`? |
 | `screenshot` |  | mcp, pinned | read, app | `width`? |
-| `export_video` |  | mcp, pinned | write | `project`? `out` `height`? `fps`? `audioOnly`? `loudness`? |
+| `export_video` |  | mcp, pinned | write | `project`? `out` `height`? `fps`? `audioOnly`? `loudness`? `backend`? |
 | `export_timeline_file` |  | mcp, pinned | read | `project`? `file` `fps`? |
 | `import_timeline_file` |  | mcp, pinned | write | `project`? `file` `fps`? |
 | `app_context` |  | mcp, pinned | read, app |  |
@@ -149,5 +149,5 @@ ove source print Nope                              # exit 1
 | `transcribe_media` |  | in-app, mcp, pinned | write | `project`? `media` `format`? `language`? `model`? `verbatim`? `force`? |
 | `duck_audio` |  | in-app, mcp, pinned | write | `project`? `music` `under` `depth`? `attack`? `release`? `hold`? `source`? `mode`? `dryRun`? |
 | `extract_audio` |  | mcp, pinned | write | `project`? `media` `format`? |
-| `inspect_color` |  | in-app, mcp, pinned | read | `project`? `at`? `item`? `isolate`? `reference`? `referenceAt`? `strength`? `height`? |
+| `inspect_color` |  | in-app, mcp, pinned | read | `project`? `at`? `item`? `isolate`? `reference`? `referenceAt`? `strength`? `height`? `backend`? |
 <!-- tools:end -->

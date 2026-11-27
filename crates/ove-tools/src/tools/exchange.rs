@@ -112,7 +112,16 @@ pub fn export_video(ctx: &mut dyn ToolCtx, a: &Args) -> Result<Receipt, Fail> {
     let (doc, bundle, _) = crate::ctx::snapshot(ctx, &bundle)?;
     let cancel = std::sync::atomic::AtomicBool::new(false);
     let mut last = -1i64;
-    let res = ove_render::export(&doc, Some(&bundle), &out, &settings, &cancel, |pr| {
+    // The compositing backend, chosen once for the whole job (video exports only).
+    let (backend, chosen) = match settings.video.is_some() {
+        true => {
+            let s = crate::tools::backend::choose(a)?;
+            let v = crate::tools::backend::json(&s);
+            (Some(s.backend), Some(v))
+        }
+        false => (None, None),
+    };
+    let res = ove_render::export::export_with_backend(&doc, Some(&bundle), &out, &settings, backend, &cancel, |pr| {
         let pct = (pr.fraction * 100.0) as i64;
         if pct != last {
             last = pct;
@@ -158,7 +167,16 @@ pub fn export_video(ctx: &mut dyn ToolCtx, a: &Args) -> Result<Receipt, Fail> {
     if let Some(w) = &res.encoder_warning {
         text.push_str(&format!("\nwarning: {w}"));
     }
-    Ok(Receipt::new(serde_json::to_value(&res).unwrap_or_default(), text))
+    let mut v = serde_json::to_value(&res).unwrap_or_default();
+    if let Some(b) = chosen {
+        text.push_str(&format!(
+            "\nbackend: {} ({})",
+            b["name"].as_str().unwrap_or(""),
+            b["reason"].as_str().unwrap_or("")
+        ));
+        v["backend"] = b;
+    }
+    Ok(Receipt::new(v, text))
 }
 
 #[cfg(not(feature = "media"))]

@@ -36,6 +36,8 @@ pub struct Renderer {
     transparent: bool,
     /// Where the pixels are composited (design D1).
     backend: Box<dyn Backend>,
+    /// Why the backend changed while rendering (a lost GPU device), for the diagnostics overlay.
+    fallback: Option<String>,
 }
 
 fn num(f: &Map<String, Value>, k: &str) -> Option<f64> {
@@ -184,6 +186,7 @@ impl Renderer {
             frames: 0,
             transparent: false,
             backend: Box::new(CpuBackend::new()),
+            fallback: None,
         }
     }
 
@@ -200,6 +203,28 @@ impl Renderer {
     /// Replaces the backend (for example after a GPU device loss); cached frames and text stay.
     pub fn set_backend(&mut self, backend: Box<dyn Backend>) {
         self.backend = backend;
+        self.fallback = None;
+    }
+
+    /// Why the renderer left the backend it was given, when it did (`"GPU device lost: …"`).
+    pub fn fallback(&self) -> Option<&str> {
+        self.fallback.as_deref()
+    }
+
+    /// Switches to the CPU backend when the current one can no longer render (design D9: a device loss during
+    /// preview falls back to the CPU and is logged). True when it switched.
+    fn recover(&mut self) -> bool {
+        if self.backend.healthy() {
+            return false;
+        }
+        let from = self.backend.name();
+        tracing::warn!(
+            backend = from,
+            "the {from} backend stopped working (device lost); continuing on the CPU backend"
+        );
+        self.backend = Box::new(CpuBackend::new());
+        self.fallback = Some(format!("{from} device lost: switched to the CPU backend"));
+        true
     }
 
     /// Leaves areas no layer covers transparent (alpha 0) instead of opaque black, and keeps the layers' alpha in
@@ -415,6 +440,13 @@ impl Renderer {
 
     /// Renders the frame at timeline time `t_us`.
     pub fn render(&mut self, doc: &Document, t_us: Micros) -> Rgba {
+        self.recover();
+        let out = self.render_once(doc, t_us);
+        // A frame made while the device was lost is not trusted: render it again on the CPU.
+        if self.recover() { self.render_once(doc, t_us) } else { out }
+    }
+
+    fn render_once(&mut self, doc: &Document, t_us: Micros) -> Rgba {
         let (w, h) = self.size(doc);
         let (_, ref_h) = reference_size(&doc.project.aspect_ratio);
         let k = h as f64 / ref_h as f64;

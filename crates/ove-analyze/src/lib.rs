@@ -18,7 +18,7 @@ pub mod video;
 
 pub use audio::{Levels, Loudness, Range, levels, loudness, silence, waveform_png};
 pub use image::{Image, Stats, frame_stats, sheet};
-pub use look::{look, timeline_times};
+pub use look::{look, look_with, timeline_times};
 pub use video::{FilmstripOpts, SceneCut, Scenes, filmstrip, frame_to_image, grab, scenes};
 
 #[derive(Debug, thiserror::Error)]

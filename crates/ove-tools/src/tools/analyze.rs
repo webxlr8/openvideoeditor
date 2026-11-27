@@ -328,8 +328,16 @@ mod imp {
         if !agent && out.is_none() && sheet.is_none() && !stats {
             return Err(Fail::new("argument.missing", "give --out <dir>, --sheet <file> or --stats"));
         }
-        let images =
-            ove_analyze::look(&doc, Some(&bundle), &times, a.u32_or("width", 640).clamp(16, 3840)).map_err(fail)?;
+        let chosen = crate::tools::backend::choose(a)?;
+        let backend = crate::tools::backend::json(&chosen);
+        let images = ove_analyze::look_with(
+            &doc,
+            Some(&bundle),
+            &times,
+            a.u32_or("width", 640).clamp(16, 3840),
+            Some(chosen.backend),
+        )
+        .map_err(fail)?;
         let reference = ove_render::eval::reference_size(&doc.project.aspect_ratio);
         let grid = a.bool("grid");
         // What is shown (with the grid when asked); statistics are of the frame itself.
@@ -359,7 +367,7 @@ mod imp {
         if let Some(dir) = &out {
             text.push_str(&format!(" → {}", dir.display()));
         }
-        let mut v = json!({"rev": rev, "frames": frames});
+        let mut v = json!({"rev": rev, "frames": frames, "backend": backend});
         if grid {
             v["grid"] = grid_json(reference);
         }
@@ -398,8 +406,15 @@ mod imp {
             .to_string();
         let at = c.pointer("/playback/seconds").and_then(Value::as_f64).unwrap_or(0.0);
         let (doc, b, rev) = snapshot(ctx, Path::new(&bundle))?;
-        let mut imgs =
-            ove_analyze::look(&doc, Some(&b), &[at], a.u32_or("width", 1280).clamp(16, 3840)).map_err(fail)?;
+        let chosen = crate::tools::backend::choose(a)?;
+        let mut imgs = ove_analyze::look_with(
+            &doc,
+            Some(&b),
+            &[at],
+            a.u32_or("width", 1280).clamp(16, 3840),
+            Some(chosen.backend),
+        )
+        .map_err(fail)?;
         let img = imgs.pop().ok_or_else(|| Fail::new("render.failed", "no frame was rendered"))?;
         let out = out(a);
         let images = deliver(ctx, &img, out.as_deref())?;

@@ -252,6 +252,13 @@ export const commands = {
 	matchColor: (itemId: string, referenceTime: number | null, strength: number | null) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("match_color", { itemId, referenceTime, strength })),
 	/**  Histograms (red, green, blue, luma; 64 bins, 0..1) of the timeline frame at `time` seconds. */
 	colorScopes: (time: number | null) => typedError<((number | null)[])[], AppError>(__TAURI_INVOKE("color_scopes", { time })),
+	/**  The current compositing status. */
+	compositingStatus: () => typedError<CompositingStatus_Serialize, AppError>(__TAURI_INVOKE("compositing_status")),
+	/**
+	 *  Allows or forbids the GPU for compositing. Applies to timeline previews built (the timeline is rebuilt on every
+	 *  edit and on open) and exports started after the change.
+	 */
+	setGpuCompositing: (enabled: boolean) => typedError<CompositingStatus_Serialize, AppError>(__TAURI_INVOKE("set_gpu_compositing", { enabled })),
 	/**  The onboarding state (a first run when there is none yet). */
 	onboardingState: () => typedError<OnboardingState_Serialize, AppError>(__TAURI_INVOKE("onboarding_state")),
 	/**  Changes the onboarding state and returns it as it is now. */
@@ -590,6 +597,31 @@ export type ChatSummaryView = {
 
 /**  A step of the guided first edit. */
 export type ChecklistStep = "import" | "cut" | "title" | "captions" | "export";
+
+/**  What Settings and the diagnostics overlay show. */
+export type CompositingStatus = CompositingStatus_Serialize | CompositingStatus_Deserialize;
+
+/**  What Settings and the diagnostics overlay show. */
+export type CompositingStatus_Deserialize = {
+	/**  The person allows the GPU (Settings → Rendering). */
+	gpuEnabled: boolean,
+	/**  The backend in use: "gpu" or "cpu"; "starting" until the startup self-test has run. */
+	backend: string,
+	adapter?: string | null,
+	/**  Why this backend. */
+	reason: string,
+};
+
+/**  What Settings and the diagnostics overlay show. */
+export type CompositingStatus_Serialize = {
+	/**  The person allows the GPU (Settings → Rendering). */
+	gpuEnabled: boolean,
+	/**  The backend in use: "gpu" or "cpu"; "starting" until the startup self-test has run. */
+	backend: string,
+	adapter: string | null,
+	/**  Why this backend. */
+	reason: string,
+};
 
 export type CrashReport = {
 	path: string,

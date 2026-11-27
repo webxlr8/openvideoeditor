@@ -4,13 +4,19 @@ Renders the whole timeline to an MP4 file (H.264 video + AAC audio). Available w
 feature (`cargo build -p ove-cli --features export`; desktop bundles include it).
 
 ```sh
-ove export <project> <out.mp4> [--height <px>] [--fps <n>] [--loudness off|-14|-16|-23|-24] [--json]
+ove export <project> <out.mp4> [--height <px>] [--fps <n>] [--loudness off|-14|-16|-23|-24] [--backend auto|cpu|gpu] [--json]
 ove export <project> <out.m4a|.wav|.flac> --audio-only [--format m4a|wav|flac] [--loudness …] [--json]
 ```
 
 - `--height` (default 1080): output height; the width follows the project's aspect ratio (1920×1080 for 16:9 at
   1080, 608×1080 for 9:16, …), always even.
 - `--fps` (default 30).
+- `--backend` (default `auto`, or `OVE_BACKEND`): the compositing backend. `auto` uses the GPU when a hardware
+  adapter passes a startup self-test against the CPU reference, else the CPU; `cpu` and `gpu` force one (`gpu` is
+  refused with `gpu.unavailable` when there is no adapter at all). Both make the same frames within the parity
+  tolerance (largest channel difference 2/255, mean 0.25/255, CIEDE2000 p99 1.0). The result reports it as
+  `"backend": {"name", "adapter", "reason"}`. The backend stays the same for the whole export; when a GPU device is
+  lost, the remaining frames are made on the CPU. `ove render` is the same command.
 - Refused (exit 1, code `export.refused`) while the timeline has pending placeholders, or when it is empty.
 - `--audio-only` writes the mix alone and renders no video: `m4a` (AAC, with an edit list so players skip the
   encoder's priming and the file has the timeline's duration), `wav` (24-bit PCM, the mixer's samples rounded once)

@@ -71,6 +71,13 @@ export function skimUrl(contentId: string): string {
 // Browser mock
 
 export interface MockControl {
+  /** The simulated compositing backend (Settings → Rendering, the diagnostics overlay). */
+  compositing?: {
+    gpuEnabled: boolean;
+    backend: string;
+    adapter: string | null;
+    reason: string;
+  };
   /** Crash reports the native side would list. */
   crashReports?: { path: string; at: number; summary: string; seen: boolean }[];
   /** The feedback page a build may set (`OVE_FEEDBACK_URL`); none by default. */
@@ -1789,6 +1796,32 @@ function createMock(): {
       ok<string | null>(`/mock/exports/${defaultName}.mp4`)
     ),
     revealPath: (path: string) => (track(`revealPath:${path}`), ok(null)),
+    compositingStatus: () =>
+      ok(
+        control.compositing ?? {
+          gpuEnabled: true,
+          backend: "gpu",
+          adapter: "Mock GPU",
+          reason: "GPU self-test passed (Mock GPU)",
+        },
+      ),
+    setGpuCompositing: (enabled: boolean) => {
+      track(`setGpuCompositing:${enabled}`);
+      control.compositing = enabled
+        ? {
+            gpuEnabled: true,
+            backend: "gpu",
+            adapter: "Mock GPU",
+            reason: "GPU self-test passed (Mock GPU)",
+          }
+        : {
+            gpuEnabled: false,
+            backend: "cpu",
+            adapter: null,
+            reason: "the GPU is turned off in Settings",
+          };
+      return ok(control.compositing);
+    },
     crashReports: () => Promise.resolve(control.crashReports ?? []),
     markCrashReportsSeen: () => {
       for (const r of control.crashReports ?? []) r.seen = true;

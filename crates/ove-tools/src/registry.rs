@@ -16,6 +16,11 @@ const PROJECT: Arg = arg(
     "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)",
 );
 const MEDIA: Arg = req("media", Str, "Media id, file name or path");
+const BACKEND: Arg = arg(
+    "backend",
+    Str,
+    "Compositing backend: auto (default; the GPU when its startup self-test matches the CPU reference), cpu or gpu",
+);
 
 const EDITS: &str = r#"{"type": "array", "items": {"type": "object", "properties": {"oldText": {"type": "string"}, "newText": {"type": "string"}}, "required": ["oldText", "newText"], "additionalProperties": false}}"#;
 const PREFER: &str = r#"{"type": "string", "enum": ["file", "editor"]}"#;
@@ -345,6 +350,7 @@ pub static TOOLS: &[ToolSpec] = &[
             cli("out", Str, "Folder for one PNG per frame"),
             cli("sheet", Str, "Contact-sheet PNG to write"),
             cli("columns", Int, "Contact-sheet columns"),
+            BACKEND,
         ],
         annotations: READ,
         surfaces: AGENTS,
@@ -380,6 +386,7 @@ pub static TOOLS: &[ToolSpec] = &[
                 Num,
                 "Loudness target, integrated LUFS: -14, -16, -23 or -24 (default off); the result reports before and after",
             ),
+            BACKEND,
         ],
         annotations: WRITE,
         surfaces: SERVERS,
@@ -690,6 +697,7 @@ pub static TOOLS: &[ToolSpec] = &[
             ),
             arg("strength", Num, "0..1 share of the fitted correction to suggest (default 1; each step is capped)"),
             arg("height", Int, "Measuring height in pixels (default 1080, the export default)"),
+            BACKEND,
         ],
         annotations: READ,
         surfaces: AGENTS,

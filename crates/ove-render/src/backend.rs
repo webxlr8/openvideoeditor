@@ -41,6 +41,12 @@ pub trait Backend: Send {
     /// Runs `f` on the pixels of `t` and keeps its changes.
     fn cpu(&mut self, t: Tex, f: &mut dyn FnMut(&mut Rgba));
 
+    /// False once the backend can no longer produce frames (a lost GPU device); the renderer then switches to the
+    /// CPU backend.
+    fn healthy(&self) -> bool {
+        true
+    }
+
     /// A copy of `t` as a new image.
     fn copy(&mut self, t: Tex) -> Tex {
         let img = Arc::new(self.read(t));

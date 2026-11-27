@@ -392,6 +392,10 @@
         "storyboard": {
           "type": "boolean",
           "description": "One storyboard sheet of the whole timeline instead: repeats dropped, at most 36 tiles, each with its timecode and the ids of the visible items"
+        },
+        "backend": {
+          "type": "string",
+          "description": "Compositing backend: auto (default; the GPU when its startup self-test matches the CPU reference), cpu or gpu"
         }
       },
       "required": [],
@@ -889,6 +893,10 @@
         "height": {
           "type": "integer",
           "description": "Measuring height in pixels (default 1080, the export default)"
+        },
+        "backend": {
+          "type": "string",
+          "description": "Compositing backend: auto (default; the GPU when its startup self-test matches the CPU reference), cpu or gpu"
         }
       },
       "required": [],

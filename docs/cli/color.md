@@ -1,12 +1,13 @@
 # `ove color`
 
 ```sh
-ove color inspect <project> [--at <s>] [--item <id>] [--isolate] [--reference <item|media>] [--reference-at <s>] [--strength <0-1>] [--height <px>]
+ove color inspect <project> [--at <s>] [--item <id>] [--isolate] [--reference <item|media>] [--reference-at <s>] [--strength <0-1>] [--height <px>] [--backend auto|cpu|gpu]
 ```
 
 **inspect** measures the colour of the frame that export writes at a time. The time is snapped to the export frame
 grid (the frame that starts at or before it). The frame is rendered by the same compositor as `look` and export, at
-`--height` lines (default 1080, the export default). MCP: `inspect_color`.
+`--height` lines (default 1080, the export default), on the same compositing backend as export (`--backend`, see
+`ove docs export`). MCP: `inspect_color`.
 
 - `--item <id>` names the shot. Without `--at`, the time is the middle of the item.
 - `--isolate` measures the item alone: layers above and below it (titles, overlays, adjustment layers) are left

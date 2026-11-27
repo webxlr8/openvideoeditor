@@ -22,11 +22,11 @@
 
 ## 3. GPU compositor core
 
-- [ ] 3.1 Layer draw (affine, crop, corner radius, opacity), all 16 blend modes, grade lattice as a 3D texture with
+- [x] 3.1 Layer draw (affine, crop, corner radius, opacity), all 16 blend modes, grade lattice as a 3D texture with
       tetrahedral lookup, and LUT stages; verify parity for every blend mode and for the 9 LUT presets.
-- [ ] 3.2 CPU fallback per layer for effects without a GPU version (readback, CPU effect, upload); verify a project
+- [x] 3.2 CPU fallback per layer for effects without a GPU version (readback, CPU effect, upload); verify a project
       using every effect renders on the GPU backend with parity.
-- [ ] 3.3 Startup self-test, backend selection, Settings toggle, `ove render --backend`, diagnostics overlay reason,
+- [x] 3.3 Startup self-test, backend selection, Settings toggle, `ove render --backend`, diagnostics overlay reason,
       device-loss fallback; verify by tests that force self-test failure and simulate device loss.
 
 ## 4. Effects, transitions and alpha

@@ -83,6 +83,9 @@ enum Cmd {
         /// Mean brightness and black / clipped pixel shares per frame.
         #[arg(long)]
         stats: bool,
+        /// Compositing backend: auto (the GPU when its self-test passes), cpu or gpu.
+        #[arg(long)]
+        backend: Option<String>,
     },
     /// Colour readouts for matching shots: inspect.
     Color {
@@ -137,6 +140,7 @@ enum Cmd {
         kind: Option<String>,
     },
     /// Render the timeline to an MP4 file (H.264 + AAC). With --json, progress is printed as JSON lines.
+    #[command(alias = "render")]
     Export {
         project: String,
         out: PathBuf,
@@ -154,6 +158,9 @@ enum Cmd {
         /// Loudness target, integrated LUFS: off, -14, -16, -23 or -24.
         #[arg(long, allow_negative_numbers = true)]
         loudness: Option<String>,
+        /// Compositing backend: auto (the GPU when its self-test passes), cpu or gpu.
+        #[arg(long)]
+        backend: Option<String>,
     },
     /// Exchange the timeline with other editors (FCPXML, Premiere/FCP7 XML, EDL, OpenTimelineIO).
     Timeline {
@@ -224,6 +231,9 @@ enum ColorCmd {
         /// Measuring height in pixels (default 1080, the export default).
         #[arg(long)]
         height: Option<u32>,
+        /// Compositing backend: auto (the GPU when its self-test passes), cpu or gpu.
+        #[arg(long)]
+        backend: Option<String>,
     },
 }
 
@@ -351,17 +361,17 @@ fn run(cli: &Cli, source: Source) -> Out {
         Cmd::App { cmd } => app::run(&ctx, cmd),
         Cmd::Audio { cmd } => analyze::audio(&ctx, cmd),
         Cmd::Generate { cmd } => generate::run(&ctx, cmd),
-        Cmd::Look { project, at, every, count, width, out, sheet, columns, stats } => ctx.tool(
+        Cmd::Look { project, at, every, count, width, out, sheet, columns, stats, backend } => ctx.tool(
             "look",
             json!({"project": project, "at": at, "every": every, "count": count, "width": width, "out": out,
-                   "sheet": sheet, "columns": columns, "stats": stats}),
+                   "sheet": sheet, "columns": columns, "stats": stats, "backend": backend}),
         ),
         Cmd::Color {
-            cmd: ColorCmd::Inspect { project, at, item, isolate, reference, reference_at, strength, height },
+            cmd: ColorCmd::Inspect { project, at, item, isolate, reference, reference_at, strength, height, backend },
         } => ctx.tool(
             "inspect_color",
             json!({"project": project, "at": at, "item": item, "isolate": isolate, "reference": reference,
-                       "referenceAt": reference_at, "strength": strength, "height": height}),
+                   "referenceAt": reference_at, "strength": strength, "height": height, "backend": backend}),
         ),
         Cmd::Screenshot { out, width } => ctx.tool("screenshot", json!({"out": out, "width": width})),
         Cmd::Source { cmd: SourceCmd::Print { project, from, lines } } => {
@@ -395,7 +405,7 @@ fn run(cli: &Cli, source: Source) -> Out {
                 ctx.tool("undo_timeline", json!({"project": project, "rev": rev}))
             }
         }
-        Cmd::Export { project, out, height, fps, audio_only, format, loudness } => {
+        Cmd::Export { project, out, height, fps, audio_only, format, loudness, backend } => {
             let audio = audio_only.then(|| format.clone().unwrap_or_default());
             let loudness = loudness.as_deref().filter(|l| *l != "off").map(|l| match l.parse::<f64>() {
                 Ok(v) => json!(v),
@@ -403,7 +413,7 @@ fn run(cli: &Cli, source: Source) -> Out {
             });
             ctx.tool(
                 "export_video",
-                json!({"project": project, "out": out, "height": height, "fps": fps, "audioOnly": audio, "loudness": loudness}),
+                json!({"project": project, "out": out, "height": height, "fps": fps, "audioOnly": audio, "loudness": loudness, "backend": backend}),
             )
         }
         Cmd::Timeline { cmd: TimelineCmd::Export { project, file, format, fps } } => {

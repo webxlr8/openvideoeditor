@@ -54,14 +54,10 @@ mod imp {
     }
 
     /// The frame at `t`: composited, or with `isolate` only that item (transparent elsewhere).
-    fn render(doc: &Document, bundle: &Path, t: Micros, isolate: Option<&str>, height: u32) -> Rgba {
-        ove_media::init();
-        let mut r = Renderer::new(Some(bundle), height);
+    fn render(r: &mut Renderer, doc: &Document, t: Micros, isolate: Option<&str>) -> Rgba {
+        r.set_transparent(isolate.is_some());
         match isolate {
-            Some(id) => {
-                r.set_transparent(true);
-                r.render(&alone(doc, id), t)
-            }
+            Some(id) => r.render(&alone(doc, id), t),
             None => r.render(doc, t),
         }
     }
@@ -83,7 +79,7 @@ mod imp {
 
     /// Measures the reference: an item rendered alone at a timeline time (default its middle), or a media frame at a
     /// source time (default 0).
-    fn reference(doc: &Document, bundle: &Path, q: &str, at: Option<f64>, height: u32) -> Result<Reference, Fail> {
+    fn reference(r: &mut Renderer, doc: &Document, bundle: &Path, q: &str, at: Option<f64>) -> Result<Reference, Fail> {
         if let Some(item) = doc.item(q) {
             let seconds = at.unwrap_or((item.start + item.end) as f64 / 2e6);
             let (frame, t) = snap(doc, seconds);
@@ -97,7 +93,7 @@ mod imp {
                     ),
                 ));
             }
-            let img = render(doc, bundle, t, Some(q), height);
+            let img = render(r, doc, t, Some(q));
             let stats = color_stats::color_stats(&img, true);
             if stats.pixels == 0 {
                 return Err(Fail::new(
@@ -238,7 +234,11 @@ mod imp {
             ));
         }
         let isolated = isolate.then_some(item).flatten();
-        let img = render(&doc, &bundle, t, isolated, height);
+        let chosen = crate::tools::backend::choose(a)?;
+        let backend = crate::tools::backend::json(&chosen);
+        ove_media::init();
+        let mut renderer = Renderer::with_backend(Some(&bundle), height, chosen.backend);
+        let img = render(&mut renderer, &doc, t, isolated);
         let stats = color_stats::color_stats(&img, isolated.is_some());
         if stats.pixels == 0 {
             return Err(Fail::new(
@@ -255,6 +255,7 @@ mod imp {
             "height": img.h,
             "item": item,
             "isolate": isolate,
+            "backend": backend,
             "stats": stats,
         });
         let head = format!(
@@ -271,7 +272,7 @@ mod imp {
             let text = text(&head, &stats, None);
             return Ok(Receipt::new(v, text));
         };
-        let r = reference(&doc, &bundle, q, a.f64("referenceAt"), height)?;
+        let r = reference(&mut renderer, &doc, &bundle, q, a.f64("referenceAt"))?;
         let gap = color_stats::gap(&stats, &r.stats);
         v["reference"] = r.json.clone();
         v["reference"]["stats"] = serde_json::to_value(&r.stats).unwrap_or(Value::Null);

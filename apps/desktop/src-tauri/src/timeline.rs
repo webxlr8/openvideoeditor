@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use ove_core::model::Document;
 use ove_playback::{FrameSource, PresentableFrame, SourcePoll};
-use ove_render::{Renderer, Rgba};
+use ove_render::Rgba;
 
 /// Preview height of the composited timeline. The preview frame rate is the timeline's own (`fps`, default 30).
 pub const PREVIEW_HEIGHT: u32 = 540;
@@ -56,6 +56,8 @@ pub struct TimelineSource {
     sent_eof: bool,
     /// Render time of the last frame, for diagnostics.
     pub render_ms: Arc<AtomicU64>,
+    /// The compositing backend and why, for diagnostics ("GPU, <adapter>" or "CPU — <reason>").
+    pub backend: Arc<std::sync::Mutex<String>>,
 }
 
 impl TimelineSource {
@@ -65,16 +67,24 @@ impl TimelineSource {
         let generation = Arc::new(AtomicU64::new(0));
         let render_ms = Arc::new(AtomicU64::new(0));
         let done = Arc::new(AtomicU64::new(0));
+        let backend = Arc::new(std::sync::Mutex::new("starting".to_string()));
         let end_us = doc.duration();
-        let (g, rm, dn) = (generation.clone(), render_ms.clone(), done.clone());
-        let _ =
-            crate::worker::spawn_contained("timeline render", move || render_loop(doc, bundle, ctl_rx, tx, g, rm, dn));
-        TimelineSource { ctl: ctl_tx, frames: rx, generation, done, end_us, sent_eof: false, render_ms }
+        let (g, rm, dn, be) = (generation.clone(), render_ms.clone(), done.clone(), backend.clone());
+        let _ = crate::worker::spawn_contained("timeline render", move || {
+            render_loop(doc, bundle, ctl_rx, tx, g, Diag { render_ms: rm, backend: be }, dn)
+        });
+        TimelineSource { ctl: ctl_tx, frames: rx, generation, done, end_us, sent_eof: false, render_ms, backend }
     }
 
     pub fn duration_us(&self) -> i64 {
         self.end_us
     }
+}
+
+/// What the render loop reports for the diagnostics overlay.
+struct Diag {
+    render_ms: Arc<AtomicU64>,
+    backend: Arc<std::sync::Mutex<String>>,
 }
 
 fn render_loop(
@@ -83,10 +93,12 @@ fn render_loop(
     ctl: Receiver<Ctl>,
     out: SyncSender<TimelineFrame>,
     generation: Arc<AtomicU64>,
-    render_ms: Arc<AtomicU64>,
+    diag: Diag,
     done: Arc<AtomicU64>,
 ) {
-    let mut renderer = Renderer::new(Some(&bundle), PREVIEW_HEIGHT);
+    let (mut renderer, status) = crate::compositing::renderer(Some(&bundle), PREVIEW_HEIGHT);
+    *crate::worker::relock(&diag.backend) = crate::compositing::label(&status);
+    let mut fell_back = false;
     let end = doc.duration();
     let fps = doc.fps();
     let mut gen_now = 0u64;
@@ -122,7 +134,13 @@ fn render_loop(
         }
         let started = std::time::Instant::now();
         let image = Arc::new(renderer.render(&doc, pts));
-        render_ms.store(started.elapsed().as_millis() as u64, Ordering::Relaxed);
+        diag.render_ms.store(started.elapsed().as_millis() as u64, Ordering::Relaxed);
+        if !fell_back && let Some(why) = renderer.fallback() {
+            // A GPU device loss: the renderer carries on with the CPU backend; say so in the overlay.
+            fell_back = true;
+            crate::compositing::fell_back(why);
+            *crate::worker::relock(&diag.backend) = format!("CPU — {why}");
+        }
         let mut frame =
             TimelineFrame { generation: gen_now, pts_us: pts, duration_us: frame_us(i + 1, fps) - pts, image };
         // Hand it over, but give way to a seek while the queue is full.

@@ -188,7 +188,7 @@ pub async fn match_color(
         if !matches!(item.kind.as_str(), "video" | "image") {
             return Err(bad("Colour match works on video and image items."));
         }
-        let mut r = Renderer::new(Some(&bundle), MATCH_HEIGHT);
+        let (mut r, _) = crate::compositing::renderer(Some(&bundle), MATCH_HEIGHT);
         let reference = r.render(&doc, secs_to_micros(reference_time.max(0.0)).unwrap_or(0));
         // The item alone, ungraded, at its middle.
         let mut ops: Vec<Op> = doc

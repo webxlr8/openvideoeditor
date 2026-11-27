@@ -44,7 +44,8 @@ in seconds. Every change is one revision: the user can undo it in the app, and `
 5. **Verify**: `ove verify <project>` lists overlaps, gaps, clips running past their source, missing media and
    pending placeholders (exit 1 when there are errors).
 6. **Look**: `ove look <project> --at 2,5.5 --out frames/` renders composited frames; `--every 2 --sheet sheet.png`
-   makes a contact sheet; `--stats` reports brightness and black/clipped pixels.
+   makes a contact sheet; `--stats` reports brightness and black/clipped pixels. Frames come from the same
+   compositor and backend as export (`--backend auto|cpu|gpu`).
 
 ## As MCP tools
 
