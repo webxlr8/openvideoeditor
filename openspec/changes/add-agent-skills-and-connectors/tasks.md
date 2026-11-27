@@ -17,16 +17,17 @@
 
 ## 2. Management, catalog and export
 
-- [ ] 2.1 Add the in-app `manage_skills` tool (create, update, remove; builtin protected). Verify: agent tests with a
+- [x] 2.1 Add the in-app `manage_skills` tool (create, update, remove; builtin protected). Verify: agent tests with a
       mock model, including the `skill.builtin` refusal.
-- [ ] 2.2 Implement catalog install with a full SHA-256 check, configurable URL, and no request when unset. Verify:
+- [x] 2.2 Implement catalog install with a full SHA-256 check, configurable URL, and no request when unset. Verify:
       - tests against a local catalog server for match, tamper and missing-entry cases;
       - a test that makes no network request when unset.
-- [ ] 2.3 Implement visible updates (diff view; install only on accept; modified local skill kept, update offered as a
+- [x] 2.3 Implement visible updates (diff view; install only on accept; modified local skill kept, update offered as a
       copy). Verify: unit tests for the ledger states, and a UI test of accepting an update.
-- [ ] 2.4 Implement export to detected agents' skill folders, with the `ove-` prefix and an overwrite confirmation.
+- [x] 2.4 Implement export to detected agents' skill folders, with the `ove-` prefix and an overwrite confirmation.
       Verify: integration tests with temporary home folders on both OSes.
-- [ ] 2.5 Build the Settings → Skills pane (Installed, Community, Local; editor; export menu). Verify: UI tests for
+      Run on Windows 11 here; the same tests run on macOS in the CI matrix (not run by this worker).
+- [x] 2.5 Build the Settings → Skills pane (Installed, Community, Local; editor; export menu). Verify: UI tests for
       list, edit, install and export.
 
 ## 3. Drafting and starter skills

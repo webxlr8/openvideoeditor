@@ -28,6 +28,7 @@ const TRANSCRIPT_FORMAT: &str = r#"{"type": "string", "enum": ["text", "words", 
 const PAUSE: &str = r#"{"type": "string", "enum": ["tight", "balanced", "loose"]}"#;
 const OPTIONS: &str = r#"{"type": "array", "items": {"type": "string"}, "maxItems": 4}"#;
 const NAMES: &str = r#"{"type": ["array", "string"], "items": {"type": "string"}}"#;
+const SKILL_ACTION: &str = r#"{"type": "string", "enum": ["create", "update", "remove"]}"#;
 
 pub static TOOLS: &[ToolSpec] = &[
     ToolSpec {
@@ -691,6 +692,20 @@ pub static TOOLS: &[ToolSpec] = &[
         annotations: READ,
         surfaces: AGENTS,
         run: skills::read_skill,
+        model: ModelText::Text,
+    },
+    ToolSpec {
+        name: "manage_skills",
+        aliases: &[],
+        about: "Create, update or remove one of the person's skills (not builtin ones). `text` is the whole SKILL.md: front matter with `name` and `description`, then the steps. Use it when the person asks to save a way of working as a skill, or to change or delete one; the change shows in Settings → Skills as created by the assistant. Refused with skill.builtin for builtin skills.",
+        args: &[
+            req("action", Json(SKILL_ACTION), "create, update or remove"),
+            arg("id", Str, "Skill id (a-z, 0-9 and -); for create, default from the name"),
+            arg("text", Str, "The whole skill file (create and update)"),
+        ],
+        annotations: DESTRUCTIVE,
+        surfaces: IN_APP,
+        run: skills::manage_skills,
         model: ModelText::Text,
     },
 ];

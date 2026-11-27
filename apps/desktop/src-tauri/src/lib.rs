@@ -24,6 +24,7 @@ pub mod projects;
 pub mod sample;
 pub mod scripted_dialogs;
 pub mod scrub;
+pub mod skills;
 pub mod support;
 pub mod tasks;
 pub mod timeline;
@@ -234,6 +235,18 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             // The Transcript panel (add-transcript-editing).
             transcript::transcript_query,
             transcript::transcript_cut,
+            // Settings → Skills (add-agent-skills-and-connectors).
+            skills::skills_view,
+            skills::skill_text,
+            skills::skill_save,
+            skills::skill_remove,
+            skills::skills_set_catalog,
+            skills::skills_catalog,
+            skills::skill_install_preview,
+            skills::skill_install,
+            skills::skill_update_offer,
+            skills::skill_update_accept,
+            skills::skill_export,
         ])
         .events(collect_events![
             PlaybackChanged,

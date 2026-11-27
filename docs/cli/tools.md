@@ -151,4 +151,5 @@ ove source print Nope                              # exit 1
 | `extract_audio` |  | mcp, pinned | write | `project`? `media` `format`? |
 | `list_skills` |  | in-app, mcp, pinned | read |  |
 | `read_skill` |  | in-app, mcp, pinned | read | `id` |
+| `manage_skills` |  | in-app | destructive | `action` `id`? `text`? |
 <!-- tools:end -->

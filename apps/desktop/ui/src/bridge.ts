@@ -44,6 +44,7 @@ import {
   mockFontPreview,
   mockThumbnail,
 } from "./motionMock";
+import { type MockSkills, createSkillsMock, initialSkills } from "./skills/skillsMock";
 
 export type Commands = typeof generated.commands;
 export type Events = typeof generated.events;
@@ -108,6 +109,8 @@ export interface MockControl {
   /** Onboarding state as the native side would keep it. Onboarding is over by default (the welcome would cover
    * every other test); a test of the first run puts `FIRST_RUN` here before rendering. */
   onboarding: OnboardingState;
+  /** Settings → Skills: the skill store, the community catalog and the agents skills export to. */
+  skills: MockSkills;
 }
 
 declare global {
@@ -713,6 +716,7 @@ function createMock(): {
     transcript: { words: [], pauses: [] },
     localAgents: [],
     onboarding: { ...SETTLED },
+    skills: initialSkills(),
   };
   const track = (name: string) => control.calls.push(name);
 
@@ -1304,6 +1308,7 @@ function createMock(): {
   };
 
   const commands: Commands = {
+    ...createSkillsMock(() => control.skills, ok, fail, track),
     appInfo: () =>
       ok<AppInfo_Serialize>({
         version: "dev",

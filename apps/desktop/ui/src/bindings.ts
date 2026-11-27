@@ -276,6 +276,30 @@ export const commands = {
 	transcriptQuery: (tool: string, args: string) => typedError<string, AppError>(__TAURI_INVOKE("transcript_query", { tool, args })),
 	/**  Runs a cutting tool (`remove_words`, `remove_silence`) on the open project as one revision. */
 	transcriptCut: (tool: string, args: string) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("transcript_cut", { tool, args })),
+	/**  Every skill in the store, with the catalog address and the export targets. */
+	skillsView: () => typedError<SkillsView_Serialize, AppError>(__TAURI_INVOKE("skills_view")),
+	/**  A skill's whole file (also for invalid skills, so the person can fix them). */
+	skillText: (id: string) => typedError<string, AppError>(__TAURI_INVOKE("skill_text", { id })),
+	/**  Saves the editor: a new skill (no id: one is made from its name) or the person's edit of one. */
+	skillSave: (id: string | null, text: string, drafted: boolean) => typedError<SkillRow_Serialize, AppError>(__TAURI_INVOKE("skill_save", { id, text, drafted })),
+	skillRemove: (id: string) => typedError<null, AppError>(__TAURI_INVOKE("skill_remove", { id })),
+	/**  Sets the catalog address (HTTPS); empty clears it. Fetches nothing. */
+	skillsSetCatalog: (url: string) => typedError<null, AppError>(__TAURI_INVOKE("skills_set_catalog", { url })),
+	/**
+	 *  Fetches the catalog (the person opened or refreshed the Community list). Refused, with no request, when no
+	 *  address is set.
+	 */
+	skillsCatalog: () => typedError<CatalogView, AppError>(__TAURI_INVOKE("skills_catalog")),
+	/**  Fetches and verifies a catalog skill for the person to read before installing. Installs nothing. */
+	skillInstallPreview: (id: string) => typedError<SkillInstallPreview, AppError>(__TAURI_INVOKE("skill_install_preview", { id })),
+	/**  Installs a catalog skill the person confirmed, checking it against its pin again. */
+	skillInstall: (id: string, installAs: string) => typedError<SkillRow_Serialize, AppError>(__TAURI_INVOKE("skill_install", { id, installAs })),
+	/**  The differences an update would make. Installs nothing. */
+	skillUpdateOffer: (id: string) => typedError<SkillUpdateOffer, AppError>(__TAURI_INVOKE("skill_update_offer", { id })),
+	/**  Installs an update the person accepted; `sha256` is the one they saw. */
+	skillUpdateAccept: (id: string, sha256: string) => typedError<SkillRow_Serialize, AppError>(__TAURI_INVOKE("skill_update_accept", { id, sha256 })),
+	/**  Exports a skill to the chosen agents. `overwrite`: the person confirmed replacing copies they changed there. */
+	skillExport: (id: string, targets: string[], overwrite: boolean) => typedError<SkillExportOutcome_Serialize[], AppError>(__TAURI_INVOKE("skill_export", { id, targets, overwrite })),
 };
 
 /** Events */
@@ -551,6 +575,20 @@ export type CaptionModel = {
 	sizeMb: number,
 	installed: boolean,
 	default: boolean,
+};
+
+export type CatalogEntryView = {
+	id: string,
+	name: string,
+	description: string,
+	sha256: string,
+};
+
+export type CatalogView = {
+	url: string,
+	entries: CatalogEntryView[],
+	skipped: string[],
+	installed: SkillUpdateRow[],
 };
 
 /**  One line of the chat as the UI shows it. */
@@ -1314,6 +1352,158 @@ export type RemoveStatus = "removed" |
 
 export type SendResult = {
 	chatId: string,
+};
+
+export type SkillDiffLine = {
+	/**  `" "`, `"-"` or `"+"`. */
+	op: string,
+	text: string,
+};
+
+/**  The result of exporting to one agent. */
+export type SkillExportOutcome = SkillExportOutcome_Serialize | SkillExportOutcome_Deserialize;
+
+/**  The result of exporting to one agent. */
+export type SkillExportOutcome_Deserialize = {
+	target: string,
+	name: string,
+	ok: boolean,
+	file?: string | null,
+	/**  `export.modified` when the copy there was changed (export again with overwrite to replace it). */
+	code?: string | null,
+	message?: string | null,
+};
+
+/**  The result of exporting to one agent. */
+export type SkillExportOutcome_Serialize = {
+	target: string,
+	name: string,
+	ok: boolean,
+	file: string | null,
+	/**  `export.modified` when the copy there was changed (export again with overwrite to replace it). */
+	code: string | null,
+	message: string | null,
+};
+
+/**  What an install would write, verified against its pin, for the person to read and confirm. */
+export type SkillInstallPreview = {
+	id: string,
+	name: string,
+	sha256: string,
+	catalogUrl: string,
+	installAs: string,
+	text: string,
+	unknownTools: string[],
+};
+
+/**  One skill as the Installed and Local lists show it. */
+export type SkillRow = SkillRow_Serialize | SkillRow_Deserialize;
+
+/**  One skill as the Installed and Local lists show it. */
+export type SkillRow_Deserialize = {
+	id: string,
+	name: string,
+	description: string,
+	version?: string | null,
+	/**  `builtin`, `catalog`, `local`, `drafted` or `assistant`. */
+	kind: string,
+	/**  Where it came from, as shown (`catalog <url>`, `created by the assistant`, …). */
+	source: string,
+	builtin: boolean,
+	/**  Why agents are not offered it. */
+	invalid?: string | null,
+	/**  Edited since the app installed it. */
+	modified: boolean,
+	path?: string | null,
+	/**  Front-matter keys that are ignored. */
+	ignoredKeys: string[],
+	/**  Tool names in the text that are not agent tools. */
+	unknownTools: string[],
+};
+
+/**  One skill as the Installed and Local lists show it. */
+export type SkillRow_Serialize = {
+	id: string,
+	name: string,
+	description: string,
+	version: string | null,
+	/**  `builtin`, `catalog`, `local`, `drafted` or `assistant`. */
+	kind: string,
+	/**  Where it came from, as shown (`catalog <url>`, `created by the assistant`, …). */
+	source: string,
+	builtin: boolean,
+	/**  Why agents are not offered it. */
+	invalid: string | null,
+	/**  Edited since the app installed it. */
+	modified: boolean,
+	path: string | null,
+	/**  Front-matter keys that are ignored. */
+	ignoredKeys: string[],
+	/**  Tool names in the text that are not agent tools. */
+	unknownTools: string[],
+};
+
+/**  One agent skills can be exported to. */
+export type SkillTarget = SkillTarget_Serialize | SkillTarget_Deserialize;
+
+/**  One agent skills can be exported to. */
+export type SkillTarget_Deserialize = {
+	id: string,
+	name: string,
+	dir: string,
+	available: boolean,
+	reason?: string | null,
+};
+
+/**  One agent skills can be exported to. */
+export type SkillTarget_Serialize = {
+	id: string,
+	name: string,
+	dir: string,
+	available: boolean,
+	reason: string | null,
+};
+
+export type SkillUpdateOffer = {
+	id: string,
+	/**  True when the person edited the skill: accepting installs a copy under `install_as`. */
+	asCopy: boolean,
+	installAs: string,
+	sha256: string,
+	diff: SkillDiffLine[],
+};
+
+/**  An installed catalog skill and whether an update is offered. */
+export type SkillUpdateRow = {
+	id: string,
+	/**  `upToDate`, `available`, `modified` (an update comes as a copy), `editedLocally` or `gone`. */
+	state: string,
+};
+
+export type SkillsView = SkillsView_Serialize | SkillsView_Deserialize;
+
+export type SkillsView_Deserialize = {
+	/**  The store folder. */
+	root: string,
+	skills: SkillRow_Deserialize[],
+	/**  The catalog address; empty when none is set. */
+	catalogUrl: string,
+	/**  Valid skills, and the most the assistant's index lists. */
+	validCount: number,
+	indexCap: number,
+	targets: SkillTarget_Deserialize[],
+};
+
+export type SkillsView_Serialize = {
+	/**  The store folder. */
+	root: string,
+	skills: SkillRow_Serialize[],
+	/**  The catalog address; empty when none is set. */
+	catalogUrl: string,
+	/**  Valid skills, and the most the assistant's index lists. */
+	validCount: number,
+	indexCap: number,
+	targets: SkillTarget_Serialize[],
 };
 
 /**  A skim sheet's image and layout: tile `i` of `count` sits at column `i % columns`, row `i / columns`. */

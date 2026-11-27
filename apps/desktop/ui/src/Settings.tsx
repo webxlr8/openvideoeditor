@@ -13,6 +13,7 @@ import type {
 } from "./bindings";
 import { AgentsSection } from "./agents/AgentsSection";
 import { ModelsSection } from "./storage/ModelsSection";
+import { SkillsSection } from "./skills/SkillsSection";
 import { commands } from "./bridge";
 import { AssistantDataList } from "./ChatPanel";
 import { copyText } from "./clipboard";
@@ -34,6 +35,7 @@ const SECTIONS = [
   { id: "generation", label: "Generation" },
   { id: "assistant", label: "Assistant" },
   { id: "agents", label: "Agents & command line" },
+  { id: "skills", label: "Skills" },
   { id: "shortcuts", label: "Shortcuts" },
   { id: "storage", label: "Storage" },
   { id: "privacy", label: "Privacy" },
@@ -514,6 +516,12 @@ export function Settings({
               <span className="mono">/usr/bin/ove</span> on Linux).{" "}
               <span className="mono">ove docs agents</span> prints the guide.
             </p>
+          </section>
+        )}
+        {section === "skills" && (
+          <section>
+            <h3>Skills</h3>
+            <SkillsSection onError={onError} />
           </section>
         )}
         {section === "shortcuts" && <ShortcutsSection />}

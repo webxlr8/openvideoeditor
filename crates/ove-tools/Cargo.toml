@@ -9,6 +9,7 @@ publish.workspace = true
 
 [dependencies]
 dunce = "1.0"
+ove-agents = { path = "../ove-agents" }
 ove-control = { path = "../ove-control" }
 ove-core = { path = "../ove-core" }
 ove-edit = { path = "../ove-edit" }
@@ -26,6 +27,7 @@ ove-render = { path = "../ove-render", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
 sha2 = "0.10"
+ureq = { version = "2.12", default-features = false, features = ["tls"] }
 tracing = "0.1"
 
 [features]

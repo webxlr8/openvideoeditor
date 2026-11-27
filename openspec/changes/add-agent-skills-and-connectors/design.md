@@ -168,3 +168,24 @@ Measured on Windows 11 (x64), debug test builds.
   (task 1.3).
 - `prompts/list` and `resources/list` over `ove mcp` are pinned by `crates/ove-cli/tests/golden/skills-*.json` and
   match the store (4 valid skills in the fixture: 3 builtin, 1 local; the invalid one is left out).
+
+### Group 2: management, catalog and export
+
+- `manage_skills` is in-app only. A mock-model turn created and updated a skill (source "created by the assistant")
+  and was refused with `skill.builtin` when it tried to remove `caption-styling`; the builtin skill stayed.
+- Catalog: HTTPS only (plain HTTP only to this computer, for tests); a redirect may not leave HTTPS. Catalog document
+  at most 1 MB and 500 entries; skill files at most 256 KB. Entry paths must stay inside the catalog's folder.
+  Against a local catalog server: a matching file installs, a changed file and a wrong pin are refused with
+  `skill.tampered` and leave no file or ledger row, a missing entry is `catalog.missing`. With no address set, the
+  fetch is refused with `catalog.unset` and the counting fetcher saw 0 requests.
+- Confirmation: `ove skills install` and `ove skills update <id>` show the verified text or the differences and change
+  nothing without `--yes`; Settings shows the text or the diff and installs only on Install or Accept. The accept
+  carries the SHA-256 the person saw; a catalog that changed in between is refused with `skill.changed`.
+- Updates: ledger states upToDate, available, modified (offered as a copy `<id>-update`), editedLocally and gone are
+  covered by unit tests; the person's edit in the Skills editor keeps the ledger row, so it shows as modified.
+- Export writes fresh front matter (`name: ove-<id>`, the description), so keys such as `allowed-tools` in a skill
+  file never reach the other agent. A copy changed in the agent's folder, or not written by the app, is replaced only
+  with `--yes` or Replace it. Tests use temporary home folders; run on Windows 11.
+- UI: 9 tests in `ui/src/skills/Skills.test.tsx` (list, edit, install with preview, tampered refusal, update accept,
+  update as a copy, export with replace, the 60-skill warning, no fetch when no catalog is set). The whole UI suite:
+  194 tests in 32 files pass.

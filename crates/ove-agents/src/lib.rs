@@ -144,6 +144,30 @@ pub const AGENTS: &[AgentSpec] = &[
     },
 ];
 
+/// A local agent that reads skills in the `<folder>/<name>/SKILL.md` layout, as a target for exporting the app's
+/// skills (add-agent-skills-and-connectors D5).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SkillTarget {
+    pub id: &'static str,
+    pub name: &'static str,
+    /// The agent's folder under the home folder; when it is missing, the agent counts as not installed.
+    pub marker: &'static str,
+    /// Its skills folder under the home folder.
+    pub dir: &'static str,
+}
+
+/// The agents skills can be exported to, in the order they are shown.
+pub const SKILL_TARGETS: &[SkillTarget] = &[
+    SkillTarget { id: "claude", name: "Claude", marker: ".claude", dir: ".claude/skills" },
+    SkillTarget { id: "codex", name: "Codex", marker: ".codex", dir: ".codex/skills" },
+    SkillTarget { id: "cursor", name: "Cursor", marker: ".cursor", dir: ".cursor/skills" },
+];
+
+/// `rel` (a `/`-separated path) under `home`.
+pub fn under_home(home: &Path, rel: &str) -> PathBuf {
+    rel.split('/').fold(home.to_path_buf(), |p, part| p.join(part))
+}
+
 /// The entry with this id.
 pub fn agent(id: &str) -> Option<&'static AgentSpec> {
     AGENTS.iter().find(|a| a.id == id)

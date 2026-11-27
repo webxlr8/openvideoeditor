@@ -880,5 +880,36 @@
       "additionalProperties": false
     },
     "eager_input_streaming": true
+  },
+  {
+    "name": "manage_skills",
+    "description": "Create, update or remove one of the person's skills (not builtin ones). `text` is the whole SKILL.md: front matter with `name` and `description`, then the steps. Use it when the person asks to save a way of working as a skill, or to change or delete one; the change shows in Settings → Skills as created by the assistant. Refused with skill.builtin for builtin skills.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "create",
+            "update",
+            "remove"
+          ],
+          "description": "create, update or remove"
+        },
+        "id": {
+          "type": "string",
+          "description": "Skill id (a-z, 0-9 and -); for create, default from the name"
+        },
+        "text": {
+          "type": "string",
+          "description": "The whole skill file (create and update)"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "additionalProperties": false
+    },
+    "eager_input_streaming": true
   }
 ]

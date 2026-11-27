@@ -190,3 +190,54 @@ impl ToolHost for Host {
 fn unreachable_tool() -> Result<String, String> {
     Err("every tool runs through run_tool here".into())
 }
+
+const SAVED: &str = "---\nname: Tidy cuts\ndescription: Close small gaps on the main track.\n---\n\n1. Print the timeline.\n2. Close each gap.\n";
+
+/// The assistant saves a workflow as a skill, updates it, and is refused when it tries to remove a builtin one.
+#[test]
+fn the_assistant_manages_skills_and_cannot_touch_builtin_ones() {
+    let server = MockServer::start(|n, _| {
+        let calls: Vec<(&str, &str, Value)> = match n {
+            0 => vec![("tu_1", "manage_skills", serde_json::json!({"action": "create", "text": SAVED}))],
+            1 => vec![(
+                "tu_2",
+                "manage_skills",
+                serde_json::json!({"action": "update", "id": "tidy-cuts", "text": SAVED.replace("each gap", "every gap")}),
+            )],
+            2 => vec![("tu_3", "manage_skills", serde_json::json!({"action": "remove", "id": "caption-styling"}))],
+            _ => vec![],
+        };
+        Reply::Stream { chunks: sse_reply(if calls.is_empty() { "Saved." } else { "" }, &calls), delay: Duration::ZERO }
+    });
+    let d = tempfile::tempdir().unwrap();
+    let lib = Library::open(d.path(), Arc::new(ove_core::SystemClock)).unwrap();
+    let p = lib.create("Demo").unwrap();
+    let chats = ChatStore::for_bundle(p.bundle());
+    let chat = chats.create("save it", "claude-sonnet-5-5").unwrap();
+    let mut host = Host::new(p, lib.clone());
+    let client = Client::with_base_url("sk-test-key-0123456789abcdef", &server.url);
+    let cfg = TurnConfig::default();
+    let out = run_turn(
+        &client,
+        &chats,
+        &chat.id,
+        "Save this as a skill",
+        &mut host,
+        &cfg,
+        &AtomicBool::new(false),
+        &mut |_| {},
+    )
+    .unwrap();
+    assert_eq!(out.text, "Saved.");
+    let store = SkillStore::of_library(&lib.root);
+    let saved = store.get("tidy-cuts").unwrap();
+    assert_eq!(saved.origin, ove_tools::skills::Origin::Assistant);
+    assert!(saved.text.contains("every gap"));
+    assert!(!saved.modified);
+    assert_eq!(host.errors.len(), 1, "{:?}", host.errors);
+    assert!(host.errors[0].contains("skill.builtin"), "{:?}", host.errors);
+    assert!(store.get("caption-styling").unwrap().builtin);
+    // The tool is offered only in the app.
+    assert!(ove_tools::find("manage_skills").unwrap().on(ove_tools::Surface::InApp));
+    assert!(!ove_tools::find("manage_skills").unwrap().on(ove_tools::Surface::Mcp));
+}

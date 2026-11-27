@@ -130,6 +130,21 @@ fn writes_record_the_hash_and_origin_and_builtins_are_protected() {
 }
 
 #[test]
+fn the_persons_edit_of_a_catalog_skill_shows_as_modified() {
+    let (_d, s) = store();
+    s.write("pacing", GOOD, Origin::Catalog { url: "https://h.example/c.json".into() }, Some("pacing".into())).unwrap();
+    let k = s.save_edit("pacing", &GOOD.replace("one", "two"), Origin::Local).unwrap();
+    assert!(k.modified);
+    assert_eq!(k.origin, Origin::Catalog { url: "https://h.example/c.json".into() });
+    // A new skill saved in the editor is the person's own.
+    let n = s.save_edit("mine", GOOD, Origin::Local).unwrap();
+    assert_eq!(n.origin, Origin::Local);
+    assert!(!n.modified);
+    assert_eq!(s.save_edit("caption-styling", GOOD, Origin::Local).unwrap_err().code, "skill.builtin");
+    assert_eq!(s.save_edit("mine", "nope", Origin::Local).unwrap_err().code, "skill.invalid");
+}
+
+#[test]
 fn free_ids_skip_taken_ones_and_builtins() {
     let (_d, s) = store();
     assert_eq!(s.free_id("tidy"), "tidy");

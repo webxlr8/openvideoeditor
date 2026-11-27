@@ -111,3 +111,57 @@ fn skills_follow_the_store_between_calls() {
     std::fs::remove_dir_all(store.dir("tidy-cuts")).unwrap();
     assert_eq!(count(&mut ctx), 3);
 }
+
+#[test]
+fn manage_skills_creates_updates_and_removes_only_the_persons_skills() {
+    let (_d, library) = library();
+    let project = library.create("Demo").unwrap();
+    let store = SkillStore::of_library(&library.root);
+    let mut host = Host { project, library };
+    let mut ctx = AppCtx::assistant(&mut host);
+    let mut run = |a: Value| ove_tools::call(&mut ctx, "manage_skills", &args(a));
+
+    // Create without an id: the id comes from the name, and a taken one gets a suffix.
+    let made = run(json!({"action": "create", "text": TIDY})).unwrap();
+    assert_eq!(made.json["id"], "tidy-cuts-2");
+    assert_eq!(made.json["source"], "created by the assistant");
+    assert!(made.text.contains("Settings → Skills"));
+    assert_eq!(run(json!({"action": "create", "id": "tidy-cuts", "text": TIDY})).unwrap_err().code, "skill.exists");
+    assert_eq!(
+        run(json!({"action": "create", "id": "caption-styling", "text": TIDY})).unwrap_err().code,
+        "skill.builtin"
+    );
+    assert_eq!(run(json!({"action": "create", "text": "no front matter"})).unwrap_err().code, "skill.invalid");
+    // Tool names that do not exist are pointed out, not refused.
+    let odd = TIDY.replace("Print, then", "Run `make_magic`, then");
+    let made = run(json!({"action": "create", "id": "odd", "text": odd})).unwrap();
+    assert_eq!(made.json["unknownTools"], json!(["make_magic"]));
+
+    // Update needs an existing, non-builtin skill.
+    let updated = run(json!({"action": "update", "id": "tidy-cuts", "text": TIDY.replace("gap", "seam")})).unwrap();
+    assert_eq!(updated.json["action"], "update");
+    assert!(store.get("tidy-cuts").unwrap().text.contains("seam"));
+    assert_eq!(run(json!({"action": "update", "id": "nope", "text": TIDY})).unwrap_err().code, "skill.unknown");
+    assert_eq!(run(json!({"action": "update", "text": TIDY})).unwrap_err().code, "argument.missing");
+    assert_eq!(
+        run(json!({"action": "update", "id": "interview-cutting", "text": TIDY})).unwrap_err().code,
+        "skill.builtin"
+    );
+
+    // Remove: builtin skills stay.
+    assert_eq!(run(json!({"action": "remove", "id": "caption-styling"})).unwrap_err().code, "skill.builtin");
+    assert!(store.get("caption-styling").is_ok());
+    run(json!({"action": "remove", "id": "odd"})).unwrap();
+    assert!(store.get("odd").is_err());
+    assert_eq!(run(json!({"action": "remove", "id": "../lib"})).unwrap_err().code, "skill.unknown");
+    assert_eq!(run(json!({"action": "rename"})).unwrap_err().code, "argument.invalid");
+}
+
+#[test]
+fn manage_skills_is_not_offered_outside_the_app() {
+    let (_d, lib) = library();
+    let mut ctx = BundleCtx::open(Some(&lib.root), Surface::Mcp, Source::Mcp).unwrap();
+    let e =
+        ove_tools::call(&mut ctx, "manage_skills", &args(json!({"action": "remove", "id": "tidy-cuts"}))).unwrap_err();
+    assert_eq!(e.code, "tool.unknown");
+}

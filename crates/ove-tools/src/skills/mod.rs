@@ -7,6 +7,9 @@
 //! store reads `name`, `description` and `version` and ignores every other front-matter key (export writes them out).
 //! Builtin skills ship inside the app and are never written to the store folder.
 
+pub mod catalog;
+pub mod export;
+
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -105,6 +108,10 @@ pub struct LedgerEntry {
 pub struct Ledger {
     #[serde(default)]
     pub skills: BTreeMap<String, LedgerEntry>,
+    /// Exported copies (design D5): file path → SHA-256 of what was written, so a copy changed in the other agent's
+    /// folder is not overwritten without confirmation.
+    #[serde(default)]
+    pub exports: BTreeMap<String, String>,
 }
 
 /// Parsed front matter.
@@ -488,6 +495,26 @@ impl SkillStore {
         );
         self.save_ledger(&ledger)?;
         let ledger = self.ledger();
+        self.read_one(id, &ledger).ok_or_else(|| Fail::new("skill.io", "the skill was written but cannot be read"))
+    }
+
+    /// Saves the person's edit of a skill (the Skills editor). A new skill is recorded as `origin`; an existing one
+    /// keeps its ledger row, so an edited catalog skill shows as modified and is never overwritten by an update.
+    pub fn save_edit(&self, id: &str, text: &str, origin: Origin) -> Result<Skill, Fail> {
+        let ledger = self.ledger();
+        let exists = std::fs::symlink_metadata(self.dir(id)).is_ok_and(|m| m.is_dir());
+        if !exists || !ledger.skills.contains_key(id) {
+            return self.write(id, text, origin, None);
+        }
+        if is_builtin(id) {
+            return Err(Fail::new("skill.builtin", format!("`{id}` is a builtin skill; it cannot be changed")));
+        }
+        validate_text(text).map_err(|why| Fail::new("skill.invalid", format!("not saved: {why}")))?;
+        let file = self.dir(id).join(SKILL_FILE);
+        if std::fs::symlink_metadata(&file).is_ok_and(|m| m.file_type().is_symlink()) {
+            return Err(Fail::new("skill.io", format!("{} is a link; not overwritten", file.display())));
+        }
+        ove_store::fsio::write_derived(&file, text.as_bytes()).map_err(|e| io("write", &file, e))?;
         self.read_one(id, &ledger).ok_or_else(|| Fail::new("skill.io", "the skill was written but cannot be read"))
     }
 
