@@ -9,6 +9,7 @@ import { commands } from "./bridge";
 import { type EditResult, TIMELINE_FPS, addItems, firstTrack, linkDrift, trackAccepts, updateItem, updateItems, snapToFrame } from "./edit";
 import { Icon, type IconName } from "./icons";
 import { ClipAudioLayer } from "./ClipAudioLayer";
+import { ActivityLayer } from "./activity/ActivityLayer";
 import { ContextMenu, type MenuItem } from "./Menu";
 import { useCutPreview } from "./cutPreview";
 import { resetScrub, scrubAudio } from "./scrubAudio";
@@ -510,6 +511,7 @@ export function Timeline(props: TimelineProps) {
               data-testid="cut-preview"
             />
           ))}
+          <ActivityLayer items={items} tracks={tracks} x={x} headerW={HEADER_W} rowH={ROW_H} rulerH={31} />
           <div className="playhead" style={{ left: HEADER_W + x(playhead) }} data-testid="playhead" />
         </div>
       </div>

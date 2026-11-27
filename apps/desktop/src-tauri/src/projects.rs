@@ -893,6 +893,8 @@ pub(crate) fn emit_view(app: &AppHandle, p: Option<&Project>) -> Option<ProjectV
     // The timeline preview follows every change.
     if let Some(p) = p {
         crate::exporting::notify_doc(&state, p.doc(), p.bundle());
+        // Agents' changes show live on the timeline.
+        crate::activity::after_change(app, p);
     }
     v
 }
@@ -1458,6 +1460,16 @@ pub struct HistoryRow {
     pub can_restore: bool,
     /// The agent client that made it (an MCP client's name, such as claude-code), when recorded.
     pub client: Option<String>,
+    /// Who made it, for grouping by agent (change add-agent-chat-context-and-activity): the recorded actor's kind
+    /// (user, assistant, cli, mcp, …), session and turn, and its name as people read it (Claude Code, Assistant).
+    #[serde(default)]
+    pub actor_kind: Option<String>,
+    #[serde(default)]
+    pub session: Option<String>,
+    #[serde(default)]
+    pub turn: Option<String>,
+    #[serde(default)]
+    pub actor_name: Option<String>,
 }
 
 /// Who a revision is attributed to, as far as its record tells.
@@ -1487,6 +1499,10 @@ pub fn history_rows(p: &Project, limit: usize) -> AppResult<Vec<HistoryRow>> {
             who: who(h.source, &h.summary).into(),
             can_restore: p.is_retained(h.parent),
             client: h.actor.as_ref().and_then(|a| a.client.clone()),
+            actor_name: h.actor.as_ref().map(|a| ove_tools::activity::actor_label(Some(a), h.source).1),
+            actor_kind: crate::history::actor_fields(h.actor.as_ref()).0,
+            session: crate::history::actor_fields(h.actor.as_ref()).1,
+            turn: crate::history::actor_fields(h.actor.as_ref()).2,
             summary: h.summary,
         })
         .collect();

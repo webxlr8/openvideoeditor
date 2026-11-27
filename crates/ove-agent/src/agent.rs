@@ -338,6 +338,23 @@ pub fn run_turn(
     cancel: &AtomicBool,
     emit: &mut dyn FnMut(AgentEvent),
 ) -> Result<TurnSummary, ApiError> {
+    run_turn_with(client, store, chat_id, user_text, &[], host, cfg, cancel, emit)
+}
+
+/// [`run_turn`] with what the person mentioned in the message (items, ranges, media and skills, resolved when it
+/// was sent; see [`crate::mention`]). They are logged after the user record and sent with the message.
+#[allow(clippy::too_many_arguments)]
+pub fn run_turn_with(
+    client: &Client,
+    store: &ChatStore,
+    chat_id: &str,
+    user_text: &str,
+    mentions: &[crate::mention::Mention],
+    host: &mut dyn ToolHost,
+    cfg: &TurnConfig,
+    cancel: &AtomicBool,
+    emit: &mut dyn FnMut(AgentEvent),
+) -> Result<TurnSummary, ApiError> {
     let started = Instant::now();
     let io = |e: std::io::Error| ApiError::new("chat.io", format!("Couldn't save the conversation: {e}"));
     let turn_id = new_turn_id();
@@ -352,6 +369,9 @@ pub fn run_turn(
             },
         )
         .map_err(io)?;
+    if !mentions.is_empty() {
+        store.append(chat_id, &Record::Mentions { turn: turn_id.clone(), mentions: mentions.to_vec() }).map_err(io)?;
+    }
     store.touch(chat_id, &cfg.model);
     emit(AgentEvent::TurnStarted { chat_id: chat_id.into() });
 
