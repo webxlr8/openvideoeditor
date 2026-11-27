@@ -197,4 +197,7 @@ ove source print Nope                              # exit 1
 | `wait_tasks` |  | in-app, mcp, pinned | read, app | `project`? `kind`? `timeoutSeconds`? |
 | `cancel_task` |  | in-app, mcp, pinned | destructive | `id` |
 | `organize_media` |  | in-app, mcp, pinned | write | `project`? `ops` |
+| `search_media` |  | in-app, mcp, pinned | read | `project`? `query`? `scope`? `media`? `limit`? `similarTo`? |
+| `media_transcript` |  | in-app, mcp, pinned | read | `project`? `media` `from`? `to`? |
+| `inspect_media` |  | in-app, mcp, pinned | read | `project`? `media` `overview`? `tileWidth`? |
 <!-- tools:end -->

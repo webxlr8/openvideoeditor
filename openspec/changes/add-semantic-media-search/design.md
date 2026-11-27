@@ -224,3 +224,20 @@ it ranks segments and pads ranges, which the existing word-match search does not
   survives save and load byte for byte; random folder batches and random tag/subclip batches commute.
 - Older documents without the fields load and save unchanged (the existing fixtures and round-trip properties pass);
   wrong types report `value.type`, and subclips report `subclip.range` and `subclip.id.unique`.
+
+### Tools (tasks.md 5.1–5.3)
+
+`cargo test -p ove-cli --test media_search` (headless `ove` on a closed project, no app) and
+`cargo test -p ove-tools --features media --test overview`:
+
+- `ove media search` returns spoken hits with padded ranges and clip lines; with an empty model folder Moments is empty,
+  `index.visual` is `notInstalled` with the 0.63 GB size, and the model folder stays empty.
+- "More like this" (`--like MEDIA@SECONDS`, `similarTo`) works from the index files alone, also without the model;
+  the source shot ranks first and an unrelated shot falls below the similarity floor.
+- Over MCP, a Moments hit's and a Spoken hit's `clip` line pasted after a `<track>` line of `timeline.tsx` applies
+  with `apply_timeline`, and the new clip's `in` and length are the hit's range.
+- `inspect_media` with `overview` on a 10-minute two-shot video: one sheet of 36 labelled tiles, both shots on it,
+  in 310 ms (seeks to the sampled times; no full decode).
+- The 8 examples in `docs/cli/media-search.md` run with their documented exit codes.
+- Text queries embed through the shared `ove model-worker` and are cached on disk per query text
+  (`cache/embeddings/queries/`); the worker program is the `ove` binary itself, or the `ove` beside the app.

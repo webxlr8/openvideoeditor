@@ -14,6 +14,7 @@ pub mod index;
 pub mod indexer;
 pub mod model;
 pub mod preprocess;
+pub mod query;
 pub mod rank;
 #[cfg(feature = "media")]
 pub mod sampler;

@@ -8,7 +8,7 @@ use crate::spec::{
 };
 use crate::tools::{
     analyze, app, audio, code, deadair, docs, edit, exchange, export, export_queue, export_range, feedback, generate,
-    media, models, organize, project, tasks, timeline, transcript,
+    media, models, organize, project, search, tasks, timeline, transcript,
 };
 
 pub(crate) const PROJECT: Arg = arg(
@@ -932,5 +932,35 @@ pub static TOOLS: &[ToolSpec] = &[
         surfaces: AGENTS,
         run: organize::organize_media,
         model: ModelText::Json,
+    },
+    ToolSpec {
+        name: "search_media",
+        aliases: &[],
+        about: search::SEARCH_ABOUT,
+        args: search::SEARCH_ARGS,
+        annotations: READ,
+        surfaces: AGENTS,
+        run: search::search_media,
+        model: ModelText::Text,
+    },
+    ToolSpec {
+        name: "media_transcript",
+        aliases: &[],
+        about: search::TRANSCRIPT_ABOUT,
+        args: search::TRANSCRIPT_ARGS,
+        annotations: READ,
+        surfaces: AGENTS,
+        run: search::media_transcript,
+        model: ModelText::Text,
+    },
+    ToolSpec {
+        name: "inspect_media",
+        aliases: &[],
+        about: search::INSPECT_ABOUT,
+        args: search::INSPECT_ARGS,
+        annotations: READ,
+        surfaces: AGENTS,
+        run: search::inspect_media,
+        model: ModelText::Text,
     },
 ];

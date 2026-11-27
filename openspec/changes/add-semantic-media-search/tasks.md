@@ -47,11 +47,11 @@
 
 ## 5. Tools
 
-- [ ] 5.1 Add `ove media search|transcript|overview|organize` (headless, `--json`); verify CLI tests for success,
+- [x] 5.1 Add `ove media search|transcript|overview|organize` (headless, `--json`); verify CLI tests for success,
       model-not-installed and closed-project paths.
-- [ ] 5.2 Add MCP `search_media`, `media_transcript`, `inspect_media` (overview) and `organize_media`; verify an MCP
+- [x] 5.2 Add MCP `search_media`, `media_transcript`, `inspect_media` (overview) and `organize_media`; verify an MCP
       contract test where a hit's clip fragment is pasted into `timeline.tsx` and applies cleanly.
-- [ ] 5.3 Document the commands and tools in `docs/cli/media-search.md`; verify the examples run in the CLI tests.
+- [x] 5.3 Document the commands and tools in `docs/cli/media-search.md`; verify the examples run in the CLI tests.
 
 ## 6. Media panel
 

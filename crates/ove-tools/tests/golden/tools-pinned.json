@@ -2228,6 +2228,134 @@
         "destructiveHint": false,
         "openWorldHint": false
       }
+    },
+    {
+      "name": "search_media",
+      "description": "Search the project's media by what it shows and what is said, on this computer. Sections: moments (shots ranked by a local image–text model, each with its best frame, shot range, a suggested window of up to 4 s and a confidence 0–1), spoken (ranked phrase search over transcripts; quote a phrase to match it exactly; ranges padded by 150 ms), timelines (clips and titles whose name or text matches) and files (names, folders, tags). Each moment and spoken hit has `clip`: a `<clip …/>` line to paste into a track of timeline.tsx (set `start`/`end` where it goes, keeping the length). `similarTo` (media and time) finds shots that look like that frame. `index` reports what is searchable: visual not installed (with the download size; the person installs it in Settings > Storage, nothing is downloaded here), indexing (n of N files) or ready, and how many files have no transcript.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "query": {
+            "type": "string",
+            "description": "What to find: words, or a quoted phrase for exact spoken matches"
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "all",
+              "moments",
+              "spoken",
+              "timelines",
+              "files"
+            ],
+            "description": "Which sections to search (default all)"
+          },
+          "media": {
+            "type": "string",
+            "description": "Only this media item (id, file name or timeline name)"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Results per section (default 20, at most 50)"
+          },
+          "similarTo": {
+            "type": "object",
+            "properties": {
+              "media": {
+                "type": "string"
+              },
+              "at": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "media",
+              "at"
+            ],
+            "additionalProperties": false,
+            "description": "A frame as the query: {media, at} in source seconds"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "media_transcript",
+      "description": "The transcript of one media file in source seconds: caption-sized lines with their times and the words with word times, from the transcripts already made on this computer (transcribe_media makes one). `from`/`to` limit it to a source range.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "media": {
+            "type": "string",
+            "description": "Media id, file name or timeline name"
+          },
+          "from": {
+            "type": "number",
+            "description": "Source seconds to start at"
+          },
+          "to": {
+            "type": "number",
+            "description": "Source seconds to end at"
+          }
+        },
+        "required": [
+          "media"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "inspect_media",
+      "description": "Look at one media file: its probe facts, shots and index state; with `overview`, one sheet of at most 36 tiles with time labels, one per shot, built from the shot list (sampling seeks to each shot, it does not decode the whole file again).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "media": {
+            "type": "string",
+            "description": "Media id, file name or timeline name"
+          },
+          "overview": {
+            "type": "boolean",
+            "description": "Return the overview sheet"
+          },
+          "tileWidth": {
+            "type": "integer",
+            "description": "Tile width of the sheet in pixels (default 240)"
+          }
+        },
+        "required": [
+          "media"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
     }
   ]
 }
