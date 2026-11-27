@@ -305,6 +305,15 @@ export const commands = {
 	 *  editor; nothing is saved until the person saves it. `with_chat` includes the project's latest chat.
 	 */
 	skillDraft: (withChat: boolean) => typedError<string, AppError>(__TAURI_INVOKE("skill_draft", { withChat })),
+	/**  Claude Desktop and Cursor on this computer: installed, connected, and the manual configuration. */
+	connectors: () => typedError<ConnectorInfo_Serialize[], AppError>(__TAURI_INVOKE("connectors")),
+	/**  Connect: opens the client's install path (the person clicked Connect). The client then asks the person to confirm. */
+	connectorConnect: (id: string) => typedError<ConnectorOpened, AppError>(__TAURI_INVOKE("connector_connect", { id })),
+	/**
+	 *  Disconnect: removes the editor's server from the client's configuration file (a copy of the old file is kept). A
+	 *  Claude Desktop extension is removed in Claude Desktop's settings.
+	 */
+	connectorDisconnect: (id: string) => typedError<boolean, AppError>(__TAURI_INVOKE("connector_disconnect", { id })),
 };
 
 /** Events */
@@ -637,6 +646,45 @@ export type ChatSummaryView = {
 
 /**  A step of the guided first edit. */
 export type ChecklistStep = "import" | "cut" | "title" | "captions" | "export";
+
+/**  One desktop client as the Connect list shows it. */
+export type ConnectorInfo = ConnectorInfo_Serialize | ConnectorInfo_Deserialize;
+
+/**  One desktop client as the Connect list shows it. */
+export type ConnectorInfo_Deserialize = {
+	id: string,
+	name: string,
+	installed: boolean,
+	connected: boolean,
+	getIt: string,
+	/**  `extension` (a package the client installs) or `link` (an install link). */
+	kind: string,
+	/**  Where the manual configuration goes. */
+	configFile?: string | null,
+	/**  The manual configuration to copy. */
+	snippet: string,
+};
+
+/**  One desktop client as the Connect list shows it. */
+export type ConnectorInfo_Serialize = {
+	id: string,
+	name: string,
+	installed: boolean,
+	connected: boolean,
+	getIt: string,
+	/**  `extension` (a package the client installs) or `link` (an install link). */
+	kind: string,
+	/**  Where the manual configuration goes. */
+	configFile: string | null,
+	/**  The manual configuration to copy. */
+	snippet: string,
+};
+
+export type ConnectorOpened = {
+	/**  What was opened: the package file or the link. */
+	opened: string,
+	detail: string,
+};
 
 export type CrashReport = {
 	path: string,

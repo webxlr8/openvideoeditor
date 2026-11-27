@@ -1,0 +1,46 @@
+{
+  "manifest_version": "0.3",
+  "name": "openvideoeditor",
+  "display_name": "OpenVideoEditor",
+  "version": "0.0.0",
+  "description": "Edit OpenVideoEditor video projects: read and change the timeline, add media, check frames, export.",
+  "long_description": "Runs the editor's own command line (`ove mcp`) as a local MCP server. Edits to a project open in the app appear there at once and can be undone. Skills installed in the editor are offered as prompts. Nothing is sent anywhere by the server itself.",
+  "author": {
+    "name": "OpenVideoEditor"
+  },
+  "license": "Apache-2.0",
+  "server": {
+    "type": "binary",
+    "entry_point": "server/MacOS/ove",
+    "mcp_config": {
+      "command": "${__dirname}/server/MacOS/ove",
+      "args": [
+        "mcp"
+      ],
+      "env": {
+        "OVE_LIBRARY": "${user_config.library}"
+      }
+    }
+  },
+  "user_config": {
+    "library": {
+      "type": "directory",
+      "title": "Library folder",
+      "description": "The folder that holds your projects. Leave empty to use the app's library.",
+      "required": false,
+      "default": ""
+    }
+  },
+  "tools_generated": true,
+  "prompts_generated": true,
+  "keywords": [
+    "video",
+    "editing",
+    "timeline"
+  ],
+  "compatibility": {
+    "platforms": [
+      "darwin"
+    ]
+  }
+}

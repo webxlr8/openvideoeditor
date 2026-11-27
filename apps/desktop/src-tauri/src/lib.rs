@@ -5,6 +5,7 @@ pub mod agents;
 pub mod assistant;
 pub mod captions;
 pub mod commands;
+pub mod connectors;
 pub mod control;
 pub mod ducking;
 pub mod edits;
@@ -248,6 +249,10 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             skills::skill_update_accept,
             skills::skill_export,
             skills::skill_draft,
+            // Settings → Agents: Claude Desktop and Cursor (add-agent-skills-and-connectors).
+            connectors::connectors,
+            connectors::connector_connect,
+            connectors::connector_disconnect,
         ])
         .events(collect_events![
             PlaybackChanged,

@@ -207,3 +207,28 @@ Measured on Windows 11 (x64), debug test builds.
   crate is built without FFmpeg.
 - Task 3.3 (draft from the finished sample cut, run it in a new project, compare with `ove verify`) needs a real
   assistant and is open.
+
+### Group 4: connectors
+
+- `.mcpb`: `tools/mcpb/pack.mjs` (Node, no dependencies) writes the package; `tools/package.sh` runs it on macOS and
+  Windows after the app build, with `ove`, the FFmpeg libraries it loads and the notices folder (the LGPL notices must
+  ship with the libraries). Manifest version 0.3, server type `binary`, `ove mcp`, `tools_generated` and
+  `prompts_generated`, an optional library-folder setting passed as `OVE_LIBRARY`. Each package lists only the
+  platform whose binary it carries (a deviation from "lists darwin and win32" in D8: a package with the macOS binary
+  cannot run on Windows). Both manifests pass `npx @anthropic-ai/mcpb@2.1.2 validate` (MIT); CI runs the same check and
+  the packer's self-test. Local end-to-end check on Windows 11: a package with the debug `ove.exe`, 6 FFmpeg DLLs
+  and a notice was 20.5 MB; the official tool unpacked it, and the unpacked `server/ove.exe mcp` answered
+  `initialize`, listed 48 tools and the 3 builtin skills as prompts. Without the DLLs the server does not start (so
+  they are packaged). Signing the binary needs the owner's certificates and is left to add-distribution.
+- Connect for Claude Desktop writes the same package from the installed app (the `zip` crate, already used by
+  ove-models) into the app's cache folder and opens it with the system; the Rust manifest is tested equal to the
+  packer's. Status: installed when its program or `%APPDATA%\Claude` / `~/Library/Application Support/Claude`
+  exists; connected when `claude_desktop_config.json` has the editor's server or an installed extension's manifest is
+  named `openvideoeditor`.
+- Cursor: the install link format is data (`cursor://anysphere.cursor-deeplink/mcp/install?name={name}&config={config}`,
+  the server JSON in base64, URL-encoded). Status from `~/.cursor/mcp.json` (by name, or a command named `ove` with
+  `mcp`). Disconnect removes only the editor's entries and keeps `mcp.json.bak`.
+- Tests: 8 unit tests in `ove-agents` (link encoding round trip, status parsing, both clients' status on Windows and
+  macOS layouts, disconnect, manifest equality), the package test in the desktop crate, and 4 UI tests (not
+  installed, installed and connected, refused with the manual steps and copy, Cursor connect and disconnect).
+- Not run here: the built app on macOS and Windows with Claude Desktop and Cursor installed (tasks 5.1, 5.2).

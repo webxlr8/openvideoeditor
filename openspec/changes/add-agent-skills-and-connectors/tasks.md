@@ -45,11 +45,11 @@
 
 ## 4. Connectors
 
-- [ ] 4.1 Build the `.mcpb` package per platform in `tools/package.sh` (binary server, darwin and win32). Verify: the
+- [x] 4.1 Build the `.mcpb` package per platform in `tools/package.sh` (binary server, darwin and win32). Verify: the
       package manifest validates with the published schema in CI.
-- [ ] 4.2 Add the Claude Desktop detection, Connect and status rows, and the manual configuration fallback. Verify: UI
+- [x] 4.2 Add the Claude Desktop detection, Connect and status rows, and the manual configuration fallback. Verify: UI
       tests for the installed, not-installed and refused states.
-- [ ] 4.3 Add the Cursor install link (connection kind with the link format as data), the configuration snippet, and
+- [x] 4.3 Add the Cursor install link (connection kind with the link format as data), the configuration snippet, and
       status detection from `~/.cursor/mcp.json`. Verify: unit tests for link encoding and status parsing; UI test.
 
 ## 5. Integration checks

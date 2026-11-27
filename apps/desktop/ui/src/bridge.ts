@@ -45,6 +45,7 @@ import {
   mockThumbnail,
 } from "./motionMock";
 import { type MockSkills, createSkillsMock, initialSkills } from "./skills/skillsMock";
+import { type MockConnectors, createConnectorsMock, initialConnectors } from "./agents/connectorsMock";
 
 export type Commands = typeof generated.commands;
 export type Events = typeof generated.events;
@@ -111,6 +112,8 @@ export interface MockControl {
   onboarding: OnboardingState;
   /** Settings → Skills: the skill store, the community catalog and the agents skills export to. */
   skills: MockSkills;
+  /** Settings → Agents: the desktop clients (Claude Desktop, Cursor) and what Connect does there. */
+  connectors: MockConnectors;
 }
 
 declare global {
@@ -717,6 +720,7 @@ function createMock(): {
     localAgents: [],
     onboarding: { ...SETTLED },
     skills: initialSkills(),
+    connectors: initialConnectors(),
   };
   const track = (name: string) => control.calls.push(name);
 
@@ -1309,6 +1313,7 @@ function createMock(): {
 
   const commands: Commands = {
     ...createSkillsMock(() => control.skills, ok, fail, track),
+    ...createConnectorsMock(() => control.connectors, ok, fail, track),
     appInfo: () =>
       ok<AppInfo_Serialize>({
         version: "dev",

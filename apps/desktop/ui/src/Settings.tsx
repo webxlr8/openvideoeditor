@@ -12,6 +12,7 @@ import type {
   UpdateInfo_Serialize as UpdateInfo,
 } from "./bindings";
 import { AgentsSection } from "./agents/AgentsSection";
+import { ConnectorsSection } from "./agents/ConnectorsSection";
 import { ModelsSection } from "./storage/ModelsSection";
 import { SkillsSection } from "./skills/SkillsSection";
 import { commands } from "./bridge";
@@ -503,6 +504,13 @@ export function Settings({
               never sees an assistant's sign-in.
             </p>
             <AgentsSection onError={onError} />
+            <h4>Desktop apps</h4>
+            <p className="muted small">
+              Claude Desktop installs the editor as an extension; Cursor adds it
+              from an install link. Both ask you to confirm. The manual
+              configuration works in either.
+            </p>
+            <ConnectorsSection onError={onError} />
             <h4>By hand: give an agent the editing guide</h4>
             <Copyable text="ove skills install" />
             <h4>Connect the MCP server</h4>

@@ -10,6 +10,7 @@
 //! the person installed, as that person.
 #![forbid(unsafe_code)]
 
+pub mod clients;
 mod detect;
 mod run;
 

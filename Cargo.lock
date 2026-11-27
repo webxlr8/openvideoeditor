@@ -4185,6 +4185,7 @@ name = "ove-agents"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "serde_json",
  "tempfile",
  "tracing",
 ]
@@ -4322,6 +4323,7 @@ dependencies = [
  "tracing-subscriber",
  "ureq",
  "windows",
+ "zip",
 ]
 
 [[package]]

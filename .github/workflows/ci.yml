@@ -153,6 +153,17 @@ jobs:
           pnpm run lint
           pnpm run test
           pnpm run licenses
+      # The desktop-extension package (add-agent-skills-and-connectors 4.1): the packer's own round trip, and both
+      # platforms' manifests against the published manifest schema.
+      - name: desktop extension (.mcpb) manifest
+        run: |
+          node tools/mcpb/pack.mjs --self-test
+          for p in win32 darwin; do
+            # The committed copy (which the app's own manifest is tested against) must be what the packer writes.
+            node tools/mcpb/pack.mjs --platform "$p" --version 0.0.0 --manifest "tools/mcpb/manifest-$p.json"
+            npx -y @anthropic-ai/mcpb@2.1.2 validate "tools/mcpb/manifest-$p.json"
+          done
+          git diff --exit-code -- tools/mcpb
       # Tests make fixtures with a full ffmpeg CLI (lavfi, libx264): the one test media was generated with, named
       # explicitly because env.sh puts the LGPL build's folder (whose test CLI has neither) first on PATH on Windows.
       - name: fixture ffmpeg
