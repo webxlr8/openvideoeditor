@@ -48,10 +48,17 @@
 - [ ] 3.1 Implement speech masks with the chosen runtime, cached in the bundle, and the relative-level dead-air rule
       with minimum pause and padding; verify the silence/music-bed fixture and record precision and recall on a
       labelled 10-minute interview in Results.
-- [ ] 3.2 Extend `detect_silence` with a voice-activity mode and add the removal command; verify detection-only leaves
+      Implemented and the fixture passes (design.md R4): `ove_transcribe::deadair`, streaming `vad::OnnxVad`, masks
+      cached in `cache/vad/<contentId>.json`. Open: no labelled 10-minute interview exists on this machine, so
+      precision and recall are not measured.
+- [x] 3.2 Extend `detect_silence` with a voice-activity mode and add the removal command; verify detection-only leaves
       the document unchanged and removal is one revision.
-- [ ] 3.3 Add the verbatim option and filler candidates (word list per language, voiced gaps, context flags); verify a
+      Done: `detect_silence` `mode: "speech"`, tool `remove_silence`; `crates/ove-tools/tests/transcript.rs`
+      (`detection_only_leaves_the_document_unchanged`, `dead_air_removal_is_one_revision_and_the_preview_is_what_applies`).
+- [x] 3.3 Add the verbatim option and filler candidates (word list per language, voiced gaps, context flags); verify a
       recorded fixture with 10 fillers finds at least 8 and selects no content word by default.
+      Done: `Options.verbatim`, `deadair::fillers`, tool `find_fillers`; 10 of 10 found, no content word selected
+      (`tests/fillers_audio.rs`, `--ignored`, base model; design.md R4).
 
 ## 4. Search and dry run
 

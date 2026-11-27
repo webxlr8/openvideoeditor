@@ -3,6 +3,7 @@
 pub mod analyze;
 pub mod app;
 pub mod code;
+pub mod deadair;
 pub mod docs;
 pub mod edit;
 pub mod exchange;

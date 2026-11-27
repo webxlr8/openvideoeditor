@@ -167,3 +167,19 @@ VAD 6.x in both forms, one thread, test profile (optimised dependencies).
   items before the cut, so a sync-locked captions track is not split.
 - Property test: 10,000 cases (3–24 words, word lengths 0.12–0.8 s, gaps 0–0.9 s, speeds 0.5–2×, forward and
   reverse, all pause settings) in about 2 s.
+
+### R4. Dead air and fillers (group 3, Windows)
+
+- Rule as implemented: the speech level is the mean power of all speech cells (32 ms, probability ≥ 0.5); a
+  non-speech run counts as dead air when it lasts at least the minimum pause and its mean power is at least
+  `relativeDb` below the speech level; padding is kept on both sides except at the start and end of the file, and at
+  a clip's own edges when cutting the timeline.
+- Real-audio fixture (system speech synthesiser; speech, 2 s of digital silence, speech, 4 s of two tones at
+  −20.8 LUFS, speech): speech level −19.4 dBFS. Removed: the silence (5.01–7.59 s after padding), the tail before the
+  tones (0.47 s of quiet), a 0.6 s pause inside the first sentence and the quiet end; the tones were kept. With the
+  tones at −43 dBFS (24 dB below the speech) they are cut, as the rule says.
+- Speech mask cost: about 130 ms for 20.9 s of audio (see R1); masks and levels are cached per content identity, so
+  a second detection or removal reads only the cache.
+- Fillers: the system speech synthesiser read a sentence with 10 hesitations; the base model with the verbatim
+  option transcribed all 10 ("hmm" came out as "um"), and only those 10 were selected. Without a labelled interview,
+  precision and recall on real conversation are not measured (task 3.1 stays open).

@@ -6,7 +6,7 @@ use crate::spec::{
     AGENTS, APP_READ, APP_WRITE, Arg, DESTRUCTIVE, IN_APP, MCP, ModelText, READ, SERVERS, ToolSpec, WRITE, arg, cli,
     req,
 };
-use crate::tools::{analyze, app, code, docs, edit, exchange, media, models, project, timeline, transcript};
+use crate::tools::{analyze, app, code, deadair, docs, edit, exchange, media, models, project, timeline, transcript};
 
 const PROJECT: Arg = arg(
     "project",
@@ -21,6 +21,7 @@ const OBJECT: &str = r#"{"type": "object"}"#;
 const REQUEST: &str = r#"{"type": ["object", "string"]}"#;
 const SCOPE: &str = r#"{"type": "string", "enum": ["session", "turn"]}"#;
 const WORD_RANGES: &str = r#"{"type": "array", "items": {"type": "object", "properties": {"from": {"type": "string"}, "to": {"type": "string"}}, "required": ["from", "to"], "additionalProperties": false}}"#;
+const SILENCE_MODE: &str = r#"{"type": "string", "enum": ["level", "speech"]}"#;
 const PAUSE: &str = r#"{"type": "string", "enum": ["tight", "balanced", "loose"]}"#;
 const OPTIONS: &str = r#"{"type": "array", "items": {"type": "string"}, "maxItems": 4}"#;
 
@@ -286,16 +287,20 @@ pub static TOOLS: &[ToolSpec] = &[
     ToolSpec {
         name: "detect_silence",
         aliases: &[],
-        about: "Ranges quieter than a threshold for at least a minimum length — candidates for cuts.",
+        about: "Ranges quieter than a threshold for at least a minimum length — candidates for cuts. `mode: \"speech\"` finds dead air instead: pauses that voice activity finds and that are `relativeDb` below the speaker's own level (music beds stay), per media in source seconds; the document is not changed.",
         args: &[
             PROJECT,
             MEDIA,
-            arg("thresholdDb", Num, "dBFS, default -40"),
-            arg("minDuration", Num, "Seconds, default 0.5"),
+            arg("thresholdDb", Num, "dBFS, default -40 (level mode)"),
+            arg("minDuration", Num, "Seconds, default 0.5 (level mode)"),
+            arg("mode", Json(SILENCE_MODE), "level (default) or speech"),
+            arg("minPause", Num, "Seconds, default 0.5, 0.25–3 (speech mode)"),
+            arg("padding", Num, "Seconds kept each side, default 0.15, 0–0.5 (speech mode)"),
+            arg("relativeDb", Num, "dB below the speech level, default 12 (speech mode)"),
         ],
         annotations: READ,
         surfaces: AGENTS,
-        run: analyze::detect_silence,
+        run: deadair::detect_silence,
         model: ModelText::Json,
     },
     ToolSpec {
@@ -562,6 +567,33 @@ pub static TOOLS: &[ToolSpec] = &[
         annotations: WRITE,
         surfaces: AGENTS,
         run: transcript::remove_words,
+        model: ModelText::Json,
+    },
+    ToolSpec {
+        name: "remove_silence",
+        aliases: &[],
+        about: "Cut dead air from the timeline as one revision: pauses found with on-device voice activity that are at least `relativeDb` (default 12) below the speaker's own level and at least `minPause` long (default 0.5 s), keeping `padding` (default 0.15 s) on each side except at clip edges. Music beds and loud ambience stay. Needs the inference runtime (the person installs it in Settings > Storage). `apply: false` returns the plan and the `timeline.tsx` diff.",
+        args: &[
+            PROJECT,
+            arg("clips", List, "Only these clip ids (default: every clip with sound)"),
+            arg("minPause", Num, "Seconds, 0.25–3"),
+            arg("padding", Num, "Seconds, 0–0.5"),
+            arg("relativeDb", Num, "dB below the speech level"),
+            arg("apply", Bool, "false: dry run (default true)"),
+        ],
+        annotations: WRITE,
+        surfaces: AGENTS,
+        run: deadair::remove_silence,
+        model: ModelText::Json,
+    },
+    ToolSpec {
+        name: "find_fillers",
+        aliases: &[],
+        about: "Filler candidates on the timeline for review: listed filler words (`um`, `uh`, …) selected by default, context-dependent words (`like`, `you know`) flagged but not selected, and voiced sounds no word covers (after dead-air detection). Word candidates carry ids for `remove_words`. Nothing is cut.",
+        args: &[PROJECT, arg("clips", List, "Only these clip ids")],
+        annotations: READ,
+        surfaces: AGENTS,
+        run: deadair::find_fillers,
         model: ModelText::Json,
     },
 ];

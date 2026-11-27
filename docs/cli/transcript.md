@@ -28,7 +28,8 @@ transcript once and name several words in later edits. When a recognition window
   "rev": 12,
   "words": [
     {"id": "m_talk@2500", "text": "Hello", "start": 10.25, "end": 10.5, "clipId": "v1", "mediaId": "m_talk",
-     "sourceStart": 2.5, "sourceEnd": 3.0, "filler": false}
+     "sourceStart": 2.5, "sourceEnd": 3.0, "filler": false,
+     "contextFiller": false}
   ],
   "totalWords": 1,
   "offset": 0,

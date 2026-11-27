@@ -105,35 +105,88 @@ pub const ONNX_CONTEXT: usize = 64;
 /// The speech mask from the Silero ONNX export run through the shared inference runtime: one call per cell with
 /// 64 samples of context, the recurrent state carried between calls.
 pub fn onnx_mask(session: &mut dyn ove_models::infer::Session, samples: &[f32]) -> Result<SpeechMask> {
-    use ove_models::infer::Tensor;
-    let fail = |e: ove_models::ModelError| TranscribeError::Model(format!("voice activity failed: {e}"));
-    let mut state = vec![0f32; 2 * 128];
-    let mut context = vec![0f32; ONNX_CONTEXT];
-    let mut probs = Vec::with_capacity(samples.len() / CELL_SAMPLES + 1);
-    for chunk in samples.chunks(CELL_SAMPLES) {
+    let mut v = OnnxVad::default();
+    v.push(session, samples)?;
+    v.finish(session)
+}
+
+/// [`onnx_mask`] over audio that arrives in chunks of any length (long files are never held in memory).
+#[derive(Debug, Default)]
+pub struct OnnxVad {
+    state: Vec<f32>,
+    context: Vec<f32>,
+    pending: Vec<f32>,
+    probs: Vec<f32>,
+}
+
+impl OnnxVad {
+    pub fn push(&mut self, session: &mut dyn ove_models::infer::Session, samples: &[f32]) -> Result<()> {
+        self.pending.extend_from_slice(samples);
+        let whole = self.pending.len() / CELL_SAMPLES * CELL_SAMPLES;
+        let cells: Vec<f32> = self.pending.drain(..whole).collect();
+        for chunk in cells.chunks(CELL_SAMPLES) {
+            self.step(session, chunk)?;
+        }
+        Ok(())
+    }
+
+    pub fn finish(mut self, session: &mut dyn ove_models::infer::Session) -> Result<SpeechMask> {
+        if !self.pending.is_empty() {
+            let last = std::mem::take(&mut self.pending);
+            self.step(session, &last)?;
+        }
+        Ok(SpeechMask { cell_us: CELL_US, probs: self.probs })
+    }
+
+    fn step(&mut self, session: &mut dyn ove_models::infer::Session, chunk: &[f32]) -> Result<()> {
+        use ove_models::infer::Tensor;
+        if self.state.is_empty() {
+            self.state = vec![0f32; 2 * 128];
+            self.context = vec![0f32; ONNX_CONTEXT];
+        }
         let mut input = Vec::with_capacity(ONNX_CONTEXT + CELL_SAMPLES);
-        input.extend_from_slice(&context);
+        input.extend_from_slice(&self.context);
         input.extend_from_slice(chunk);
         input.resize(ONNX_CONTEXT + CELL_SAMPLES, 0.0);
-        context.copy_from_slice(&input[input.len() - ONNX_CONTEXT..]);
+        self.context.copy_from_slice(&input[input.len() - ONNX_CONTEXT..]);
         let out = session
             .run(&[
                 Tensor::f32("input", &[1, ONNX_CONTEXT + CELL_SAMPLES], input),
-                Tensor::f32("state", &[2, 1, 128], state.clone()),
+                Tensor::f32("state", &[2, 1, 128], self.state.clone()),
                 Tensor::i64("sr", &[], vec![i64::from(SAMPLE_RATE)]),
             ])
-            .map_err(fail)?;
+            .map_err(|e| TranscribeError::Model(format!("voice activity failed: {e}")))?;
         let p = out.iter().find(|t| t.name == "output").and_then(|t| t.as_f32()).and_then(|v| v.first().copied());
         let s = out.iter().find(|t| t.name == "stateN").and_then(|t| t.as_f32());
         match (p, s) {
-            (Some(p), Some(s)) if s.len() == state.len() => {
-                probs.push(p);
-                state.copy_from_slice(s);
+            (Some(p), Some(s)) if s.len() == self.state.len() => {
+                self.probs.push(p);
+                self.state.copy_from_slice(s);
+                Ok(())
             }
-            _ => return Err(TranscribeError::Model("the voice-activity model gave unexpected outputs".into())),
+            _ => Err(TranscribeError::Model("the voice-activity model gave unexpected outputs".into())),
         }
     }
-    Ok(SpeechMask { cell_us: CELL_US, probs })
+}
+
+fn cache_path(bundle: &std::path::Path, key: &str) -> std::path::PathBuf {
+    bundle.join("cache").join("vad").join(format!("{key}.json"))
+}
+
+/// The cached speech mask of a media file (by content identity).
+pub fn load(bundle: &std::path::Path, key: &str) -> Option<SpeechMask> {
+    serde_json::from_slice(&std::fs::read(cache_path(bundle, key)).ok()?).ok()
+}
+
+pub fn store(bundle: &std::path::Path, key: &str, mask: &SpeechMask) {
+    let p = cache_path(bundle, key);
+    if let Some(dir) = p.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let tmp = p.with_extension("json.tmp");
+    if std::fs::write(&tmp, serde_json::to_vec(mask).unwrap_or_default()).is_ok() {
+        let _ = std::fs::rename(&tmp, &p);
+    }
 }
 
 #[cfg(test)]

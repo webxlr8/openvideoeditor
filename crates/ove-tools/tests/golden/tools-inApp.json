@@ -307,7 +307,7 @@
   },
   {
     "name": "detect_silence",
-    "description": "Ranges quieter than a threshold for at least a minimum length — candidates for cuts.",
+    "description": "Ranges quieter than a threshold for at least a minimum length — candidates for cuts. `mode: \"speech\"` finds dead air instead: pauses that voice activity finds and that are `relativeDb` below the speaker's own level (music beds stay), per media in source seconds; the document is not changed.",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -321,11 +321,31 @@
         },
         "thresholdDb": {
           "type": "number",
-          "description": "dBFS, default -40"
+          "description": "dBFS, default -40 (level mode)"
         },
         "minDuration": {
           "type": "number",
-          "description": "Seconds, default 0.5"
+          "description": "Seconds, default 0.5 (level mode)"
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "level",
+            "speech"
+          ],
+          "description": "level (default) or speech"
+        },
+        "minPause": {
+          "type": "number",
+          "description": "Seconds, default 0.5, 0.25–3 (speech mode)"
+        },
+        "padding": {
+          "type": "number",
+          "description": "Seconds kept each side, default 0.15, 0–0.5 (speech mode)"
+        },
+        "relativeDb": {
+          "type": "number",
+          "description": "dB below the speech level, default 12 (speech mode)"
         }
       },
       "required": [
@@ -625,6 +645,70 @@
         "rev": {
           "type": "integer",
           "description": "Revision the ids were read at"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "eager_input_streaming": true
+  },
+  {
+    "name": "remove_silence",
+    "description": "Cut dead air from the timeline as one revision: pauses found with on-device voice activity that are at least `relativeDb` (default 12) below the speaker's own level and at least `minPause` long (default 0.5 s), keeping `padding` (default 0.15 s) on each side except at clip edges. Music beds and loud ambience stay. Needs the inference runtime (the person installs it in Settings > Storage). `apply: false` returns the plan and the `timeline.tsx` diff.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "project": {
+          "type": "string",
+          "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+        },
+        "clips": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "description": "Only these clip ids (default: every clip with sound)"
+        },
+        "minPause": {
+          "type": "number",
+          "description": "Seconds, 0.25–3"
+        },
+        "padding": {
+          "type": "number",
+          "description": "Seconds, 0–0.5"
+        },
+        "relativeDb": {
+          "type": "number",
+          "description": "dB below the speech level"
+        },
+        "apply": {
+          "type": "boolean",
+          "description": "false: dry run (default true)"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "eager_input_streaming": true
+  },
+  {
+    "name": "find_fillers",
+    "description": "Filler candidates on the timeline for review: listed filler words (`um`, `uh`, …) selected by default, context-dependent words (`like`, `you know`) flagged but not selected, and voiced sounds no word covers (after dead-air detection). Word candidates carry ids for `remove_words`. Nothing is cut.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "project": {
+          "type": "string",
+          "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+        },
+        "clips": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "description": "Only these clip ids"
         }
       },
       "required": [],

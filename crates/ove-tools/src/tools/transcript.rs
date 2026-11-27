@@ -154,7 +154,7 @@ pub fn remove_words(ctx: &mut dyn ToolCtx, a: &Args) -> Result<Receipt, Fail> {
         let chosen = select(&words, &sel).map_err(cut_error)?;
         let ranges = cut_ranges(&words, &chosen, &clips, pause, &|m| envelope(&bundle, &doc, &clips, m));
         let removed: Vec<String> = chosen.iter().map(|&i| words[i].id.clone()).collect();
-        let cut = plan_cut(&doc, ranges, removed, &mut crate::tools::edit::new_id).map_err(cut_error)?;
+        let cut = plan_cut(&doc, ranges, removed, &mut cut_ids(w.rev())).map_err(cut_error)?;
         finish_cut(w, cut, apply, &doc, json!({}))
     })
 }
@@ -329,4 +329,14 @@ pub fn get_transcript(ctx: &mut dyn ToolCtx, a: &Args) -> Result<Receipt, Fail> 
         Ok(())
     })?;
     out.ok_or_else(|| Fail::new("internal", "no transcript"))
+}
+
+/// Ids for the pieces a cut creates, derived from the revision it is planned on, so a dry run and the apply that
+/// follows it (on the same revision) produce the same items and the same diff.
+pub fn cut_ids(rev: i64) -> impl FnMut() -> String {
+    let mut n = 0u32;
+    move || {
+        n += 1;
+        format!("i_cut{rev:x}_{n}")
+    }
 }
