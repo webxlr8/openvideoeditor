@@ -99,3 +99,32 @@ versions would see it as an unknown item type, which the projection already repo
 - Waves proceed in the master-plan order (default until the owner decides otherwise).
 - Default platform UI-safe zone presets for 9:16: our own measured values, to be reviewed by the owner.
 - Lottie corpus: licence-checked files only; the owner may supply production samples.
+
+## Results
+
+Measured on Windows 11 x64 (32 cores, `CARGO_BUILD_JOBS=8`), unless a line says otherwise.
+
+### Task 5.1: Lottie spike (Windows x64 only)
+
+- ThorVG builds through dotlottie-rs 0.1.61 (MIT; ThorVG MIT, its PNG and JPEG loaders MIT) with MSVC and the
+  LLVM `libclang` that bindgen already needs for speech recognition. No extra tools: dotlottie-rs compiles ThorVG with
+  the `cc` crate, so meson and ninja are not needed. Nothing is downloaded at build time for the software rasteriser
+  (only the WebGPU backend, not enabled, would download a prebuilt library).
+- Features used: `tvg`, `tvg-cpu`, `tvg-png`, `tvg-jpg`, `dotlottie`. Expressions (`tvg-lottie-expressions`) and
+  ThorVG's worker threads are off: expressions are reported as unsupported by design, and one thread keeps frames
+  deterministic.
+- It is behind the `lottie` feature of `ove-graphics`, off by default, so no shipped binary changes yet. The renderer
+  is `crates/ove-graphics/src/lottie.rs`; its tests cover the requested frame, sharp edges at 4× size, byte-identical
+  repeat renders and the refusal of corrupt data (4 tests, all pass).
+- Lock file: bindgen 0.73.2 (pulled in by dotlottie-rs) accepts syn 2 or 3, but the resolver gave it syn 3 next to
+  prettyplease 0.2, which only works with syn 2, and bindgen failed to compile. The lock file pins that bindgen to
+  syn 2.
+- `cargo deny check`: advisories ok, bans ok, licenses ok, sources ok.
+- Build time of dotlottie-rs with ThorVG from clean (debug): 18 s. Release build of the example below with all of
+  `ove-graphics`: 3 min 44 s.
+- Binary size: the release example `lottie_frame` (Rust standard library, dotlottie-rs and ThorVG; the rest of
+  `ove-graphics` is dropped by the linker) is 857,600 bytes, so ThorVG adds about 0.7 MB.
+- One 1920×1080 frame of a small test animation, including parsing and the buffer: 9.8 ms (frame 0) and 16 ms
+  (frames 12 and 29), release build. The ≤ 4 ms target of task 5.2 is for a cached animation on M1 and is not measured
+  here.
+- Open: the macOS arm64 build and CI on both systems (task 5.1 stays open until they run).

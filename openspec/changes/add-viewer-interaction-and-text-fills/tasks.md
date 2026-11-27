@@ -43,7 +43,8 @@
 ## 5. Lottie
 
 - [ ] 5.1 Spike: build ThorVG through dotlottie-rs on macOS arm64 and Windows x64 with cargo-deny passing; verify CI
-      builds on both and record build time and binary size in Results.
+      builds on both and record build time and binary size in Results. (Windows x64 built, measured and passing
+      `cargo deny`; macOS arm64 and CI are open.)
 - [ ] 5.2 `lottie` item type in `ove-graphics` with direct frame rendering, cache by asset, frame and size, `speed`,
       `loop`, `holdLast` and colour slots; verify byte-identical repeat renders and ≤ 4 ms per 1080p frame on M1.
 - [ ] 5.3 Lottie import and `check` diagnostics for unsupported features and corrupt files; verify the licence-checked

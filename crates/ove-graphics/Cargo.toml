@@ -21,6 +21,16 @@ serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 takumi = { version = "2.20", default-features = false, features = ["raster-backend", "image-decoding"] }
 thiserror = "2"
+# Lottie rendering (add-viewer-interaction-and-text-fills task 5.1 spike): ThorVG's software rasteriser through
+# dotlottie-rs, both MIT. Off by default until the `lottie` item type lands (tasks 5.2-5.4).
+dotlottie-rs = { version = "=0.1.61", default-features = false, features = ["tvg", "tvg-cpu", "tvg-png", "tvg-jpg", "dotlottie"], optional = true }
+
+[features]
+lottie = ["dep:dotlottie-rs"]
+
+[[example]]
+name = "lottie_frame"
+required-features = ["lottie"]
 
 [lints]
 workspace = true
