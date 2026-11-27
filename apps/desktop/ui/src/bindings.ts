@@ -140,6 +140,11 @@ export const commands = {
 	 */
 	requestSkim: (mediaId: string) => typedError<null, AppError>(__TAURI_INVOKE("request_skim", { mediaId })),
 	/**
+	 *  Turns the project's "Use proxies" setting on or off (one revision, through the document pipeline). Turning it
+	 *  off cancels queued proxy tasks; finished proxies stay on disk (Settings → Storage clears them).
+	 */
+	setUseProxies: (on: boolean) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("set_use_proxies", { on })),
+	/**
 	 *  Peaks of a media file's source range (seconds) in `bins` columns, from the analysis cache. Never decodes: while
 	 *  the analysis is not ready the status is `pending`, and its task is moved to interactive priority.
 	 */
@@ -1333,6 +1338,8 @@ export type ProjectView_Deserialize = {
 	tracks: TrackView[],
 	items: ItemView_Deserialize[],
 	media: MediaView_Deserialize[],
+	/**  The project's "Use proxies" setting (absent: off). */
+	useProxies?: boolean | null,
 };
 
 /**  Everything the editor shows about the open project. */
@@ -1351,6 +1358,8 @@ export type ProjectView_Serialize = {
 	tracks: TrackView[],
 	items: ItemView_Serialize[],
 	media: MediaView_Serialize[],
+	/**  The project's "Use proxies" setting (absent: off). */
+	useProxies?: boolean,
 };
 
 /**  A project was opened from the command line: the UI switches to the editor. */

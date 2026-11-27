@@ -1572,6 +1572,11 @@ function createMock(): {
       editProject("change aspect ratio", (p) => void (p.aspectRatio = aspect)),
     renameProject: (name: string) =>
       editProject("rename project", (p) => void (p.name = name)),
+    setUseProxies: (on: boolean) =>
+      editProject(on ? "use proxies" : "stop using proxies", (p) => {
+        if (on) p.useProxies = true;
+        else delete p.useProxies;
+      }),
     setTrackFlag: (id: string, flag: string, value: boolean) =>
       editProject("track setting", (p) => {
         const t = p.tracks.find((x) => x.id === id);

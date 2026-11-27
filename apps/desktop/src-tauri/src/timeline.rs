@@ -87,6 +87,8 @@ fn render_loop(
     done: Arc<AtomicU64>,
 ) {
     let mut renderer = Renderer::new(Some(&bundle), PREVIEW_HEIGHT);
+    // Playback reads proxies when the project says so; export and agent frames never do.
+    renderer.set_use_proxies(ove_render::proxy::enabled(&doc));
     let end = doc.duration();
     let fps = doc.fps();
     let mut gen_now = 0u64;

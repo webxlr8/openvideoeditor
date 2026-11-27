@@ -22,6 +22,7 @@ pub mod models;
 pub mod motion;
 pub mod onboarding;
 pub mod projects;
+pub mod proxies;
 pub mod sample;
 pub mod scripted_dialogs;
 pub mod scrub;
@@ -181,6 +182,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             exporting::export_project,
             exporting::cancel_export,
             tasks::request_skim,
+            proxies::set_use_proxies,
             waveforms::peak_range,
             scrub::scrub_audio,
             ducking::duck_preview,
@@ -616,6 +618,7 @@ pub fn run() -> ExitCode {
             });
 
             app.manage(spend::SpendCards::default());
+            app.manage(proxies::Proxies::default());
             // The command line / MCP server reach the app through the control link.
             control::start(&handle);
             app.manage(generation::Generation::default());

@@ -49,11 +49,17 @@
 
 ## 5. Proxies
 
-- [ ] 5.1 Implement proxy eligibility (≥ 4K, 10-bit long-GOP, real-time probe) and the proxy encode task with hardware
+- [x] 5.1 Implement proxy eligibility (≥ 4K, 10-bit long-GOP, real-time probe) and the proxy encode task with hardware
       encoders; verify encodes on fixtures and SSIM ≥ 0.97 against the original at 1080p, including an HDR source.
-- [ ] 5.2 Add the "Use proxies" project setting and switch playback, skim and analysis to proxies; keep export and
+      (`ove_media::proxy` decides, `ove_render::proxy` encodes through the export pipeline, the app's `proxy` task runs
+      it. `ove-render` `tests/proxy.rs` makes a 4K, a 10-bit HEVC and an HDR10 (PQ) source with the fixture ffmpeg; the
+      matrix's HDR fixtures need python3, so the HDR source is made directly. The encoder is the one export picks:
+      `h264_mf` on this Windows machine. Numbers in design.md Results.)
+- [x] 5.2 Add the "Use proxies" project setting and switch playback, skim and analysis to proxies; keep export and
       agent frames on originals; verify a test that export output is identical with proxies on and off, and that a
       missing proxy falls back to the original.
+      (Project field `useProxies` through `updateProject`; command `set_use_proxies`; its switch is in Settings →
+      Storage (6.3). `tests/proxy.rs` `playback_uses_proxies_and_export_never_does`; app `proxies::tests`.)
 
 ## 6. Surfaces
 

@@ -240,6 +240,8 @@ pub struct Prepared {
     pub fps: u32,
     pub start: Micros,
     pub end: Micros,
+    /// Frames between keyframes for H.264 and HEVC (default: two seconds of frames).
+    pub keyframe_interval: Option<u32>,
 }
 
 impl Prepared {
@@ -303,7 +305,7 @@ pub fn prepare(doc: &Document, bundle: Option<&Path>, settings: &ExportSettings)
         )));
     }
     let (width, height) = if plan.video.is_some() { frame_size(&doc.project.aspect_ratio, plan.size) } else { (0, 0) };
-    Ok(Prepared { fps: frame_rate(doc, plan.fps), plan, choice, width, height, start, end })
+    Ok(Prepared { fps: frame_rate(doc, plan.fps), plan, choice, width, height, start, end, keyframe_interval: None })
 }
 
 /// Checks that the timeline can be exported with these settings, without rendering anything.
@@ -329,6 +331,8 @@ pub struct SourceSpec {
     pub duration: Micros,
     /// The source delivers HDR frames ([`Picture::Rgba16`]).
     pub hdr: bool,
+    /// Frames between keyframes (default: two seconds of frames).
+    pub keyframe_interval: Option<u32>,
 }
 
 /// Exports frames and sound from callbacks instead of a timeline (size and rate from `spec`; the settings' size and
@@ -349,7 +353,8 @@ pub fn export_frames(
     }
     let (start, end) = plan.range.unwrap_or((0, spec.duration));
     let (width, height) = if plan.video.is_some() { (spec.width & !1, spec.height & !1) } else { (0, 0) };
-    let p = Prepared { plan, choice, width, height, fps: spec.fps, start, end };
+    let p =
+        Prepared { plan, choice, width, height, fps: spec.fps, start, end, keyframe_interval: spec.keyframe_interval };
     run(&p, out, Some(&mut frame), &mut sound, cancel, &mut progress)
 }
 
@@ -918,7 +923,7 @@ impl Muxer {
                         }
                     }
                     _ => {
-                        (*c).gop_size = (fps * 2) as i32;
+                        (*c).gop_size = p.keyframe_interval.unwrap_or(fps * 2).max(1) as i32;
                         (*c).max_b_frames = 0;
                         (*c).bit_rate = bitrate as i64;
                         if v.codec == VideoCodec::Hevc && v.bit_depth == 10 {
