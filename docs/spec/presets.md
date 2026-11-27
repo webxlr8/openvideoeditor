@@ -3,6 +3,13 @@
 Identifiers and parameter contracts only. Shader source, artwork and copy are not included; reimplement looks from
 the parameter contracts.
 
+## Key effects (this product)
+
+Keys write alpha: they remove part of their layer. They run on the item's source frame, before its transform.
+
+### key
+- `chroma-key` — keyColor:color=[0.12, 0.72, 0.22]; tolerance:percent[0..1]=0.35; softness:percent[0..1]=0.25; spill:percent[0..1]=1; choke:number[-1..1]=0; matteBlack:percent[0..1]=0; matteWhite:percent[0..1]=1; edgeBlur:number[0..20]=1; matteView:number=0
+
 ## Shader effects (41)
 
 All run as a full-frame fragment pass over the layers beneath, with `amount`, `fadeIn`/`fadeOut` and

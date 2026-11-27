@@ -464,17 +464,25 @@
                 "type": "object",
                 "properties": {
                   "property": {
-                    "enum": [
-                      "x",
-                      "y",
-                      "scale",
-                      "rotation",
-                      "opacity",
-                      "gaussianBlur",
-                      "borderRadius",
-                      "volume"
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "x",
+                          "y",
+                          "scale",
+                          "rotation",
+                          "opacity",
+                          "gaussianBlur",
+                          "borderRadius",
+                          "volume"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "pattern": "^effects\\..+\\.[^.]+$"
+                      }
                     ],
-                    "description": "Animated property."
+                    "description": "Animated property, or an effect parameter as `effects.<effect id>.<parameter>`."
                   },
                   "keyframes": {
                     "type": "array",
@@ -1022,17 +1030,25 @@
                 "type": "object",
                 "properties": {
                   "property": {
-                    "enum": [
-                      "x",
-                      "y",
-                      "scale",
-                      "rotation",
-                      "opacity",
-                      "gaussianBlur",
-                      "borderRadius",
-                      "volume"
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "x",
+                          "y",
+                          "scale",
+                          "rotation",
+                          "opacity",
+                          "gaussianBlur",
+                          "borderRadius",
+                          "volume"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "pattern": "^effects\\..+\\.[^.]+$"
+                      }
                     ],
-                    "description": "Animated property."
+                    "description": "Animated property, or an effect parameter as `effects.<effect id>.<parameter>`."
                   },
                   "keyframes": {
                     "type": "array",
@@ -1511,17 +1527,25 @@
                 "type": "object",
                 "properties": {
                   "property": {
-                    "enum": [
-                      "x",
-                      "y",
-                      "scale",
-                      "rotation",
-                      "opacity",
-                      "gaussianBlur",
-                      "borderRadius",
-                      "volume"
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "x",
+                          "y",
+                          "scale",
+                          "rotation",
+                          "opacity",
+                          "gaussianBlur",
+                          "borderRadius",
+                          "volume"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "pattern": "^effects\\..+\\.[^.]+$"
+                      }
                     ],
-                    "description": "Animated property."
+                    "description": "Animated property, or an effect parameter as `effects.<effect id>.<parameter>`."
                   },
                   "keyframes": {
                     "type": "array",
@@ -2063,17 +2087,25 @@
                 "type": "object",
                 "properties": {
                   "property": {
-                    "enum": [
-                      "x",
-                      "y",
-                      "scale",
-                      "rotation",
-                      "opacity",
-                      "gaussianBlur",
-                      "borderRadius",
-                      "volume"
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "x",
+                          "y",
+                          "scale",
+                          "rotation",
+                          "opacity",
+                          "gaussianBlur",
+                          "borderRadius",
+                          "volume"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "pattern": "^effects\\..+\\.[^.]+$"
+                      }
                     ],
-                    "description": "Animated property."
+                    "description": "Animated property, or an effect parameter as `effects.<effect id>.<parameter>`."
                   },
                   "keyframes": {
                     "type": "array",
@@ -2526,17 +2558,25 @@
                 "type": "object",
                 "properties": {
                   "property": {
-                    "enum": [
-                      "x",
-                      "y",
-                      "scale",
-                      "rotation",
-                      "opacity",
-                      "gaussianBlur",
-                      "borderRadius",
-                      "volume"
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "x",
+                          "y",
+                          "scale",
+                          "rotation",
+                          "opacity",
+                          "gaussianBlur",
+                          "borderRadius",
+                          "volume"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "pattern": "^effects\\..+\\.[^.]+$"
+                      }
                     ],
-                    "description": "Animated property."
+                    "description": "Animated property, or an effect parameter as `effects.<effect id>.<parameter>`."
                   },
                   "keyframes": {
                     "type": "array",
@@ -2941,17 +2981,25 @@
                 "type": "object",
                 "properties": {
                   "property": {
-                    "enum": [
-                      "x",
-                      "y",
-                      "scale",
-                      "rotation",
-                      "opacity",
-                      "gaussianBlur",
-                      "borderRadius",
-                      "volume"
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "x",
+                          "y",
+                          "scale",
+                          "rotation",
+                          "opacity",
+                          "gaussianBlur",
+                          "borderRadius",
+                          "volume"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "pattern": "^effects\\..+\\.[^.]+$"
+                      }
                     ],
-                    "description": "Animated property."
+                    "description": "Animated property, or an effect parameter as `effects.<effect id>.<parameter>`."
                   },
                   "keyframes": {
                     "type": "array",
@@ -3341,17 +3389,25 @@
                 "type": "object",
                 "properties": {
                   "property": {
-                    "enum": [
-                      "x",
-                      "y",
-                      "scale",
-                      "rotation",
-                      "opacity",
-                      "gaussianBlur",
-                      "borderRadius",
-                      "volume"
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "x",
+                          "y",
+                          "scale",
+                          "rotation",
+                          "opacity",
+                          "gaussianBlur",
+                          "borderRadius",
+                          "volume"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "pattern": "^effects\\..+\\.[^.]+$"
+                      }
                     ],
-                    "description": "Animated property."
+                    "description": "Animated property, or an effect parameter as `effects.<effect id>.<parameter>`."
                   },
                   "keyframes": {
                     "type": "array",
@@ -3875,17 +3931,25 @@
                 "type": "object",
                 "properties": {
                   "property": {
-                    "enum": [
-                      "x",
-                      "y",
-                      "scale",
-                      "rotation",
-                      "opacity",
-                      "gaussianBlur",
-                      "borderRadius",
-                      "volume"
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "x",
+                          "y",
+                          "scale",
+                          "rotation",
+                          "opacity",
+                          "gaussianBlur",
+                          "borderRadius",
+                          "volume"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "pattern": "^effects\\..+\\.[^.]+$"
+                      }
                     ],
-                    "description": "Animated property."
+                    "description": "Animated property, or an effect parameter as `effects.<effect id>.<parameter>`."
                   },
                   "keyframes": {
                     "type": "array",

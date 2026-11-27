@@ -257,6 +257,12 @@ pub fn ease(name: &str, p: f64) -> f64 {
 pub fn keyframe_value(item: &Item, property: &str, rel_us: Micros) -> Option<f64> {
     let tracks = item.fields.get("keyframeTracks")?.as_array()?;
     let track = tracks.iter().find(|t| t.get("property").and_then(Value::as_str) == Some(property))?;
+    track_value(track, rel_us)
+}
+
+/// Value of one keyframe track (`{property, keyframes, easing}`) at item-relative time `rel_us`: transform, opacity,
+/// volume and effect-parameter keyframes all use this.
+pub fn track_value(track: &Value, rel_us: Micros) -> Option<f64> {
     let easing = track.get("easing").and_then(Value::as_str).unwrap_or("linear");
     let mut kfs: Vec<(Micros, f64)> = track
         .get("keyframes")?

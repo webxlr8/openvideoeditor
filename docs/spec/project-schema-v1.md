@@ -394,7 +394,7 @@ Fields in projection attribute order:
 
 | field | type / range | default | required | meaning |
 |---|---|---|---|---|
-| `property` | `x` \| `y` \| `scale` \| `rotation` \| `opacity` \| `gaussianBlur` \| `borderRadius` \| `volume` |  |  | Animated property. |
+| `property` | `x` \| `y` \| `scale` \| `rotation` \| `opacity` \| `gaussianBlur` \| `borderRadius` \| `volume` \| `effects.<effect id>.<parameter>` |  |  | Animated property, or an effect parameter as `effects.<effect id>.<parameter>`. |
 | `keyframes` | array of object {time, value} |  |  | Keyframes in time order. |
 | `easing` | `linear` \| `ease-in` \| `ease-out` \| `ease-in-out` | `"linear"` |  | Interpolation between keyframes. |
 

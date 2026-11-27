@@ -26,6 +26,10 @@ pub trait AppHost {
     fn library(&mut self) -> Option<&Library> {
         None
     }
+    /// The skill store, when the host keeps it somewhere other than its library (or has no library open yet).
+    fn skills(&mut self) -> Option<crate::skills::SkillStore> {
+        None
+    }
     /// The session (the chat) the call belongs to; see [`ToolCtx::session`].
     fn session(&self) -> Option<Session> {
         None
@@ -143,6 +147,12 @@ impl ToolCtx for AppCtx<'_> {
     }
     fn start_generation(&mut self, bundle: &Path, job: &str) -> Result<(), Fail> {
         self.host.start_generation(bundle, job)
+    }
+    fn skills(&mut self) -> Result<crate::skills::SkillStore, Fail> {
+        match self.host.skills() {
+            Some(s) => Ok(s),
+            None => Ok(crate::skills::SkillStore::of_library(&self.library()?.root)),
+        }
     }
 }
 

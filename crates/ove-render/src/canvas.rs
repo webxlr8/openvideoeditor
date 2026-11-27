@@ -330,22 +330,7 @@ pub fn draw(dst: &mut Rgba, src: &Rgba, place: Place, p: &DrawParams) {
 
 /// Applies a colour grade in place (all pixels).
 pub fn grade(img: &mut Rgba, g: &Grade) {
-    // Per-channel tone curve as a lookup table: exposure, brightness, contrast, gamma, shadows/highlights.
-    let mut lut = [[0u8; 256]; 3];
-    let gain = 2f32.powf(g.exposure);
-    let warm = [1.0 + 0.12 * g.temperature, 1.0 - 0.10 * g.tint, 1.0 - 0.12 * g.temperature];
-    let gamma = 1.0 / (1.0 + g.gamma).max(0.1);
-    for (c, table) in lut.iter_mut().enumerate() {
-        for (i, out) in table.iter_mut().enumerate() {
-            let mut v = i as f32 / 255.0;
-            v *= gain * warm[c];
-            v += g.brightness * 0.5;
-            v = (v - 0.5) * (1.0 + g.contrast) + 0.5;
-            v += g.shadows * 0.25 * (1.0 - v).max(0.0).powi(2) + g.highlights * 0.25 * v.max(0.0).powi(2);
-            v = v.clamp(0.0, 1.0).powf(gamma);
-            *out = (v * 255.0 + 0.5) as u8;
-        }
-    }
+    let lut = grade_tables(g);
     let sat = 1.0 + g.saturation;
     let vib = g.vibrance;
     img.data.par_chunks_exact_mut(4).for_each(|p| {
@@ -364,6 +349,28 @@ pub fn grade(img: &mut Rgba, g: &Grade) {
             p[c] = (rgb[c] + 0.5).clamp(0.0, 255.0) as u8;
         }
     });
+}
+
+/// A grade's per-channel tone curves as lookup tables (exposure, temperature and tint, brightness, contrast,
+/// shadows and highlights, gamma); saturation and vibrance are applied after them. Shared with GPU backends.
+pub fn grade_tables(g: &Grade) -> [[u8; 256]; 3] {
+    // Per-channel tone curve as a lookup table: exposure, brightness, contrast, gamma, shadows/highlights.
+    let mut lut = [[0u8; 256]; 3];
+    let gain = 2f32.powf(g.exposure);
+    let warm = [1.0 + 0.12 * g.temperature, 1.0 - 0.10 * g.tint, 1.0 - 0.12 * g.temperature];
+    let gamma = 1.0 / (1.0 + g.gamma).max(0.1);
+    for (c, table) in lut.iter_mut().enumerate() {
+        for (i, out) in table.iter_mut().enumerate() {
+            let mut v = i as f32 / 255.0;
+            v *= gain * warm[c];
+            v += g.brightness * 0.5;
+            v = (v - 0.5) * (1.0 + g.contrast) + 0.5;
+            v += g.shadows * 0.25 * (1.0 - v).max(0.0).powi(2) + g.highlights * 0.25 * v.max(0.0).powi(2);
+            v = v.clamp(0.0, 1.0).powf(gamma);
+            *out = (v * 255.0 + 0.5) as u8;
+        }
+    }
+    lut
 }
 
 #[cfg(test)]

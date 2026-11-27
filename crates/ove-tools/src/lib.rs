@@ -15,6 +15,7 @@ pub mod fail;
 pub mod receipt;
 pub mod registry;
 pub mod session;
+pub mod skills;
 pub mod spec;
 pub mod tools;
 

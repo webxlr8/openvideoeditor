@@ -120,6 +120,13 @@ pub fn label(name: &str, input: &Value) -> String {
         "seek" => format!("Jumping to {:.1}s", input["seconds"].as_f64().unwrap_or(0.0)),
         "ask_user" => "Asking you".into(),
         "check_code" => "Checking motion graphics code".into(),
+        "list_skills" => "Looking at the skills".into(),
+        "read_skill" => format!("Reading the {} skill", input["id"].as_str().unwrap_or("")),
+        "manage_skills" => match input["action"].as_str() {
+            Some("remove") => "Removing a skill".into(),
+            Some("update") => "Updating a skill".into(),
+            _ => "Saving a skill".into(),
+        },
         other => other.to_string(),
     }
 }

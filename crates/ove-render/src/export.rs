@@ -77,6 +77,10 @@ pub struct ExportResult {
     pub seconds_taken: f64,
     /// Loudness normalisation, when the settings set a target: the mix before and after, and the gain applied.
     pub loudness: Option<LoudnessReport>,
+    /// The compositing backend that made the frames and why ("gpu: GPU self-test passed (…)"); `None` for
+    /// audio-only exports.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backend: Option<String>,
 }
 
 /// What loudness normalisation did (design D8): the mix measured before (pass 1) and as written (pass 2).
@@ -380,6 +384,20 @@ pub fn export(
     out: &Path,
     settings: &ExportSettings,
     cancel: &AtomicBool,
+    progress: impl FnMut(Progress),
+) -> Result<ExportResult, ExportError> {
+    export_with_backend(doc, bundle, out, settings, None, cancel, progress)
+}
+
+/// [`export`] composited by `backend` (design D1; the CPU reference when `None`). The backend stays the same for the
+/// whole job, unless its device is lost, when the rest of the frames are made on the CPU (design D9).
+pub fn export_with_backend(
+    doc: &Document,
+    bundle: Option<&Path>,
+    out: &Path,
+    settings: &ExportSettings,
+    backend: Option<Box<dyn crate::backend::Backend>>,
+    cancel: &AtomicBool,
     mut progress: impl FnMut(Progress),
 ) -> Result<ExportResult, ExportError> {
     let p = prepare(doc, bundle, settings)?;
@@ -403,14 +421,37 @@ pub fn export(
         }
         s
     };
+    let mut used = None;
     let mut result = if p.plan.video.is_none() {
         run(&p, out, None, &mut sound, cancel, &mut progress)?
     } else {
-        let mut renderer = Renderer::new(bundle, p.height);
+        // The backend passed in, else the program's provider for the settings' choice, else the CPU reference.
+        let backend = match backend {
+            Some(b) => Some(b),
+            None => match crate::backend::provide(settings.backend.as_deref())
+                .map_err(|e| ExportError::Invalid(SettingsError::new(&["backend"], e)))?
+            {
+                Some((b, why)) => {
+                    used = Some(why);
+                    Some(b)
+                }
+                None => None,
+            },
+        };
+        let mut renderer = match backend {
+            Some(b) => Renderer::with_backend(bundle, p.height, b),
+            None => Renderer::new(bundle, p.height),
+        };
+        used = Some(used.unwrap_or_else(|| format!("{}: the backend the caller chose", renderer.backend_name())));
         renderer.set_transparent(p.plan.video.as_ref().is_some_and(|v| v.alpha));
         let mut frame = |t: Micros| Picture::Rgba8(renderer.render(doc, t));
-        run(&p, out, Some(&mut frame), &mut sound, cancel, &mut progress)?
+        let r = run(&p, out, Some(&mut frame), &mut sound, cancel, &mut progress)?;
+        if let Some(why) = renderer.fallback() {
+            used = Some(format!("cpu: {why}"));
+        }
+        r
     };
+    result.backend = used;
     if let (Some(target), Some(b)) = (p.plan.loudness, before) {
         let a = after.summary();
         result.loudness = Some(LoudnessReport {
@@ -584,6 +625,7 @@ fn run(
         encoder_fallbacks: fallbacks,
         seconds_taken: started.elapsed().as_secs_f64(),
         loudness: None,
+        backend: None,
     })
 }
 

@@ -17,11 +17,26 @@ pub fn height_for_width(doc: &Document, width: u32) -> u32 {
 
 /// Renders the timeline at each of `times` (seconds) at about `width` pixels wide (the compositor keeps sizes even).
 pub fn look(doc: &Document, bundle: Option<&Path>, times: &[f64], width: u32) -> Result<Vec<Image>> {
+    look_with(doc, bundle, times, width, None)
+}
+
+/// [`look`] composited by `backend` (the CPU reference when `None`).
+pub fn look_with(
+    doc: &Document,
+    bundle: Option<&Path>,
+    times: &[f64],
+    width: u32,
+    backend: Option<Box<dyn ove_render::Backend>>,
+) -> Result<Vec<Image>> {
     if width < 2 {
         return Err(Error::Invalid("width must be at least 2 pixels".into()));
     }
     ove_media::init();
-    let mut r = Renderer::new(bundle, height_for_width(doc, width));
+    let height = height_for_width(doc, width);
+    let mut r = match backend {
+        Some(b) => Renderer::with_backend(bundle, height, b),
+        None => Renderer::new(bundle, height),
+    };
     Ok(times.iter().map(|t| Image::from(r.render(doc, (t.max(0.0) * 1_000_000.0).round() as i64))).collect())
 }
 

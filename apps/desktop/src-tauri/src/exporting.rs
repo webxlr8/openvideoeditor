@@ -214,24 +214,27 @@ pub(crate) fn submit_export(
             return Err(ove_tasks::TaskError::Cancelled);
         }
         let mut last = -1i64;
-        let res = ove_render::export(&doc, Some(&bundle), &out, &settings, &cancel, |p| {
-            let permille = (p.fraction * 1000.0) as i64;
-            if permille != last {
-                last = permille;
-                ctx.progress(p.fraction);
-                send(ExportProgress {
-                    fraction: p.fraction,
-                    frame: p.frame as u32,
-                    total_frames: p.total_frames as u32,
-                    done: false,
-                    error: None,
-                    path: None,
-                    warning: ove_render::export::encoder_warning(&p.encoder),
-                    encoder: Some(p.encoder),
-                    seconds_taken: None,
-                });
-            }
-        });
+        // One backend for the whole job (design D9); the same choice as the preview.
+        let backend = settings.video.is_some().then(|| crate::compositing::backend().0);
+        let res =
+            ove_render::export::export_with_backend(&doc, Some(&bundle), &out, &settings, backend, &cancel, |p| {
+                let permille = (p.fraction * 1000.0) as i64;
+                if permille != last {
+                    last = permille;
+                    ctx.progress(p.fraction);
+                    send(ExportProgress {
+                        fraction: p.fraction,
+                        frame: p.frame as u32,
+                        total_frames: p.total_frames as u32,
+                        done: false,
+                        error: None,
+                        path: None,
+                        warning: ove_render::export::encoder_warning(&p.encoder),
+                        encoder: Some(p.encoder),
+                        seconds_taken: None,
+                    });
+                }
+            });
         let outcome = match &res {
             Ok(_) => Ok(()),
             Err(ove_render::ExportError::Cancelled) => Err(ove_tasks::TaskError::Cancelled),

@@ -18,6 +18,20 @@ codex mcp add openvideoeditor -- ove mcp             # Codex
 
 Pass `--library <folder>` before `mcp` to serve another library.
 
+Desktop apps (Settings → Agents → Desktop apps in the editor):
+
+- **Claude Desktop**: Connect writes a desktop-extension package (`openvideoeditor-<darwin|win32>.mcpb`) with the
+  app's own `ove`, the libraries it loads and the notices, and opens it; Claude Desktop asks you to install it. The
+  extension runs `ove mcp` (no other runtime). `tools/package.sh` builds the same package next to the installers.
+- **Cursor**: Connect opens Cursor's install link with the server prefilled (`command`: the absolute path of `ove`,
+  `args`: `["mcp"]`). Disconnect removes the editor's entry from `~/.cursor/mcp.json` and keeps a copy of the old
+  file.
+- Either way, the manual configuration is shown to copy: `{"mcpServers": {"openvideoeditor": {"command": "<path of
+  ove>", "args": ["mcp"]}}}` in `claude_desktop_config.json` or `~/.cursor/mcp.json`.
+
+Skills are served too: `prompts/list` gives one prompt per valid skill (`prompts/get` returns it as a user message),
+and `resources/list` gives `ove://skills/<id>` for each (`resources/read`). See `ove docs skills`.
+
 `ove mcp --project <project> [--turn <id>]` starts a session bound to one project (the pinned server for local
 agents): every project tool works on it without naming it, and a call that names another project is refused with
 `project.pinned`. `--turn` records a turn id on every revision the session makes, so `undo_my_changes` with scope
@@ -47,10 +61,12 @@ Tools:
 | audio_levels, waveform_image, detect_silence, measure_loudness, duck_audio | `audio levels / waveform / silence / loudness / duck` |
 | extract_audio | `media extract-audio` |
 | look, screenshot | `look`, `screenshot` |
+| inspect_color | `color inspect` (colour readout, reference gap and a suggested grade patch) |
 | export_video, export_timeline_file, import_timeline_file | `export`, `timeline export / import` |
 | app_context, open_in_app, seek, play, pause | `app context / open / seek / play / pause` |
 | docs | `docs` (`agents` is the editing guide) |
 | check_code | (none; checks a motion-graphics code item) |
+| list_skills, read_skill | `skills list / show` (skills are also prompts and `ove://skills/<id>` resources) |
 | list_models_local | `models list` (read-only; installing a model over 50 MB needs the person's consent) |
 | get_transcript | `transcript` (the words on the timeline with stable word ids; read-only) |
 | search_transcript, find_fillers, transcribe_media | `transcript search / fillers / transcribe` |

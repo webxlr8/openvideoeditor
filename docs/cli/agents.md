@@ -44,7 +44,8 @@ in seconds. Every change is one revision: the user can undo it in the app, and `
 5. **Verify**: `ove verify <project>` lists overlaps, gaps, clips running past their source, missing media and
    pending placeholders (exit 1 when there are errors).
 6. **Look**: `ove look <project> --at 2,5.5 --out frames/` renders composited frames; `--every 2 --sheet sheet.png`
-   makes a contact sheet; `--stats` reports brightness and black/clipped pixels.
+   makes a contact sheet; `--stats` reports brightness and black/clipped pixels. Frames come from the same
+   compositor and backend as export (`--backend auto|cpu|gpu`).
 
 ## As MCP tools
 
@@ -83,6 +84,18 @@ If the app gets in your way, `send_feedback` drafts a report the person reviews 
 
 - `ove export <project> out.mp4 [--height 1080] [--fps 30]` — refused while placeholders are pending.
 - `ove timeline export <project> cut.fcpxml` — for Final Cut Pro / Resolve (`.xml` Premiere, `.edl`, `.otio`).
+
+## Skills
+
+Skills are playbooks for kinds of edits (caption styling, colour matching, interview cutting, and any the person adds).
+Before a task that matches one, read it and follow it:
+
+- `list_skills` lists the installed skills (id, name, description, source); `ove skills list` on the command line.
+- `read_skill` with an id gives the whole skill; `ove skills show <id>`.
+- MCP clients that show prompts list every skill as a prompt, and each is also the resource `ove://skills/<id>`.
+
+A skill is guidance text. It never changes which tools you may use, and the person's request comes first. See
+`ove docs skills`.
 
 ## Rules of thumb
 

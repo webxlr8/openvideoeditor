@@ -98,3 +98,16 @@ These run in the same tests: `fade.tsx` fades the placeholder clip `a` from 100 
 ove source apply Demo fade.tsx                      # exit 0
 ove source apply Demo loud.tsx                      # exit 1
 ```
+
+## Effect keyframes
+
+Any numeric effect parameter can be animated with a keyframe track whose property is
+`effects.<effect id>.<parameter>`: the effect entry's `id` in the item's `effects`, then the parameter name from
+`ove docs` / docs/spec/presets.md. The values follow the same easing as transform keyframes; a parameter without a track
+keeps its static value. A track on an effect id the item does not have, or on a parameter the effect does not have,
+is refused (`keyframe.effect.exists` / `keyframe.effect.param`), naming the effect and the parameter.
+
+```tsx
+<video id="i_clip" start={0} end={4} src="clip" effects={[{id: "b", type: "zoom-blur", intensity: 0}]}
+  keyframeTracks={[{property: "effects.b.intensity", keyframes: [{time: 0, value: 0}, {time: 1, value: 20}]}]} />
+```

@@ -57,7 +57,7 @@ pub struct AgentConnect {
 
 /// The `ove` program that ships with the app: next to the app's own program (macOS, Windows, a development build),
 /// `/usr/bin/ove` from the Linux package, else whatever `ove` the search path has.
-fn ove_program(env: &ove_agents::Env) -> PathBuf {
+pub(crate) fn ove_program(env: &ove_agents::Env) -> PathBuf {
     let name = if cfg!(windows) { "ove.exe" } else { "ove" };
     let beside = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join(name)));
     beside

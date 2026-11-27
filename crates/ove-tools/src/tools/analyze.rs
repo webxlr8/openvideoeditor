@@ -333,6 +333,11 @@ mod imp {
             let sheet = a.str("sheet").map(PathBuf::from);
             return storyboard_receipt(ctx, img, &tiles, sheet.as_deref(), Some(rev));
         }
+        let doc = match a.str("view") {
+            None | Some("result") => doc,
+            Some("matte") => ove_render::effects::key::matte_view(&doc),
+            Some(v) => return Err(Fail::new("argument.invalid", format!("view is result or matte, not {v}"))),
+        };
         let times = match a.str("at") {
             Some(s) => parse_times(s)?,
             None => ove_analyze::timeline_times(&doc, a.u32_or("count", 6).max(1), a.f64("every")),
@@ -345,17 +350,43 @@ mod imp {
         }
         let (out, sheet, stats) = (a.str("out").map(PathBuf::from), a.str("sheet").map(PathBuf::from), a.bool("stats"));
         let agent = ctx.surface().is_agent();
-        if !agent && out.is_none() && sheet.is_none() && !stats {
+        let scope = match a.str("scope") {
+            None => None,
+            Some(n) => Some(ove_render::scopes::Scope::parse(n).ok_or_else(|| {
+                Fail::new(
+                    "argument.invalid",
+                    format!("there is no scope {n}; scopes: {}", ove_render::scopes::NAMES.join(", ")),
+                )
+            })?),
+        };
+        if scope.is_some() && !agent && out.is_none() {
+            return Err(Fail::new(
+                "argument.missing",
+                "give --out <file.png> (one time) or --out <dir> for the scope images",
+            ));
+        }
+        if !agent && out.is_none() && sheet.is_none() && !stats && scope.is_none() {
             return Err(Fail::new("argument.missing", "give --out <dir>, --sheet <file> or --stats"));
         }
-        let images =
-            ove_analyze::look(&doc, Some(&bundle), &times, a.u32_or("width", 640).clamp(16, 3840)).map_err(fail)?;
+        let chosen = crate::tools::backend::choose(a)?;
+        let backend = crate::tools::backend::json(&chosen);
+        let images = ove_analyze::look_with(
+            &doc,
+            Some(&bundle),
+            &times,
+            a.u32_or("width", 640).clamp(16, 3840),
+            Some(chosen.backend),
+        )
+        .map_err(fail)?;
         let reference = ove_render::eval::reference_size(&doc.project.aspect_ratio);
         let grid = a.bool("grid");
         // What is shown (with the grid when asked); statistics are of the frame itself.
         let shown: Vec<ove_analyze::Image> = images.iter().map(|i| with_grid(i, grid.then_some(reference))).collect();
         let mut frames = Vec::new();
         let mut pngs = Vec::new();
+        if let Some(scope) = scope {
+            return scope_receipt(agent, scope, &times, &images, out.as_deref(), rev, backend);
+        }
         for ((t, img), seen) in times.iter().zip(&images).zip(&shown) {
             let mut f = json!({"at": t, "width": img.width, "height": img.height});
             if let Some(dir) = &out {
@@ -379,7 +410,7 @@ mod imp {
         if let Some(dir) = &out {
             text.push_str(&format!(" → {}", dir.display()));
         }
-        let mut v = json!({"rev": rev, "frames": frames});
+        let mut v = json!({"rev": rev, "frames": frames, "backend": backend});
         if grid {
             v["grid"] = grid_json(reference);
         }
@@ -408,6 +439,46 @@ mod imp {
         Ok(Receipt::new(v, text).with_images(pngs))
     }
 
+    /// `look` with `scope`: one scope image per time (the same binning as the colour panel), written to `out` (a
+    /// .png file for one time, else a folder) and returned to agents.
+    fn scope_receipt(
+        agent: bool,
+        scope: ove_render::scopes::Scope,
+        times: &[f64],
+        images: &[ove_analyze::Image],
+        out: Option<&Path>,
+        rev: i64,
+        backend: Value,
+    ) -> Result<Receipt, Fail> {
+        let name = ove_render::scopes::NAMES[scope as usize];
+        let one_file =
+            times.len() == 1 && out.is_some_and(|o| o.extension().is_some_and(|e| e.eq_ignore_ascii_case("png")));
+        let (mut frames, mut pngs) = (Vec::new(), Vec::new());
+        for (t, img) in times.iter().zip(images) {
+            let frame = ove_render::Rgba { w: img.width, h: img.height, data: img.rgba.clone() };
+            let d = ove_render::scopes::density(&ove_render::scopes::bin(&frame, scope));
+            let s = ove_render::scopes::image(&d, scope, 2);
+            let shown = ove_analyze::Image { width: s.w, height: s.h, rgba: s.data };
+            let mut f = json!({"at": t, "width": shown.width, "height": shown.height});
+            if let Some(o) = out {
+                let path = if one_file { o.to_path_buf() } else { o.join(format!("{name}-{t:08.3}.png")) };
+                write_png(&shown, &path)?;
+                f["path"] = json!(path);
+            }
+            if agent {
+                pngs.push(png(&shown)?);
+            }
+            frames.push(f);
+        }
+        let text = format!(
+            "{name} at {} s{}",
+            times.iter().map(|t| format!("{t:.2}")).collect::<Vec<_>>().join(", "),
+            out.map(|o| format!(" → {}", o.display())).unwrap_or_default()
+        );
+        Ok(Receipt::new(json!({"rev": rev, "scope": name, "frames": frames, "backend": backend}), text)
+            .with_images(pngs))
+    }
+
     /// The frame under the app's playhead.
     pub fn screenshot(ctx: &mut dyn ToolCtx, a: &Args) -> Result<Receipt, Fail> {
         let c = ctx.app("context", json!({}))?;
@@ -418,8 +489,15 @@ mod imp {
             .to_string();
         let at = c.pointer("/playback/seconds").and_then(Value::as_f64).unwrap_or(0.0);
         let (doc, b, rev) = snapshot(ctx, Path::new(&bundle))?;
-        let mut imgs =
-            ove_analyze::look(&doc, Some(&b), &[at], a.u32_or("width", 1280).clamp(16, 3840)).map_err(fail)?;
+        let chosen = crate::tools::backend::choose(a)?;
+        let mut imgs = ove_analyze::look_with(
+            &doc,
+            Some(&b),
+            &[at],
+            a.u32_or("width", 1280).clamp(16, 3840),
+            Some(chosen.backend),
+        )
+        .map_err(fail)?;
         let img = imgs.pop().ok_or_else(|| Fail::new("render.failed", "no frame was rendered"))?;
         let out = out(a);
         let images = deliver(ctx, &img, out.as_deref())?;
