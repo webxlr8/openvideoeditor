@@ -102,6 +102,9 @@ const fal = await startFalStandIn();
 const env = {
   ...process.env,
   OVE_LIBRARY: library,
+  // Settings the app and `ove mcp` share (the agent spending limit, the local feedback queue), kept out of the
+  // person's profile.
+  OVE_CONFIG_DIR: path.join(work, "config"),
   OVE_E2E_DIALOGS: dialogs,
   OVE_WHISPER_MODEL_DIR: models,
   OVE_ANTHROPIC_BASE_URL: mock.url,

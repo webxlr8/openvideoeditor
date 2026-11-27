@@ -18,6 +18,7 @@ import type {
   AppError,
   AutoCaptionRequest_Deserialize,
   ChatItem_Serialize,
+  FeedbackDraft_Serialize,
   AppInfo_Serialize,
   AudioMeter,
   DuckRequest,
@@ -105,6 +106,15 @@ export interface MockControl {
   transcript: { words: MockWord[]; pauses: { start: number; end: number }[] };
   /** Ids of the supported agents that are "installed on this computer" (none unless a test says so). */
   localAgents: string[];
+  /** Reports agents drafted (Help → Feedback), newest first. */
+  feedbackDrafts: FeedbackDraft_Serialize[];
+  /** Settings → Generation: the most one agent session may spend (USD). */
+  spendCap: number;
+  /** What a simulated agent session has spent, and the answers given to its price cards. */
+  spend: { spentUsd: number; answers: Record<string, boolean>; refused: string[] };
+  /** Simulates an agent asking to spend (the control method `confirm_spend`): over the cap it is refused without a
+   * card, as the native session does; otherwise a price card shows. */
+  requestSpend(card: { quoteId: string; estimateUsd: number; text?: string }): void;
   /** Onboarding state as the native side would keep it. Onboarding is over by default (the welcome would cover
    * every other test); a test of the first run puts `FIRST_RUN` here before rendering. */
   onboarding: OnboardingState;
@@ -600,6 +610,8 @@ function createMock(): {
 
   // Generation mock state.
   const genKeys = new Set<string>();
+  // Price cards waiting for an answer: quote id → estimate.
+  const pendingSpend = new Map<string, number>();
   const genJobs: {
     id: string;
     kind: string;
@@ -694,6 +706,25 @@ function createMock(): {
   });
   const control: MockControl = {
     rects: [],
+    feedbackDrafts: [],
+    spendCap: 5,
+    spend: { spentUsd: 0, answers: {}, refused: [] },
+    requestSpend(card) {
+      if (control.spend.spentUsd + card.estimateUsd > control.spendCap + 1e-9) {
+        control.spend.refused.push(card.quoteId);
+        return;
+      }
+      emit("spend-requested", {
+        quoteId: card.quoteId,
+        text: card.text ?? "An agent asks to spend.",
+        estimateUsd: card.estimateUsd,
+        client: "stand-in agent",
+        prompt: "",
+        project: "",
+        expiresAt: Date.now() + 600_000,
+      });
+      pendingSpend.set(card.quoteId, card.estimateUsd);
+    },
     lastRect: null,
     calls: [],
     meter(batch) {
@@ -1835,6 +1866,47 @@ function createMock(): {
           "startup: app dev | OS Browser (64-bit) | arch web | GPU mock | decode mock",
         feedbackUrl: control.feedbackUrl ?? null,
       }),
+    // Help → Feedback: drafts kept on this computer (unify-agent-tool-layer).
+    feedbackDrafts: () => ok(control.feedbackDrafts.map((d) => ({ ...d }))),
+    saveFeedbackDraft: (id: string, summary: string) => {
+      track(`saveFeedbackDraft:${id}`);
+      const d = control.feedbackDrafts.find((x) => x.id === id);
+      if (!d) return fail("not_found", `no feedback report ${id}`);
+      if (!summary.trim()) return fail("invalid_argument", "the summary is empty");
+      d.summary = summary.trim();
+      d.edited = true;
+      d.report = `[${d.category} · ${d.severity}] ${d.summary}
+`;
+      return ok({ ...d });
+    },
+    deleteFeedbackDraft: (id: string) => {
+      track(`deleteFeedbackDraft:${id}`);
+      const n = control.feedbackDrafts.length;
+      control.feedbackDrafts = control.feedbackDrafts.filter((x) => x.id !== id);
+      return control.feedbackDrafts.length < n
+        ? ok(null)
+        : fail("not_found", `no feedback report ${id}`);
+    },
+    // Price cards and the spending limit (unify-agent-tool-layer).
+    answerSpend: (quoteId: string, approved: boolean) => {
+      track(`answerSpend:${quoteId}:${approved}`);
+      const usd = pendingSpend.get(quoteId);
+      if (usd === undefined)
+        return fail("invalid_argument", "That price card is no longer waiting.");
+      pendingSpend.delete(quoteId);
+      control.spend.answers[quoteId] = approved;
+      if (approved) control.spend.spentUsd += usd;
+      emit("spend-settled", quoteId);
+      return ok(null);
+    },
+    spendCap: () => Promise.resolve(control.spendCap),
+    setSpendCap: (usd: number | null) => {
+      track(`setSpendCap:${usd}`);
+      if (usd == null || !Number.isFinite(usd) || usd < 0 || usd > 10_000)
+        return fail("invalid_argument", "the spend cap is an amount from $0 to $10,000");
+      control.spendCap = Math.round(usd * 100) / 100;
+      return ok(control.spendCap);
+    },
     // Generation (change 14): a catalog, keys in memory, jobs that finish after a moment.
     generationCatalog: () => Promise.resolve(JSON.stringify(genCatalog())),
     setProviderKey: (provider: string, key: string) => {
@@ -2695,6 +2767,8 @@ function createMock(): {
     projectChanged: makeEvent("project-changed"),
     remoteOpened: makeEvent("remote-opened"),
     generationUpdated: makeEvent("generation-updated"),
+    spendRequested: makeEvent("spend-requested"),
+    spendSettled: makeEvent("spend-settled"),
     viewerBackendChanged: makeEvent("viewer-backend-changed"),
     viewerFrameReady: makeEvent("viewer-frame-ready"),
   } as unknown as Events;

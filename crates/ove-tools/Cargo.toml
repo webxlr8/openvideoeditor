@@ -12,6 +12,7 @@ dunce = "1.0"
 ove-control = { path = "../ove-control" }
 ove-core = { path = "../ove-core" }
 ove-edit = { path = "../ove-edit" }
+ove-generate = { path = "../ove-generate" }
 ove-guard = { path = "../ove-guard" }
 ove-interchange = { path = "../ove-interchange" }
 ove-models = { path = "../ove-models" }

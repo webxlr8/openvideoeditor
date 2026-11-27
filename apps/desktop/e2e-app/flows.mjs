@@ -4,6 +4,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
+import net from "node:net";
 import path from "node:path";
 import readline from "node:readline";
 
@@ -156,9 +157,9 @@ function shape(view) {
  * An `ove mcp` session on the app's library, spoken to over stdio (JSON-RPC, one message per line), as an external
  * agent would. `request` returns the result; `call` runs a tool and returns its result.
  */
-function startMcp(ctx, args) {
+function startMcp(ctx, args, env = {}) {
   assert.ok(fs.existsSync(ctx.ove), `the ove command line is needed: ${ctx.ove} (cargo build -p ove-cli)`);
-  const child = spawn(ctx.ove, ["--library", ctx.library, "mcp", ...args], { env: ctx.env, stdio: ["pipe", "pipe", "ignore"] });
+  const child = spawn(ctx.ove, ["--library", ctx.library, "mcp", ...args], { env: { ...ctx.env, ...env }, stdio: ["pipe", "pipe", "ignore"] });
   const lines = readline.createInterface({ input: child.stdout });
   const waiting = [];
   lines.on("line", (l) => waiting.shift()?.(l));
@@ -1013,6 +1014,140 @@ export const FLOWS = [
       // P shows the edit when the person opens it.
       await openFromHome(app, P);
       await app.waitFor(async () => (await detail(app, title.id)).name === "Edited by MCP", "P's title renamed in the app");
+    },
+  },
+
+  {
+    // unify-agent-tool-layer task 6.2 (and 8.2's timings on Windows).
+    name: "agent spend: an MCP agent's request shows a price card; declining spends nothing, approving starts the job",
+    timeoutMs: 5 * 60 * 1000,
+    async run(ctx) {
+      const { app, fal } = ctx;
+      fal.finish(); // the stand-in completes every request at once
+      const project = "Price Card E2E";
+      await newProject(app, project);
+      const mcp = startMcp(ctx, ["--project", project]);
+      try {
+        await mcp.request("initialize", {
+          protocolVersion: "2025-06-18",
+          capabilities: {},
+          clientInfo: { name: "e2e-agent", version: "1.0" },
+        });
+        const args = { prompt: "A lighthouse at dusk (price card e2e)" };
+        const quote = async () => {
+          const q = await mcp.call("generate_image", args);
+          assert.equal(q.isError, false, JSON.stringify(q));
+          return q.structuredContent.quoteId;
+        };
+        const postsBefore = fal.posts();
+        const revBefore = (await app.project()).rev;
+
+        // The agent confirms its quote; the person sees the card and declines.
+        const declined = mcp.call("generate_image", { ...args, confirm: await quote() });
+        const card = await app.find("spend-card", 30000);
+        const text = await app.textOf(card);
+        ctx.log(`    card: ${text.replace(/\s+/g, " ").slice(0, 160)}`);
+        assert.match(text, /e2e-agent/);
+        assert.match(text, /\$0\.025/);
+        assert.match(text, /price card e2e/);
+        await app.click("spend-decline");
+        const d = await declined;
+        assert.equal(d.structuredContent?.error?.code, "confirm.declined", JSON.stringify(d));
+        assert.equal(fal.posts(), postsBefore, "nothing submitted after a decline");
+        assert.equal((await app.project()).rev, revBefore, "no placeholder after a decline");
+
+        // Approved: the placeholder appears at once and the worker fills it.
+        const approved = mcp.call("generate_image", { ...args, confirm: await quote() });
+        await app.find("spend-card", 30000);
+        const t0 = Date.now();
+        await app.click("spend-approve");
+        const r = await approved;
+        const tApproved = Date.now() - t0;
+        assert.equal(r.isError, false, JSON.stringify(r));
+        const { jobId, itemId, line } = r.structuredContent;
+        assert.ok(line.includes(itemId) && /pending/.test(line), line);
+        const placed = await app.waitFor(async () => {
+          const p = await app.project();
+          return p.items.find((i) => i.id === itemId) ? p : null;
+        }, "the placeholder on the timeline");
+        const filled = await app.waitFor(async () => {
+          const it = await detail(app, itemId).catch(() => null);
+          return it && !it.pending && it.mediaItemId ? it : null;
+        }, "the placeholder to be filled", 90000);
+        const tFilled = Date.now() - t0;
+        ctx.log(`    approve → tool result ${tApproved} ms; → filled ${tFilled} ms (job ${jobId}, media ${filled.mediaItemId}, rev ${placed.rev})`);
+        assert.equal(fal.posts(), postsBefore + 1, "one submission");
+
+        // The agent's undo removes placeholder and fill together.
+        const u = await mcp.call("undo_my_changes", {});
+        assert.equal(u.isError, false, JSON.stringify(u));
+        await app.waitFor(async () => !(await app.project()).items.some((i) => i.id === itemId), "the clip to be undone");
+      } finally {
+        mcp.close();
+      }
+    },
+  },
+
+  {
+    // unify-agent-tool-layer task 7.1.
+    name: "feedback: an agent's send_feedback appears in Help > Feedback to edit, copy and delete; no network request",
+    timeoutMs: 3 * 60 * 1000,
+    async run(ctx) {
+      const { app, fal } = ctx;
+      // Every way out the command line knows (proxies, provider and update addresses) leads to this trap.
+      let connections = 0;
+      const trap = net.createServer((s) => {
+        connections += 1;
+        s.destroy();
+      });
+      await new Promise((r) => trap.listen(0, "127.0.0.1", r));
+      const trapUrl = `http://127.0.0.1:${trap.address().port}`;
+      const blocked = Object.fromEntries(
+        ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "OVE_FAL_QUEUE_URL", "OVE_OPENAI_URL", "OVE_ELEVENLABS_URL", "OVE_ANTHROPIC_BASE_URL", "OVE_UPDATE_URL"].map((k) => [k, trapUrl]),
+      );
+      const falBefore = fal.posts() + fal.statusPolls();
+      const summary = "The apply_timeline receipt does not say which track a moved item ended on (feedback e2e).";
+      const mcp = startMcp(ctx, [], blocked);
+      try {
+        await mcp.request("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "e2e-agent", version: "1.0" } });
+        const r = await mcp.call("send_feedback", { category: "confusing", severity: "low", summary });
+        assert.equal(r.isError, false, JSON.stringify(r));
+        assert.equal(r.structuredContent.stored, true);
+        assert.equal(r.structuredContent.sent, false);
+        const again = await mcp.call("send_feedback", { category: "confusing", severity: "low", summary });
+        assert.equal(again.structuredContent.duplicate, true, "an exact duplicate is not stored again");
+      } finally {
+        mcp.close();
+        trap.close();
+      }
+      assert.equal(connections, 0, "the MCP session made no network connection");
+
+      await goHome(app);
+      await app.click("help");
+      await app.click("help-feedback");
+      await app.find("feedback-queue");
+      const rows = await app.waitFor(async () => {
+        const list = (await app.invoke("feedback_drafts"));
+        return list.length ? list : null;
+      }, "the report in the queue");
+      const mine = rows.find((d) => d.summary === summary);
+      assert.ok(mine, JSON.stringify(rows));
+      assert.equal(mine.from, "e2e-agent");
+      const row = await app.find("feedback-draft");
+      assert.match(await app.textOf(row), /e2e-agent/);
+      // Edit and save it, then delete it.
+      await app.type("feedback-draft-text", `${summary} Seen twice.`);
+      await app.click("feedback-draft-save");
+      await app.waitFor(async () => {
+        const d = (await app.invoke("feedback_drafts")).find((x) => x.id === mine.id);
+        return d && d.edited && /Seen twice\.$/.test(d.summary);
+      }, "the edit to be saved");
+      await app.click("feedback-draft-delete");
+      await app.waitFor(async () => !(await app.invoke("feedback_drafts")).some((x) => x.id === mine.id), "the report to be deleted");
+      await app.clickText("Close", "feedback-queue");
+      await app.waitFor(async () => !(await app.exists("feedback-queue")), "the Feedback window to close");
+      assert.equal(fal.posts() + fal.statusPolls(), falBefore, "nothing reached a provider");
+      ctx.log(`    report ${mine.id} queued, edited and deleted; 0 network connections`);
     },
   },
 

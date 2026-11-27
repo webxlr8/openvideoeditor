@@ -87,15 +87,18 @@ fn overlaps(a: &(String, String), b: &(String, String)) -> bool {
     a.0 == b.0 && (a.1 == b.1 || a.1 == "*" || b.1 == "*")
 }
 
-/// Later revisions (outside `chosen`) that changed what the chosen revisions changed.
+/// Later revisions (outside `chosen`) that changed what the chosen revisions changed. The app's own bookkeeping
+/// (source `migration`, such as filling in the content ids of new media) does not conflict with adding or removing a
+/// whole object: undoing that addition removes the derived fields with it, and nobody's work is lost.
 pub fn conflicts(chosen: &[RevisionRecord], later: &[RevisionRecord]) -> Vec<UndoConflict> {
     let chosen_revs: BTreeSet<i64> = chosen.iter().map(|r| r.rev).collect();
     let mut found: BTreeMap<(String, String), UndoConflict> = BTreeMap::new();
     for c in chosen {
         let mine = touched(&c.ops);
         for l in later.iter().filter(|l| l.rev > c.rev && !chosen_revs.contains(&l.rev)) {
+            let bookkeeping = l.source == Source::Migration;
             for t in touched(&l.ops) {
-                if let Some(m) = mine.iter().find(|m| overlaps(m, &t)) {
+                if let Some(m) = mine.iter().find(|m| overlaps(m, &t) && !(bookkeeping && m.1 == "*")) {
                     let field = if m.1 == "*" { t.1.clone() } else { m.1.clone() };
                     found.entry((t.0.clone(), field.clone())).or_insert_with(|| UndoConflict {
                         item: t.0.strip_prefix("item:").map(str::to_string),
@@ -208,5 +211,40 @@ mod tests {
         let agent = set(&mut p, "a", json!({"name": "agent"}), Source::Mcp);
         set(&mut p, "a", json!({"startTime": 7, "endTime": 8}), Source::Gui);
         assert!(p.undo_selected(&[agent], Source::Undo, "undo".into(), None).is_ok());
+    }
+
+    #[test]
+    fn the_apps_bookkeeping_on_added_media_does_not_block_undoing_the_addition() {
+        let media = |p: &mut Project, source: Source| {
+            let ops: Vec<Op> = serde_json::from_value(json!([
+                {"op": "addMedia", "media": {"id": "m", "createdAt": 0, "addedAt": 0, "data": {"type": "image", "fileName": "g.png"}},
+                 "entry": {"mediaId": "m", "nativePath": "media/generated/g.png", "ownedByBundle": true}}
+            ]))
+            .unwrap();
+            p.apply(ops, source, None).unwrap().record.rev
+        };
+        let identity = |p: &mut Project, source: Source, field: &str| {
+            let mut set = serde_json::Map::new();
+            set.insert(field.into(), json!("x"));
+            let op = Op::UpdateMedia {
+                id: "m".into(),
+                set,
+                unset: vec![],
+                entry_set: Default::default(),
+                entry_unset: vec![],
+            };
+            p.apply(vec![op], source, None).unwrap();
+        };
+        // The app fills in derived fields (source migration): the agent can still undo adding the media.
+        let (_d, mut p) = project();
+        let agent = media(&mut p, Source::Mcp);
+        identity(&mut p, Source::Migration, "contentId");
+        p.undo_selected(&[agent], Source::Undo, "undo".into(), None).unwrap();
+        assert!(!p.doc().project.media.contains_key("m"));
+        // A person's later change to it still conflicts.
+        let (_d, mut p) = project();
+        let agent = media(&mut p, Source::Mcp);
+        identity(&mut p, Source::Gui, "name");
+        assert!(matches!(p.undo_selected(&[agent], Source::Undo, "undo".into(), None), Err(UndoError::Conflict(_))));
     }
 }

@@ -87,6 +87,37 @@ Both keep every other change. When a later change by someone else touched the sa
 - The in-app assistant has the frame and analysis tools too: `look`, `grab_frame`, `filmstrip`, `detect_scenes`,
   `audio_levels` and `detect_silence`. Their images reach it as image blocks.
 
+## Generation
+
+`list_models` lists the generation models with their list prices, whether the person has added the provider's key,
+and the session's spend and cap. `generate_image`, `generate_video`, `generate_voice`, `generate_music` and
+`generate_sfx` spend the person's money, so they take two calls and a person:
+
+1. Call without `confirm`. The receipt gives `plan`, `estimateUsd` and `quoteId`. Nothing is spent, and neither the
+   project nor the provider is touched.
+2. Call again with the same arguments and `confirm: "<quoteId>"`. A person then approves the price: on a price card
+   in the running app, on the question card in the in-app assistant, or, when the app is not running, in the MCP
+   client's confirmation prompt (elicitation). A client without one is refused with `confirm.required`.
+
+The `confirm` argument alone never spends. Refusals: `confirm.required` (nobody could be asked),
+`confirm.declined`, `quote.unknown`, `quote.expired` (quotes last 10 minutes), `quote.mismatch` (a quote is valid
+only for the exact request it priced), `quote.used`, `spend.cap` (the session's approved spend would pass the
+person's limit in Settings → Generation, $5 unless they change it), `spend.unknown` (a model without a known price)
+and `key.missing`.
+
+Approved, the receipt gives `jobId`, the placeholder's `itemId` and its printed `line`, and the new `rev`. The
+placeholder is one revision of yours; the generation worker fills it as another revision of yours, so
+`undo_my_changes` removes both. `generation_status` follows a job (`wait: true` waits up to two minutes),
+`cancel_generation` stops it.
+
+## Feedback
+
+`send_feedback {category, severity, summary}` drafts a report about the app for the person. It is stored on this
+computer only (`<config>/feedback/`) and never sent: the person reads it in Help → Feedback, edits or deletes it, and
+copies it to send it themselves. Write the summary in your own words and leave out names, paths and what the person
+typed. The app and OS versions, the session's last 15 tool names and its last error code are added. A session files
+at most 8 reports (`feedback.limit`); an exact duplicate is not stored again.
+
 ## Examples
 
 ```sh
@@ -149,6 +180,15 @@ ove source print Nope                              # exit 1
 | `transcribe_media` |  | in-app, mcp, pinned | write | `project`? `media` `format`? `language`? `model`? `verbatim`? `force`? |
 | `duck_audio` |  | in-app, mcp, pinned | write | `project`? `music` `under` `depth`? `attack`? `release`? `hold`? `source`? `mode`? `dryRun`? |
 | `extract_audio` |  | mcp, pinned | write | `project`? `media` `format`? |
+| `list_models` |  | in-app, mcp, pinned | read | `kind`? |
+| `generate_image` |  | in-app, mcp, pinned | spends | `project`? `prompt` `model`? `aspect`? `image`? `durationSeconds`? `start`? `track`? `name`? `confirm`? |
+| `generate_video` |  | in-app, mcp, pinned | spends | `project`? `prompt` `model`? `durationSeconds`? `aspect`? `image`? `negativePrompt`? `seed`? `start`? `track`? `name`? `confirm`? |
+| `generate_voice` |  | in-app, mcp, pinned | spends | `project`? `text` `model`? `voice`? `speed`? `stability`? `style`? `start`? `track`? `name`? `confirm`? |
+| `generate_music` |  | in-app, mcp, pinned | spends | `project`? `prompt` `model`? `durationSeconds`? `instrumental`? `start`? `track`? `name`? `confirm`? |
+| `generate_sfx` |  | in-app, mcp, pinned | spends | `project`? `prompt` `model`? `durationSeconds`? `start`? `track`? `name`? `confirm`? |
+| `generation_status` |  | in-app, mcp, pinned | write | `id` `project`? `wait`? `cancel`? |
+| `cancel_generation` |  | in-app, mcp, pinned | destructive | `id` `project`? |
+| `send_feedback` |  | in-app, mcp, pinned | write | `category` `severity` `summary` |
 | `job_status` |  | mcp, pinned | read | `job_id` `wait`? |
 | `cancel_job` |  | mcp, pinned | write | `job_id` |
 | `list_export_jobs` |  | mcp, pinned | read | `all`? |
