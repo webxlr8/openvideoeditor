@@ -194,7 +194,9 @@ pub fn verify_receipt(p: &Project) -> Result<Receipt, Fail> {
         .filter(|m| m.state == MediaState::Offline)
         .map(|m| m.media_id)
         .collect();
-    let findings = Registry::default().run(&Context { doc: p.doc(), offline: &offline });
+    let mut registry = Registry::default();
+    crate::tools::geometry::register_lints(&mut registry);
+    let findings = registry.run(&Context { doc: p.doc(), offline: &offline });
     let text = if findings.is_empty() {
         "0 findings".to_string()
     } else {

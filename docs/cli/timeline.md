@@ -18,7 +18,7 @@ While another process has the project open for writing, `source apply` and `undo
 | `ove source print <project> [--from <line>] [--lines <n>]` | Print the projection of the current revision (`timeline.tsx` content). |
 | `ove source check <project> [file] [--prefer file\|editor]` | Parse, validate and plan an apply without changing anything. `file` defaults to the bundle's `timeline.tsx`; `-` reads stdin. |
 | `ove source apply <project> [file] [--prefer file\|editor]` | Merge the file onto the current document as one revision (none if nothing changed). |
-| `ove verify <project>` | Lints: overlaps, gaps on the main track, clips past their source, missing/offline media, pending items. Exit 1 when any finding is an error. |
+| `ove verify <project>` | Lints: overlaps, gaps on the main track, clips past their source, missing/offline media, pending items, and (warning `text.outsideTitleSafe`) text or captions outside the title-safe area (5 % in from each edge) at a sampled time, naming the item and the time. Exit 1 when any finding is an error. |
 | `ove history <project>` | Revisions, oldest first: rev, source, summary, and who made it (actor kind and client name) when recorded. |
 | `ove undo <project> [rev]` | Revert the latest revision, whoever made it, or return to revision `rev`, as a new revision (source `undo`). |
 | `ove undo <project> --any --session <id> [--turn <id>] [--kind mcp]` | Revert only that agent session's (or turn's) changes as one revision, keeping everyone else's. Refused with `undo.conflict` when a later change touched the same fields. |

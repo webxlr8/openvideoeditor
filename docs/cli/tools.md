@@ -81,6 +81,12 @@ Both keep every other change. When a later change by someone else touched the sa
   use (reference pixels from the canvas centre: x to the right, y down; lines every twelfth of the canvas width, so
   160 on a 1920-wide canvas), plus the title-safe (80 %) and action-safe (90 %) boxes. A `grab_frame` grid is in the
   frame's own pixels. The grid is drawn only on these returned frames, never in export.
+- `look` takes `overlay`: the viewer guides drawn over the returned frames, comma-separated: `safe` (action safe
+  93 % and title safe 90 % of the frame, the viewer's and the `text.outsideTitleSafe` lint's areas), `grid` or
+  `thirds` (rule of thirds), `grid:<2-5>`, `centre`, `mask:<2.39:1|1.85:1|1:1|9:16|4:5>` (outside the format
+  darkened). `ove look <project> --at 3 --overlay safe,grid --out frames/`. Like the grid, guides are never exported.
+- `layer_geometry` (`ove geometry`) gives each visible layer's corners, crop and stacking order at a time, from
+  the compositor's own placement (see `ove docs geometry`).
 - `filmstrip` and `look` take `storyboard: true`: about 120 frames across the whole file or timeline, repeats
   dropped, at most 36 tiles in 6 columns. Each tile has its timecode burned in; on timeline sheets also the ids of
   the items visible then. The receipt lists each tile's `at`, `timecode` and `items`.
@@ -155,7 +161,7 @@ ove source print Nope                              # exit 1
 | `waveform_image` |  | mcp, pinned | read | `project`? `media` `width`? `height`? |
 | `detect_silence` |  | in-app, mcp, pinned | read | `project`? `media` `thresholdDb`? `minDuration`? `mode`? `minPause`? `padding`? `relativeDb`? |
 | `measure_loudness` |  | mcp, pinned | read | `project`? `media`? `timeline`? |
-| `look` |  | in-app, mcp, pinned | read | `project`? `at`? `every`? `count`? `width`? `stats`? `grid`? `storyboard`? `backend`? `view`? `scope`? |
+| `look` |  | in-app, mcp, pinned | read | `project`? `at`? `every`? `count`? `width`? `stats`? `grid`? `storyboard`? `overlay`? `backend`? `view`? `scope`? |
 | `screenshot` |  | mcp, pinned | read, app | `width`? |
 | `export_video` |  | mcp, pinned | write | `project`? `out` `preset`? `format`? `quality`? `resolution`? `height`? `frameRate`? `fps`? `range`? `videoCodec`? `profile`? `bitDepth`? `alpha`? `videoBitrate`? `audioCodec`? `audioBitDepth`? `settings`? `audioOnly`? `loudness`? `wait`? `backend`? |
 | `export_timeline_file` |  | mcp, pinned | read | `project`? `file` `fps`? |
@@ -163,7 +169,7 @@ ove source print Nope                              # exit 1
 | `app_context` |  | mcp, pinned | read, app |  |
 | `open_in_app` |  | mcp, pinned | write, app | `project`? |
 | `seek` | `seek_viewer` | in-app, mcp, pinned | write, app | `seconds` |
-| `play` |  | mcp, pinned | write, app |  |
+| `play` |  | mcp, pinned | write, app | `rate`? |
 | `pause` |  | mcp, pinned | write, app |  |
 | `docs` |  | mcp, pinned | read | `topic`? |
 | `check_code` |  | in-app, mcp, pinned | read | `project`? `composition` `duration`? |
@@ -204,4 +210,5 @@ ove source print Nope                              # exit 1
 | `search_media` |  | in-app, mcp, pinned | read | `project`? `query`? `scope`? `media`? `limit`? `similarTo`? |
 | `media_transcript` |  | in-app, mcp, pinned | read | `project`? `media` `from`? `to`? |
 | `inspect_media` |  | in-app, mcp, pinned | read | `project`? `media` `overview`? `tileWidth`? |
+| `layer_geometry` |  | in-app, mcp, pinned | read | `project`? `at` `height`? |
 <!-- tools:end -->

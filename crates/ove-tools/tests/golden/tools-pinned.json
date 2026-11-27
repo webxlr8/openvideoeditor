@@ -688,6 +688,10 @@
             "type": "boolean",
             "description": "One storyboard sheet of the whole timeline instead: repeats dropped, at most 36 tiles, each with its timecode and the ids of the visible items"
           },
+          "overlay": {
+            "type": "string",
+            "description": "Viewer guides drawn over the frames, comma-separated: safe (action safe 93 %, title safe 90 %), grid or thirds, grid:<2-5>, centre, mask:<2.39:1|1.85:1|1:1|9:16|4:5>"
+          },
           "backend": {
             "type": "string",
             "description": "Compositing backend: auto (default; the GPU when its startup self-test matches the CPU reference), cpu or gpu"
@@ -960,10 +964,15 @@
     },
     {
       "name": "play",
-      "description": "Start playback in the app.",
+      "description": "Start playback in the app, optionally at a playback rate.",
       "inputSchema": {
         "type": "object",
-        "properties": {},
+        "properties": {
+          "rate": {
+            "type": "number",
+            "description": "Playback rate: 0.5, 1, 1.25, 1.5 or 2 (default: keep the current one); audio plays resampled"
+          }
+        },
         "required": [],
         "additionalProperties": false
       },
@@ -2453,6 +2462,36 @@
         },
         "required": [
           "media"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "layer_geometry",
+      "description": "Where every visible layer is on screen at a time: for each layer (bottom first) its item id and type, its stacking index, the four corners of its source after transform (quad) and of the part its crop keeps (cropQuad), its rotation and opacity. Corners are canvas pixels from the frame's top-left corner, x right and y down, in the order top-left, top-right, bottom-right, bottom-left of the source. Use it to check framing, safe areas and overlaps.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "at": {
+            "type": "number",
+            "description": "Timeline time in seconds"
+          },
+          "height": {
+            "type": "integer",
+            "description": "Canvas height in pixels the corners are measured on (default: the reference height, the units of transform x and y)"
+          }
+        },
+        "required": [
+          "at"
         ],
         "additionalProperties": false
       },

@@ -51,6 +51,8 @@ impl PresentableFrame for TimelineFrame {
 
 enum Ctl {
     Seek(i64, u64),
+    /// Render with this document from now on (a transient preview; the duration stays).
+    Doc(Arc<Document>),
 }
 
 /// Renders frames from a position forward on its own thread.
@@ -87,6 +89,11 @@ impl TimelineSource {
     pub fn duration_us(&self) -> i64 {
         self.end_us
     }
+    /// Renders from now on with `doc`, keeping the renderer, its decoders and caches (a viewer handle drag). The
+    /// caller seeks to show the current frame with it.
+    pub fn set_doc(&mut self, doc: Arc<Document>) {
+        let _ = self.ctl.send(Ctl::Doc(doc));
+    }
 }
 
 /// What the render loop reports for the diagnostics overlay.
@@ -96,7 +103,7 @@ struct Diag {
 }
 
 fn render_loop(
-    doc: Arc<Document>,
+    mut doc: Arc<Document>,
     bundle: PathBuf,
     ctl: Receiver<Ctl>,
     out: SyncSender<TimelineFrame>,
@@ -122,6 +129,7 @@ fn render_loop(
                     gen_now = g;
                     next = Some(frame_at(t, fps));
                 }
+                Ok(Ctl::Doc(d)) => doc = d,
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => return,
             }
@@ -132,6 +140,7 @@ fn render_loop(
                     gen_now = g;
                     next = Some(frame_at(t, fps));
                 }
+                Ok(Ctl::Doc(d)) => doc = d,
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
                 Err(_) => return,
             }

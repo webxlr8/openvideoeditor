@@ -401,6 +401,24 @@ export const commands = {
 	mediaOrganize: (ops: string) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("media_organize", { ops })),
 	/**  The index state of the open project: model installed or its size, indexed files of all, indexing tasks. */
 	mediaIndexStatus: () => typedError<MediaIndexStatus, AppError>(__TAURI_INVOKE("media_index_status")),
+	/**  Where each visible layer is at `time` seconds on the open project's timeline. */
+	viewerGeometry: (time: number | null) => typedError<ViewerGeometry, AppError>(__TAURI_INVOKE("viewer_geometry", { time })),
+	/**
+	 *  The item whose layer is topmost under the point (`x`, `y`: fractions of the frame) at `time` seconds, judged by
+	 *  the layer's own pixels: a click on a transparent part of a title selects what is below it. `None`: nothing is
+	 *  drawn there.
+	 */
+	viewerPick: (time: number | null, x: number | null, y: number | null) => typedError<string | null, AppError>(__TAURI_INVOKE("viewer_pick", { time, x, y })),
+	/**
+	 *  Shows `preview` in the viewer without changing the project (no revision), or, with `None`, the project as it is
+	 *  (after a cancelled drag). The viewer re-renders the current frame with it while paused.
+	 */
+	viewerPreview: (preview: ViewerPreview | null) => typedError<null, AppError>(__TAURI_INVOKE("viewer_preview", { preview })),
+	/**
+	 *  Puts the app window in (or out of) full screen for the full-screen viewer. The viewer itself fills the window in
+	 *  the UI; the native surface follows the viewer rectangle as always.
+	 */
+	viewerFullscreen: (on: boolean) => typedError<null, AppError>(__TAURI_INVOKE("viewer_fullscreen", { on })),
 };
 
 /** Events */
@@ -1766,6 +1784,8 @@ export type PlaybackState = {
 	muted: boolean,
 	/**  False when no audio output device is available (video then runs on the system clock). */
 	audioAvailable: boolean,
+	/**  Playback rate (0.5, 1, 1.25, 1.5 or 2): multiplies the speed. */
+	rate: number | null,
 };
 
 /**  The open project changed (any source). */
@@ -2271,7 +2291,9 @@ export type TransportCommand = { kind: "play" } | { kind: "pause" } | { kind: "t
 /**  J key: 1× reverse, then 2×. */
 { kind: "shuttleReverse" } | 
 /**  Seek to an exact frame (clamped to the media). */
-{ kind: "seekFrame"; frame: number } | { kind: "setLoop"; enabled: boolean };
+{ kind: "seekFrame"; frame: number } | { kind: "setLoop"; enabled: boolean } | 
+/**  Playback rate: 0.5, 1, 1.25, 1.5 or 2 (others are refused). Audio plays resampled. */
+{ kind: "setRate"; rate: number | null };
 
 /**  What a turn changed on the timeline, for "Show" and "Undo this turn". */
 export type TurnReview = {
@@ -2407,6 +2429,34 @@ export type ViewerFrameReady = {
 	seq: number,
 	width: number,
 	height: number,
+};
+
+/**  The layers visible at a time, bottom first, and the frame size their fractions refer to. */
+export type ViewerGeometry = {
+	width: number,
+	height: number,
+	layers: ViewerLayer[],
+};
+
+/**
+ *  One visible layer in the viewer. Corners are fractions of the frame (0..1), top-left, top-right, bottom-right,
+ *  bottom-left of the source.
+ */
+export type ViewerLayer = {
+	itemId: string,
+	itemType: string,
+	index: number,
+	quad: ([(number | null), (number | null)])[],
+	cropQuad: ([(number | null), (number | null)])[],
+	rotation: number | null,
+	selectable: boolean,
+};
+
+/**  A transient change shown while a handle is dragged: fields to set on one item. */
+export type ViewerPreview = {
+	itemId: string,
+	/**  Document field names → values (JSON object text), as `update_item` takes them. */
+	setJson: string,
 };
 
 /**

@@ -19,6 +19,8 @@ use ove_core::time::{Micros, json_to_micros};
 use serde_json::{Map, Value};
 
 use crate::layouts;
+// Layer geometry (on-screen corners and stacking of each visible layer) lives in `crate::geometry`.
+pub use crate::geometry::{FrameGeometry, LayerGeometry, layer_geometry};
 use crate::transitions::{Role, TransState, is_opacity_only, joins, split};
 
 /// Reference frame size of an aspect ratio: the pixel space of transforms, font sizes and borders.

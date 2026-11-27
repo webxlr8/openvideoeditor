@@ -4,7 +4,7 @@
 ove app context
 ove app open <project>
 ove app seek <seconds>
-ove app play
+ove app play [--rate <0.5|1|1.25|1.5|2>]
 ove app pause
 ove screenshot <out.png> [--width <px>]
 ```
@@ -16,6 +16,10 @@ must point at the same library (`--library` / `OVE_LIBRARY`).
 **context** returns the open project (name, id, bundle, revision), the playhead in seconds, whether it is playing,
 the selected clip ids and the viewer mode. **screenshot** renders the composited frame under the playhead at
 `--width` (default 1280).
+
+**play --rate** sets the playback rate first (MCP: `play` with `rate`; control method `rate`). The app plays at 0.5×,
+1×, 1.25×, 1.5× and 2×, with the audio resampled (it sounds higher or lower). Any other rate is refused with code
+`rate.unsupported` and a message that lists the supported rates; nothing starts playing.
 
 **Edits while the app has the project open.** The app holds the project's write lock. Every editing command
 (`source apply`, `undo`, `media add|remove|relink`, `project rename`, `timeline import`) then sends its change to the

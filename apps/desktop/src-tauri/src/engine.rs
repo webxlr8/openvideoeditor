@@ -34,6 +34,9 @@ pub enum EngineMsg {
     OpenTimeline(Arc<Document>, PathBuf, Sender<AppResult<MediaInfo>>),
     /// The open project changed: re-render the timeline (keeps position and play state).
     UpdateDoc(Arc<Document>, PathBuf),
+    /// A transient document (a handle drag in the viewer): re-render the current frame with it, keeping the
+    /// renderer and decoders. Nothing is saved; the next `UpdateDoc` replaces it.
+    PreviewDoc(Arc<Document>, PathBuf),
     Close,
     Transport(TransportCommand),
     Volume(f64, bool),
@@ -399,6 +402,8 @@ impl Session {
             return;
         }
         let ring = a.out.ring().clone();
+        // The ring knows the rate it plays at; audio is resampled for it (a playback rate other than 1×).
+        let speed = ring.speed();
         let mut budget = 16;
         while ring.queued_us() < AUDIO_AHEAD_US && budget > 0 {
             budget -= 1;
@@ -409,7 +414,8 @@ impl Session {
                             Samples::F32(v) => v,
                             Samples::S16(v) => v.into_iter().map(|s| s as f32 / 32768.0).collect(),
                         };
-                        ring.push(chunk.pts_us, &samples);
+                        let (_, channels) = ring.format();
+                        ring.push(chunk.pts_us, &ove_playback::retime(&samples, channels as usize, speed));
                         a.filled_to = chunk.pts_us;
                     }
                     Ok(None) => {
@@ -428,11 +434,14 @@ impl Session {
                         a.eof = true;
                         break;
                     }
-                    let mixed = mixer.mix(doc, a.filled_to, BLOCK);
+                    // `speed` blocks of timeline audio per block of device time.
+                    let frames = ((BLOCK as f64) * speed).round().max(1.0) as usize;
+                    let mixed = mixer.mix(doc, a.filled_to, frames);
                     meters.tap(a.filled_to, &mixed);
                     let (rate, channels) = ring.format();
-                    ring.push(a.filled_to, &to_device(&mixed, rate, channels));
-                    a.filled_to += (BLOCK as i64 * 1_000_000) / ove_render::audio::RATE as i64;
+                    let retimed = ove_playback::retime(&mixed, 2, speed);
+                    ring.push(a.filled_to, &to_device(&retimed, rate, channels));
+                    a.filled_to += (frames as i64 * 1_000_000) / ove_render::audio::RATE as i64;
                 }
             }
         }
@@ -492,6 +501,7 @@ fn map_command(cmd: TransportCommand, s: &Session) -> Vec<Command> {
             vec![Command::Seek(t)]
         }
         TransportCommand::SetLoop { enabled } => vec![Command::SetLoop(enabled)],
+        TransportCommand::SetRate { rate } => vec![Command::SetRate(rate)],
     }
 }
 
@@ -525,6 +535,7 @@ fn snapshot(s: Option<&Session>, volume: f64, muted: bool, audio_available: bool
             volume,
             muted,
             audio_available,
+            rate: 1.0,
         },
         Some(s) => {
             let t = s.player.transport();
@@ -540,6 +551,7 @@ fn snapshot(s: Option<&Session>, volume: f64, muted: bool, audio_available: bool
                 volume,
                 muted,
                 audio_available,
+                rate: t.rate,
             }
         }
     }
@@ -648,6 +660,16 @@ fn run(app: AppHandle, viewer: Sender<ViewerMsg>, rx: Receiver<EngineMsg>, share
                     session = Some(s);
                 }
             }
+            Ok(EngineMsg::PreviewDoc(doc, bundle)) => {
+                if let Some(s) = session.as_mut().filter(|s| s.timeline.as_ref() == Some(&bundle))
+                    && !s.player.transport().is_playing()
+                    && let AnySource::Timeline(src) = s.player.source_mut()
+                {
+                    src.set_doc(doc);
+                    let at = s.player.transport().position;
+                    s.player.command(Command::Seek(at), time.now_us());
+                }
+            }
             Ok(EngineMsg::Close) => {
                 session = None;
                 pending_steps = 0;
@@ -663,7 +685,7 @@ fn run(app: AppHandle, viewer: Sender<ViewerMsg>, rx: Receiver<EngineMsg>, share
                             }
                             pending_steps += i64::from(frames);
                         }
-                        TransportCommand::SetLoop { .. } => {}
+                        TransportCommand::SetLoop { .. } | TransportCommand::SetRate { .. } => {}
                         _ => pending_steps = 0,
                     }
                     for c in map_command(cmd, s) {

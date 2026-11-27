@@ -11,6 +11,7 @@ pub mod effects;
 pub mod eval;
 pub mod export;
 pub mod fonts;
+pub mod geometry;
 pub mod layouts;
 pub mod loudness;
 pub mod meter;

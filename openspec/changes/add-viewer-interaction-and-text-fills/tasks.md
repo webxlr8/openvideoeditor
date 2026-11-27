@@ -4,27 +4,28 @@
 
 - [ ] 1.1 Implement `layer_geometry(doc, t)` in `ove-render::eval` from the compositor's layer data; verify the
       property test (quad contains point ⇔ rendered alpha > 0 for ≥ 99.5% of sampled points) on rotated, cropped and
-      tilted fixtures.
-- [ ] 1.2 Add `ove geometry --at` and the MCP tool, documented in `docs/cli/`; verify CLI tests for success and the
+      tilted fixtures. (Rotated and cropped fixtures pass; the tilted ones wait for `transform.rotationX/Y` in 4.1.)
+- [x] 1.2 Add `ove geometry --at` and the MCP tool, documented in `docs/cli/`; verify CLI tests for success and the
       time-past-end refusal, and that the docs examples run.
-- [ ] 1.3 Viewer click-to-select using geometry plus alpha; verify a UI test for the transparent-title scenario.
+- [x] 1.3 Viewer click-to-select using geometry plus alpha; verify a UI test for the transparent-title scenario.
 
 ## 2. Handles
 
 - [ ] 2.1 SVG overlay layer over the viewer rectangle on every viewer backend; verify it lines up with the frame
       within 1 screen pixel on macOS and on the Windows stream backend.
-- [ ] 2.2 Move, scale, rotate and crop handles with transient preview overrides, snapping, Esc cancel, and one apply op
+- [x] 2.2 Move, scale, rotate and crop handles with transient preview overrides, snapping, Esc cancel, and one apply op
       on release; verify UI tests: one revision per drag, undo, cancel, rotated crop, hidden during playback.
-- [ ] 2.3 Tilt handles for text; verify a UI test that one tilt drag creates one revision.
+- [ ] 2.3 Tilt handles for text; verify a UI test that one tilt drag creates one revision. (Waits for
+      `transform.rotationX/Y`, task 4.1.)
 
 ## 3. Guides, lint, full screen and rates
 
-- [ ] 3.1 Grids, safe areas, centre cross, format masks and editable platform presets as UI view state; verify guides
+- [x] 3.1 Grids, safe areas, centre cross, format masks and editable platform presets as UI view state; verify guides
       never appear in an export (golden export test).
-- [ ] 3.2 `ove look --overlay` and the verify lint `text.outsideTitleSafe`; verify golden overlay images and lint
+- [x] 3.2 `ove look --overlay` and the verify lint `text.outsideTitleSafe`; verify golden overlay images and lint
       fixtures for both scenarios.
 - [ ] 3.3 Full-screen viewer with floating controls and Esc exit; verify a UI test on both operating systems.
-- [ ] 3.4 Transport rate command (0.5×–2×) with resampled audio and control-link access; verify the 1.5× timing test
+- [x] 3.4 Transport rate command (0.5×–2×) with resampled audio and control-link access; verify the 1.5× timing test
       and the unsupported-rate refusal.
 
 ## 4. Text fills, tilt and spans

@@ -125,6 +125,12 @@ fn socket_actor(params: &Value) -> Result<Option<Actor>, ove_control::Refusal> {
     }
 }
 
+/// The `rate` of a `rate` request: one of the supported playback rates, else a refusal that lists them.
+fn rate_param(params: &Value) -> Result<f64, ove_control::Refusal> {
+    let rate = params.get("rate").and_then(Value::as_f64).ok_or_else(|| refusal("argument.missing", "rate"))?;
+    ove_playback::supported_rate(rate).map_err(|e| refusal("rate.unsupported", e))
+}
+
 fn handle(app: &AppHandle, method: &str, params: Value) -> Result<Value, ove_control::Refusal> {
     match method {
         "context" => Ok(context(app)),
@@ -150,6 +156,9 @@ fn handle(app: &AppHandle, method: &str, params: Value) -> Result<Value, ove_con
         }
         "play" => transport(app, TransportCommand::Play),
         "pause" => transport(app, TransportCommand::Pause),
+        // Playback rate for agents (add-viewer-interaction-and-text-fills): unsupported rates are refused with the
+        // supported ones.
+        "rate" => transport(app, TransportCommand::SetRate { rate: rate_param(&params)? }),
         // An agent asks to spend: the person answers a price card (the answer goes only to this caller).
         "confirm_spend" => crate::spend::confirm_spend(app, params),
         // Background tasks: `ove tasks` and the agent tools list_tasks, wait_tasks and cancel_task.
@@ -225,6 +234,15 @@ pub fn stop(app: &AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_unsupported_rate_is_refused_with_the_supported_ones() {
+        assert_eq!(rate_param(&json!({"rate": 1.5})).unwrap(), 1.5);
+        let r = rate_param(&json!({"rate": 7})).unwrap_err();
+        assert_eq!(r.code, "rate.unsupported");
+        assert!(r.message.contains("supported rates: 0.5, 1, 1.25, 1.5, 2"), "{}", r.message);
+        assert_eq!(rate_param(&json!({})).unwrap_err().code, "argument.missing");
+    }
 
     #[test]
     fn socket_changes_are_cli_or_mcp_only() {

@@ -46,6 +46,7 @@ import { GeneratePanel } from "./Generate";
 import { HistoryPanel } from "./HistoryPanel";
 import { type HelpActions, HelpMenu } from "./onboarding/HelpMenu";
 import { Shortcuts } from "./Shortcuts";
+import { RateMenu } from "./overlay/RateMenu";
 import { type SelectMode, Timeline } from "./Timeline";
 
 export const RAIL: { id: string; label: string; icon: IconName }[] = [
@@ -499,6 +500,12 @@ export function Editor({
               diagnosticsOpen={diagnosticsOpen}
               onError={onError}
               toolbarLeft={projectBar}
+              transport={{ playback, onTransport }}
+              overlay={
+                timelineMode && project
+                  ? { project, time: playhead, playing: playback.playing, selection, onSelect: onSelectMany, onEdit }
+                  : undefined
+              }
             />
           </ErrorBoundary>
           {layout.viewerOpen && <Meters />}
@@ -934,6 +941,7 @@ function TransportBar({
         >
           <Icon name="loop" size={16} />
         </button>
+        <RateMenu rate={playback.rate ?? 1} onTransport={onTransport} />
         {playback.speed !== null && Math.abs(playback.speed) > 1 && (
           <span className="speed" data-testid="speed">
             {playback.speed > 0 ? "" : "−"}

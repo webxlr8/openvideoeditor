@@ -34,6 +34,11 @@ pub const TOPICS: &[(&str, &str, &str)] = &[
     ("export", "export to MP4", include_str!("../../../../docs/cli/export.md")),
     ("color", "color inspect: numeric colour readout and shot matching", include_str!("../../../../docs/cli/color.md")),
     (
+        "geometry",
+        "geometry: where each visible layer is on screen at a time",
+        include_str!("../../../../docs/cli/geometry.md"),
+    ),
+    (
         "interchange",
         "timeline export / import (FCPXML, XML, EDL, OTIO)",
         include_str!("../../../../docs/cli/interchange.md"),
