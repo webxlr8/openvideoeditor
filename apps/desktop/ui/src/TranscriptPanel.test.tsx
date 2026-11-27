@@ -131,7 +131,9 @@ describe("transcript panel", () => {
     const ranges = await screen.findByTestId("transcript-ranges");
     expect(ranges.textContent).toContain("0:02.1–0:03.9");
     // The previewed range is drawn over the clips on the timeline.
-    expect(screen.getAllByTestId("cut-preview").length).toBe(1);
+    await waitFor(() =>
+      expect(screen.getAllByTestId("cut-preview").length).toBe(1),
+    );
     fireEvent.click(screen.getByTestId("transcript-apply"));
     await waitFor(() =>
       expect(window.__oveMock!.calls).toContain("transcriptCut:remove_silence"),
