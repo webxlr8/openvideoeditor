@@ -54,18 +54,27 @@ fn gpu_matches_cpu_within_tolerance() {
     let mut cpu = CpuBackend::new();
     let (mut cpu_ms, mut gpu_ms) = (0.0, 0.0);
     let mut rows = Vec::new();
+    let mut times = Vec::new();
     for c in &cases {
         let t = Instant::now();
         let a = parity::run(&mut cpu, c, &inputs);
-        cpu_ms += t.elapsed().as_secs_f64() * 1e3;
+        let c_ms = t.elapsed().as_secs_f64() * 1e3;
         let t = Instant::now();
         let b = parity::run(&mut gpu, c, &inputs);
-        gpu_ms += t.elapsed().as_secs_f64() * 1e3;
+        let g_ms = t.elapsed().as_secs_f64() * 1e3;
+        (cpu_ms, gpu_ms) = (cpu_ms + c_ms, gpu_ms + g_ms);
         let metrics = parity::compare(&a, &b);
+        times.push((c_ms, g_ms));
         rows.push(parity::Row { name: c.name.clone(), pass: metrics.within(&TOLERANCE), metrics });
     }
-    for r in &rows {
-        eprintln!("{} {:<52} {}", if r.pass { "ok  " } else { "FAIL" }, r.name, r.metrics);
+    // Per case: the metrics, then the CPU and GPU time of the whole case (upload, operation, readback).
+    for (r, (c_ms, g_ms)) in rows.iter().zip(&times) {
+        eprintln!(
+            "{} {:<52} {} · cpu {c_ms:.1} ms · gpu {g_ms:.1} ms",
+            if r.pass { "ok  " } else { "FAIL" },
+            r.name,
+            r.metrics
+        );
     }
     let worst = rows.iter().map(|r| r.metrics.max).max().unwrap_or(0);
     let c = &gpu.counters;

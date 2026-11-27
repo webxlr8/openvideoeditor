@@ -197,3 +197,21 @@ ones change appearance once, which is the bug fix in fix-render-and-edit-correct
   an effect id the item does not have (`keyframe.effect.exists`). ove-core keeps the table of numeric parameters
   (`effect_params.rs`), and an ove-render test keeps it equal to the effect contract. The JSON schema and
   `timeline.d.ts` accept the new property form (`effects.${string}.${string}`).
+- 4.3 (open; Option A, approved by the CTO and CEO: port by measured cost, every port passes parity on the RTX 4070
+  and WARP before it lands). Per-frame cost at 1920×1080 (`cargo test -p ove-gpu --test costs -- --ignored`,
+  NVIDIA GeForce RTX 4070, median of 5; "GPU backend" is the native shader, or the CPU fallback with readback and
+  upload):
+  - Native now: zoom-blur 68.9 ms on the CPU → 3.4 ms; tilt-shift 56.7 → 3.0 ms; aurora 70.2 → 0.8 ms; transition
+    masks wipe-left 3.6 → 0.6 ms, radial-wipe 9.6 → 1.0 ms, ink-bleed 17.6 → 0.8 ms, mask-glitch 8.3 → 0.8 ms.
+    Parity at 1080p: worst max 1/255 on the RTX 4070 and on WARP for each.
+  - On the CPU fallback: 38 of the 41 effects (duotone, tritone, gradient-map, posterize, solarize, halftone, dither,
+    engraving, watercolor, pixelate, chromatic-aberration, glitch, vhs, crt-screen, light-leak, lens-flare, bulge,
+    spherize, lens-distortion, twirl, wave-distortion, kaleidoscope, mirror, polar-coordinates, fluted-glass,
+    glass-tiles, mesh-gradient, flowing-gradient, plasma, swirl, marble, godrays, sunburst, spiral, conic-gradient,
+    voronoi, stripes, studio-background), and so the glitch, chromatic-aberration and light-leak post effects of
+    transitions. Costliest on the fallback: watercolor 80.9 ms, flowing-gradient 43.8 ms.
+  - Watercolor was ported and failed parity: its pigment-pool step `round(x·6)` lands on the other side of a step on
+    a few pixels (max 27/255, mean 0.000/255), so it stays on the CPU. Hard quantisation steps like this need exact
+    arithmetic shared by both sides before they can move.
+  - The effect noise uses the existing integer hash (`util::hash21`), ported bit for bit, rather than a new PCG
+    hash: it is already an integer hash on both sides, and changing it would change every noise effect's look.

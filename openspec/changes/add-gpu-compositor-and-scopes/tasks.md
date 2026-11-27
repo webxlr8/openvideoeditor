@@ -37,6 +37,11 @@
       parameters; verify the animated blur scenario and the refusal scenario.
 - [ ] 4.3 Port separable blurs, then the 24 transitions, then the remaining per-pixel effects, then distortion effects
       to WGSL with the shared integer noise hash; verify parity for each one as it lands.
+      Status (open): native on the GPU: zoom-blur, tilt-shift, aurora and the wipe, radial-wipe, ink-bleed and
+      mask-glitch masks (every transition's motion and opacity runs in the native draw). On the per-layer CPU
+      fallback: the other 38 effects (also the glitch, chromatic-aberration and light-leak post effects of
+      transitions). Ported in order of measured cost (`ove-gpu/tests/costs.rs`); watercolor failed parity and stays on
+      the fallback.
 - [ ] 4.4 Raise timeline preview to 1080p when the GPU backend is active; verify 0 dropped frames over 60 s for the
       four-layer project on the reference machines and record numbers in Results.
 

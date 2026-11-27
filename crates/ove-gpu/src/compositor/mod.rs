@@ -7,8 +7,11 @@
 //! transition masks, captions) falls back per layer: the image is read back, the CPU code runs, and the result is
 //! uploaded (design D2).
 
+mod effects;
 mod select;
 mod shaders;
+
+pub use effects::PORTED as NATIVE_EFFECTS;
 
 pub use select::{Choice, SelectOptions, Selection, select, select_with, self_test};
 
@@ -124,6 +127,10 @@ pub struct GpuBackend {
     pool: HashMap<(u32, u32), Vec<wgpu::Texture>>,
     /// Uploaded lattices by the address of their `Arc<Lut>`.
     luts: HashMap<usize, (Weak<Lut>, wgpu::Buffer)>,
+    /// Ported effects' pipelines, built on first use.
+    fx: HashMap<&'static str, wgpu::ComputePipeline>,
+    /// The transition mask pipeline, built on first use.
+    mask: Option<wgpu::ComputePipeline>,
     pub counters: Arc<Counters>,
 }
 
@@ -137,6 +144,8 @@ impl GpuBackend {
             images: Slab::default(),
             pool: HashMap::new(),
             luts: HashMap::new(),
+            fx: HashMap::new(),
+            mask: None,
             counters: Arc::new(Counters::default()),
         }
     }
@@ -162,6 +171,11 @@ impl GpuBackend {
     /// The device was lost (driver reset, removal); the backend cannot be used any more.
     pub fn is_lost(&self) -> bool {
         self.ctx.is_lost()
+    }
+
+    /// Waits until the GPU has finished all submitted work (timings).
+    pub fn finish(&self) {
+        let _ = self.ctx.device.poll(wgpu::PollType::wait_indefinitely());
     }
 
     /// Images currently held.
@@ -277,15 +291,17 @@ impl GpuBackend {
     /// Runs `pipe` over a `w`×`h` output with the given bindings (the output storage texture is added as the last
     /// binding), and returns the output texture.
     fn pass(&mut self, pipe: Pipe, binds: &[(u32, Bind<'_>)], out_binding: u32, w: u32, h: u32) -> wgpu::Texture {
+        let pipeline = match pipe {
+            Pipe::Draw => self.pipes.draw.clone(),
+            Pipe::Grade => self.pipes.grade.clone(),
+            Pipe::Lut => self.pipes.lut.clone(),
+            Pipe::Mix => self.pipes.mix.clone(),
+            Pipe::Opaque => self.pipes.opaque.clone(),
+            Pipe::Other(p) => p,
+        };
+        let pipeline = &pipeline;
         let out = self.texture(w, h);
         let out_view = out.create_view(&Default::default());
-        let pipeline = match pipe {
-            Pipe::Draw => &self.pipes.draw,
-            Pipe::Grade => &self.pipes.grade,
-            Pipe::Lut => &self.pipes.lut,
-            Pipe::Mix => &self.pipes.mix,
-            Pipe::Opaque => &self.pipes.opaque,
-        };
         let mut entries: Vec<wgpu::BindGroupEntry<'_>> = binds
             .iter()
             .map(|(b, r)| wgpu::BindGroupEntry {
@@ -378,13 +394,15 @@ impl GpuBackend {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 enum Pipe {
     Draw,
     Grade,
     Lut,
     Mix,
     Opaque,
+    /// A ported effect or the transition mask.
+    Other(wgpu::ComputePipeline),
 }
 
 /// The destination pixels a draw touches (as `canvas::draw` computes them), or `None` when it draws nothing.
@@ -647,5 +665,82 @@ impl Backend for GpuBackend {
 
     fn opaque(&mut self, t: Tex) {
         self.unary(t, Pipe::Opaque, None, None);
+    }
+
+    fn effect(
+        &mut self,
+        t: Tex,
+        id: &str,
+        values: &serde_json::Map<String, serde_json::Value>,
+        amount: f32,
+        time: f32,
+    ) -> bool {
+        let Some(spec) = ove_render::effects::find(id) else { return false };
+        let Some(&id) = effects::PORTED.iter().find(|p| **p == id) else {
+            // Not ported yet: the CPU code on this layer (readback, effect, upload).
+            let mut known = false;
+            self.cpu(t, &mut |img| known = ove_render::effects::apply(img, id, values, amount, time));
+            return known;
+        };
+        let amount = if amount.is_finite() { amount.clamp(0.0, 1.0) } else { 0.0 };
+        let (w, h) = self.size(t);
+        if amount <= 0.0 || w == 0 || h == 0 {
+            return true;
+        }
+        let mut packed = ove_render::effects::Params::resolve(spec, values).packed(spec);
+        packed.push(0.0); // a storage buffer is never empty
+        let time = if time.is_finite() { time } else { 0.0 };
+        let generator = spec.group == ove_render::effects::Group::Background;
+        let head = self.uniform(&f32s(&[
+            w as f32,
+            h as f32,
+            w as f32 / h as f32,
+            time,
+            amount,
+            if generator { 1.0 } else { 0.0 },
+            0.0,
+            0.0,
+        ]));
+        let data = self.storage(&f32s(&packed));
+        let pipeline = match self.fx.get(id) {
+            Some(p) => p.clone(),
+            None => {
+                let src = effects::source(id).unwrap_or_default();
+                let p = pipeline(&self.ctx.device, id, src);
+                self.fx.insert(id, p.clone());
+                p
+            }
+        };
+        self.unary(t, Pipe::Other(pipeline), Some(&head), Some(&data));
+        true
+    }
+
+    fn transition_mask(&mut self, t: Tex, st: &ove_render::transitions::TransState) {
+        if !st.has_mask() {
+            return;
+        }
+        let (base, dir) = ove_render::transitions::split(&st.kind, None);
+        let kind = match base {
+            "wipe" => 0.0,
+            "radial-wipe" => 1.0,
+            "ink-bleed" => 2.0,
+            _ => 3.0,
+        };
+        let dir = match dir {
+            ove_render::transitions::Dir::Left => 0.0,
+            ove_render::transitions::Dir::Right => 1.0,
+            ove_render::transitions::Dir::Up => 2.0,
+            ove_render::transitions::Dir::Down => 3.0,
+        };
+        let pipeline = match &self.mask {
+            Some(p) => p.clone(),
+            None => {
+                let p = pipeline(&self.ctx.device, "transition mask", effects::MASK.to_string());
+                self.mask = Some(p.clone());
+                p
+            }
+        };
+        let head = self.uniform(&f32s(&[kind, dir, st.q, 0.0]));
+        self.unary(t, Pipe::Other(pipeline), Some(&head), None);
     }
 }

@@ -72,6 +72,22 @@ impl Params {
         self.vecs.iter().find(|e| e.0 == k).map_or([0.0; 3], |e| e.1)
     }
 
+    /// The values in contract order as floats (a number or toggle: 1; a colour: 3; a point: 2), for GPU shaders.
+    pub fn packed(&self, spec: &EffectSpec) -> Vec<f32> {
+        let mut out = Vec::new();
+        for s in spec.params {
+            match s.kind {
+                ParamKind::Color => out.extend(self.c(s.name)),
+                ParamKind::Point => {
+                    let (x, y) = self.pt(s.name);
+                    out.extend([x, y]);
+                }
+                _ => out.push(self.n(s.name)),
+            }
+        }
+        out
+    }
+
     pub fn pt(&self, k: &str) -> (f32, f32) {
         let v = self.vecs.iter().find(|e| e.0 == k).map_or([0.5, 0.5, 0.0], |e| e.1);
         (v[0], v[1])
