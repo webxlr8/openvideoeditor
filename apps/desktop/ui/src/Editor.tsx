@@ -729,6 +729,11 @@ function SidePanel({
                   />{" "}
                   {m.name}
                 </div>
+                {m.timecode && (
+                  <div className="media-tc" data-testid="media-timecode" title="Source timecode">
+                    TC {m.timecode}
+                  </div>
+                )}
               </button>
             ))}
             {media.length === 0 &&

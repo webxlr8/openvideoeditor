@@ -964,6 +964,8 @@ function createMock(): {
             status: "online",
             thumbnail: null,
             skim: null,
+            // Files named with "TC" stand for media that carries a start timecode.
+            ...(/\btc\b/i.test(name) ? { timecode: "10:00:00:00" } : {}),
           });
           p.items.push(
             fromDetail({

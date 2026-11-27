@@ -24,6 +24,11 @@ ove audio duck <project> --music <items|tracks> --under <items|tracks> [--depth 
 - **add** probes every file first, then adds media and clips in one revision: video and images on Main, audio-only
   files on Audio (or `--track`), one after another from the end of the track (or from `--at`). A file already in the
   project is reused. Images get `--image-duration` (5 s).
+- **probe** prints container, streams, duration and frame rate. When the file carries a start timecode (a QuickTime
+  timecode track, MXF, Broadcast WAV `time_reference` or iXML), it also prints `sourceTimecode`: `frames` since
+  midnight, the exact rate as `rateNum`/`rateDen`, `dropFrame`, and for Broadcast WAV the exact start in `samples`
+  at `sampleRate`. Files without timecode print no `sourceTimecode`. `add` keeps the timecode on the media entry
+  (`data.sourceTimecode`), and `ove audio sync --mode timecode` uses it.
 - **remove** deletes the media and every clip that uses it. **relink** points media at a moved file, or finds every
   offline file by name under `--folder` (4 levels deep).
 - **grab** decodes the frame at a time (the last frame past the end); **filmstrip** makes a contact sheet of `--count`

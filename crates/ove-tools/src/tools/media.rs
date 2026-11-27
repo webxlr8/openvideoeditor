@@ -129,6 +129,9 @@ pub(crate) fn describe(
         data.insert("format".into(), info["container"].clone());
         data.insert("duration".into(), micros_to_json(dur));
         data.insert("hasAudio".into(), has_audio.into());
+        if let Some(tc) = info.get("sourceTimecode").filter(|t| t.is_object()) {
+            data.insert("sourceTimecode".into(), tc.clone());
+        }
         if has_video {
             let v = &info["video"];
             data.insert("width".into(), v["width"].clone());

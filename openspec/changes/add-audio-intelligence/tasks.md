@@ -2,10 +2,10 @@
 
 ## 1. Source timecode
 
-- [ ] 1.1 Read the timecode tag in probe and add our own Broadcast WAV and iXML chunk reader; store `sourceTimecode`
+- [x] 1.1 Read the timecode tag in probe and add our own Broadcast WAV and iXML chunk reader; store `sourceTimecode`
       on media entries; verify fixtures for a 23.976 drop-frame video, a 25 fps video, a Broadcast WAV and a file
       without timecode, and that a video and a WAV with shared timecode align to the exact sample.
-- [ ] 1.2 Show timecode in the media details and in `ove media probe --json`; verify a CLI golden test and update
+- [x] 1.2 Show timecode in the media details and in `ove media probe --json`; verify a CLI golden test and update
       `docs/cli`.
 
 ## 2. Audio sync

@@ -135,3 +135,18 @@ when they are next probed; missing values mean "no timecode".
 To be filled during apply: sync accuracy at head and tail and drift error on fixtures, sync run time for a 2 h
 reference against 10 targets, beat accuracy on fixtures, denoise noise reduction and real-time factor, on the macOS
 and Windows reference machines.
+
+### Source timecode (group 1, Windows 11 x64)
+
+- `crates/ove-media/tests/timecode.rs` probes fixtures made by the fixture FFmpeg: a 23.976 video at 10:00:00:00
+  (864,000 frames, start exactly 864,000 × 1001 / 24,000 s), a 29.97 drop-frame video at 10:00:00;00
+  (1,078,920 frames), a 25 fps MP4 at 01:02:03:04, a phone-style MP4 without timecode (no `sourceTimecode`), and
+  Broadcast WAV files written chunk by chunk (`bext` with iXML rate, `bext` only, iXML only, zero reference, none).
+- A video at 10:00:00:00 (23.976) and a WAV whose `time_reference` is 4 s later are 192,000 samples apart at
+  48 kHz, exactly; one more sample in the WAV gives 192,001.
+- Deviation from the task text: FFmpeg refuses drop-frame at 23.976 ("drop frame is only allowed with multiples of
+  30000/1001"), and drop-frame timecode is not defined for 24-frame rates. The drop-frame path is therefore checked
+  at 29.97; the 23.976 fixture is non-drop. A 23.976 label written with `;` is accepted and keeps `dropFrame`, but
+  drops no frame numbers.
+- A 23.976 recorder 4 real seconds after 10:00:00:00 is labelled 10:00:03:23, not 10:00:04:00: 4 s at 24000/1001 is
+  95.9 frames. Sync uses the exact start, not the label.

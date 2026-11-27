@@ -487,6 +487,12 @@ kbd {
   background: rgba(0, 0, 0, 0.6);
   font-size: 11px;
 }
+.media-tc {
+  padding: 0 8px 6px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+}
 .media-name {
   display: flex;
   align-items: center;

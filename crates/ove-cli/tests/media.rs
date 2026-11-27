@@ -197,3 +197,40 @@ fn add_inspect_look_and_remove() {
     assert_eq!(v["result"]["isError"], false, "{v}");
     assert!(content.iter().any(|c| c["type"] == "image" && c["mimeType"] == "image/png"), "{line}");
 }
+
+/// Task 1.2: `media probe --json` prints the source timecode (golden), and `media add` keeps it on the media entry.
+#[test]
+fn probe_prints_source_timecode() {
+    if ffmpeg().is_none() {
+        eprintln!("skipped: no ffmpeg CLI to make fixtures (set OVE_FIXTURE_FFMPEG)");
+        return;
+    }
+    let d = tempfile::tempdir().unwrap();
+    let lib = d.path().join("lib");
+    std::fs::create_dir_all(&lib).unwrap();
+    ove_store::Library::open(&lib, Arc::new(ove_core::SystemClock)).unwrap();
+    let cam = make(
+        d.path(),
+        "cam.mov",
+        &["-f", "lavfi", "-i", "testsrc=s=160x90:r=30000/1001:d=1", "-c:v", "mpeg4", "-timecode", "10:00:00;00"],
+    );
+    let phone = make(d.path(), "phone.mp4", &["-f", "lavfi", "-i", "testsrc=s=160x90:r=30:d=1", "-c:v", "mpeg4"]);
+    ove(&lib, &["project", "create", "Tc"]);
+    let probe = ove(&lib, &["media", "probe", "Tc", cam.to_str().unwrap()]);
+    assert_eq!(
+        probe["sourceTimecode"],
+        json!({"frames": 1_078_920, "rateNum": 30000, "rateDen": 1001, "dropFrame": true, "source": "container"}),
+        "{probe}"
+    );
+    let none = ove(&lib, &["media", "probe", "Tc", phone.to_str().unwrap()]);
+    assert!(none.get("sourceTimecode").is_none(), "{none}");
+
+    ove(&lib, &["media", "add", "Tc", cam.to_str().unwrap()]);
+    let doc: Value = serde_json::from_slice(&std::fs::read(lib.join("Tc.ove/project.json")).unwrap()).unwrap();
+    let media = doc["project"]["media"]
+        .as_array()
+        .cloned()
+        .or_else(|| doc["project"]["media"].as_object().map(|m| m.values().cloned().collect()));
+    let entry = media.unwrap().into_iter().next().unwrap();
+    assert_eq!(entry["data"]["sourceTimecode"]["frames"], 1_078_920, "{entry}");
+}

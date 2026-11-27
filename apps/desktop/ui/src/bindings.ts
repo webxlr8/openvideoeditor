@@ -1559,6 +1559,8 @@ export type MediaView_Deserialize = {
 	thumbnail?: string | null,
 	/**  The hover-skim sheet, once built (served at `ove-skim://localhost/<contentId>.jpg`). */
 	skim?: SkimView | null,
+	/**  Start timecode label (`HH:MM:SS:FF`, `;` for drop-frame) when the file carries one. */
+	timecode?: string | null,
 };
 
 export type MediaView_Serialize = {
@@ -1575,6 +1577,8 @@ export type MediaView_Serialize = {
 	thumbnail: string | null,
 	/**  The hover-skim sheet, once built (served at `ove-skim://localhost/<contentId>.jpg`). */
 	skim: SkimView | null,
+	/**  Start timecode label (`HH:MM:SS:FF`, `;` for drop-frame) when the file carries one. */
+	timecode?: string,
 };
 
 /**  One reading as the UI uses it. Times are media seconds; levels are dB. */
