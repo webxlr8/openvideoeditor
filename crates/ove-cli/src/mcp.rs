@@ -47,6 +47,8 @@ const PROTOCOLS: [&str; 3] = ["2025-06-18", "2025-03-26", "2024-11-05"];
 /// How long the session keeps a project open after its last call (unify-agent-tool-layer task 4.3): calls in a
 /// burst skip opening the bundle and writing its snapshot, and the project is free again for the app and other
 /// writers soon after the agent stops. `OVE_MCP_HOLD_MS` overrides it (0 closes after every call).
+/// Another writer waits [`ove_tools::bundle::WAIT_FOR_SESSION`] for a held project, which must stay at least this
+/// hold plus 5 s (checked by `the_wait_for_a_session_outlasts_its_hold`).
 pub const HOLD: std::time::Duration = std::time::Duration::from_secs(2);
 
 fn hold() -> std::time::Duration {
@@ -322,6 +324,18 @@ mod tests {
         // A notification that panics gets no reply.
         let note = json!({"jsonrpc": "2.0", "method": "tools/call", "params": {"name": "show_project", "arguments": {"project": "p"}}});
         assert!(handle_contained(&note, &mut ctx).is_none());
+    }
+
+    /// A second writer waits for a session's held project long enough for the hold to end, with 5 s of margin
+    /// for a loaded machine; else a second agent gets `project.locked` from a session that is about to let go.
+    #[test]
+    fn the_wait_for_a_session_outlasts_its_hold() {
+        let margin = std::time::Duration::from_secs(5);
+        assert!(
+            ove_tools::bundle::WAIT_FOR_SESSION >= HOLD + margin,
+            "WAIT_FOR_SESSION {:?} must be at least HOLD {HOLD:?} + {margin:?}",
+            ove_tools::bundle::WAIT_FOR_SESSION
+        );
     }
 
     #[test]

@@ -204,28 +204,34 @@ impl Mcp {
         self.out.read_line(&mut reply).unwrap();
     }
 
-    fn rename(&mut self, id: &str, to: &str) {
+    /// Renames item `id` with a text edit and returns the `apply_timeline` result (the caller checks it).
+    #[must_use]
+    fn rename(&mut self, id: &str, to: &str) -> Value {
         let printed = self.call("print_timeline", json!({"project": "Demo"}));
         let text = printed["structuredContent"]["text"].as_str().unwrap();
         let line = element(text, id);
         let edits = json!([{"oldText": line, "newText": line.replacen("name=\"Item", &format!("name=\"{to}"), 1)}]);
-        let r = self.call(
+        self.call(
             "apply_timeline",
             json!({"project": "Demo", "rev": printed["structuredContent"]["rev"], "edits": edits}),
-        );
-        assert_eq!(r["isError"], false, "{r}");
+        )
     }
 }
 
+/// Both sessions run with a short hold, so each lets go of the project soon after its call and the other's
+/// writer (which waits up to `WAIT_FOR_SESSION` for it) gets it well inside that wait, even on a loaded machine.
 #[test]
 fn two_sessions_are_told_apart_and_each_undoes_only_its_own_change() {
     let (_d, lib) = setup(3);
-    let mut one = Mcp::start(&lib);
-    let mut two = Mcp::start(&lib);
+    let short_hold = [("OVE_MCP_HOLD_MS", "200")];
+    let mut one = Mcp::start_with(&lib, &short_hold);
+    let mut two = Mcp::start_with(&lib, &short_hold);
     one.initialize("claude-code");
     two.initialize("codex");
-    one.rename("i0", "One");
-    two.rename("i1", "Two");
+    let r = one.rename("i0", "One");
+    assert_eq!(r["isError"], false, "session one's rename: {r}");
+    let r = two.rename("i1", "Two");
+    assert_eq!(r["isError"], false, "session two's rename: {r}");
     let h = one.call("timeline_history", json!({"project": "Demo"}));
     let revs = h["structuredContent"]["revisions"].as_array().unwrap();
     let last: Vec<&Value> = revs.iter().rev().take(2).map(|r| &r["actor"]).collect();
