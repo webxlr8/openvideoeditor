@@ -128,6 +128,11 @@
           "type": "boolean",
           "description": "Muted tracks play no audio.",
           "default": false
+        },
+        "syncLock": {
+          "type": "boolean",
+          "description": "Ripple edits on other tracks shift this track's items too.",
+          "default": true
         }
       }
     },
@@ -257,6 +262,10 @@
             "pendingDescription": {
               "type": "string",
               "description": "What the pending placeholder should become."
+            },
+            "link": {
+              "type": "string",
+              "description": "Link group: items with the same value move, trim, slip and delete together."
             },
             "transform": {
               "type": "object",
@@ -811,6 +820,10 @@
               "type": "string",
               "description": "What the pending placeholder should become."
             },
+            "link": {
+              "type": "string",
+              "description": "Link group: items with the same value move, trim, slip and delete together."
+            },
             "transform": {
               "type": "object",
               "properties": {
@@ -1295,6 +1308,10 @@
               "type": "string",
               "description": "What the pending placeholder should become."
             },
+            "link": {
+              "type": "string",
+              "description": "Link group: items with the same value move, trim, slip and delete together."
+            },
             "transform": {
               "type": "object",
               "properties": {
@@ -1743,6 +1760,10 @@
             "pendingDescription": {
               "type": "string",
               "description": "What the pending placeholder should become."
+            },
+            "link": {
+              "type": "string",
+              "description": "Link group: items with the same value move, trim, slip and delete together."
             },
             "textContent": {
               "type": "string",
@@ -2222,6 +2243,10 @@
               "type": "string",
               "description": "What the pending placeholder should become."
             },
+            "link": {
+              "type": "string",
+              "description": "Link group: items with the same value move, trim, slip and delete together."
+            },
             "captionText": {
               "type": "string",
               "description": "Full caption text."
@@ -2680,6 +2705,10 @@
               "type": "string",
               "description": "What the pending placeholder should become."
             },
+            "link": {
+              "type": "string",
+              "description": "Link group: items with the same value move, trim, slip and delete together."
+            },
             "codeComposition": {
               "type": "object",
               "properties": {
@@ -3089,6 +3118,10 @@
             "pendingDescription": {
               "type": "string",
               "description": "What the pending placeholder should become."
+            },
+            "link": {
+              "type": "string",
+              "description": "Link group: items with the same value move, trim, slip and delete together."
             },
             "adjustmentKind": {
               "type": "string",
@@ -3588,6 +3621,10 @@
             "pendingDescription": {
               "type": "string",
               "description": "What the pending placeholder should become."
+            },
+            "link": {
+              "type": "string",
+              "description": "Link group: items with the same value move, trim, slip and delete together."
             },
             "shaderComposition": {
               "type": "object",

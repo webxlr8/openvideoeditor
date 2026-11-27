@@ -980,6 +980,43 @@
         "destructiveHint": false,
         "openWorldHint": false
       }
+    },
+    {
+      "name": "edit_timeline",
+      "description": "Run one edit verb as one revision (one undo step): split, trim, rippleTrim, rippleDelete, delete, insert, overwrite, lift, extract, closeGap, slip, slide, roll, move. Later items ripple on sync-locked tracks, linked items edit together, times snap to the frame grid. `request` is the edit as JSON, e.g. {\"op\":\"rippleDelete\",\"tracks\":[\"a1\"],\"ranges\":[{\"start\":12.3,\"end\":14}]} (seconds). Returns the plan and the printed lines of what changed; a refusal names a code and the culprit item ids. With `rev`, a request made against an older revision is moved through the ripples made since.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "request": {
+            "type": [
+              "object",
+              "string"
+            ],
+            "description": "The edit request (see `docs` topic `edit`)"
+          },
+          "rev": {
+            "type": "integer",
+            "description": "Revision the request was made against (default: the current one)"
+          },
+          "preview": {
+            "type": "boolean",
+            "description": "Return the plan without applying it"
+          }
+        },
+        "required": [
+          "request"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
     }
   ]
 }

@@ -69,14 +69,11 @@ pub fn plan_for(p: &Project, text: &str, prefer: Prefer) -> Result<Plan, Refusal
             message: format!("the projection's base revision {rev} is not available ({e})"),
         })
     };
-    ove_projection::plan(&ApplyInput {
-        text,
-        current: p.doc(),
-        base_for: &base_for,
-        bundle: Some(p.bundle()),
-        prefer,
-        now_ms: now_ms(),
-    })
+    // Rebased through ripples made since the text's revision, so a concurrent ripple edit still lines up.
+    ove_projection::plan_rebased(
+        &ApplyInput { text, current: p.doc(), base_for: &base_for, bundle: Some(p.bundle()), prefer, now_ms: now_ms() },
+        &|rev| p.ripples_since(rev),
+    )
 }
 
 pub fn plan_json(p: &Plan) -> Value {

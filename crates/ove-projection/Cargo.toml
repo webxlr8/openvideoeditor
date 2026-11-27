@@ -19,6 +19,7 @@ serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
 
 [dev-dependencies]
 ove-core = { path = "../ove-core", features = ["testgen"] }
+ove-edit = { path = "../ove-edit" }
 proptest = "1.12"
 tempfile = "3"
 

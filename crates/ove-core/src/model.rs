@@ -135,6 +135,16 @@ impl Document {
         self.project.items.get(id).map(|a| a.as_ref())
     }
 
+    /// The timeline frame rate (`fps`), or the default 30 when absent or invalid.
+    pub fn fps(&self) -> f64 {
+        self.project
+            .extra
+            .get("fps")
+            .and_then(Value::as_f64)
+            .filter(|f| f.is_finite() && (1.0..=240.0).contains(f))
+            .unwrap_or(schema::DEFAULT_FPS)
+    }
+
     /// Duration of the timeline: the latest item end.
     pub fn duration(&self) -> Micros {
         self.project.items.values().map(|i| i.end).max().unwrap_or(0)

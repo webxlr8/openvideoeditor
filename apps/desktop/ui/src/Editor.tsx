@@ -23,9 +23,9 @@ import { Dropdown } from "./Menu";
 import { fire, runCommand } from "./notify";
 import { formatShort, formatTimecode, parseTimecode } from "./timecode";
 import { Viewer } from "./Viewer";
-import { type EditResult, itemDetail, snapToFrame } from "./edit";
+import { type EditResult, firstTrack, itemDetail, snapToFrame } from "./edit";
 import { Inspector } from "./Inspector";
-import { EDIT_ACTIONS, MOD, keyToAction } from "./keys";
+import { EDIT_ACTIONS, MOD, type Tool, keyToAction } from "./keys";
 import { CaptionsPanel } from "./CaptionsPanel";
 import {
   AudioPanel,
@@ -131,6 +131,8 @@ export function Editor({
   const [zoom, setZoom] = useState<number | null>(null);
   const [fitPps, setFitPps] = useState(50);
   const [snap, setSnap] = useState(true);
+  const [tool, setTool] = useState<Tool>("select");
+  const [range, setRange] = useState<{ in: number | null; out: number | null }>({ in: null, out: null });
   const [help, setHelp] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   /** Items an assistant turn changed, highlighted on the timeline while its "Show" is on (in the project it was
@@ -189,13 +191,69 @@ export function Editor({
     [fitPps],
   );
 
+  /** Runs an edit verb through the shared planners (one revision; a refusal shows as an error). */
+  const plan = useCallback((request: Record<string, unknown>) => onEdit(commands.editPlan(JSON.stringify(request))), [onEdit]);
+
+  /** Inserts or overwrites the clip shown in the viewer (a project file previewed as the source) at the playhead. */
+  const placeSource = useCallback(
+    (op: "insert" | "overwrite") => {
+      const src = project?.media.find((m) => media && m.path === media.path);
+      if (!project || !src || timelineMode) {
+        onError({ code: "invalid_argument", message: "Show a clip from the project in the viewer first (its source), then insert or overwrite it." });
+        return;
+      }
+      const audio = src.kind === "audio";
+      const track = audio ? firstTrack(project, "audio", "t_audio") : firstTrack(project, "video", "t_main");
+      if (!track) return;
+      const len = src.durationSeconds ?? 5;
+      plan({
+        op,
+        track,
+        at: snapToFrame(playhead),
+        items: [{ type: audio ? "audio" : "video", mediaItemId: src.id, name: src.name, startTime: 0, endTime: len }],
+      });
+    },
+    [project, media, timelineMode, playhead, plan, onError],
+  );
+
   // Editing shortcuts (transport, undo/redo and diagnostics are handled by the app).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const a = keyToAction(e);
       if (!a || !EDIT_ACTIONS.has(a.type)) return;
       e.preventDefault();
+      const at = snapToFrame(playhead);
       switch (a.type) {
+        case "tool":
+          setTool(a.tool);
+          break;
+        case "markIn":
+          setRange((r) => ({ in: at, out: r.out !== null && r.out > at ? r.out : null }));
+          break;
+        case "markOut":
+          setRange((r) => ({ in: r.in !== null && r.in < at ? r.in : null, out: at }));
+          break;
+        case "markClip":
+          if (item) setRange({ in: item.start ?? 0, out: item.end ?? 0 });
+          break;
+        case "rippleTrimStart":
+        case "rippleTrimEnd":
+          if (item && at > (item.start ?? 0) && at < (item.end ?? 0))
+            plan({ op: "rippleTrim", item: item.id, edge: a.type === "rippleTrimStart" ? "start" : "end", to: at });
+          break;
+        case "rippleDelete":
+          if (range.in !== null && range.out !== null && range.out > range.in) {
+            plan({ op: "extract", tracks: [], range: { start: range.in, end: range.out } });
+            setRange({ in: null, out: null });
+          } else if (selection.length) {
+            plan({ op: "rippleDelete", items: selection });
+            onSelectMany([]);
+          }
+          break;
+        case "insert":
+        case "overwrite":
+          placeSource(a.type);
+          break;
         case "delete":
           if (selection.length) {
             onEdit(commands.removeItems(selection));
@@ -260,6 +318,9 @@ export function Editor({
     paste,
     zoomBy,
     help,
+    plan,
+    placeSource,
+    range,
   ]);
 
   const panelProps: PanelProps | null = project
@@ -405,6 +466,8 @@ export function Editor({
           }
           onEdit={onEdit}
           onSplit={() => item && onEdit(commands.splitItem(item.id, playhead))}
+          tool={tool}
+          setTool={setTool}
           zoom={zoom}
           fitPps={fitPps}
           setZoom={setZoom}
@@ -442,6 +505,8 @@ export function Editor({
               canPaste={clipboard.length > 0}
               onFitWidth={setFitPps}
               highlight={review?.ids}
+              tool={tool}
+              range={range}
             />
           </ErrorBoundary>
         ) : (
@@ -727,7 +792,11 @@ function TransportBar({
   onHelp,
   help,
   onHistory,
+  tool,
+  setTool,
 }: {
+  tool: Tool;
+  setTool: (t: Tool) => void;
   playback: PlaybackState;
   onTransport: (c: TransportCommand) => void;
   layout: Layout;
@@ -800,6 +869,26 @@ function TransportBar({
         >
           <Icon name="scissors" size={16} />
         </button>
+        <span className="tool-group" role="group" aria-label="Timeline tool">
+          {(
+            [
+              ["select", "Select tool: move and trim (V)", "V"],
+              ["blade", "Blade tool: click a clip to cut it (B)", "B"],
+              ["trim", "Trim tool: drag to slip, Alt-drag to slide, drag an edit point to roll (T)", "T"],
+            ] as const
+          ).map(([id, title, label]) => (
+            <button
+              key={id}
+              className={`icon-btn tool-btn${tool === id ? " on" : ""}`}
+              title={title}
+              aria-pressed={tool === id}
+              data-testid={`tool-${id}`}
+              onClick={() => setTool(id)}
+            >
+              {id === "blade" ? <Icon name="scissors" size={14} /> : label}
+            </button>
+          ))}
+        </span>
         <button
           className={`icon-btn${snap ? " on" : ""}`}
           title={snap ? "Snapping on" : "Snapping off"}

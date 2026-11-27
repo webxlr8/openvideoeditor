@@ -13,7 +13,7 @@ use serde_json::Value;
 
 pub use ove_tools::Fail;
 pub use ove_tools::ctx::{Editor, via};
-pub use ove_tools::fail::now_ms;
+pub use ove_tools::fail::{now_ms, secs};
 
 pub type Out = Result<(Value, String), Fail>;
 

@@ -11,6 +11,7 @@ publish.workspace = true
 dunce = "1.0"
 ove-control = { path = "../ove-control" }
 ove-core = { path = "../ove-core" }
+ove-edit = { path = "../ove-edit" }
 ove-guard = { path = "../ove-guard" }
 ove-interchange = { path = "../ove-interchange" }
 ove-projection = { path = "../ove-projection" }

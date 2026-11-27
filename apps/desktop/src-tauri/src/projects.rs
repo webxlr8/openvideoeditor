@@ -95,6 +95,8 @@ pub struct TrackView {
     pub locked: bool,
     pub visible: bool,
     pub muted: bool,
+    /// Ripple edits on other tracks shift this track too.
+    pub sync_lock: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -117,6 +119,8 @@ pub struct ItemView {
     pub transition_in: f64,
     pub transition_out: f64,
     pub speed: f64,
+    /// Link group value, when the item is linked.
+    pub link: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -144,6 +148,8 @@ pub struct ProjectView {
     pub bundle: String,
     pub rev: f64,
     pub aspect_ratio: String,
+    /// Timeline frame rate (edits snap to its frame grid).
+    pub fps: f64,
     pub duration_seconds: f64,
     pub can_undo: bool,
     pub can_redo: bool,
@@ -290,6 +296,7 @@ fn view_from(
         bundle: p.bundle().display().to_string(),
         rev: d.project.rev as f64,
         aspect_ratio: d.project.aspect_ratio.clone(),
+        fps: d.fps(),
         duration_seconds: secs(d.duration()),
         can_undo: p.session().can_undo(),
         can_redo: p.session().can_redo(),
@@ -305,6 +312,7 @@ fn view_from(
                 locked: track_bool(t, "locked", false),
                 visible: track_bool(t, "visible", true),
                 muted: track_bool(t, "muted", false),
+                sync_lock: track_bool(t, "syncLock", true),
             })
             .collect(),
         items: d
@@ -337,6 +345,7 @@ fn view_from(
                 transition_in: transition_secs(i, "transitionIn"),
                 transition_out: transition_secs(i, "transitionOut"),
                 speed: i.fields.get("playbackSpeed").and_then(Value::as_f64).unwrap_or(1.0),
+                link: i.fields.get("link").and_then(Value::as_str).map(str::to_string),
             })
             .collect(),
         media,
@@ -758,6 +767,8 @@ struct Probed {
     name: String,
     duration_us: i64,
     video: bool,
+    /// The file has sound as well as picture.
+    audio: bool,
 }
 
 /// Probes files, registers their records and makes thumbnails. Slow (decoding), so it runs outside the project's
@@ -798,9 +809,55 @@ fn probe_paths(state: &AppState, paths: &[String], now: i64) -> AppResult<(PathB
         } else {
             relock(&state.projects.media).put_thumbnail(&bundle, &id, None);
         }
-        probed.push(Probed { media, entry, id, name, duration_us, video: info.video.is_some() });
+        let (video, audio) = (info.video.is_some(), info.audio.is_some());
+        probed.push(Probed { media, entry, id, name, duration_us, video, audio });
     }
     Ok((bundle, probed, errors))
+}
+
+/// The ops that add probed files: each file's media record, then its items appended to the Main track (audio-only
+/// files to the Audio track). A file with picture and sound becomes a linked pair: a muted video item on Main and an
+/// audio item on the Audio track at the same time, sharing one new `link` value, so they edit together and the sound
+/// can be cut apart (J and L cuts) with the link override.
+fn import_ops(doc: &ove_core::Document, probed: Vec<Probed>, now: i64) -> Vec<Op> {
+    let track_end = |track: &str| doc.items_on_track(track).iter().map(|i| i.end).max().unwrap_or(0);
+    let (mut main_end, mut audio_end) = (track_end("t_main"), track_end("t_audio"));
+    let has_audio_track = doc.track("t_audio").is_some();
+    let t = ove_core::time::micros_to_json;
+    let mut ops = Vec::new();
+    for (n, f) in probed.into_iter().enumerate() {
+        ops.push(Op::AddMedia { media: f.media, entry: Some(f.entry) });
+        let id = format!("i_{:x}_{n}", now);
+        if !f.video {
+            audio_end += f.duration_us;
+            let at = audio_end - f.duration_us;
+            ops.push(Op::AddItem {
+                item: json!({"id": id, "trackId": "t_audio", "type": "audio", "startTime": t(at),
+                    "endTime": t(at + f.duration_us), "name": f.name, "mediaItemId": f.id}),
+            });
+            continue;
+        }
+        // Linked sound goes on the Audio track at the picture's time; the pair starts after both tracks' ends.
+        let linked = f.audio && has_audio_track;
+        let at = if linked { main_end.max(audio_end) } else { main_end };
+        main_end = at + f.duration_us;
+        let mut video = json!({"id": id, "trackId": "t_main", "type": "video", "startTime": t(at),
+            "endTime": t(main_end), "name": f.name, "mediaItemId": f.id});
+        if linked {
+            let link = format!("l_{:x}_{n}", now);
+            audio_end = main_end;
+            video["muted"] = true.into();
+            video["link"] = link.clone().into();
+            ops.push(Op::AddItem { item: video });
+            ops.push(Op::AddItem {
+                item: json!({"id": format!("{id}_a"), "trackId": "t_audio", "type": "audio", "startTime": t(at),
+                    "endTime": t(main_end), "name": f.name, "mediaItemId": f.id, "link": link}),
+            });
+        } else {
+            ops.push(Op::AddItem { item: video });
+        }
+    }
+    ops
 }
 
 /// Appends probed files to the Main track (audio-only files to the Audio track) as one revision.
@@ -819,28 +876,13 @@ fn add_probed(
     }
     let doc = p.doc();
     let known: BTreeSet<&str> = doc.registry.values().map(|e| e.native_path.as_str()).collect();
-    let track_end = |track: &str| doc.items_on_track(track).iter().map(|i| i.end).max().unwrap_or(0);
-    let (mut main_end, mut audio_end) = (track_end("t_main"), track_end("t_audio"));
-    let mut ops = Vec::new();
-    for (n, f) in probed.into_iter().enumerate() {
+    for f in &probed {
         if f.entry.get("nativePath").and_then(Value::as_str).is_some_and(|p| known.contains(p)) {
             tracing::info!(name = f.name, "media already in the project; adding another clip");
         }
-        ops.push(Op::AddMedia { media: f.media, entry: Some(f.entry) });
-        let (track, kind, at) = if f.video {
-            main_end += f.duration_us;
-            ("t_main", "video", main_end - f.duration_us)
-        } else {
-            audio_end += f.duration_us;
-            ("t_audio", "audio", audio_end - f.duration_us)
-        };
-        ops.push(Op::AddItem {
-            item: json!({"id": format!("i_{:x}_{n}", now), "trackId": track, "type": kind,
-                "startTime": ove_core::time::micros_to_json(at), "endTime": ove_core::time::micros_to_json(at + f.duration_us),
-                "name": f.name, "mediaItemId": f.id}),
-        });
     }
-    let count = ops.len() / 2;
+    let count = probed.len();
+    let ops = import_ops(doc, probed, now);
     let summary = format!(
         "{}import {count} file{}",
         if source == Source::Agent { "assistant: " } else { "" },
@@ -890,26 +932,24 @@ pub async fn import_media_dialog(app: AppHandle) -> AppResult<Option<ProjectView
     import_media(app, paths).await.map(Some)
 }
 
-/// Moves an item to a new start time (and optionally another track), keeping its duration.
+/// Moves an item to a new start time (and optionally another track), keeping its duration. Linked items move with
+/// it unless `linked` is false (Alt in the timeline). Landing on another item is allowed (the overlap plays as a
+/// crossfade).
 #[tauri::command]
 #[specta::specta]
-pub async fn move_item(app: AppHandle, id: String, start: f64, track_id: Option<String>) -> AppResult<ProjectView> {
+pub async fn move_item(
+    app: AppHandle,
+    id: String,
+    start: f64,
+    track_id: Option<String>,
+    linked: Option<bool>,
+) -> AppResult<ProjectView> {
+    let start = ove_core::time::secs_to_micros(start.max(0.0))
+        .ok_or_else(|| AppError::new(ErrorCode::InvalidArgument, "The time is invalid."))?;
     serial(&app, "move_item", move |app, state| {
-        let (old_start, old_end) = {
-            let g = lock(&state.projects.open)?;
-            let p = g.as_ref().ok_or_else(|| AppError::new(ErrorCode::InvalidArgument, "No project is open."))?;
-            let i =
-                p.doc().item(&id).ok_or_else(|| AppError::new(ErrorCode::NotFound, "That clip no longer exists."))?;
-            (i.start, i.end)
-        };
-        let new_start = ove_core::time::secs_to_micros(start.max(0.0)).unwrap_or(old_start);
-        let mut set = Map::new();
-        set.insert("startTime".into(), ove_core::time::micros_to_json(new_start));
-        set.insert("endTime".into(), ove_core::time::micros_to_json(new_start + (old_end - old_start)));
-        if let Some(t) = track_id {
-            set.insert("trackId".into(), t.into());
-        }
-        edit(app, state, vec![Op::UpdateItem { id, set }], "move clip")
+        let linked = linked.unwrap_or(true);
+        let req = ove_edit::Request::Move { item: id, start, track: track_id, linked, crossfade: true };
+        crate::edits::plan_and_apply(app, state, req)
     })
     .await
 }
@@ -917,44 +957,23 @@ pub async fn move_item(app: AppHandle, id: String, start: f64, track_id: Option<
 #[tauri::command]
 #[specta::specta]
 pub async fn remove_items(app: AppHandle, ids: Vec<String>) -> AppResult<ProjectView> {
+    // Linked items go with the items deleted.
     serial(&app, "remove_items", move |app, state| {
-        let n = ids.len();
-        edit(app, state, vec![Op::RemoveItems { ids }], &format!("delete {n} item{}", if n == 1 { "" } else { "s" }))
+        crate::edits::plan_and_apply(app, state, ove_edit::Request::Delete { items: ids, linked: true })
     })
     .await
 }
 
-/// Splits a clip at a timeline time (seconds): the left part keeps the id, the right part is a new item.
+/// Splits a clip at a timeline time (seconds): the left part keeps the id, the right part is a new item. Linked
+/// items are split at the same time. Speed, reverse playback, keyframes, caption segments, fades and transitions are
+/// carried over so both parts look and sound exactly like the uncut clip.
 #[tauri::command]
 #[specta::specta]
 pub async fn split_item(app: AppHandle, id: String, at: f64) -> AppResult<ProjectView> {
+    let at = ove_core::time::secs_to_micros(at).unwrap_or(0);
     serial(&app, "split_item", move |app, state| {
-        let (item, right_id) = {
-            let g = lock(&state.projects.open)?;
-            let p = g.as_ref().ok_or_else(|| AppError::new(ErrorCode::InvalidArgument, "No project is open."))?;
-            let item = p
-                .doc()
-                .item(&id)
-                .cloned()
-                .ok_or_else(|| AppError::new(ErrorCode::NotFound, "That clip no longer exists."))?;
-            let mut right_id = crate::edits::new_item_id();
-            while p.doc().item(&right_id).is_some() {
-                right_id = crate::edits::new_item_id();
-            }
-            (item, right_id)
-        };
-        let cut = ove_core::time::secs_to_micros(at).unwrap_or(0);
-        // Speed, reverse playback, keyframes, caption segments, fades and transitions are carried over so both
-        // parts look and sound exactly like the uncut clip.
-        let split = ove_core::retime::split(&item, cut, &right_id).ok_or_else(|| {
-            AppError::new(ErrorCode::InvalidArgument, "Move the playhead inside the clip to split it.")
-        })?;
-        let mut ops = vec![Op::UpdateItem { id: id.clone(), set: split.left_set }];
-        if !split.left_unset.is_empty() {
-            ops.push(Op::UnsetItemFields { id, fields: split.left_unset });
-        }
-        ops.push(Op::AddItem { item: split.right });
-        edit(app, state, ops, "split clip")
+        let req = ove_edit::Request::Split { items: vec![id], tracks: vec![], at, linked: true };
+        crate::edits::plan_and_apply(app, state, req)
     })
     .await
 }
@@ -1131,6 +1150,38 @@ mod tests {
         let mut set = Map::new();
         set.insert("name".into(), name.into());
         vec![Op::UpdateProject { set, unset: vec![] }]
+    }
+
+    #[test]
+    fn importing_a_camera_clip_makes_a_linked_pair() {
+        let d = tempfile::tempdir().unwrap();
+        let lib = Library::open(d.path(), clock()).unwrap();
+        let mut p = lib.create("Camera").unwrap();
+        p.apply(default_tracks(), Source::Gui, None).unwrap();
+        let probed = |id: &str, video: bool, audio: bool| Probed {
+            media: json!({"id": id, "data": {"type": if video { "video" } else { "audio" }, "fileName": format!("{id}.mov"),
+                "duration": 4, "hasAudio": audio}}),
+            entry: json!({"mediaId": id, "nativePath": format!("/x/{id}.mov"), "ownedByBundle": false}),
+            id: id.into(),
+            name: format!("{id}.mov"),
+            duration_us: 4_000_000,
+            video,
+            audio,
+        };
+        let ops = import_ops(p.doc(), vec![probed("cam", true, true), probed("silent", true, false)], 7);
+        p.apply(ops, Source::Gui, None).unwrap();
+        let doc = p.doc();
+        let linked: Vec<_> = doc.project.items.values().filter(|i| i.fields.contains_key("link")).collect();
+        assert_eq!(linked.len(), 2, "one link value on two items");
+        assert_eq!(linked[0].fields["link"], linked[1].fields["link"]);
+        let (v, a) = if linked[0].kind == "video" { (linked[0], linked[1]) } else { (linked[1], linked[0]) };
+        assert_eq!((v.track_id.as_str(), a.track_id.as_str()), ("t_main", "t_audio"));
+        assert_eq!((v.start, v.end), (a.start, a.end), "same timing");
+        assert_eq!(v.fields["muted"], json!(true), "the sound plays once, from the audio item");
+        // The silent clip is a single video item after the pair.
+        let silent = doc.project.items.values().find(|i| i.media_id() == Some("silent")).unwrap();
+        assert!(!silent.fields.contains_key("link"));
+        assert_eq!(silent.start, 4_000_000);
     }
 
     #[test]

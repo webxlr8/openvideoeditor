@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
     "crates/ove-core",
+    "crates/ove-edit",
     "crates/ove-store",
     "crates/ove-projection",
     "crates/ove-cli",
@@ -24,6 +25,7 @@ members = [
 ]
 default-members = [
     "crates/ove-core",
+    "crates/ove-edit",
     "crates/ove-control",
     "crates/ove-generate",
     "crates/ove-interchange",

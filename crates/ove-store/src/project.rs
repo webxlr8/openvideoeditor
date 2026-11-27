@@ -342,6 +342,45 @@ impl Project {
         self.commit_prepared(prepared)
     }
 
+    /// [`Project::apply`] for a ripple edit: also records how it moved time on each track, so projections printed
+    /// before it can be rebased onto it (add-edit-planners-and-links).
+    pub fn apply_mapped(
+        &mut self,
+        ops: Vec<Op>,
+        source: Source,
+        summary: Option<String>,
+        time_map: ove_core::timemap::TimeMap,
+    ) -> Result<Committed> {
+        self.ensure_writable()?;
+        let prepared = self.session.prepare(ops, source, summary, self.clock.as_ref())?.with_time_map(time_map);
+        self.commit_prepared(prepared)
+    }
+
+    /// [`Project::apply_mapped`], recording who made the revision.
+    pub fn apply_mapped_as(
+        &mut self,
+        ops: Vec<Op>,
+        source: Source,
+        summary: Option<String>,
+        time_map: ove_core::timemap::TimeMap,
+        actor: Option<Actor>,
+    ) -> Result<Committed> {
+        self.ensure_writable()?;
+        let mut prepared = self.session.prepare(ops, source, summary, self.clock.as_ref())?.with_time_map(time_map);
+        prepared.record.actor = actor;
+        self.commit_prepared(prepared)
+    }
+
+    /// The ripples committed after revision `rev`, oldest first. Records that cannot be read are skipped (a
+    /// projection then rebases as if they were not ripples).
+    pub fn ripples_since(&self, rev: i64) -> Vec<ove_core::timemap::Ripple> {
+        self.records
+            .range(rev.saturating_add(1)..)
+            .filter_map(|(r, _)| read_record(&self.bundle, *r).ok())
+            .filter_map(|r| ove_core::timemap::Ripple::from_record(&r))
+            .collect()
+    }
+
     fn commit_prepared(&mut self, prepared: Prepared) -> Result<Committed> {
         let path = record_path(&self.bundle, prepared.record.rev);
         serde_json::to_vec(&prepared.record)

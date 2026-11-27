@@ -51,8 +51,8 @@ revision the file was printed from (the merge base). Lines, in order: format mar
 
 | Element | Contains | Attributes |
 |---|---|---|
-| `<timeline>` | `<track>` only | `aspect` (16:9, 4:3, 3:4, 9:16, 1:1, 4:5); others warn `attr.unknown` and are ignored |
-| `<track>` | items only | `id` (omit for a new track), `name`, `kind` (= document `type`: video, audio, caption, adjustment, layout), `locked`, `visible`, `muted`, unknown fields |
+| `<timeline>` | `<track>` only | `aspect` (16:9, 4:3, 3:4, 9:16, 1:1, 4:5), `fps` (frame rate, 1–240, default 30); others warn `attr.unknown` and are ignored |
+| `<track>` | items only | `id` (omit for a new track), `name`, `kind` (= document `type`: video, audio, caption, adjustment, layout), `locked`, `visible`, `muted`, `syncLock` (default `true`), unknown fields |
 | `<clip>` (video), `<image>`, `<audio>`, `<text>`, `<caption>`, `<code>`, `<adjustment>`, `<shader>` | nothing (self-closing) | see below |
 
 Track order is element order (first = top layer); the document's `order` is never written. An item's track is the
@@ -62,7 +62,27 @@ Item attribute renames: `start`↔`startTime`, `end`↔`endTime`, `in`↔`trimSt
 `src`↔`mediaItemId` (printed as the media name). Writing a document name (`startTime`, `trackId`, `type`, …) is
 `attr.reserved`.
 
-**Attribute order** (printer): `id`, `name`, `start`, `end`, `in`, `out`, `src`, `pending`, `pendingDescription`, then
+**Frame rate, sync lock and links.** `fps` on `<timeline>` sets the timeline's frame grid; edit commands snap to it.
+A file may place items off the grid: apply accepts them and verify reports `time.offFrame`. Removing `fps` returns
+to 30, and `fps={30}` is the same as no `fps`. `syncLock={false}` on a track keeps its items in place when a ripple
+edit on another track shifts later items. `link` on an item names a link group: items with the same `link` value
+move, trim, slip and delete together in the editor and in edit commands. Example:
+
+```tsx
+<timeline aspect="16:9" fps={25}>
+  <track id="t_v1" name="V1" kind="video">
+    <clip id="i_v" start={0} end={4} src="camera" link="L1" muted={true} />
+  </track>
+  <track id="t_a1" name="A1" kind="audio">
+    <audio id="i_a" start={0} end={4} src="camera" link="L1" />
+  </track>
+  <track id="t_music" name="Music" kind="audio" syncLock={false}>
+    <audio id="i_m" start={0} end={8} in={2.04} src="camera" />
+  </track>
+</timeline>
+```
+
+**Attribute order** (printer): `id`, `name`, `start`, `end`, `in`, `out`, `src`, `pending`, `pendingDescription`, `link`, then
 content fields of the type, look fields (transform, crop, opacity, …, effects), grade, sound fields — the order of the
 field registry (`docs/spec/project-schema-v1.md`, per type) — then unknown fields sorted by key.
 
@@ -115,9 +135,15 @@ verify (error). Filling = setting `src` and removing `pending`: the id, position
    ("removed N items" with ids and names); a changed id is a removal plus an addition.
 4. Field-level 3-way merge (known objects one key deeper, arrays whole): base B, file F, current C. C = B → F;
    C = F → nothing; otherwise a conflict, file wins by default, `--prefer editor` keeps C; every conflict is reported
-   with id, field, both values and the side kept. Removal vs edit is a conflict resolved the same way. Track order and
-   aspect are single values under the same rule.
+   with id, field, both values and the side kept. Removal vs edit is a conflict resolved the same way. Track order,
+   aspect and fps are single values under the same rule. When the apply removes every other member of a link
+   group, the plan lists the item left alone (`orphanedLinks`).
 5. A new item identical to one the editor gained since the base (the same file applied twice) is already applied.
+   Ripple edits made since the base (ripple delete, ripple trim, insert, extract, close gap, and their undo and
+   redo) are replayed onto the file first: for every item the file changed that is also in the base, the base's
+   start and end pass through each ripple's time map, and the file's start and end keep their distance from them.
+   So a file that moves item B 1 s later lands B 1 s after where the ripple put it. Items the file did not change,
+   and items the file adds, are not mapped. Conflicts on items a ripple touched carry `group: "ripple <rev>"`.
 6. The result is one batch through the document pipeline (invariants enforced, one revision, one undo step); an empty
    change set creates no revision.
 
@@ -155,6 +181,9 @@ Text-edit apply takes `{oldText, newText}` edits against the projection printed 
 | `past-source` | warning | A clip/audio item uses more source than the media has (`in + (end − start) × speed > duration`): video holds its last frame |
 | `missing-media` | error | Referenced media is not in the project, offline, or failed to probe |
 | `pending` | error | A pending placeholder |
+| `time.offFrame` | warning | An item's start or end is not on the timeline's frame grid (`fps`) |
+| `link.single` | warning | A link group has only one member |
+| `link.offset` | warning | Members of a link group show different source offsets (`start − in ÷ speed`); the message gives the drift in frames |
 
 Verify exits 1 when any finding is an error. Later changes register more lints (off-screen text, invalid
 compositions) in the same registry.

@@ -6,7 +6,7 @@ use crate::spec::{
     AGENTS, APP_READ, APP_WRITE, Arg, DESTRUCTIVE, IN_APP, MCP, ModelText, READ, SERVERS, ToolSpec, WRITE, arg, cli,
     req,
 };
-use crate::tools::{analyze, app, code, docs, exchange, media, project, timeline};
+use crate::tools::{analyze, app, code, docs, edit, exchange, media, project, timeline};
 
 const PROJECT: Arg = arg(
     "project",
@@ -18,6 +18,7 @@ const MEDIA: Arg = req("media", Str, "Media id, file name or path");
 const EDITS: &str = r#"{"type": "array", "items": {"type": "object", "properties": {"oldText": {"type": "string"}, "newText": {"type": "string"}}, "required": ["oldText", "newText"], "additionalProperties": false}}"#;
 const PREFER: &str = r#"{"type": "string", "enum": ["file", "editor"]}"#;
 const OBJECT: &str = r#"{"type": "object"}"#;
+const REQUEST: &str = r#"{"type": ["object", "string"]}"#;
 const SCOPE: &str = r#"{"type": "string", "enum": ["session", "turn"]}"#;
 const OPTIONS: &str = r#"{"type": "array", "items": {"type": "string"}, "maxItems": 4}"#;
 
@@ -499,5 +500,20 @@ pub static TOOLS: &[ToolSpec] = &[
         surfaces: SERVERS,
         run: project::use_project,
         model: ModelText::Text,
+    },
+    ToolSpec {
+        name: "edit_timeline",
+        aliases: &[],
+        about: "Run one edit verb as one revision (one undo step): split, trim, rippleTrim, rippleDelete, delete, insert, overwrite, lift, extract, closeGap, slip, slide, roll, move. Later items ripple on sync-locked tracks, linked items edit together, times snap to the frame grid. `request` is the edit as JSON, e.g. {\"op\":\"rippleDelete\",\"tracks\":[\"a1\"],\"ranges\":[{\"start\":12.3,\"end\":14}]} (seconds). Returns the plan and the printed lines of what changed; a refusal names a code and the culprit item ids. With `rev`, a request made against an older revision is moved through the ripples made since.",
+        args: &[
+            PROJECT,
+            req("request", Json(REQUEST), "The edit request (see `docs` topic `edit`)"),
+            arg("rev", Int, "Revision the request was made against (default: the current one)"),
+            arg("preview", Bool, "Return the plan without applying it"),
+        ],
+        annotations: WRITE,
+        surfaces: AGENTS,
+        run: edit::edit_timeline,
+        model: ModelText::Json,
     },
 ];

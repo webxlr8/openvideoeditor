@@ -18,6 +18,7 @@ ove-analyze = { path = "../ove-analyze", optional = true }
 ove-agents = { path = "../ove-agents" }
 ove-control = { path = "../ove-control" }
 ove-core = { path = "../ove-core" }
+ove-edit = { path = "../ove-edit" }
 ove-generate = { path = "../ove-generate" }
 ove-guard = { path = "../ove-guard" }
 ove-interchange = { path = "../ove-interchange" }

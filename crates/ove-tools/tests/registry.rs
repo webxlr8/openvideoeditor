@@ -210,3 +210,28 @@ fn the_tool_docs_list_every_tool() {
     }
     assert_eq!(doc, want, "docs/cli/tools.md is out of date (UPDATE_GOLDEN=1 rewrites its table)");
 }
+
+#[test]
+fn the_assistant_runs_edit_timeline_on_the_open_project() {
+    assert!(ove_tools::anthropic_list().iter().any(|t| t["name"] == "edit_timeline"));
+    let (_d, _lib, bundle) = fixture();
+    let mut p = Project::open(&bundle, Mode::Write, clock()).unwrap();
+    let mut host = ProjectHost { project: &mut p };
+    let mut app = AppCtx::assistant(&mut host);
+    let r = call(&mut app, "edit_timeline", json!({"request": {"op": "split", "items": ["b"], "at": 3}}));
+    assert_eq!(r.json["verb"], "split", "{}", r.json);
+    assert_eq!(r.json["changedItems"].as_array().unwrap().len(), 2, "{}", r.json);
+    // A preview changes nothing; the request may also come as JSON text.
+    let before = p_rev(&mut p);
+    let mut host = ProjectHost { project: &mut p };
+    let mut app = AppCtx::assistant(&mut host);
+    let r =
+        call(&mut app, "edit_timeline", json!({"request": "{\"op\":\"delete\",\"items\":[\"b\"]}", "preview": true}));
+    assert_eq!(r.json["dryRun"], true);
+    assert_eq!(p_rev(&mut p), before);
+    assert_eq!(p.latest_record().unwrap().unwrap().source, Source::Agent);
+}
+
+fn p_rev(p: &mut Project) -> i64 {
+    p.rev()
+}

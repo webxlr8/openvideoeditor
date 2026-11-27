@@ -305,3 +305,11 @@ Additive. Old bundles open unchanged. The MCP whole-file `source` mode stays. Th
 - `look` gives the same receipt and image bytes in-app (`AppCtx`) and over MCP (`BundleCtx`), with and without the
   grid. The in-app assistant's chat log stores a tool's images in a `toolImages` record after its result, and the
   request turns them into image blocks inside that tool result.
+
+### Merge with add-edit-planners-and-links
+
+- Every projection apply in the registry (`check_timeline`, `apply_timeline` with source or text edits, on every
+  surface) plans with `plan_rebased` and the project's `ripples_since`, so a ripple made after the agent printed
+  rebases its edits. Stale text edits print the old revision and go through the same path.
+- `edit_timeline` joined the registry (38 tools; in-app 17, MCP 37, pinned 35). A ripple applied through it records
+  its time map and the caller's actor (`Project::apply_mapped_as`).

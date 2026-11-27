@@ -112,6 +112,11 @@ pub fn check_global(doc: &Document, out: &mut Vec<Issue>) {
             ),
         ));
     }
+    for (k, v) in &doc.project.extra {
+        if let Some(f) = schema::project_field(k) {
+            schema::validate(&f.kind, v, &format!("project.{k}"), out);
+        }
+    }
     let mut ids = HashSet::new();
     for (i, t) in doc.project.tracks.iter().enumerate() {
         if !ids.insert(t.id.as_str()) {

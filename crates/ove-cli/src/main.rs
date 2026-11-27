@@ -10,6 +10,7 @@ mod analyze;
 mod app;
 mod common;
 mod docs;
+mod edit;
 mod generate;
 mod mcp;
 mod media;
@@ -102,6 +103,9 @@ enum Cmd {
         #[command(subcommand)]
         cmd: SourceCmd,
     },
+    /// Edit verbs: split, trim, ripple-trim, ripple-delete, delete, insert, overwrite, lift, extract, close-gap, slip,
+    /// slide, roll, move. One revision each; --dry-run prints the plan only.
+    Edit(edit::EditArgs),
     /// Report problems: overlaps, gaps, clips past their source, missing media, pending items.
     Verify { project: String },
     /// List revisions, oldest first.
@@ -301,6 +305,7 @@ fn run(cli: &Cli, source: Source) -> Out {
             let text = read_input(&ctx.find(project)?, file.as_deref())?;
             ctx.tool("apply_timeline", json!({"project": project, "source": text, "prefer": side(*prefer)}))
         }
+        Cmd::Edit(a) => edit::run(&ctx, a),
         Cmd::Verify { project } => ctx.tool("verify_timeline", json!({"project": project})),
         Cmd::History { project } => ctx.tool("timeline_history", json!({"project": project})),
         Cmd::Undo { project, rev, any, session, turn, kind } => {

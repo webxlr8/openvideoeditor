@@ -253,6 +253,7 @@ const MEDIA: &[Field] = &[
     f("mediaItemId", Kind::Str, "Id of the media item the item plays."),
     fd("pending", Kind::Bool, Def::Bool(false), "Placeholder awaiting generated or supplied media."),
     f("pendingDescription", Kind::Str, "What the pending placeholder should become."),
+    f("link", Kind::Str, "Link group: items with the same value move, trim, slip and delete together."),
 ];
 
 const LOOK: &[Field] = &[
@@ -404,6 +405,7 @@ pub const TRACK_FIELDS: &[Field] = &[
     fd("locked", Kind::Bool, Def::Bool(false), "Locked tracks cannot be edited in the GUI."),
     fd("visible", Kind::Bool, Def::Bool(true), "Hidden tracks render nothing."),
     fd("muted", Kind::Bool, Def::Bool(false), "Muted tracks play no audio."),
+    fd("syncLock", Kind::Bool, Def::Bool(true), "Ripple edits on other tracks shift this track's items too."),
 ];
 
 pub fn track_field(name: &str) -> Option<&'static Field> {
@@ -428,6 +430,16 @@ pub const MEDIA_ITEM_FIELDS: &[Field] = &[
     f("data", Kind::Any, "type, fileName, format, size, duration, width, height, frameRate, hasAudio, statuses, …"),
 ];
 
+/// Frame rate of a timeline without an `fps` field.
+pub const DEFAULT_FPS: f64 = 30.0;
+/// The kind of the timeline `fps` field.
+pub const FPS_KIND: Kind = Kind::Num { min: Some(1.0), max: Some(240.0) };
+
+/// Looks up a known project field.
+pub fn project_field(name: &str) -> Option<&'static Field> {
+    PROJECT_FIELDS.iter().find(|f| f.name == name)
+}
+
 pub const PROJECT_FIELDS: &[Field] = &[
     f("id", Kind::Str, "Project id."),
     f("name", Kind::Str, "Project name (free text; the bundle folder never changes on rename)."),
@@ -435,6 +447,7 @@ pub const PROJECT_FIELDS: &[Field] = &[
     f("updatedAt", Kind::Int { min: None, max: None }, "ms since the epoch."),
     f("stateUpdatedAt", Kind::Int { min: Some(0), max: None }, "Current revision (rev), ms-based."),
     f("aspectRatio", Kind::Enum(ASPECT_RATIOS), "Frame aspect ratio."),
+    fd("fps", FPS_KIND, Def::Num(DEFAULT_FPS), "Timeline frame rate; edits snap to its frame grid."),
     f("media", Kind::Any, "Media items."),
     f("timelineItems", Kind::Any, "Items."),
     f("tracks", Kind::Any, "Tracks."),

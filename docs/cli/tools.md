@@ -139,4 +139,5 @@ ove source print Nope                              # exit 1
 | `ask_user` |  | in-app | read | `question` `options`? |
 | `undo_my_changes` |  | in-app, mcp, pinned | destructive | `project`? `scope`? `turn`? |
 | `use_project` |  | mcp, pinned | read | `project` |
+| `edit_timeline` |  | in-app, mcp, pinned | write | `project`? `request` `rev`? `preview`? |
 <!-- tools:end -->

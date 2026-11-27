@@ -51,6 +51,16 @@ pub trait Editor {
     /// Returns to the state of revision `target` as a new revision (source `undo`): `Some((rev, summary))`, or `None`
     /// when already there.
     fn restore(&mut self, target: i64) -> Result<Option<(i64, String)>, Fail>;
+    /// [`Editor::apply`] for a ripple edit, recording how it moved time per track so projections printed before it
+    /// rebase onto it. Through the running app the time map is not carried over (the app records the batch).
+    fn apply_mapped(
+        &mut self,
+        ops: Vec<Op>,
+        summary: String,
+        _time_map: ove_core::timemap::TimeMap,
+    ) -> Result<i64, Fail> {
+        self.apply(ops, summary)
+    }
     /// Reverts the revisions `revs` as one new revision (source `undo`), keeping every other change; refused with
     /// `undo.conflict` when later changes touched the same fields.
     fn undo_selected(&mut self, revs: &[i64], summary: String) -> Result<i64, Fail>;
@@ -159,6 +169,15 @@ impl Editor for LocalEditor<'_> {
     }
     fn apply(&mut self, ops: Vec<Op>, summary: String) -> Result<i64, Fail> {
         self.project.apply_as(ops, self.source, Some(summary), self.actor.clone())?;
+        Ok(self.project.rev())
+    }
+    fn apply_mapped(
+        &mut self,
+        ops: Vec<Op>,
+        summary: String,
+        time_map: ove_core::timemap::TimeMap,
+    ) -> Result<i64, Fail> {
+        self.project.apply_mapped_as(ops, self.source, Some(summary), time_map, self.actor.clone())?;
         Ok(self.project.rev())
     }
     fn undo_selected(&mut self, revs: &[i64], summary: String) -> Result<i64, Fail> {
