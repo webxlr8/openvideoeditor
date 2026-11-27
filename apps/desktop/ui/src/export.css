@@ -118,3 +118,156 @@
   align-self: flex-start;
   margin-bottom: 4px;
 }
+
+/* Export dialog with presets and the Advanced section. */
+.xp-modal.xp-wide {
+  width: min(620px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+}
+.xp-presets {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.xp-group-title {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.xp-preset-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(176px, 1fr));
+  gap: 6px;
+}
+.xp-preset {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg-1);
+  text-align: left;
+  font-size: 12px;
+}
+.xp-preset span {
+  font-size: 11px;
+}
+.xp-preset:hover:not(:disabled) {
+  border-color: var(--muted);
+}
+.xp-preset.on {
+  border-color: var(--accent);
+  background: var(--bg-3);
+}
+.xp-preset:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.xp-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 18px;
+}
+.xp-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+.xp-range {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.xp-range input {
+  width: 76px;
+}
+.xp-advanced > summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--muted);
+}
+.xp-advanced[open] > summary {
+  margin-bottom: 10px;
+}
+.xp-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 10px 14px;
+  align-items: end;
+}
+.xp-pick {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+.xp-pick > span {
+  color: var(--muted);
+}
+.xp-pick.xp-inline {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+.xp-invalid select,
+.xp-invalid input,
+.xp-invalid .xp-seg {
+  border-color: var(--danger);
+  outline: 1px solid var(--danger);
+}
+.xp-invalid > span {
+  color: var(--danger);
+}
+
+/* Exports panel: the shared export queue. */
+.xq-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.xq-job {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg-1);
+  font-size: 12px;
+}
+.xq-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.xq-head strong {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.xq-status {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: capitalize;
+}
+.xq-status.failed {
+  color: var(--danger);
+}
+.xq-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.xq-actions .btn {
+  height: 24px;
+  padding: 0 8px;
+  font-size: 11px;
+}

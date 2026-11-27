@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { App } from "./App";
 import { referenceSize } from "./ExportDialog";
 
@@ -49,22 +49,6 @@ describe("timeline viewer", () => {
 });
 
 describe("export dialog", () => {
-  it("exports with the chosen settings, shows progress and the result", async () => {
-    await openEditor();
-    fireEvent.click(screen.getByTestId("open-export"));
-    const dialog = await screen.findByTestId("export-dialog");
-    expect(dialog.textContent).toContain("1920×1080");
-    fireEvent.click(screen.getByText("720p"));
-    expect(dialog.textContent).toContain("1280×720");
-    fireEvent.click(screen.getByText("60"));
-    fireEvent.click(screen.getByTestId("export-start"));
-    await screen.findByTestId("export-done", undefined, { timeout: 3000 });
-    expect(window.__oveMock!.calls).toContain("exportProject:720p60");
-    expect(screen.getByTestId("export-done").textContent).toContain(".mp4");
-    fireEvent.click(screen.getByTestId("export-reveal"));
-    expect(window.__oveMock!.calls.some((c) => c.startsWith("revealPath:"))).toBe(true);
-  });
-
   it("writes a timeline file straight away when nothing is lost", async () => {
     await openEditor();
     fireEvent.click(screen.getByTestId("open-export"));
@@ -108,13 +92,209 @@ describe("export dialog", () => {
     expect(window.__oveMock!.calls).toContain("exportTimeline:edl@30");
   });
 
-  it("cancels a running export", async () => {
+});
+
+const calls = () => window.__oveMock!.calls;
+
+async function openDialog() {
+  fireEvent.click(screen.getByTestId("open-export"));
+  const dialog = await screen.findByTestId("export-dialog");
+  await within(dialog).findByTestId("export-presets");
+  return dialog;
+}
+
+/** Waits for the dialog's check of the current settings. */
+const settled = () =>
+  waitFor(() =>
+    expect(
+      screen.queryByTestId("export-summary")?.textContent || screen.queryByTestId("export-invalid")?.textContent,
+    ).toBeTruthy(),
+  );
+
+describe("export queue: dialog", () => {
+  afterEach(() => {
+    window.__oveMock!.exportHold = false;
+  });
+
+  it("queues an export with a preset, shows its progress and the result", async () => {
     await openEditor();
-    fireEvent.click(screen.getByTestId("open-export"));
-    fireEvent.click(await screen.findByTestId("export-start"));
-    fireEvent.click(await screen.findByTestId("export-cancel"));
+    const dialog = await openDialog();
+    fireEvent.click(within(dialog).getByTestId("export-preset-prores-422-hq-master"));
+    expect(within(dialog).getByTestId("export-preset-prores-422-hq-master").getAttribute("aria-checked")).toBe("true");
+    await waitFor(() => expect(screen.getByTestId("export-summary").textContent).toContain("ProRes 422 HQ"));
+    expect(screen.getByTestId("export-summary").textContent).toContain("1920×1080");
+    // A preset this computer cannot write is shown, not offered.
+    expect(within(dialog).getByTestId<HTMLButtonElement>("export-preset-hevc-10-bit").disabled).toBe(true);
+    fireEvent.click(screen.getByTestId("export-start"));
+    await screen.findByTestId("export-done", undefined, { timeout: 3000 });
+    expect(calls()).toEqual(expect.arrayContaining(["chooseExportPath:mov", "queueExport:mov:prores"]));
+    expect(screen.getByTestId("export-done").textContent).toContain(".mov");
+    fireEvent.click(screen.getByTestId("export-reveal"));
+    expect(calls().some((c) => c.startsWith("revealPath:"))).toBe(true);
+  });
+
+  it("refuses an impossible combination and names the conflicting setting", async () => {
+    await openEditor();
+    const queued = calls().filter((c) => c.startsWith("queueExport")).length;
+    const dialog = await openDialog();
+    fireEvent.click(within(dialog).getByTestId("export-preset-youtube-1080p"));
+    await settled();
+    fireEvent.click(within(dialog).getByTestId("export-alpha"));
+    const why = await screen.findByTestId("export-invalid");
+    expect(why.textContent).toContain("transparency");
+    expect(screen.getByTestId<HTMLButtonElement>("export-start").disabled).toBe(true);
+    expect(screen.getByTestId("export-alpha").closest(".xp-invalid")).not.toBeNull();
+    expect(screen.getByTestId("export-video-codec").closest(".xp-invalid")).not.toBeNull();
+    // A container that cannot hold the codec gets one it can, instead of a refusal.
+    fireEvent.click(within(dialog).getByTestId("export-alpha"));
+    fireEvent.change(screen.getByTestId("export-container"), { target: { value: "mov" } });
+    fireEvent.change(screen.getByTestId("export-video-codec"), { target: { value: "prores" } });
+    await waitFor(() => expect(screen.getByTestId("export-summary").textContent).toContain("MOV · ProRes"));
+    fireEvent.change(screen.getByTestId("export-container"), { target: { value: "mp4" } });
+    await waitFor(() => expect(screen.getByTestId("export-summary").textContent).toContain("MP4 · H.264"));
+    expect(calls().filter((c) => c.startsWith("queueExport")).length).toBe(queued);
+  });
+
+  it("exports the mix alone as WAV with a loudness target", async () => {
+    await openEditor();
+    await openDialog();
+    fireEvent.click(screen.getByTestId("export-audio-only"));
+    fireEvent.change(screen.getByTestId("export-loudness"), { target: { value: "-14" } });
+    await waitFor(() => expect(screen.getByTestId("export-summary").textContent).toBe("WAV · PCM 24-bit · -14 LUFS"));
+    fireEvent.click(screen.getByTestId("export-start"));
+    const done = await screen.findByTestId("export-done", undefined, { timeout: 3000 });
+    expect(done.textContent).toContain(".wav");
+    expect(done.textContent).toContain("-14.0 LUFS");
+    expect(calls()).toContain("queueExport:wav:audio:-14LUFS");
+  });
+
+  it("refuses a range outside the timeline and exports a range inside it", async () => {
+    await openEditor();
+    await openDialog();
+    fireEvent.click(screen.getByTestId("export-range-part"));
+    fireEvent.change(screen.getByTestId("export-range-start"), { target: { value: "2" } });
+    fireEvent.change(screen.getByTestId("export-range-end"), { target: { value: "5000" } });
+    expect((await screen.findByTestId("export-invalid")).textContent).toContain("outside the timeline");
+    fireEvent.change(screen.getByTestId("export-range-end"), { target: { value: "4" } });
+    await waitFor(() => expect(screen.getByTestId("export-summary")).toBeTruthy());
+    fireEvent.click(screen.getByTestId("export-start"));
+    await screen.findByTestId("export-done", undefined, { timeout: 3000 });
+    expect(calls().some((c) => c.startsWith("queueExport:") && c.endsWith("@2-4"))).toBe(true);
+  });
+
+  it("cancels a queued export from the dialog", async () => {
+    window.__oveMock!.exportHold = true;
+    await openEditor();
+    await openDialog();
+    await settled();
+    fireEvent.click(screen.getByTestId("export-start"));
+    const progress = await screen.findByTestId("export-progress");
+    expect(progress.getAttribute("data-status")).toBe("queued");
+    fireEvent.click(screen.getByTestId("export-cancel"));
     const err = await screen.findByTestId("export-error");
     expect(err.textContent).toContain("cancelled");
-    expect(window.__oveMock!.calls).toContain("cancelExport");
+    expect(calls().some((c) => c.startsWith("cancelExportJob:"))).toBe(true);
+  });
+});
+
+describe("export queue: Exports panel", () => {
+  afterEach(() => {
+    window.__oveMock!.exportHold = false;
+  });
+
+  it("lists queued jobs, cancels one, finishes the other and exports again", async () => {
+    window.__oveMock!.exportHold = true;
+    await openEditor();
+    for (const preset of ["youtube-1080p", "audio-wav-24-bit"]) {
+      const dialog = await openDialog();
+      fireEvent.click(within(dialog).getByTestId(`export-preset-${preset}`));
+      await settled();
+      fireEvent.click(screen.getByTestId("export-start"));
+      await screen.findByTestId("export-progress");
+      fireEvent.click(screen.getByTestId("export-show-exports"));
+      await waitFor(() => expect(screen.queryByTestId("export-dialog")).toBeNull());
+    }
+    const panel = await screen.findByTestId("exports-panel");
+    const rows = () => within(panel).getAllByTestId("export-job");
+    await waitFor(() => expect(rows().filter((r) => r.getAttribute("data-status") === "queued").length).toBe(2));
+    const queued = rows().filter((r) => r.getAttribute("data-status") === "queued");
+    const firstId = queued[0].getAttribute("data-id");
+    const secondId = queued[1].getAttribute("data-id");
+    const byId = (id: string | null) => rows().find((r) => r.getAttribute("data-id") === id)!;
+    fireEvent.click(within(byId(firstId)).getByTestId("export-job-cancel"));
+    await waitFor(() => expect(byId(firstId).getAttribute("data-status")).toBe("cancelled"));
+    window.__oveMock!.exportHold = false;
+    await waitFor(() => expect(byId(secondId).getAttribute("data-status")).toBe("done"), { timeout: 5000 });
+    expect(byId(firstId).getAttribute("data-status")).toBe("cancelled");
+    fireEvent.click(within(byId(firstId)).getByTestId("export-job-again"));
+    await waitFor(() => expect(calls()).toContain(`exportAgain:${firstId}`));
+  });
+});
+
+describe("export queue: background-tasks popover", () => {
+  afterEach(() => {
+    window.__oveMock!.exportHold = false;
+  });
+
+  it("counts queued exports and opens the Exports panel", async () => {
+    window.__oveMock!.exportHold = true;
+    await openEditor();
+    await openDialog();
+    await settled();
+    fireEvent.click(screen.getByTestId("export-start"));
+    await screen.findByTestId("export-progress");
+    fireEvent.click(screen.getByText("Close"));
+    fireEvent.click(await screen.findByTestId("tasks-button", undefined, { timeout: 5000 }));
+    const row = await screen.findByTestId("tasks-exports", undefined, { timeout: 5000 });
+    expect(row.textContent).toMatch(/Exports/);
+    fireEvent.click(screen.getByTestId("tasks-open-exports"));
+    expect(await screen.findByTestId("exports-panel")).toBeTruthy();
+    await waitFor(() => expect(screen.getAllByTestId("export-job").some((j) => j.getAttribute("data-status") === "queued")).toBe(true));
+  });
+});
+
+describe("timeline range menu", () => {
+  it("saves a marked range as media, and renders in place as one undo step", async () => {
+    await openEditor();
+    const before = screen.getAllByTestId("clip").length;
+    fireEvent.pointerDown(screen.getAllByTestId("clip")[0], { button: 0, clientX: 400 });
+    fireEvent.pointerUp(window);
+    fireEvent.keyDown(window, { key: "x" });
+    const range = await screen.findByTestId("range");
+    const [a, b] = [Number(range.getAttribute("data-in")), Number(range.getAttribute("data-out"))];
+
+    fireEvent.contextMenu(range);
+    fireEvent.click(await screen.findByTestId("menu-save-range"));
+    expect((await screen.findByTestId("range-done")).textContent).toContain("Added to your media");
+    expect(calls()).toContain(`saveRangeAsMedia:${a}-${b}`);
+    fireEvent.click(screen.getByText("Done"));
+    expect(screen.getAllByTestId("clip").length).toBe(before);
+
+    fireEvent.contextMenu(screen.getByTestId("range"));
+    fireEvent.click(await screen.findByTestId("menu-render-in-place"));
+    // Asked first; nothing changes until confirmed.
+    await screen.findByTestId("range-confirm");
+    expect(calls()).not.toContain(`saveRangeAsMedia:${a}-${b}:replace`);
+    fireEvent.click(screen.getByTestId("range-confirm"));
+    expect((await screen.findByTestId("range-done")).textContent).toContain("Rendered in place");
+    fireEvent.click(screen.getByText("Done"));
+    const names = () => screen.getAllByTestId("clip").map((c) => c.textContent);
+    await waitFor(() => expect(names().some((n) => n?.includes(`Range ${a}–${b} s`))).toBe(true));
+
+    fireEvent.click(screen.getByTestId("undo"));
+    await waitFor(() => expect(names().some((n) => n?.includes("Range"))).toBe(false));
+    expect(screen.getAllByTestId("clip").length).toBe(before);
+  });
+
+  it("opens the export dialog for the marked range", async () => {
+    await openEditor();
+    fireEvent.pointerDown(screen.getAllByTestId("clip")[0], { button: 0, clientX: 400 });
+    fireEvent.pointerUp(window);
+    fireEvent.keyDown(window, { key: "x" });
+    fireEvent.contextMenu(await screen.findByTestId("range"));
+    fireEvent.click(await screen.findByTestId("menu-export-range"));
+    await screen.findByTestId("export-presets");
+    expect(screen.getByTestId("export-range-part").getAttribute("aria-checked")).toBe("true");
+    await waitFor(() => expect(screen.getByTestId("export-summary").textContent).toMatch(/· [\d.]+–[\d.]+ s$/));
   });
 });

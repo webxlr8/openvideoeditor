@@ -16,6 +16,9 @@ import { Editor, type Layout } from "./Editor";
 import { ErrorBoundary } from "./ErrorBoundary";
 import {
   ExportDialog,
+  onOpenExport,
+  openExportsPanel,
+  useActiveExportCount,
   type PreviewMode,
   PreviewModeToggle,
   referenceSize,
@@ -120,6 +123,18 @@ export function App() {
   );
   const [mode, setMode] = useState<PreviewMode>("timeline");
   const [exporting, setExporting] = useState(false);
+  /** Queued and running exports, for the background-tasks button. */
+  const activeExports = useActiveExportCount();
+  /** The range the export dialog was opened for (the timeline's range menu). */
+  const [exportRange, setExportRange] = useState<[number, number] | null>(null);
+  useEffect(
+    () =>
+      onOpenExport((r) => {
+        setExportRange(r);
+        setExporting(true);
+      }),
+    [],
+  );
   const modeRef = useRef(mode);
   /** Frame rate of what the viewer plays (the timeline's while in timeline mode). */
   const fpsRef = useRef(30);
@@ -596,11 +611,14 @@ export function App() {
           timelineMode={mode === "timeline"}
           barExtras={
             <>
-              <TasksButton onError={showError} />
+              <TasksButton onError={showError} exports={{ count: activeExports, onOpen: openExportsPanel }} />
               <PreviewModeToggle mode={mode} onChange={switchMode} />
               <button
                 className="btn primary xp-open"
-                onClick={() => setExporting(true)}
+                onClick={() => {
+                  setExportRange(null);
+                  setExporting(true);
+                }}
                 data-testid="open-export"
               >
                 Export
@@ -629,6 +647,7 @@ export function App() {
           <ExportDialog
             projectName={project.name}
             aspect={project.aspectRatio}
+            range={exportRange}
             onClose={() => setExporting(false)}
             onError={showError}
           />

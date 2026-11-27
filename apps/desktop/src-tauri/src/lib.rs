@@ -13,6 +13,7 @@ pub mod edits;
 pub mod engine;
 pub mod error;
 pub mod exporting;
+pub mod exports;
 pub mod feedback;
 pub mod fx;
 pub mod generation;
@@ -185,6 +186,15 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             exporting::open_timeline,
             exporting::export_project,
             exporting::cancel_export,
+            // The export queue: dialog, Exports panel, save range as media (extend-export-formats-and-queue).
+            exports::export_options,
+            exports::check_export,
+            exports::queue_export,
+            exports::export_jobs,
+            exports::cancel_export_job,
+            exports::export_again,
+            exports::clear_finished_exports,
+            exports::save_range_as_media,
             tasks::request_skim,
             proxies::set_use_proxies,
             background::list_tasks,
@@ -626,6 +636,8 @@ pub fn run() -> ExitCode {
             }
 
             let engine = engine::spawn(handle.clone(), viewer_tx.clone())?;
+            // Exports a closed app or a crash left running go back in the queue, and a worker picks them up.
+            exports::recover_on_start();
 
             app.manage(stream);
             let background = tasks::new_scheduler();
