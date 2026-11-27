@@ -4544,6 +4544,7 @@ name = "ove-transcribe"
 version = "0.1.0"
 dependencies = [
  "ove-core",
+ "ove-edit",
  "ove-media",
  "ove-models",
  "ove-store",

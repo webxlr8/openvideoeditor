@@ -152,3 +152,18 @@ VAD 6.x in both forms, one thread, test profile (optimised dependencies).
   the first clip unchanged, and the edited clip's ids stay source ids.
 - Cache keys: `<contentId>-<model>-<language>`, plus `-verbatim` for verbatim transcripts; existing keys are
   unchanged, so caches made before this change are used as they are.
+
+### R3. Remove words (group 2, Windows)
+
+- Pause rule as implemented: each side of a cut keeps `min(gap / 2, keep / 2)` of the pause next to the neighbouring
+  word; the rest of the gap goes with the word. Measured joined pauses at 30 fps (gaps of 0.4 s): tight 60 ms,
+  balanced 150 ms, loose 320 ms, each within one frame of rounding.
+- Edges move to the middle of the quietest 10 ms cell within ±40 ms of the computed edge, never into a neighbouring
+  word; the levels (10 ms RMS of 16 kHz mono) are cached per media under its content identity
+  (`cache/levels/<contentId>.json`). Ranges are then quantised to the frame grid by the ripple-delete planner, so the
+  final edges land within half a frame of the quiet point.
+- Cuts remove each range from every track holding a cut clip, plus sync-locked tracks and link partners (the
+  planner's ripple rule); the planner's time map is recorded with the revision. Caption items are rebuilt from the
+  items before the cut, so a sync-locked captions track is not split.
+- Property test: 10,000 cases (3–24 words, word lengths 0.12–0.8 s, gaps 0–0.9 s, speeds 0.5–2×, forward and
+  reverse, all pause settings) in about 2 s.

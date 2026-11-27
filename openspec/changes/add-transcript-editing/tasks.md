@@ -25,16 +25,23 @@
 
 ## 2. Remove words
 
-- [ ] 2.1 Implement the cut planner (source-time ranges, pause rule, edge snapping, frame quantisation, seam fades)
+- [x] 2.1 Implement the cut planner (source-time ranges, pause rule, edge snapping, frame quantisation, seam fades)
       on top of the ripple-delete planner; verify unit tests for each pause setting, for speed below 1×, and for reverse
       clips.
-- [ ] 2.2 Make caption items follow cuts (drop cut words, re-time the rest, remove empty captions) in the same
+      Done: `ove_transcribe::cuts` (selection, pause rule, quiet-edge snapping on 10 ms levels, one `ove-edit`
+      ripple delete with its time map, 10 ms seam fades); `crates/ove-transcribe/tests/cuts.rs`; tool `remove_words`.
+- [x] 2.2 Make caption items follow cuts (drop cut words, re-time the rest, remove empty captions) in the same
       revision; verify the caption scenarios in specs/transcript-editing as named tests.
+      Done: `caption_shortened_keeps_its_words_aligned`, `a_caption_with_every_word_cut_is_removed`.
 - [ ] 2.3 Property test: after a cut, the remaining source words in timeline order equal the transcript minus the
       selected words (10,000 generated cases); verify it passes on both OSes.
+      Windows: `remaining_words_are_the_transcript_minus_the_selection` passes (10,000 cases, speeds 0.5–2×, reverse,
+      all pause settings). Open until the macOS CI run passes.
 - [ ] 2.4 Audio test with the synthetic speech fixture: remove a known word, export, transcribe again; verify the word
       is gone, its neighbours remain, and the seam peak meets the scenario limit.
-- [ ] 2.5 Refusals: unknown or off-timeline word ids, locked tracks; verify each returns a named error and no revision.
+- [x] 2.5 Refusals: unknown or off-timeline word ids, locked tracks; verify each returns a named error and no revision.
+      Done: `refusals_name_the_cause_and_change_nothing` (`transcript.wordMissing` naming the ids, `ripple.blocked`
+      naming the item, `request.invalid`); a refusal returns before any op; the MCP test in 5.2 checks the history.
 
 ## 3. Dead air and fillers
 

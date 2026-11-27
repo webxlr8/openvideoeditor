@@ -1130,6 +1130,79 @@
         "destructiveHint": false,
         "openWorldHint": false
       }
+    },
+    {
+      "name": "remove_words",
+      "description": "Cut words from the timeline as one revision: word ids from `get_transcript`, `ranges` of ids (`from` to `to` in timeline order) or exact phrases (`match`). Each cut keeps part of the natural pause (`pause`: tight 60 ms, balanced 150 ms, loose 320 ms), snaps its edges to the quietest point near the word, fades the seam, and later items close the gap; captions drop the cut words. Ids read at an older `rev` stay valid. `apply: false` returns the plan and the `timeline.tsx` diff without changing anything.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "description": "Word ids (`<mediaId>@<sourceMs>`)"
+          },
+          "ranges": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "from": {
+                  "type": "string"
+                },
+                "to": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "from",
+                "to"
+              ],
+              "additionalProperties": false
+            },
+            "description": "Inclusive word-id ranges"
+          },
+          "match": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "description": "Exact phrases; every occurrence is cut"
+          },
+          "pause": {
+            "type": "string",
+            "enum": [
+              "tight",
+              "balanced",
+              "loose"
+            ],
+            "description": "Pause kept at each seam (default balanced)"
+          },
+          "apply": {
+            "type": "boolean",
+            "description": "false: dry run (default true)"
+          },
+          "rev": {
+            "type": "integer",
+            "description": "Revision the ids were read at"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
     }
   ]
 }

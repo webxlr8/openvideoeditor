@@ -20,6 +20,8 @@ const PREFER: &str = r#"{"type": "string", "enum": ["file", "editor"]}"#;
 const OBJECT: &str = r#"{"type": "object"}"#;
 const REQUEST: &str = r#"{"type": ["object", "string"]}"#;
 const SCOPE: &str = r#"{"type": "string", "enum": ["session", "turn"]}"#;
+const WORD_RANGES: &str = r#"{"type": "array", "items": {"type": "object", "properties": {"from": {"type": "string"}, "to": {"type": "string"}}, "required": ["from", "to"], "additionalProperties": false}}"#;
+const PAUSE: &str = r#"{"type": "string", "enum": ["tight", "balanced", "loose"]}"#;
 const OPTIONS: &str = r#"{"type": "array", "items": {"type": "string"}, "maxItems": 4}"#;
 
 pub static TOOLS: &[ToolSpec] = &[
@@ -542,6 +544,24 @@ pub static TOOLS: &[ToolSpec] = &[
         annotations: READ,
         surfaces: AGENTS,
         run: transcript::get_transcript,
+        model: ModelText::Json,
+    },
+    ToolSpec {
+        name: "remove_words",
+        aliases: &[],
+        about: "Cut words from the timeline as one revision: word ids from `get_transcript`, `ranges` of ids (`from` to `to` in timeline order) or exact phrases (`match`). Each cut keeps part of the natural pause (`pause`: tight 60 ms, balanced 150 ms, loose 320 ms), snaps its edges to the quietest point near the word, fades the seam, and later items close the gap; captions drop the cut words. Ids read at an older `rev` stay valid. `apply: false` returns the plan and the `timeline.tsx` diff without changing anything.",
+        args: &[
+            PROJECT,
+            arg("ids", List, "Word ids (`<mediaId>@<sourceMs>`)"),
+            arg("ranges", Json(WORD_RANGES), "Inclusive word-id ranges"),
+            arg("match", List, "Exact phrases; every occurrence is cut"),
+            arg("pause", Json(PAUSE), "Pause kept at each seam (default balanced)"),
+            arg("apply", Bool, "false: dry run (default true)"),
+            arg("rev", Int, "Revision the ids were read at"),
+        ],
+        annotations: WRITE,
+        surfaces: AGENTS,
+        run: transcript::remove_words,
         model: ModelText::Json,
     },
 ];

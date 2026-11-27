@@ -4,8 +4,10 @@
 //! recognition library: turn off the default `recognize` feature for tools that only read transcripts.
 
 pub mod cache;
+pub mod cuts;
 pub mod error;
 pub mod fillers;
+pub mod levels;
 pub mod models;
 #[cfg(feature = "recognize")]
 pub mod recognize;

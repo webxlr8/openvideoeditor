@@ -9,6 +9,7 @@ publish.workspace = true
 
 [dependencies]
 ove-core = { path = "../ove-core" }
+ove-edit = { path = "../ove-edit" }
 ove-media = { path = "../ove-media", optional = true }
 ove-models = { path = "../ove-models" }
 serde = { version = "1", features = ["derive"] }
@@ -21,7 +22,9 @@ whisper-rs = { version = "0.16", optional = true }
 default = ["recognize"]
 # Speech recognition (whisper.cpp) and audio decoding (FFmpeg). Off: transcript types, cache, timeline transcript,
 # fillers and voice activity through the shared runtime only.
-recognize = ["dep:whisper-rs", "dep:ove-media"]
+recognize = ["audio", "dep:whisper-rs"]
+# Audio decoding (FFmpeg) for levels and voice activity, without the recognition library.
+audio = ["dep:ove-media"]
 
 [dev-dependencies]
 ove-store = { path = "../ove-store" }

@@ -142,4 +142,5 @@ ove source print Nope                              # exit 1
 | `edit_timeline` |  | in-app, mcp, pinned | write | `project`? `request` `rev`? `preview`? |
 | `list_models_local` |  | in-app, mcp, pinned | read |  |
 | `get_transcript` |  | in-app, mcp, pinned | read | `project`? `clips`? `segments`? `offset`? `limit`? `model`? `language`? |
+| `remove_words` |  | in-app, mcp, pinned | write | `project`? `ids`? `ranges`? `match`? `pause`? `apply`? `rev`? |
 <!-- tools:end -->
