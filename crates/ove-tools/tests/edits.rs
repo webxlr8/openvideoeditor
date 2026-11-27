@@ -246,9 +246,13 @@ enum GuiOp {
     Retext(usize),
 }
 
-/// Cases for the rebase property (2,000 by default; `OVE_PROP_CASES` changes it).
+/// Cases for the rebase property (2,000 by default; `OVE_PROPTEST_CASES`, the knob all property tests share, changes
+/// it; `OVE_PROP_CASES` is still read as a fallback).
 fn cases() -> u32 {
-    std::env::var("OVE_PROP_CASES").ok().and_then(|v| v.parse().ok()).unwrap_or(2000)
+    ["OVE_PROPTEST_CASES", "OVE_PROP_CASES"]
+        .iter()
+        .find_map(|k| std::env::var(k).ok().and_then(|v| v.parse().ok()))
+        .unwrap_or(2000)
 }
 
 /// One project held open in this process, as the app holds it: the person's edits and the agent's calls go to it.

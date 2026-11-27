@@ -109,8 +109,13 @@ fn keyframe_times(item: &Item, track: &Value) -> Vec<Micros> {
         .collect()
 }
 
+/// Cases for the split property (10,000 by default; `OVE_PROPTEST_CASES` changes it, like the other property tests).
+fn cases() -> u32 {
+    std::env::var("OVE_PROPTEST_CASES").ok().and_then(|s| s.parse().ok()).unwrap_or(10_000)
+}
+
 proptest! {
-    #![proptest_config(ProptestConfig { cases: 10_000, ..ProptestConfig::default() })]
+    #![proptest_config(ProptestConfig { cases: cases(), ..ProptestConfig::default() })]
 
     #[test]
     fn split_parts_match_the_original_at_200_times(case in arb_case()) {
