@@ -121,6 +121,10 @@ pub struct ItemView {
     pub speed: f64,
     /// Link group value, when the item is linked.
     pub link: Option<String>,
+    /// Volume, fades and volume keyframes of video and audio items, for the waveform and gain line.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub audio: Option<crate::waveforms::ItemAudio>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -500,6 +504,7 @@ fn view_from(
                 transition_out: transition_secs(i, "transitionOut"),
                 speed: i.fields.get("playbackSpeed").and_then(Value::as_f64).unwrap_or(1.0),
                 link: i.fields.get("link").and_then(Value::as_str).map(str::to_string),
+                audio: crate::waveforms::item_audio(i),
             })
             .collect(),
         media,

@@ -745,6 +745,19 @@ export type HistoryRow_Serialize = {
 	client: string | null,
 };
 
+/**  What the timeline needs to draw a clip's waveform and gain line. */
+export type ItemAudio = {
+	/**  Static volume, percent (0–200). */
+	volume: number | null,
+	reverse: boolean,
+	/**  Audio fade durations, seconds (0 when none). */
+	fadeIn: number | null,
+	fadeOut: number | null,
+	/**  Volume keyframes in time order (empty when none). */
+	volumeKeys: VolumeKey[],
+	volumeEasing: string,
+};
+
 export type ItemView = ItemView_Serialize | ItemView_Deserialize;
 
 export type ItemView_Deserialize = {
@@ -767,6 +780,8 @@ export type ItemView_Deserialize = {
 	speed: number | null,
 	/**  Link group value, when the item is linked. */
 	link?: string | null,
+	/**  Volume, fades and volume keyframes of video and audio items, for the waveform and gain line. */
+	audio?: ItemAudio | null,
 };
 
 export type ItemView_Serialize = {
@@ -789,6 +804,8 @@ export type ItemView_Serialize = {
 	speed: number | null,
 	/**  Link group value, when the item is linked. */
 	link: string | null,
+	/**  Volume, fades and volume keyframes of video and audio items, for the waveform and gain line. */
+	audio?: ItemAudio,
 };
 
 /**  The result of trying the saved key with a real (free) request. */
@@ -1405,6 +1422,14 @@ export type ViewerStats_Serialize = {
 	imageHeight: number,
 	/**  Time from the last seek/step request to the frame being presented. */
 	lastSeekMs: number | null,
+};
+
+/**  One volume keyframe as the timeline draws it. */
+export type VolumeKey = {
+	/**  Seconds from the item's start. */
+	time: number | null,
+	/**  Percent, 0–200. */
+	value: number | null,
 };
 
 /**  Where the welcome stands. */

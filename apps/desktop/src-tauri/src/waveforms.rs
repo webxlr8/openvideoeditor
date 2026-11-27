@@ -180,6 +180,61 @@ pub async fn peak_range(app: AppHandle, media_id: String, start: f64, end: f64, 
     .await
 }
 
+/// One volume keyframe as the timeline draws it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct VolumeKey {
+    /// Seconds from the item's start.
+    pub time: f64,
+    /// Percent, 0–200.
+    pub value: f64,
+}
+
+/// What the timeline needs to draw a clip's waveform and gain line.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ItemAudio {
+    /// Static volume, percent (0–200).
+    pub volume: f64,
+    pub reverse: bool,
+    /// Audio fade durations, seconds (0 when none).
+    pub fade_in: f64,
+    pub fade_out: f64,
+    /// Volume keyframes in time order (empty when none).
+    pub volume_keys: Vec<VolumeKey>,
+    pub volume_easing: String,
+}
+
+/// The audio view of a video or audio item; `None` for other kinds.
+pub fn item_audio(i: &ove_core::model::Item) -> Option<ItemAudio> {
+    use serde_json::Value;
+    if i.kind != "video" && i.kind != "audio" {
+        return None;
+    }
+    let secs = |v: Option<&Value>| v.and_then(ove_core::time::json_to_micros).map_or(0.0, |us| us as f64 / 1e6);
+    let track = i
+        .fields
+        .get("keyframeTracks")
+        .and_then(Value::as_array)
+        .and_then(|a| a.iter().find(|t| t.get("property").and_then(Value::as_str) == Some("volume")));
+    let mut volume_keys: Vec<VolumeKey> = track
+        .and_then(|t| t.get("keyframes")?.as_array())
+        .map(|ks| {
+            ks.iter()
+                .filter_map(|k| Some(VolumeKey { time: secs(k.get("time")), value: k.get("value")?.as_f64()? }))
+                .collect()
+        })
+        .unwrap_or_default();
+    volume_keys.sort_by(|a, b| a.time.total_cmp(&b.time));
+    Some(ItemAudio {
+        volume: i.fields.get("volume").and_then(Value::as_f64).unwrap_or(100.0),
+        reverse: i.fields.get("playbackDirection").and_then(Value::as_str) == Some("reverse"),
+        fade_in: secs(i.fields.get("audioFadeIn").and_then(|f| f.get("duration"))),
+        fade_out: secs(i.fields.get("audioFadeOut").and_then(|f| f.get("duration"))),
+        volume_keys,
+        volume_easing: track.and_then(|t| t.get("easing")?.as_str()).unwrap_or("linear").to_string(),
+    })
+}
 /// Tells the UI a content id's analysis finished.
 pub fn emit_changed(app: &AppHandle, content_id: &str, ok: bool) {
     let status = if ok { "ready" } else { "error" };
@@ -290,5 +345,26 @@ mod tests {
         assert!(media_has_sound(&json!({"type": "video"})));
         assert!(!media_has_sound(&json!({"type": "video", "hasAudio": false})));
         assert!(!media_has_sound(&json!({"type": "image"})));
+    }
+}
+
+#[cfg(test)]
+mod view_tests {
+    use super::*;
+
+    #[test]
+    fn item_audio_reads_volume_fades_and_keyframes() {
+        let v = serde_json::json!({"id": "a", "trackId": "t", "type": "audio", "startTime": 0, "endTime": 4,
+            "volume": 80, "playbackDirection": "reverse", "audioFadeIn": {"duration": 0.5},
+            "keyframeTracks": [{"property": "opacity", "keyframes": [{"time": 0, "value": 1}]},
+                {"property": "volume", "easing": "ease-in", "keyframes": [{"time": 2, "value": 10}, {"time": 1, "value": 100}]}]});
+        let a = item_audio(&ove_core::model::Item::from_json(&v, "a").unwrap()).unwrap();
+        assert_eq!(a.volume, 80.0);
+        assert!(a.reverse);
+        assert_eq!((a.fade_in, a.fade_out), (0.5, 0.0));
+        assert_eq!(a.volume_keys, vec![VolumeKey { time: 1.0, value: 100.0 }, VolumeKey { time: 2.0, value: 10.0 }]);
+        assert_eq!(a.volume_easing, "ease-in");
+        let t = serde_json::json!({"id": "t", "trackId": "t", "type": "text", "startTime": 0, "endTime": 4});
+        assert!(item_audio(&ove_core::model::Item::from_json(&t, "t").unwrap()).is_none());
     }
 }

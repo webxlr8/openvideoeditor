@@ -1,0 +1,67 @@
+/* Clip waveforms, the gain line and the level meters (add-audio-mixing-and-monitoring). */
+
+.clip-audio {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.clip-audio .wave {
+  position: absolute;
+  top: 0;
+}
+.clip-audio .wave-placeholder {
+  position: absolute;
+  inset: 40% 0;
+  background: repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.18) 0 2px, transparent 2px 6px);
+  border-radius: 2px;
+}
+.clip-audio .wave-error {
+  position: absolute;
+  right: 4px;
+  bottom: 3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #e0a040;
+  pointer-events: auto;
+}
+.clip-audio .gain-line {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  outline: none;
+}
+.clip-audio .gain-path {
+  fill: none;
+  stroke: #ffd84d;
+  stroke-width: 1.25;
+  opacity: 0.8;
+}
+.clip-audio .gain-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 9;
+  pointer-events: stroke;
+  cursor: ns-resize;
+}
+.clip-audio .gain-point {
+  fill: #ffd84d;
+  stroke: rgba(0, 0, 0, 0.6);
+  stroke-width: 1;
+  pointer-events: all;
+  cursor: move;
+}
+.clip-audio .gain-point.selected {
+  fill: #ffffff;
+}
+.clip-audio .gain-readout {
+  position: absolute;
+  right: 4px;
+  top: 2px;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.7);
+  color: #ffd84d;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}

@@ -163,3 +163,9 @@ and the built app (group 7) are not measured yet.
   the media; the Storage pane will list and clear it (background-tasks task 6.3).
 - The analysis runs as a `derivative` task in the `cpu` class on the shared scheduler, keyed by the media content
   id; the peak cache Storage row is deferred to the background-tasks change.
+- Waveforms (group 3): drawing 50 clips of 1200 columns each takes 45.8 ms in the UI test runner (jsdom, Node, a
+  recording context: this is the column and gain computation, not GPU rasterisation). The real draw time in the
+  built app's web view is part of task 7.1. The canvas covers only the visible part of a clip plus 200 px each side
+  (at most 4096 px), and a volume change redraws from the same peaks without a new query.
+- Note: `SkimThumb.test.tsx` ("each tile within 16 ms") failed once in a full-suite run under load and passed when
+  run again; it is a timing assertion outside this change.

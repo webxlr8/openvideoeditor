@@ -889,6 +889,22 @@ function createMock(): {
     "pending",
   ];
   const n = (v: unknown, d = 0) => (typeof v === "number" ? v : d);
+  /** The audio view of a video or audio item, from its document fields (as the core builds it). */
+  const mockAudio = (kind: string, f: Fields): ItemView_Serialize["audio"] => {
+    if (kind !== "video" && kind !== "audio") return undefined;
+    const track = ((f.keyframeTracks as Fields[] | undefined) ?? []).find((t) => t.property === "volume");
+    const keys = ((track?.keyframes as Fields[] | undefined) ?? [])
+      .map((k) => ({ time: n(k.time), value: n(k.value) }))
+      .sort((a, b) => a.time - b.time);
+    return {
+      volume: n(f.volume, 100),
+      reverse: f.playbackDirection === "reverse",
+      fadeIn: n((f.audioFadeIn as Fields | undefined)?.duration),
+      fadeOut: n((f.audioFadeOut as Fields | undefined)?.duration),
+      volumeKeys: keys,
+      volumeEasing: typeof track?.easing === "string" ? track.easing : "linear",
+    };
+  };
   const refresh = (i: MockItem) => {
     const f = i.fields;
     const tr = (k: string) => n((f[k] as Fields | undefined)?.duration);
@@ -903,6 +919,7 @@ function createMock(): {
     i.transitionIn = tr("transitionIn");
     i.transitionOut = tr("transitionOut");
     i.speed = n(f.playbackSpeed, 1);
+    i.audio = mockAudio(i.kind, f);
     return i;
   };
   function fromDetail(d: Fields): MockItem {

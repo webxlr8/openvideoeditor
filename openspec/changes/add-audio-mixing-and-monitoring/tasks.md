@@ -24,10 +24,10 @@
 
 ## 3. Waveforms and gain line
 
-- [ ] 3.1 Draw clip waveforms on the timeline canvas from the range query, mapped through trim, speed and reverse and
+- [x] 3.1 Draw clip waveforms on the timeline canvas from the range query, mapped through trim, speed and reverse and
       scaled by gain; verify UI tests for a trimmed reversed clip and a gain change, and a draw-time benchmark for 50
       visible clips recorded in design.md Results.
-- [ ] 3.2 Add the gain line: drag changes static volume, Alt/Option-click adds a keyframe, point drag and delete; one
+- [x] 3.2 Add the gain line: drag changes static volume, Alt/Option-click adds a keyframe, point drag and delete; one
       revision per gesture; verify UI tests for each gesture and that undo restores the previous state.
 
 ## 4. Meters and scrub audio

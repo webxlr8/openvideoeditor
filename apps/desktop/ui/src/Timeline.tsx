@@ -7,6 +7,7 @@ import type { Ghost, ItemView_Serialize, ProjectView_Serialize } from "./binding
 import { commands } from "./bridge";
 import { type EditResult, TIMELINE_FPS, addItems, firstTrack, linkDrift, trackAccepts, updateItem, updateItems, snapToFrame } from "./edit";
 import { Icon, type IconName } from "./icons";
+import { ClipAudioLayer } from "./ClipAudioLayer";
 import { ContextMenu, type MenuItem } from "./Menu";
 import { MOD, type Tool } from "./keys";
 
@@ -421,6 +422,7 @@ export function Timeline(props: TimelineProps) {
                           onPointerDown={(e) => startMove(e, i)}
                           onContextMenu={(e) => clipMenu(e, i)}
                         >
+                          {i.audio && i.mediaId && !i.pending && <ClipAudioLayer item={i} width={g.width} height={ROW_H - 8} onEdit={onEdit} />}
                           {(i.transitionIn ?? 0) > 0 && <span className="fade-in" style={{ width: x(i.transitionIn ?? 0) }} />}
                           {(i.transitionOut ?? 0) > 0 && <span className="fade-out" style={{ width: x(i.transitionOut ?? 0) }} />}
                           <span className="clip-label">
