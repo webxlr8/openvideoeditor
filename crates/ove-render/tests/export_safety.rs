@@ -31,7 +31,7 @@ fn title_doc() -> Document {
 }
 
 fn small() -> ExportSettings {
-    ExportSettings { height: 90, fps: 10, ..Default::default() }
+    ExportSettings::h264(90, 10)
 }
 
 /// No `.partial` file is left in `dir`.
@@ -64,9 +64,9 @@ fn success_replaces_the_target_atomically() {
     assert_eq!(&bytes[4..8], b"ftyp", "an MP4 replaced the earlier file");
     no_partials(d.path());
     // The encoder is reported during progress and in the result, with a warning only for a fallback encoder.
-    assert!(!encoders.is_empty() && encoders.iter().all(|e| *e == r.video_encoder));
-    assert_eq!(r.encoder_warning, encoder_warning(&r.video_encoder));
-    eprintln!("encoder {} warning {:?}", r.video_encoder, r.encoder_warning);
+    assert!(!encoders.is_empty() && encoders.iter().all(|e| Some(e) == r.video_encoder.as_ref()));
+    assert_eq!(r.encoder_warning, encoder_warning(r.video_encoder.as_deref().unwrap()));
+    eprintln!("encoder {:?} warning {:?}", r.video_encoder, r.encoder_warning);
 }
 
 #[test]
@@ -97,7 +97,7 @@ fn failure_keeps_the_earlier_file() {
     // Fails while opening the encoder.
     let bad = ExportSettings { encoder: Some("no-such-encoder".into()), ..small() };
     let e = export(&title_doc(), None, &out, &bad, &AtomicBool::new(false), |_| {}).unwrap_err();
-    assert!(matches!(e, ExportError::Ffmpeg(_)), "{e}");
+    assert!(matches!(e, ExportError::Refused(_)) && e.to_string().contains("no-such-encoder"), "{e}");
     assert_eq!(std::fs::read(&out).unwrap(), EARLIER);
     no_partials(d.path());
 

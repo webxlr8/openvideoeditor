@@ -1,0 +1,82 @@
+[
+  {
+    "name": "YouTube 1080p",
+    "about": "H.264 and AAC in MP4, 1080 pixels high, high quality",
+    "settings": {"container": "mp4", "video": {"codec": "h264", "quality": "high"}, "audio": {"codec": "aac"}, "size": 1080, "fps": "match"}
+  },
+  {
+    "name": "YouTube 4K",
+    "about": "H.264 and AAC in MP4, 2160 pixels high, high quality",
+    "settings": {"container": "mp4", "video": {"codec": "h264", "quality": "high"}, "audio": {"codec": "aac"}, "size": 2160, "fps": "match"}
+  },
+  {
+    "name": "Social 720p",
+    "about": "H.264 and AAC in MP4, 720 pixels high, small files",
+    "settings": {"container": "mp4", "video": {"codec": "h264", "quality": "medium"}, "audio": {"codec": "aac"}, "size": 720, "fps": "match"}
+  },
+  {
+    "name": "HEVC 10-bit",
+    "about": "HEVC Main 10 and AAC in MP4 at the timeline's size (hardware encoder needed)",
+    "settings": {"container": "mp4", "video": {"codec": "hevc", "bitDepth": 10, "quality": "high"}, "audio": {"codec": "aac"}, "size": "match", "fps": "match"}
+  },
+  {
+    "name": "ProRes 422 HQ master",
+    "about": "ProRes 422 HQ and 24-bit PCM in MOV at the timeline's size",
+    "settings": {"container": "mov", "video": {"codec": "prores", "profile": "hq"}, "audio": {"codec": "pcm", "bitDepth": 24}, "size": "match", "fps": "match"}
+  },
+  {
+    "name": "ProRes 422 Proxy",
+    "about": "ProRes 422 Proxy and 24-bit PCM in MOV, for offline editing",
+    "settings": {"container": "mov", "video": {"codec": "prores", "profile": "proxy"}, "audio": {"codec": "pcm", "bitDepth": 24}, "size": "match", "fps": "match"}
+  },
+  {
+    "name": "ProRes 4444 with alpha",
+    "about": "ProRes 4444 with a transparent background and 24-bit PCM in MOV, for overlays",
+    "settings": {"container": "mov", "video": {"codec": "prores", "profile": "4444", "alpha": true}, "audio": {"codec": "pcm", "bitDepth": 24}, "size": "match", "fps": "match"}
+  },
+  {
+    "name": "DNxHR HQ master",
+    "about": "DNxHR HQ and 24-bit PCM in MOV at the timeline's size",
+    "settings": {"container": "mov", "video": {"codec": "dnxhr", "profile": "hq"}, "audio": {"codec": "pcm", "bitDepth": 24}, "size": "match", "fps": "match"}
+  },
+  {
+    "name": "DNxHR HQX 10-bit",
+    "about": "DNxHR HQX 10-bit and 24-bit PCM in MOV at the timeline's size",
+    "settings": {"container": "mov", "video": {"codec": "dnxhr", "profile": "hqx"}, "audio": {"codec": "pcm", "bitDepth": 24}, "size": "match", "fps": "match"}
+  },
+  {
+    "name": "Web VP9",
+    "about": "VP9 and Opus in WebM, 1080 pixels high",
+    "settings": {"container": "webm", "video": {"codec": "vp9", "quality": "high"}, "audio": {"codec": "opus"}, "size": 1080, "fps": "match"}
+  },
+  {
+    "name": "Web VP9 with alpha",
+    "about": "VP9 with a transparent background and Opus in WebM, for web overlays",
+    "settings": {"container": "webm", "video": {"codec": "vp9", "alpha": true, "quality": "high"}, "audio": {"codec": "opus"}, "size": "match", "fps": "match"}
+  },
+  {
+    "name": "AV1 (hardware)",
+    "about": "AV1 and AAC in MP4, 1080 pixels high (hardware encoder needed)",
+    "settings": {"container": "mp4", "video": {"codec": "av1", "quality": "high"}, "audio": {"codec": "aac"}, "size": 1080, "fps": "match"}
+  },
+  {
+    "name": "Audio WAV 24-bit",
+    "about": "The timeline mix as 24-bit 48 kHz WAV",
+    "settings": {"container": "wav", "audio": {"codec": "pcm", "bitDepth": 24}}
+  },
+  {
+    "name": "Audio WAV 16-bit",
+    "about": "The timeline mix as 16-bit 48 kHz WAV",
+    "settings": {"container": "wav", "audio": {"codec": "pcm", "bitDepth": 16}}
+  },
+  {
+    "name": "Audio M4A",
+    "about": "The timeline mix as AAC in M4A",
+    "settings": {"container": "m4a", "audio": {"codec": "aac", "bitrate": 256000}}
+  },
+  {
+    "name": "Audio FLAC",
+    "about": "The timeline mix as 24-bit FLAC",
+    "settings": {"container": "flac", "audio": {"codec": "flac", "bitDepth": 24}}
+  }
+]
