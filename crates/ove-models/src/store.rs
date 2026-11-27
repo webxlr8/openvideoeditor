@@ -359,6 +359,12 @@ impl Store {
         }
         let _busy = Busy::take(&self.root, &m.id)?;
         let dir = self.model_dir(&m);
+        // A new manifest version that keeps some files (same name, SHA-256 and size) reuses them from the previous
+        // install instead of downloading them again; each is hashed again below before it counts.
+        let previous = self.read_index().models.into_iter().find(|r| r.id == m.id);
+        if let Some(prev) = &previous {
+            self.reuse_pieces(&m, prev, &dir);
+        }
         let finished = |f: &manifest::ModelFile| {
             let dest = dir.join(&f.name);
             std::fs::metadata(&dest).is_ok_and(|md| md.len() == f.bytes)
@@ -439,7 +445,54 @@ impl Store {
         }
         let paths: Vec<PathBuf> = m.files.iter().map(|f| dir.join(&f.name)).collect();
         self.record(&m, &paths, false)?;
+        // Only now that every new file is verified and recorded do the superseded ones go.
+        if let Some(prev) = &previous {
+            self.prune_superseded(&m, prev, &paths);
+        }
         Ok(InstallOutcome { already: false, paths })
+    }
+
+    /// True for a path inside this model's own folder of the store (never a file adopted where it was).
+    fn owned_by(&self, m: &Manifest, p: &Path) -> bool {
+        p.starts_with(self.root.join(&m.id))
+    }
+
+    /// Moves files of the previous install that the new manifest pins identically (name, SHA-256, size) into the new
+    /// version's folder, so they are not downloaded again.
+    fn reuse_pieces(&self, m: &Manifest, prev: &Record, dir: &Path) {
+        for f in m.files.iter().filter(|f| f.archive_member.is_none()) {
+            let dest = dir.join(&f.name);
+            if std::fs::metadata(&dest).is_ok_and(|md| md.len() == f.bytes) {
+                continue;
+            }
+            let Some(old) = prev.files.iter().find(|r| r.name == f.name && r.sha256 == f.sha256 && r.bytes == f.bytes)
+            else {
+                continue;
+            };
+            let src = self.resolve(&old.path);
+            if src == dest || !self.owned_by(m, &src) || !std::fs::metadata(&src).is_ok_and(|md| md.len() == f.bytes) {
+                continue;
+            }
+            if std::fs::create_dir_all(dir).is_ok() {
+                let _ = std::fs::rename(&src, &dest);
+            }
+        }
+    }
+
+    /// Deletes the previous install's files that the new one no longer uses (only inside the model's own folder),
+    /// and the previous version's folder once it is empty.
+    fn prune_superseded(&self, m: &Manifest, prev: &Record, kept: &[PathBuf]) {
+        for r in &prev.files {
+            let p = self.resolve(&r.path);
+            if !kept.contains(&p) && self.owned_by(m, &p) {
+                let _ = std::fs::remove_file(&p);
+            }
+        }
+        if prev.version != m.version {
+            let old_dir = self.root.join(&m.id).join(&prev.version);
+            // Fails, and stays, when something else is still in it.
+            let _ = std::fs::remove_dir(&old_dir);
+        }
     }
 
     /// Makes sure a model is installed, honouring consent: a model over [`CONSENT_ABOVE_BYTES`], or a runtime

@@ -1,9 +1,9 @@
 //! The real model (add-semantic-media-search tasks 1.2 and 1.3): golden token ids from the reference tokenizer,
 //! and the shipped encoders against the full-precision export.
 //!
-//! These need the model files, which are not in the repository (0.63 GB, downloaded only with consent):
+//! These need the model files, which are not in the repository (0.76 GB, downloaded only with consent):
 //! `OVE_SIGLIP_DIR` names a folder with `tokenizer.model`, the shipped encoders (`vision_model_fp16.onnx`,
-//! `text_model_q4f16.onnx`) and, for the parity test, the full-precision `vision_model.onnx` and `text_model.onnx` of
+//! `text_model_fp16.onnx`) and, for the parity test, the full-precision `vision_model.onnx` and `text_model.onnx` of
 //! the same export (`OVE_SIGLIP_VISION` / `OVE_SIGLIP_TEXT` name other candidate files).
 //! `OVE_ONNXRUNTIME_LIB` names the ONNX Runtime library.
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure here is a failed test")]
@@ -57,6 +57,7 @@ fn files(vision: &str, text: &str) -> ModelFiles {
         text: d.join(text),
         tokenizer: d.join("tokenizer.model"),
         vision_sha256: String::new(),
+        text_sha256: String::new(),
     }
 }
 

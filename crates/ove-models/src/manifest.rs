@@ -411,25 +411,26 @@ pub fn vad_manifest() -> Manifest {
 pub const SIGLIP2_ID: &str = "siglip2-base";
 /// Its image encoder (half-precision weights).
 pub const SIGLIP2_VISION: &str = "vision_model_fp16.onnx";
-/// Its text encoder (4-bit block-quantised weights, half-precision activations).
-pub const SIGLIP2_TEXT: &str = "text_model_q4f16.onnx";
+/// Its text encoder (half-precision weights).
+pub const SIGLIP2_TEXT: &str = "text_model_fp16.onnx";
 /// Its tokenizer (a SentencePiece model).
 pub const SIGLIP2_TOKENIZER: &str = "tokenizer.model";
 
-/// SigLIP 2 base (patch 16, 256 px), the image–text embedding model behind visual media search. The two encoders
-/// are ONNX exports of the released weights (conversion repository at a fixed commit): the image encoder in half
-/// precision, the text encoder with 4-bit block-quantised weights; both agree with the full-precision export to a
-/// cosine of 0.99 or better, which the 8-bit exports did not (design.md Results). The tokenizer comes from the
-/// weights' own release at a fixed commit. Licence review: add-semantic-media-search design.md, "Model and tokenizer
-/// licences" (Apache-2.0 on the release; owner sign-off open). About 0.63 GB, so it downloads only after the person
-/// agrees, and it runs in the model worker.
+/// SigLIP 2 base (patch 16, 256 px), the image–text embedding model behind visual media search. Both encoders are
+/// half-precision ONNX exports of the released weights (conversion repository at a fixed commit); both agree with the
+/// original framework to a cosine of 0.99 or better on Windows CPU, which the 8-bit and 4-bit exports did not
+/// (add-semantic-media-search design.md Results). The tokenizer comes from the weights' own release at a fixed
+/// commit. Licence review: design.md, "Model and tokenizer licences" (Apache-2.0 on the release; owner sign-off open,
+/// release blocked until then). The download size is the sum of the pinned files (0.76 GB), so it downloads only after
+/// the person agrees, and it runs in the model worker. Changing only the text encoder keeps the image encoder's pin,
+/// so installed image files are reused and existing media indexes (keyed by the image encoder's hash) stay valid.
 pub fn siglip2_manifest() -> Manifest {
     const ONNX: &str = "https://huggingface.co/onnx-community/siglip2-base-patch16-256-ONNX/resolve/d1114256522a37ffa257a0a58017348ab0058db2/onnx";
     const RELEASE: &str =
         "https://huggingface.co/google/siglip2-base-patch16-256/resolve/3f9f96cb90da5dbc758b01813f2f6f1aee24c1ab";
     Manifest {
         id: SIGLIP2_ID.into(),
-        version: "b16-256-f16-q4-d111425".into(),
+        version: "b16-256-f16-f16-d111425".into(),
         purpose: "SigLIP 2 base: visual media search, finds shots by what they show".into(),
         licence: "Apache-2.0".into(),
         files: vec![
@@ -442,8 +443,8 @@ pub fn siglip2_manifest() -> Manifest {
             ModelFile::new(
                 SIGLIP2_TEXT,
                 &format!("{ONNX}/{SIGLIP2_TEXT}"),
-                "a623a87e0fbaa31a4bfbbbb3deafea756fee9a436e945b545a027adb13824e48",
-                442_779_433,
+                "80954edffdc689599e5d5bc6a1738380bc9e8139a18e5c8892485f248b6b4890",
+                564_862_230,
             ),
             ModelFile::new(
                 SIGLIP2_TOKENIZER,

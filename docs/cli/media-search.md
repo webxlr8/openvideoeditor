@@ -24,7 +24,7 @@ start to the last one's end, plus 150 ms on each side.
 
 ## The visual search model
 
-The model (SigLIP 2 base, licence Apache-2.0, a 0.63 GB download) is downloaded only after the person agrees: in
+The model (SigLIP 2 base, licence Apache-2.0, a 0.76 GB download) is downloaded only after the person agrees: in
 Settings > Storage or the media panel, or with `ove models install siglip2-base --yes`. No search command and no
 agent tool downloads it. Without it, `index` in the result says `notInstalled` with the download size, and Moments
 stays empty. Spoken, Timelines and Files still work.

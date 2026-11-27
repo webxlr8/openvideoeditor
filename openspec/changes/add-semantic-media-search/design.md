@@ -24,9 +24,10 @@ Requirements: specs/media-search.
 ### D1. Model: SigLIP 2 base, patch 16, 256 px
 An image–text embedding model with 768-dimensional outputs and Apache-2.0 weights (licence review below). The pinned
 files are an existing ONNX conversion of the released weights at a fixed commit, checked file by file (size and
-SHA-256): the image encoder in half precision and the text encoder with 4-bit block-quantised weights, plus the
-release's tokenizer. Total download 0.63 GB (186 MB + 443 MB + 4 MB), so it always needs consent; the consent prompt,
-Settings > Storage, the media panel and `ove models` show "0.63 GB", the model's name (SigLIP 2 base) and its licence.
+SHA-256): both encoders in half precision, plus the release's tokenizer. The download size is the sum of the pinned
+files in the manifest, 0.76 GB (186 MB + 565 MB + 4 MB), so it always needs consent; the consent prompt, Settings >
+Storage, the media panel and `ove models` show that size ("0.76 GB"), the model's name (SigLIP 2 base) and its
+licence.
 Release gate: cosine similarity ≥ 0.99 against the reference implementation on fixtures, for each runtime path.
 **Approved during apply (2026-11-27, CTO and CEO, with conditions):** the plan was our own export with 8-bit encoders.
 This machine has no Python, so the conversion above is pinned instead. Its 8-bit encoders failed the parity gate
@@ -36,9 +37,13 @@ original framework, stay open (tasks.md 1.2, needs Python); they could make the 
 **Release is blocked on the owner's licence sign-off** (tasks.md 1.1, the two points under "Model and tokenizer
 licences"). Until then the model stays in the catalog for testing, downloads only on the person's request, and ships
 in no installer.
-**Found later during apply (parity against the original framework, Results):** the shipped text encoder fails the
-gate on one fixture text (cosine 0.9360). Our own export passes at 0.56 GB, and the conversion's half-precision pair
-passes at 0.76 GB; switching the manifest to either needs approval (and, for ours, an immutable hosting location).
+**Found later during apply (parity against the original framework, Results):** the 4-bit text encoder first pinned
+failed the gate on one fixture text (cosine 0.9360). **Decision (CTO and CEO, 2026-11-27): option (a)**, the
+conversion's half-precision text encoder at the same pinned commit, replaces it; the 186 MB image encoder and the
+tokenizer keep their pins. Option (b), our own 0.56 GB export (Results), waits for the owner's hosting; keeping the
+4-bit text encoder was rejected. The image encoder's pin is unchanged, so installed image files are reused and existing
+media indexes (which record the image encoder's SHA-256) stay current; cached text query embeddings are keyed by the
+text encoder and are made again.
 Alternatives: original CLIP ViT-B/32 (weaker on fine detail, older tokenizer); larger SigLIP variants (better recall,
 2–4× size and memory); a cloud embedding API (breaks local-first and costs money).
 
@@ -102,7 +107,7 @@ Checked 2026-11-27 at the pinned revisions (tasks.md 1.1). Owner sign-off is sti
 
 | File | Source (fixed commit) | Licence found | Notes |
 |---|---|---|---|
-| `vision_model_fp16.onnx`, `text_model_q4f16.onnx` | ONNX conversion repository `onnx-community/siglip2-base-patch16-256-ONNX` at `d1114256522a37ffa257a0a58017348ab0058db2` | None stated in that repository; its card names `google/siglip2-base-patch16-256` as the base model | A format conversion (and quantisation) of the Apache-2.0 weights below, so the weights' licence applies |
+| `vision_model_fp16.onnx`, `text_model_fp16.onnx` | ONNX conversion repository `onnx-community/siglip2-base-patch16-256-ONNX` at `d1114256522a37ffa257a0a58017348ab0058db2` | None stated in that repository; its card names `google/siglip2-base-patch16-256` as the base model | A format conversion (and quantisation) of the Apache-2.0 weights below, so the weights' licence applies |
 | Weights (source of the conversion) | `google/siglip2-base-patch16-256` at `3f9f96cb90da5dbc758b01813f2f6f1aee24c1ab` | Apache-2.0 (model card `license: apache-2.0`, published by the model's authors) | The research code repository's release notes put "other materials" under CC-BY 4.0; the published model release itself states Apache-2.0 |
 | `tokenizer.model` | `google/siglip2-base-patch16-256` at `3f9f96cb90da5dbc758b01813f2f6f1aee24c1ab` (same bytes in the conversion repository) | Apache-2.0, as part of that release | The vocabulary is the one of a larger language-model family whose own releases use custom terms; this copy is distributed in the Apache-2.0 release |
 
@@ -114,7 +119,9 @@ removes point 1, and point 2 would need a different model.
 
 ## Risks / Trade-offs
 
-- Memory: both encoders peak at about 0.6 GB. Mitigation: they run only in the model worker, which exits when idle.
+- Memory: both encoders peak at about 1.4 GB in the model worker (measured: 1,433 MB peak working set with the
+  half-precision text encoder, 1,311 MB with the 4-bit one; Results). Mitigation: they run only in the model worker,
+  outside the editor's memory budget, which exits when idle.
   Detection: editor RSS measured during indexing (must stay within the model-runtime budget).
 - Recall of the 8-bit model is lower. Mitigation: re-fit the threshold; ship the half-precision variant where the
   accelerated path exists. Detection: recall@5 and @10 on a labelled set of ≥ 300 shots and 100 queries; the 8-bit
@@ -132,7 +139,7 @@ New optional fields only; older builds ignore them. Index files are derived data
 
 - Waves proceed in master-roadmap order; this change is wave 3 and needs `add-model-runtime` and
   `add-background-tasks-and-media-derivatives` first.
-- The model downloads on first use only after consent (0.63 GB as pinned, over the 50 MB limit).
+- The model downloads on first use only after consent (0.76 GB as pinned, over the 50 MB limit).
 - Accelerated execution on Windows (DirectML) is off by default with the CPU path as fallback until the owner rules on
   its licence.
 - Verify that the SigLIP 2 weights and the tokenizer files at the pinned revision are under a licence allowed by
@@ -237,7 +244,8 @@ it ranks segments and pads ranges, which the existing word-match search does not
 `cargo test -p ove-tools --features media --test overview`:
 
 - `ove media search` returns spoken hits with padded ranges and clip lines; with an empty model folder Moments is empty,
-  `index.visual` is `notInstalled` with the 0.63 GB size, and the model folder stays empty.
+  `index.visual` is `notInstalled` with the download size from the manifest (0.76 GB since the text encoder switch;
+  0.63 GB when measured), and the model folder stays empty.
 - "More like this" (`--like MEDIA@SECONDS`, `similarTo`) works from the index files alone, also without the model;
   the source shot ranks first and an unrelated shot falls below the similarity floor.
 - Over MCP, a Moments hit's and a Spoken hit's `clip` line pasted after a `<track>` line of `timeline.tsx` applies
@@ -256,7 +264,7 @@ tests) passes, 5 of them in `ui/src/media/MediaPanel.test.tsx`:
 - One search after typing stops (250 ms); Moments, Spoken, Timelines and Files sections; scope chips search one
   section; clearing the field shows the media again.
 - "No visual matches" when no shot passes the threshold while Spoken still lists hits; untranscribed files are counted
-  with a Transcribe link; with the model missing, Moments and the pill say so with the size (0.63 GB) and the pill
+  with a Transcribe link; with the model missing, Moments and the pill say so with the size (now 0.76 GB) and the pill
   offers the download, which starts only after the person confirms it (the runtime first when it is missing).
 - "Indexing n of N" while indexing; the pill opens the Background Tasks popover.
 - Dropping a Moment on the Main lane plans one `overwrite` (one revision) with `trimStart` = the result's in and the
@@ -271,7 +279,8 @@ Not measured here: results within 300 ms on 10 hours of indexed footage in the b
 ### Conditions of the model approval (CTO and CEO, 2026-11-27)
 
 - Size, name and licence: the consent message (`model.consent` and "model not installed" results), `ove models list`,
-  the first download progress line, Settings > Storage and the media panel's install offer show "0.63 GB",
+  the first download progress line, Settings > Storage and the media panel's install offer show the manifest's size
+  (now "0.76 GB"),
   "SigLIP 2 base" and "Apache-2.0" (tests: `ove-vision` `model::tests`, `ove-models --test siglip2`,
   `ove-cli --test media_search` `ove_models_shows_the_size_name_and_licence`, UI `MediaPanel.test.tsx` and
   `ModelsSection.test.tsx`). Sizes from 500 MB up read in gigabytes everywhere.
@@ -318,9 +327,25 @@ The earlier parity check (against the conversion's own full-precision graphs, on
 text encoder's failure: a capitalised, punctuated text loses most in 4 bits. Two pairs pass on Windows CPU:
 
 - our half-precision image encoder and our text encoder with an 8-bit embedding table: 0.56 GB (186 + 368 + 4 MB),
-  smaller than the shipped 0.63 GB, but our exports are not hosted anywhere yet; the manifest needs an immutable
+  smaller than the 0.63 GB pair first pinned, but our exports are not hosted anywhere yet; the manifest needs an immutable
   location (for example a versioned release asset of this repository);
 - the conversion's half-precision image and text encoders, already at the pinned commit: 0.76 GB.
 
 Until one of them is approved and pinned, the shipped text encoder does not meet the release gate, and task 1.2 stays
 open (macOS is open as well). Task 1.3 is done.
+
+### The switch to the half-precision text encoder (option (a), 2026-11-27)
+
+| Check | Result |
+|---|---|
+| Manifest | `siglip2-base` version `b16-256-f16-f16-d111425`: `vision_model_fp16.onnx` (186,131,676 bytes, unchanged), `text_model_fp16.onnx` (564,862,230 bytes, SHA-256 `80954edf…4b6b4890`, same commit), `tokenizer.model` (unchanged); 755,234,909 bytes, shown as "0.76 GB" |
+| Parity, in process (`cargo test -p ove-vision --test reference -- --ignored`) | our preprocessing and tokens with the shipped encoders against the original framework: worst image 0.9996, text 1.0000 |
+| Parity, in the model worker (`cargo test -p ove-cli --test media_search_model -- --ignored`) | worst image 0.9996, text 1.0000; the worker gives the in-process embeddings (cosine > 0.9999) |
+| Parity, macOS (CoreML unverified, CPU path) | open (owner checklist) |
+| Worker peak working set, both encoders loaded, 8 pictures and 8 texts | 1,433 MB (the 4-bit text encoder: 1,311 MB) |
+| Worker exits when idle | yes: 3.6 s after its last job with `--idle-secs 4` |
+| Warm image encoding in the worker | 289 ms per image (10 pictures, CPU, 4 threads) |
+| Store update (`cargo test -p ove-models --test siglip2`) | only the new text encoder downloads; the image encoder and tokenizer are reused by name, SHA-256 and size; a damaged new file is refused and the old files stay; once the new file is verified and recorded, the old 443 MB text file and the previous version's folder are deleted |
+| Index survives the update (`cargo test -p ove-vision --test upgrade`) | an index built before the update is current after it, through the real model store |
+
+Task 1.2 stays open until the macOS run passes. Release stays blocked on the owner's licence sign-off (task 1.1).
