@@ -2,7 +2,7 @@
 //!
 //! A plain safetensors file, so common numeric tools can read it: `embeddings` f16 `[N, 768]` (one row per sampled
 //! frame, L2-normalised), `times` f64 `[N]` (seconds), `row_shot` u32 `[N]`, `shots` f64 `[S, 2]` (start, end
-//! seconds) and `cuts` f64 `[C]`. The metadata names the model, the sampler version, the preprocessing, the duration
+//! seconds), `cuts` f64 `[C]` and `cut_scores` f64 `[C]` (so scene detection can answer from the index). The metadata names the model, the sampler version, the preprocessing, the duration
 //! and a CRC-32 of the tensor bytes. Files are read through a memory map; a damaged file, or one made by another
 //! model or sampler, is reported so the caller can discard and rebuild it.
 
@@ -57,6 +57,10 @@ pub struct IndexData {
     pub row_shot: Vec<u32>,
     pub shots: Vec<(f64, f64)>,
     pub cuts: Vec<f64>,
+    /// The score of each cut (scene detection reports it).
+    pub cut_scores: Vec<f64>,
+    /// Frames decoded by the sampler (0 for a still image).
+    pub frames: u64,
 }
 
 impl IndexData {
@@ -77,6 +81,9 @@ impl IndexData {
         }
         if !self.times.iter().all(|t| t.is_finite()) || !self.cuts.iter().all(|t| t.is_finite()) {
             return Err("a time is not a number".into());
+        }
+        if self.cut_scores.len() != self.cuts.len() {
+            return Err("cut_scores does not match the cuts".into());
         }
         if self.shots.iter().any(|(a, b)| !(a.is_finite() && b.is_finite() && a <= b)) {
             return Err("a shot range is invalid".into());
@@ -105,6 +112,12 @@ pub fn write(path: &Path, data: &IndexData) -> Result<()> {
         ("times", "F64", vec![n], data.times.iter().flat_map(|v| v.to_le_bytes()).collect()),
         ("shots", "F64", vec![data.shots.len(), 2], shots.iter().flat_map(|v| v.to_le_bytes()).collect()),
         ("cuts", "F64", vec![data.cuts.len()], data.cuts.iter().flat_map(|v| v.to_le_bytes()).collect()),
+        (
+            "cut_scores",
+            "F64",
+            vec![data.cut_scores.len()],
+            data.cut_scores.iter().flat_map(|v| v.to_le_bytes()).collect(),
+        ),
         ("embeddings", "F16", vec![n, DIM], f16s.iter().flat_map(|v| v.to_le_bytes()).collect()),
         ("row_shot", "U32", vec![n], data.row_shot.iter().flat_map(|v| v.to_le_bytes()).collect()),
     ];
@@ -129,6 +142,7 @@ pub fn write(path: &Path, data: &IndexData) -> Result<()> {
         ("preprocessing", p.preprocessing.clone()),
         ("contentId", data.content_id.clone()),
         ("duration", data.duration.to_string()),
+        ("frames", data.frames.to_string()),
         ("crc32", format!("{:08x}", crc.finalize())),
     ]
     .into_iter()
@@ -169,6 +183,8 @@ pub struct Index {
     row_shot: Vec<u32>,
     pub shots: Vec<(f64, f64)>,
     pub cuts: Vec<f64>,
+    pub cut_scores: Vec<f64>,
+    pub frames: u64,
 }
 
 impl std::fmt::Debug for Index {
@@ -187,7 +203,8 @@ impl Index {
         let bad = |reason: &str| VisionError::Index { path: path.display().to_string(), reason: reason.into() };
         let file = File::open(path)?;
         // SAFETY: the map is read-only and index files are only ever replaced by renaming a new file into place,
-        // never written in place, so the mapped bytes do not change while mapped (a rename keeps the old inode).
+        // never written in place, so the mapped bytes do not change while mapped (macOS keeps the old file for the
+        // map after a rename; Windows refuses to replace a mapped file, so the writer fails and retries later).
         let map = unsafe { memmap2::Mmap::map(&file) }?;
         if map.len() < 8 {
             return Err(bad("the file is too short"));
@@ -220,15 +237,16 @@ impl Index {
         };
         let (ts, t0, t1) = tensor("times", "F64", 8)?;
         let (ss, s0, s1) = tensor("shots", "F64", 8)?;
-        let (_, c0, c1) = tensor("cuts", "F64", 8)?;
+        let (cs, c0, c1) = tensor("cuts", "F64", 8)?;
+        let (ks, k0, k1) = tensor("cut_scores", "F64", 8)?;
         let (es, e0, e1) = tensor("embeddings", "F16", 2)?;
         let (rs, r0, r1) = tensor("row_shot", "U32", 4)?;
         let rows = ts.first().copied().unwrap_or(0);
-        if es != [rows, DIM] || rs != [rows] || ss.len() != 2 || ss[1] != 2 {
+        if es != [rows, DIM] || rs != [rows] || ss.len() != 2 || ss[1] != 2 || ks != cs {
             return Err(bad("the tensor shapes do not agree"));
         }
         let mut crc = crc32fast::Hasher::new();
-        let mut ranges = [(t0, t1), (s0, s1), (c0, c1), (e0, e1), (r0, r1)];
+        let mut ranges = [(t0, t1), (s0, s1), (c0, c1), (k0, k1), (e0, e1), (r0, r1)];
         ranges.sort();
         for (a, b) in ranges {
             crc.update(&map[a..b]);
@@ -252,6 +270,8 @@ impl Index {
         Ok(Index {
             times: f64s(&map[t0..t1]),
             cuts: f64s(&map[c0..c1]),
+            cut_scores: f64s(&map[k0..k1]),
+            frames: m("frames").and_then(|s| s.parse().ok()).unwrap_or(0),
             shots,
             row_shot,
             rows,
@@ -396,6 +416,8 @@ mod tests {
             row_shot: (0..rows).map(|r| (r / 2) as u32).collect(),
             shots: (0..rows.div_ceil(2)).map(|s| (s as f64, s as f64 + 1.0)).collect(),
             cuts: (1..rows.div_ceil(2)).map(|s| s as f64).collect(),
+            cut_scores: (1..rows.div_ceil(2)).map(|_| 0.5).collect(),
+            frames: rows as u64 * 10,
         }
     }
 
@@ -411,6 +433,7 @@ mod tests {
         assert_eq!((i.content_id.as_str(), i.duration), ("abc", 12.5));
         assert_eq!(i.shots, d.shots);
         assert_eq!(i.cuts, d.cuts);
+        assert_eq!((i.cut_scores.clone(), i.frames), (d.cut_scores.clone(), d.frames));
         assert_eq!(i.time(3), 1.5);
         assert_eq!(i.shot_of(3), 1);
         // f16 keeps about three decimal digits.
@@ -481,6 +504,7 @@ mod tests {
         let mut d = sample(0);
         d.shots.clear();
         d.cuts.clear();
+        d.cut_scores.clear();
         let p = index_path(dir.path(), "abc");
         write(&p, &d).unwrap();
         assert_eq!(Index::open(&p).unwrap().rows(), 0);

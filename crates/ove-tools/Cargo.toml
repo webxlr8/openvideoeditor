@@ -20,6 +20,7 @@ ove-projection = { path = "../ove-projection" }
 ove-store = { path = "../ove-store" }
 # Reading cached transcripts only: no recognition library.
 ove-transcribe = { path = "../ove-transcribe", default-features = false }
+ove-vision = { path = "../ove-vision" }
 ove-graphics = { path = "../ove-graphics", optional = true }
 ove-analyze = { path = "../ove-analyze", optional = true }
 ove-media = { path = "../ove-media", optional = true }
@@ -32,7 +33,7 @@ tracing = "0.1"
 # `check_code`: the motion-graphics checker (no FFmpeg).
 graphics = ["dep:ove-graphics"]
 # Media reading, analysis frames and export (links FFmpeg). Includes `graphics`.
-media = ["graphics", "dep:ove-analyze", "dep:ove-media", "dep:ove-render", "ove-transcribe/audio", "ove-models/onnx"]
+media = ["graphics", "dep:ove-analyze", "dep:ove-media", "dep:ove-render", "ove-transcribe/audio", "ove-models/onnx", "ove-vision/media"]
 # Speech recognition (whisper.cpp) for `transcribe_media`. Includes `media`.
 speech = ["media", "ove-transcribe/recognize"]
 

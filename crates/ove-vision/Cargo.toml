@@ -9,7 +9,7 @@ publish.workspace = true
 
 [features]
 # Frame sampling and indexing from media files (links FFmpeg).
-media = ["dep:ove-analyze", "dep:ove-media"]
+media = ["dep:ove-analyze", "dep:ove-media", "dep:ove-tasks", "dep:png"]
 
 [dependencies]
 crc32fast = "1.5"
@@ -18,6 +18,8 @@ memmap2 = "0.9"
 ove-analyze = { path = "../ove-analyze", optional = true }
 ove-media = { path = "../ove-media", optional = true }
 ove-models = { path = "../ove-models" }
+ove-tasks = { path = "../ove-tasks", optional = true }
+png = { version = "0.18", optional = true }
 ove-transcribe = { path = "../ove-transcribe", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -25,6 +27,9 @@ sha2 = "0.10"
 thiserror = "2"
 
 [dev-dependencies]
+ove-analyze = { path = "../ove-analyze" }
+ove-store = { path = "../ove-store" }
+ove-tasks = { path = "../ove-tasks" }
 ove-models = { path = "../ove-models", features = ["onnx"] }
 proptest = "1.12"
 tempfile = "3"

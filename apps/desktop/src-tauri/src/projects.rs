@@ -755,6 +755,11 @@ fn refresh_once(app: &AppHandle, state: &AppState) {
             })
             .collect()
     };
+    let index_items = {
+        let online: BTreeSet<&str> =
+            links.iter().filter(|(_, _, l)| l.state == MediaState::Online).map(|(id, _, _)| id.as_str()).collect();
+        crate::search::indexable(&bundle, &doc, &online)
+    };
     // Released before the project is locked: the lock order is project, then media cache.
     let changed = relock(&state.projects.media).store(&bundle, links, thumbs);
     if !missing.is_empty() {
@@ -782,6 +787,8 @@ fn refresh_once(app: &AppHandle, state: &AppState) {
             });
         }
     }
+    // Footage search indexes (P3), keyed by content id; queued only when the visual search model is installed.
+    crate::search::queue_indexing(app, &bundle, index_items);
     if changed
         && let Ok(g) = lock(&state.projects.open)
         && let Some(p) = g.as_ref().filter(|p| p.bundle() == bundle)

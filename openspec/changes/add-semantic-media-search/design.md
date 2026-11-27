@@ -157,3 +157,23 @@ pair: each of 5 queries ranks its own picture first, confidence 0.80–0.99, eve
 Image preprocessing (resize to 256 × 256 with an antialiased triangle filter, then (x − 0.5) / 0.5) is verified by
 unit tests against hand-computed values only. A comparison with the original framework's preprocessing needs Python
 and stays open.
+
+The model worker path (`ove model-worker`, `cargo test -p ove-cli --test media_search_model -- --ignored`) gives the
+in-process embeddings (cosine > 0.9999 on 10 images and a text). Worker timing: 10 images in 9.6 s including the
+model load, 5.0 s warm (about 500 ms per image, CPU, 4 threads).
+
+### Sampling and index (tasks.md 2.1–2.3)
+
+- Fixture: 5 concatenated lavfi clips, 20 s at 25 fps, 320 × 180, true cuts at 3.2, 12.0, 13.4 and 14.4 s
+  (`cargo test -p ove-vision --features media --test sampler`). Reported cuts: 3.2, 12.0, 13.4, 14.4 (0 frames off).
+  Samples per shot 1, 2, 1, 0 (black shot skipped), 1, as the per-shot rule says.
+- First pass at 64 px: 500 frames in 168 ms (about 2,970 frames/s on 320 × 180 H.264). Second pass: 5 samples
+  decoded at 256 px in 87 ms.
+- Non-reference frames are not skipped: the media layer has no option for it, and the full 64 px pass already runs at
+  about 100 × real time on this fixture. The cut list is therefore exactly the one scene detection computes (test
+  `the_cut_list_matches_scene_detection`), and `detect_scenes` at the default threshold answers from a current index.
+- The existing scene-detection fixtures (`ove-analyze` tests) pass unchanged after the scoring moved into a shared
+  `CutScorer`.
+- Index files: relink keeps the index (same content id, no encoder call); a damaged file fails its CRC, is deleted
+  and rebuilt. On Windows a mapped index file cannot be replaced, so readers drop their map before a rebuild.
+- Still images that the LGPL FFmpeg build cannot decode (PNG, until the FFmpeg rebuild) are read with the PNG reader.

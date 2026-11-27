@@ -25,6 +25,7 @@ pub mod projects;
 pub mod sample;
 pub mod scripted_dialogs;
 pub mod scrub;
+pub mod search;
 pub mod spend;
 pub mod support;
 pub mod tasks;

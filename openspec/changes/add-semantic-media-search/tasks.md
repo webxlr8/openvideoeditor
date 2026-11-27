@@ -19,12 +19,12 @@
 
 ## 2. Sampling and index
 
-- [ ] 2.1 Implement the one-pass shot sampler (cut scores, per-shot points, sharpest-frame choice, black/flat skip,
+- [x] 2.1 Implement the one-pass shot sampler (cut scores, per-shot points, sharpest-frame choice, black/flat skip,
       256 px decode); verify on a fixture of concatenated clips that boundaries are within ±2 frames and sample counts
       follow the per-shot rule.
-- [ ] 2.2 Implement the index file (write, memory-mapped read, corruption detection) keyed by content identity; verify
+- [x] 2.2 Implement the index file (write, memory-mapped read, corruption detection) keyed by content identity; verify
       tests: relink keeps the index, a damaged file is discarded and rebuilt.
-- [ ] 2.3 Register indexing as a P3 scheduled task that calls the model worker; let scene detection answer from the
+- [x] 2.3 Register indexing as a P3 scheduled task that calls the model worker; let scene detection answer from the
       cached cut list; verify scene detection results are unchanged on the existing fixtures.
 
 ## 3. Ranking and spoken search

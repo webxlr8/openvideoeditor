@@ -54,6 +54,12 @@ impl<R: Runner + ?Sized> Runner for &R {
     }
 }
 
+impl<R: Runner + ?Sized> Runner for std::sync::Arc<R> {
+    fn run(&self, model: &Path, inputs: &[Tensor]) -> std::result::Result<Vec<Tensor>, ModelError> {
+        (**self).run(model, inputs)
+    }
+}
+
 impl Runner for ove_models::worker::WorkerClient {
     fn run(&self, model: &Path, inputs: &[Tensor]) -> std::result::Result<Vec<Tensor>, ModelError> {
         ove_models::worker::WorkerClient::run(self, &model.to_string_lossy(), inputs)
@@ -88,6 +94,14 @@ pub fn installed(store: &Store) -> std::result::Result<ModelFiles, Box<NotInstal
         tokenizer: file(SIGLIP2_TOKENIZER)?,
         vision_sha256: manifest.file(SIGLIP2_VISION).map(|f| f.sha256.clone()).unwrap_or_default(),
     })
+}
+
+/// The installed model run by `runner` (normally the shared model worker), or "model not installed". Nothing is
+/// downloaded.
+pub fn installed_encoder<R: Runner + Send + 'static>(store: &Store, runner: R) -> Result<Box<dyn Encoder + Send>> {
+    let files = installed(store)
+        .map_err(|n| VisionError::ModelNotInstalled { message: n.message.clone(), bytes: n.download_bytes })?;
+    Ok(Box::new(SiglipEncoder::new(runner, files)?))
 }
 
 /// The provenance of indexes built by the model with these files.

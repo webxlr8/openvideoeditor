@@ -6,8 +6,14 @@
 
 pub mod error;
 pub mod index;
+#[cfg(feature = "media")]
+pub mod indexer;
 pub mod model;
 pub mod preprocess;
+#[cfg(feature = "media")]
+pub mod sampler;
+#[cfg(feature = "media")]
+pub mod task;
 pub mod tokenizer;
 
 pub use error::{Result, VisionError};

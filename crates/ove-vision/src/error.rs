@@ -16,6 +16,8 @@ pub enum VisionError {
     Index { path: String, reason: String },
     #[error("{0}")]
     Media(String),
+    #[error("cancelled")]
+    Cancelled,
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
 }
@@ -29,6 +31,7 @@ impl VisionError {
             VisionError::Model(_) => "model.failed",
             VisionError::Index { .. } => "index.damaged",
             VisionError::Media(_) => "media.unreadable",
+            VisionError::Cancelled => "cancelled",
             VisionError::Io(_) => "io",
         }
     }
