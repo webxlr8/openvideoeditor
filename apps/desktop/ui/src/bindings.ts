@@ -307,8 +307,11 @@ export const commands = {
 	skillsCatalog: () => typedError<CatalogView, AppError>(__TAURI_INVOKE("skills_catalog")),
 	/**  Fetches and verifies a catalog skill for the person to read before installing. Installs nothing. */
 	skillInstallPreview: (id: string) => typedError<SkillInstallPreview, AppError>(__TAURI_INVOKE("skill_install_preview", { id })),
-	/**  Installs a catalog skill the person confirmed, checking it against its pin again. */
-	skillInstall: (id: string, installAs: string) => typedError<SkillRow_Serialize, AppError>(__TAURI_INVOKE("skill_install", { id, installAs })),
+	/**
+	 *  Installs a catalog skill the person confirmed: `sha256` is the pin of the text they read in the preview, and the
+	 *  install is refused when the catalog now pins anything else.
+	 */
+	skillInstall: (id: string, installAs: string, sha256: string) => typedError<SkillRow_Serialize, AppError>(__TAURI_INVOKE("skill_install", { id, installAs, sha256 })),
 	/**  The differences an update would make. Installs nothing. */
 	skillUpdateOffer: (id: string) => typedError<SkillUpdateOffer, AppError>(__TAURI_INVOKE("skill_update_offer", { id })),
 	/**  Installs an update the person accepted; `sha256` is the one they saw. */

@@ -80,6 +80,11 @@ const V1: &str = "---\nname: Pacing\ndescription: Keep a steady pace.\n---\n\nCu
 const V2: &str =
     "---\nname: Pacing\ndescription: Keep a steady pace.\n---\n\nCut on the beat.\nHold wide shots longer.\n";
 
+/// The pin of V1, as `ove skills install` shows it.
+fn v1() -> String {
+    ove_tools::skills::sha256_hex(V1.as_bytes())
+}
+
 struct Env {
     _d: tempfile::TempDir,
     lib: PathBuf,
@@ -149,7 +154,16 @@ fn install_needs_confirmation_and_checks_the_pin() {
     assert!(shown["message"].as_str().unwrap().contains("matches its pinned SHA-256"));
     assert!(!skill_file(&e, "pacing").exists());
 
-    let installed = ok(&ove(&e, &["skills", "install", "pacing", "--yes"]));
+    // --yes alone is not enough: the pin of the text read is needed too.
+    assert_eq!(refused(&ove(&e, &["skills", "install", "pacing", "--yes"]))["code"], "skill.confirm");
+    assert!(!skill_file(&e, "pacing").exists());
+    // A pin other than the catalog's current one (the text changed since it was read) is refused.
+    let stale = "0".repeat(64);
+    assert_eq!(
+        refused(&ove(&e, &["skills", "install", "pacing", "--yes", "--sha256", &stale]))["code"],
+        "skill.changed"
+    );
+    let installed = ok(&ove(&e, &["skills", "install", "pacing", "--yes", "--sha256", &v1()]));
     assert_eq!(installed["origin"]["kind"], "catalog");
     assert_eq!(installed["origin"]["url"], server.catalog());
     assert_eq!(std::fs::read_to_string(skill_file(&e, "pacing")).unwrap(), V1);
@@ -159,7 +173,7 @@ fn install_needs_confirmation_and_checks_the_pin() {
 
     // Tampered content: nothing installed.
     server.files.lock().unwrap().insert("/c/pacing.md".into(), b"---\nname: P\ndescription: d\n---\nevil\n".to_vec());
-    let err = refused(&ove(&e, &["skills", "install", "pacing", "--as", "pacing-2", "--yes"]));
+    let err = refused(&ove(&e, &["skills", "install", "pacing", "--as", "pacing-2", "--yes", "--sha256", &v1()]));
     assert_eq!(err["code"], "skill.tampered");
     assert!(!skill_file(&e, "pacing-2").exists());
     assert_eq!(refused(&ove(&e, &["skills", "install", "nope", "--yes"]))["code"], "catalog.missing");
@@ -172,8 +186,8 @@ fn updates_are_shown_then_installed_and_edits_are_kept() {
     let server = Server::start();
     server.publish(&[("pacing", V1), ("mine", V1)]);
     ok(&ove(&e, &["skills", "catalog", "--set", &server.catalog()]));
-    ok(&ove(&e, &["skills", "install", "pacing", "--yes"]));
-    ok(&ove(&e, &["skills", "install", "mine", "--yes"]));
+    ok(&ove(&e, &["skills", "install", "pacing", "--yes", "--sha256", &v1()]));
+    ok(&ove(&e, &["skills", "install", "mine", "--yes", "--sha256", &v1()]));
     let edited = V1.replace("beat", "downbeat");
     std::fs::write(skill_file(&e, "mine"), &edited).unwrap();
     server.publish(&[("pacing", V2), ("mine", V2)]);

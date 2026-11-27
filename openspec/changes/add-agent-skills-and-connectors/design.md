@@ -232,3 +232,18 @@ Measured on Windows 11 (x64), debug test builds.
   macOS layouts, disconnect, manifest equality), the package test in the desktop crate, and 4 UI tests (not
   installed, installed and connected, refused with the manual steps and copy, Cursor connect and disconnect).
 - Not run here: the built app on macOS and Windows with Claude Desktop and Cursor installed (tasks 5.1, 5.2).
+
+### Security review (branch diff against azharudh33n/hydroid)
+
+- No finding reached the reporting bar (confidence 8 of 10). Checked: skill ids and paths (no path is built from
+  input; links refused), catalog addresses (HTTPS only, plain HTTP only to this computer, redirects re-checked, entry
+  paths stay in the catalog folder), MCP surfaces (read-only for skills; no catalog fetch or install over MCP),
+  connectors (fixed ids, one-argument process spawn, JSON edits through serde with a backup), and the UI (no unsafe
+  HTML).
+- Fixed although below the bar, because it broke the condition that the person confirms each install: an install did
+  not check that the catalog still pinned the text the person had read. `catalog::install` now takes the SHA-256
+  shown in the preview and refuses with `skill.changed` otherwise (Settings passes it; the command line needs
+  `--yes --sha256 <pin>`). Tests: a catalog that serves other text after the preview installs nothing (unit, CLI and
+  UI).
+- Noted, not changed: an exported skill keeps its body as written, including lines another agent may treat as
+  commands; that agent's own permission settings still apply, and export runs only on the person's click.

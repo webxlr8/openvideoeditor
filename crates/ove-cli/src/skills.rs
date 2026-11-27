@@ -31,7 +31,7 @@ pub enum SkillsCmd {
         clear: bool,
     },
     /// With an id: install that catalog skill after checking it against its pinned SHA-256 (shows it and changes
-    /// nothing without --yes). With no id: write the openvideoeditor editing guide into the Claude Code / Codex skills
+    /// nothing without --yes and --sha256, the pin of the text you read). With no id: write the openvideoeditor editing guide into the Claude Code / Codex skills
     /// folders (or --dir).
     Install {
         id: Option<String>,
@@ -41,6 +41,9 @@ pub enum SkillsCmd {
         /// Confirm the install.
         #[arg(long)]
         yes: bool,
+        /// The SHA-256 shown with the text you read: the install is refused if the catalog now pins anything else.
+        #[arg(long, value_name = "PIN")]
+        sha256: Option<String>,
         #[arg(long)]
         dir: Vec<PathBuf>,
     },
@@ -206,22 +209,23 @@ pub fn run(cmd: &SkillsCmd, library_flag: Option<&Path>, source: Source) -> Out 
             }
             Ok((json!({"catalog": c, "installed": states}), text.trim_end().to_string()))
         }
-        SkillsCmd::Install { id: Some(id), as_id, yes, .. } => {
+        SkillsCmd::Install { id: Some(id), as_id, yes, sha256, .. } => {
             let store = store(library_flag)?;
             let c = catalog::fetch(&store, &Http)?;
-            if !(*yes && person) {
+            let confirmed = sha256.as_deref().filter(|_| *yes && person);
+            let Some(seen) = confirmed else {
                 let p = catalog::preview(&store, &c, id, &Http)?;
                 let mut msg = format!(
-                    "Not installed yet. `{}` from {} matches its pinned SHA-256 {}.\nIt would be installed as `{}`. Read it, then run again with --yes to install it.",
-                    p.entry.id, p.catalog_url, p.entry.sha256, p.install_as
+                    "Not installed yet. `{}` from {} matches its pinned SHA-256 {}.\nIt would be installed as `{}`. Read it, then install it with:\n  ove skills install {} --yes --sha256 {}",
+                    p.entry.id, p.catalog_url, p.entry.sha256, p.install_as, p.entry.id, p.entry.sha256
                 );
                 if !p.unknown_tools.is_empty() {
                     msg.push_str(&format!("\nIt names tools that do not exist: {}.", p.unknown_tools.join(", ")));
                 }
                 msg.push_str(&format!("\n\n{}", p.text.trim_end()));
                 return Err(confirm(msg, serde_json::to_value(&p).unwrap_or_default()));
-            }
-            let s = catalog::install(&store, &c, id, as_id.as_deref(), &Http)?;
+            };
+            let s = catalog::install(&store, &c, id, as_id.as_deref(), seen, &Http)?;
             Ok((serde_json::to_value(&s).unwrap_or_default(), format!("Installed `{}` from {}.", s.id, c.url)))
         }
         SkillsCmd::Update { id: None, .. } => {

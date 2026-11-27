@@ -285,16 +285,25 @@ pub fn preview(store: &SkillStore, catalog: &Catalog, id: &str, net: &dyn Fetch)
     })
 }
 
-/// Installs a verified entry under `as_id` (default: the entry id). The person confirmed it. Refused with
-/// `skill.tampered` when the content does not match its pin, and with `skill.exists` when the id is taken.
+/// Installs a verified entry under `as_id` (default: the entry id). The person confirmed the text whose SHA-256 is
+/// `seen_sha256` (from [`preview`]); the entry must still pin exactly that, so a catalog cannot show one text and
+/// install another (`skill.changed`). Refused with `skill.tampered` when the content does not match its pin, and with
+/// `skill.exists` when the id is taken.
 pub fn install(
     store: &SkillStore,
     catalog: &Catalog,
     id: &str,
     as_id: Option<&str>,
+    seen_sha256: &str,
     net: &dyn Fetch,
 ) -> Result<super::Skill, Fail> {
     let e = entry(catalog, id)?;
+    if e.sha256 != seen_sha256 {
+        return Err(Fail::new(
+            "skill.changed",
+            format!("the catalog entry `{id}` changed since it was shown; look at it again before installing"),
+        ));
+    }
     let target = as_id.unwrap_or(&e.id);
     if super::is_builtin(target) {
         return Err(Fail::new(

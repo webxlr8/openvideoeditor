@@ -335,15 +335,16 @@ pub async fn skill_install_preview(app: AppHandle, id: String) -> AppResult<Skil
     .await
 }
 
-/// Installs a catalog skill the person confirmed, checking it against its pin again.
+/// Installs a catalog skill the person confirmed: `sha256` is the pin of the text they read in the preview, and the
+/// install is refused when the catalog now pins anything else.
 #[tauri::command]
 #[specta::specta]
-pub async fn skill_install(app: AppHandle, id: String, install_as: String) -> AppResult<SkillRow> {
+pub async fn skill_install(app: AppHandle, id: String, install_as: String, sha256: String) -> AppResult<SkillRow> {
     worker::blocking("skill_install", move || {
         let store = store(&app)?;
         let c = catalog::fetch(&store, &Http).map_err(fail)?;
         let as_id = Some(install_as.as_str()).filter(|s| !s.is_empty());
-        catalog::install(&store, &c, &id, as_id, &Http).map(|s| row(&s)).map_err(fail)
+        catalog::install(&store, &c, &id, as_id, &sha256, &Http).map(|s| row(&s)).map_err(fail)
     })
     .await
 }

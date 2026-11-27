@@ -9,7 +9,7 @@ ove skills list [--json]
 ove skills show <id> [--json]
 ove skills add <file> [--id <id>] [--json]
 ove skills catalog [--set <https address> | --clear] [--json]
-ove skills install <id> [--as <id>] [--yes] [--json]
+ove skills install <id> [--as <id>] [--yes --sha256 <pin>] [--json]
 ove skills update [<id>] [--yes] [--json]
 ove skills export <id> [--to claude,codex,cursor] [--yes] [--json]
 ove skills draft --from-project <project> [--with-chat] [--out <file>] [--pack-out <file>] [--model <id>] [--json]
@@ -91,7 +91,9 @@ A catalog is a JSON document at an HTTPS address:
   HTTPS. `path` is relative to the catalog document and must stay in its folder.
 - Each entry pins the full SHA-256 of its file. A file that does not match is refused with `skill.tampered`, and
   nothing is written.
-- `ove skills install <id>` shows the verified file and installs nothing; `--yes` installs it. The skill's source is
+- `ove skills install <id>` shows the verified file and its pin and installs nothing. `--yes --sha256 <pin>` installs
+  it; the pin must be the one shown with the text you read, so a catalog cannot show one text and install another
+  (`skill.changed`). Settings installs the text it showed you the same way. The skill's source is
   shown as `catalog <address>`. An id that is taken is refused with `skill.exists`; use `--as <id>`.
 
 Catalog skills are text from someone else. They are checked like any skill, their front matter cannot set their own

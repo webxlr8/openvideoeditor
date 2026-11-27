@@ -299,7 +299,7 @@ function Community({
               data-testid="skill-install-confirm"
               onClick={() =>
                 runCommand(
-                  commands.skillInstall(preview.id, preview.installAs),
+                  commands.skillInstall(preview.id, preview.installAs, preview.sha256),
                   (s) => {
                     setPreview(null);
                     setMessage(`Installed ${s.id}.`);

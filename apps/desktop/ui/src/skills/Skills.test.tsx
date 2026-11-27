@@ -77,6 +77,21 @@ describe("settings: skills", () => {
     );
   });
 
+  it("installs only the text it showed", async () => {
+    const s = mock().skills;
+    s.catalogUrl = "https://skills.example/catalog.json";
+    s.catalog = [{ id: "pacing", name: "Pacing", description: "d", text: skillText("Pacing", "d", "Steps.") }];
+    await openSkills();
+    fireEvent.click(screen.getByTestId("skills-tab-community"));
+    fireEvent.click(await screen.findByTestId("catalog-install-pacing"));
+    await screen.findByTestId("skill-install-text");
+    // The catalog serves other text after the preview.
+    s.catalog = [{ id: "pacing", name: "Pacing", description: "d", text: skillText("Pacing", "d", "Other steps.") }];
+    fireEvent.click(screen.getByTestId("skill-install-confirm"));
+    expect((await screen.findByTestId("skills-community-message")).textContent).toContain("changed since it was shown");
+    expect(s.store.some((k) => k.id === "pacing")).toBe(false);
+  });
+
   it("refuses tampered catalog content", async () => {
     mock().skills.catalogUrl = "https://skills.example/catalog.json";
     mock().skills.catalog = [

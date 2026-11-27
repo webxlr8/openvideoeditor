@@ -208,10 +208,12 @@ export function createSkillsMock(
         unknownTools: [],
       });
     },
-    skillInstall: (id: string, installAs: string): Res<SkillRow_Serialize> => {
+    skillInstall: (id: string, installAs: string, sha256: string): Res<SkillRow_Serialize> => {
       track(`skillInstall:${id}`);
       const e = entry(id);
       if (!e) return fail("not_found", `the catalog has no skill \`${id}\``);
+      if (hash(e.text) !== sha256)
+        return fail("invalid_argument", `the catalog entry \`${id}\` changed since it was shown; look at it again`);
       if (e.tampered) return fail("corrupt", `the content of \`${id}\` failed verification. Nothing was installed.`);
       const k: MockSkill = { id: installAs || id, text: e.text, kind: "catalog", installedHash: hash(e.text), catalogId: id };
       s().store.push(k);
