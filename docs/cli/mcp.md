@@ -60,6 +60,7 @@ Tools:
 | grab_frame, filmstrip, detect_scenes | `media grab / filmstrip / scenes` |
 | audio_levels, waveform_image, detect_silence, measure_loudness, duck_audio | `audio levels / waveform / silence / loudness / duck` |
 | extract_audio | `media extract-audio` |
+| sync_items | `audio sync` |
 | look, screenshot | `look`, `screenshot` |
 | inspect_color | `color inspect` (colour readout, reference gap and a suggested grade patch) |
 | export_video, export_timeline_file, import_timeline_file | `export`, `timeline export / import` |

@@ -10,18 +10,18 @@
 
 ## 2. Audio sync
 
-- [ ] 2.1 Implement the coarse FFT search with overlap normalisation over the cached onset envelope, the minimum
+- [x] 2.1 Implement the coarse FFT search with overlap normalisation over the cached onset envelope, the minimum
       overlap and the peak-ratio ambiguity check; verify a synthetic fixture (speech-like bursts plus pink noise,
       12.345 s delay, low-passed, 10 dB SNR) finds the offset within 10 ms and a looped-music fixture is refused.
-- [ ] 2.2 Implement the fine phase-transform refinement with parabolic interpolation; verify offset error ≤ 1 ms on
+- [x] 2.2 Implement the fine phase-transform refinement with parabolic interpolation; verify offset error ≤ 1 ms on
       the synthetic fixture.
-- [ ] 2.3 Implement drift windows with the Theil–Sen fit, the 20–500 ppm acceptance range and residual reporting, and
+- [x] 2.3 Implement drift windows with the Theil–Sen fit, the 20–500 ppm acceptance range and residual reporting, and
       apply the correction to the audio-only target's speed; verify a +50 ppm resampled two-hour fixture gives drift
       within 3 ppm, head error ≤ 1 ms and tail error ≤ 2 ms, and a 2,000 ppm case is reported and not applied.
-- [ ] 2.4 Implement placement (confidence order, anchor chaining, group shift right, overlap refusal) as one apply
+- [x] 2.4 Implement placement (confidence order, anchor chaining, group shift right, overlap refusal) as one apply
       batch with dry run, plus timecode mode; verify unit tests for each rule, that one revision is created, and that
       the unrelated-audio case exits non-zero without editing.
-- [ ] 2.5 Expose `ove audio sync`, MCP `sync_items` and the timeline "Synchronise selection" command with a result
+- [x] 2.5 Expose `ove audio sync`, MCP `sync_items` and the timeline "Synchronise selection" command with a result
       summary; verify a CLI `--dry-run --json` test, an MCP contract test, a UI test, the run time of a 2 h reference
       against 10 targets with cached envelopes (target under 10 s) in design.md Results, and update `docs/cli`.
 

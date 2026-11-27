@@ -7,8 +7,8 @@ use crate::spec::{
     cli, req,
 };
 use crate::tools::{
-    analyze, app, audio, code, color, deadair, docs, edit, exchange, export, export_queue, export_range, feedback,
-    generate, media, models, project, skills, tasks, timeline, transcript,
+    analyze, app, audio, audio_intel, code, color, deadair, docs, edit, exchange, export, export_queue, export_range,
+    feedback, generate, media, models, project, skills, tasks, timeline, transcript,
 };
 
 pub(crate) const PROJECT: Arg = arg(
@@ -991,6 +991,25 @@ pub static TOOLS: &[ToolSpec] = &[
         annotations: READ,
         surfaces: AGENTS,
         run: color::inspect_color,
+        model: ModelText::Json,
+    },
+    ToolSpec {
+        name: "sync_items",
+        aliases: &[],
+        about: "Line up recordings of the same moment (a camera and a sound recorder, several cameras) against a reference item, as one revision. mode auto (default) uses source timecode when both media carry it, else the sound: a cross-correlation of the cached onset envelopes, refined below 1 ms, and for overlaps over 150 s a clock-drift fit; 20–500 ppm of drift is corrected by retiming the audio-only target (video items keep their speed). The most confident target is placed first and placed targets anchor the rest; if any item would start before 0 the whole synced group moves right; a move that would overlap another item on its track is refused and names it. Each target reports status (placed, unmatched, refused), method, offset, confidence, drift and the reason it was not placed. Refused with sync.unmatched when no target is placed. `dryRun` returns the plan without changing anything.",
+        args: &[
+            PROJECT,
+            req("reference", Str, "Item id of the reference (usually the camera)"),
+            req("targets", Json(NAMES), "Item ids or track ids/names to line up (list, or comma-separated)"),
+            arg("mode", Str, "auto (default), timecode or audio"),
+            arg("window", Num, "Largest offset searched, seconds (default: all)"),
+            arg("minConfidence", Num, "Lowest match confidence accepted, 0–1 (default 0.2)"),
+            arg("drift", Str, "auto (default: measure and correct) or off"),
+            arg("dryRun", Bool, "Return the plan without applying it"),
+        ],
+        annotations: WRITE,
+        surfaces: AGENTS,
+        run: audio_intel::sync_items,
         model: ModelText::Json,
     },
 ];

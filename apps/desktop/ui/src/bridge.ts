@@ -23,6 +23,7 @@ import type {
   AppInfo_Serialize,
   AudioMeter,
   DuckRequest,
+  SyncRequest,
   Diagnostics_Serialize,
   MediaInfo_Serialize,
   PlaybackState,
@@ -2016,6 +2017,42 @@ function createMock(): {
           refresh(i);
         }
       });
+    },
+    // Sound sync stand-in: every sound target lines up 1.5 s after the reference starts.
+    syncItems: async (request: SyncRequest) => {
+      track("syncItems");
+      const ref = mock(request.reference);
+      if (!ref) return fail("not_found", `No item ${request.reference}.`);
+      const sound = (k: string) => k === "video" || k === "audio";
+      const targets = request.targets.filter((t) => t !== ref.id).map((id) => ({ id, item: mock(id) }));
+      const placed = targets.filter((t) => t.item && sound(t.item.kind));
+      if (placed.length === 0) return fail("invalid_argument", "Nothing was synchronised. The selected items have no sound to match.");
+      const moved = new Map<string, number>();
+      const r = await editProject(`synchronise ${placed.length} item${placed.length === 1 ? "" : "s"}`, () => {
+        for (const { item } of placed) {
+          if (!item) continue;
+          const len = (item.end ?? 0) - (item.start ?? 0);
+          const start = (ref.start ?? 0) + 1.5;
+          moved.set(item.id, start - (item.start ?? 0));
+          item.start = start;
+          item.end = start + len;
+          refresh(item);
+        }
+      });
+      if (r.status !== "ok") return r;
+      const views = targets.map((t) => ({
+        item: t.id,
+        status: moved.has(t.id) ? "placed" : "unmatched",
+        method: moved.has(t.id) ? "audio" : null,
+        confidence: moved.has(t.id) ? 0.8 : 0,
+        movedBy: moved.get(t.id) ?? null,
+        driftPpm: null,
+        driftApplied: null,
+        reason: moved.has(t.id) ? null : "no sound",
+      }));
+      const unmatched = views.filter((v) => v.status !== "placed").map((v) => `${v.item}: ${v.reason}`);
+      const summary = [`Synchronised ${placed.length} of ${targets.length} item${targets.length === 1 ? "" : "s"}`, ...unmatched].join(" · ");
+      return ok({ view: r.data, summary, targets: views });
     },
     requestSkim: async (_mediaId: string) => {
       track("requestSkim");

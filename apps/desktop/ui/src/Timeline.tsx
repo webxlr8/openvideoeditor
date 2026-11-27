@@ -70,6 +70,7 @@ export function Timeline(props: TimelineProps) {
   const [ghosts, setGhosts] = useState<Ghost[]>([]);
   const previewSeq = useRef(0);
   const [menu, setMenu] = useState<{ at: { x: number; y: number }; items: MenuItem[] } | null>(null);
+  const [syncNote, setSyncNote] = useState<string | null>(null);
   const cutPreview = useCutPreview();
   const items = project?.items ?? [];
   const tracks = project?.tracks ?? [];
@@ -310,8 +311,26 @@ export function Timeline(props: TimelineProps) {
       ...(sound ? [{ id: "mute", label: item.muted ? "Unmute" : "Mute", onSelect: () => onEdit(updateItem(item.id, { muted: !item.muted }, [], item.muted ? "unmute" : "mute")) }] : []),
       { id: "hide", label: item.hidden ? "Show" : "Hide", onSelect: () => onEdit(updateItem(item.id, { hidden: !item.hidden }, [], item.hidden ? "show" : "hide")) },
       { id: "delete", label: ids.length > 1 ? `Delete ${ids.length} items` : "Delete", hint: "⌫", danger: true, onSelect: () => onEdit(commands.removeItems(ids)) },
+      ...(syncable(item, ids).length > 0 ? [{ id: "sync", label: "Synchronise selection", onSelect: () => synchronise(item, ids) }] : []),
     ];
     setMenu({ at: { x: e.clientX, y: e.clientY }, items: list });
+  };
+
+  // Synchronise selection: the other selected sound items line up against the clicked one (a camera, usually).
+  const syncable = (item: ItemView_Serialize, ids: string[]) => {
+    const isSound = (i: ItemView_Serialize | undefined) => !!i && (i.kind === "video" || i.kind === "audio") && !!i.mediaId;
+    if (!isSound(item)) return [];
+    return ids.filter((id) => id !== item.id && isSound(items.find((i) => i.id === id)));
+  };
+  const synchronise = (item: ItemView_Serialize, ids: string[]) => {
+    const p = commands.syncItems({ reference: item.id, targets: syncable(item, ids), mode: "auto" });
+    onEdit(
+      p.then((r) => {
+        if (r.status !== "ok") return r;
+        setSyncNote(r.data.summary);
+        return { status: "ok" as const, data: r.data.view };
+      }),
+    );
   };
 
   const laneMenu = (e: React.MouseEvent, trackId: string, trackKind: string) => {
@@ -501,6 +520,14 @@ export function Timeline(props: TimelineProps) {
         </div>
       </div>
       <ContextMenu at={menu?.at ?? null} items={menu?.items ?? []} onClose={() => setMenu(null)} testId="clip-menu" />
+      {syncNote && (
+        <div className="sync-summary" role="status" data-testid="sync-summary">
+          <span>{syncNote}</span>
+          <button className="ghost" onClick={() => setSyncNote(null)} aria-label="Dismiss" data-testid="sync-summary-close">
+            ×
+          </button>
+        </div>
+      )}
     </div>
   );
 }

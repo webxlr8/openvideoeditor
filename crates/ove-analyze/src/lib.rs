@@ -14,6 +14,10 @@ pub mod image;
 pub mod look;
 pub mod peaks;
 pub mod storyboard;
+pub mod sync;
+pub mod sync_place;
+#[doc(hidden)]
+pub mod synth;
 pub mod video;
 
 pub use audio::{Levels, Loudness, Range, levels, loudness, silence, waveform_png};

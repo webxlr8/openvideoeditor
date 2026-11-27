@@ -3,6 +3,7 @@
 pub mod analyze;
 pub mod app;
 pub mod audio;
+pub mod audio_intel;
 pub mod backend;
 pub mod code;
 pub mod color;

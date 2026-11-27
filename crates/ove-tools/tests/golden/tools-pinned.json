@@ -2222,6 +2222,63 @@
         "destructiveHint": false,
         "openWorldHint": false
       }
+    },
+    {
+      "name": "sync_items",
+      "description": "Line up recordings of the same moment (a camera and a sound recorder, several cameras) against a reference item, as one revision. mode auto (default) uses source timecode when both media carry it, else the sound: a cross-correlation of the cached onset envelopes, refined below 1 ms, and for overlaps over 150 s a clock-drift fit; 20–500 ppm of drift is corrected by retiming the audio-only target (video items keep their speed). The most confident target is placed first and placed targets anchor the rest; if any item would start before 0 the whole synced group moves right; a move that would overlap another item on its track is refused and names it. Each target reports status (placed, unmatched, refused), method, offset, confidence, drift and the reason it was not placed. Refused with sync.unmatched when no target is placed. `dryRun` returns the plan without changing anything.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "reference": {
+            "type": "string",
+            "description": "Item id of the reference (usually the camera)"
+          },
+          "targets": {
+            "type": [
+              "array",
+              "string"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Item ids or track ids/names to line up (list, or comma-separated)"
+          },
+          "mode": {
+            "type": "string",
+            "description": "auto (default), timecode or audio"
+          },
+          "window": {
+            "type": "number",
+            "description": "Largest offset searched, seconds (default: all)"
+          },
+          "minConfidence": {
+            "type": "number",
+            "description": "Lowest match confidence accepted, 0–1 (default 0.2)"
+          },
+          "drift": {
+            "type": "string",
+            "description": "auto (default: measure and correct) or off"
+          },
+          "dryRun": {
+            "type": "boolean",
+            "description": "Return the plan without applying it"
+          }
+        },
+        "required": [
+          "reference",
+          "targets"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
     }
   ]
 }

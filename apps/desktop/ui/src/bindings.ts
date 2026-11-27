@@ -193,6 +193,8 @@ export const commands = {
 	duckPreview: (request: DuckRequest) => typedError<DuckPreview, AppError>(__TAURI_INVOKE("duck_preview", { request })),
 	/**  Ducks the music under the dialogue as one revision. */
 	duckAudio: (request: DuckRequest) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("duck_audio", { request })),
+	/**  Lines up the targets against the reference as one revision. */
+	syncItems: (request: SyncRequest) => typedError<SyncOutcome_Serialize, AppError>(__TAURI_INVOKE("sync_items", { request })),
 	/**
 	 *  Save dialog for the export destination; `extension` is the container's (`mp4` when `None`). `None` when
 	 *  cancelled.
@@ -2090,6 +2092,67 @@ export type StorageView_Serialize = {
 	project: string | null,
 	rows: CacheRow[],
 	useProxies: boolean,
+};
+
+/**  The new project state and what happened to each item. */
+export type SyncOutcome = SyncOutcome_Serialize | SyncOutcome_Deserialize;
+
+/**  The new project state and what happened to each item. */
+export type SyncOutcome_Deserialize = {
+	view: ProjectView_Deserialize,
+	/**  One line for people: how many items moved and why the others did not. */
+	summary: string,
+	targets: SyncTargetView_Deserialize[],
+};
+
+/**  The new project state and what happened to each item. */
+export type SyncOutcome_Serialize = {
+	view: ProjectView_Serialize,
+	/**  One line for people: how many items moved and why the others did not. */
+	summary: string,
+	targets: SyncTargetView_Serialize[],
+};
+
+/**  What to synchronise. */
+export type SyncRequest = {
+	/**  The item the others line up against (usually the camera). */
+	reference: string,
+	targets: string[],
+	/**  auto | timecode | audio */
+	mode: string,
+};
+
+/**  One item's outcome. */
+export type SyncTargetView = SyncTargetView_Serialize | SyncTargetView_Deserialize;
+
+/**  One item's outcome. */
+export type SyncTargetView_Deserialize = {
+	item: string,
+	/**  placed | unmatched | refused */
+	status: string,
+	/**  timecode | audio */
+	method?: string | null,
+	confidence: number | null,
+	/**  Timeline move, seconds. */
+	movedBy?: number | null,
+	driftPpm?: number | null,
+	driftApplied?: boolean | null,
+	reason?: string | null,
+};
+
+/**  One item's outcome. */
+export type SyncTargetView_Serialize = {
+	item: string,
+	/**  placed | unmatched | refused */
+	status: string,
+	/**  timecode | audio */
+	method: string | null,
+	confidence: number | null,
+	/**  Timeline move, seconds. */
+	movedBy: number | null,
+	driftPpm: number | null,
+	driftApplied: boolean | null,
+	reason: string | null,
 };
 
 /**  One task as the popover shows it. */

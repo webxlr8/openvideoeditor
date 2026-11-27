@@ -150,3 +150,32 @@ and Windows reference machines.
   drops no frame numbers.
 - A 23.976 recorder 4 real seconds after 10:00:00:00 is labelled 10:00:03:23, not 10:00:04:00: 4 s at 24000/1001 is
   95.9 frames. Sync uses the exact start, not the label.
+
+### Audio sync (group 2, Windows 11 x64, test profile: opt-level 1)
+
+Fixtures are synthetic recordings (`ove_analyze::synth`): speech-like bursts of three partials (300 Hz – 3.5 kHz) in
+phrases with pauses, pink noise per microphone, a one-pole low-pass at 4 kHz on the recorder, and a clock rate per
+recording. The envelopes go through the same onset code as the import analysis cache (10 ms hops).
+
+| Check | Target | Measured |
+| --- | --- | --- |
+| Coarse offset, recorder 12.345 s late, 10 dB SNR, low-passed | within 10 ms | 12.3439 s (1.09 ms), confidence 0.64, peak ratio 4.1 |
+| Fine offset (GCC-PHAT, 2 s window) on the same fixture | ≤ 1 ms | 0.029 ms |
+| Looped music (4 s loop) | refused | refused as ambiguous |
+| Two-hour recorder, +50 ppm, 10 dB SNR | drift within 3 ppm | 50.000 ppm (237 of 237 windows, residual 0.167 ms) |
+| Same, offset at head / tail of the overlap | ≤ 1 ms / ≤ 2 ms | 0.027 ms / 0.024 ms |
+| 10-minute recorder at +2,000 ppm | reported, not applied | 1,985.4 ppm reported, not applied |
+| 2 h reference against 10 targets of 10 min, cached envelopes | under 10 s | 4.14 s |
+| CLI `ove audio sync --dry-run` on WAV files (7.25 s offset) | ≤ 1 ms | within 1 ms; no revision; apply is one revision |
+
+Notes:
+- The coarse search matches the 20 s most active part of each fifth of a long target, not the whole target: with
+  2,000 ppm of drift a 60 s probe smeared by 120 ms (12 envelope hops) and no longer correlated. 20 s probes smear by
+  at most 40 ms at that rate.
+- The import cache keeps a 10 ms onset envelope, not the 2 ms one in D2, and sync reuses it as the task asks. The
+  fine step makes up the precision: the 10 ms coarse step lands within ±1 hop and GCC-PHAT searches ±20 ms.
+- The fine step and the drift windows read short stretches of raw audio (2 s at the head, 1 s per drift window),
+  not the whole file. The 2 h timing uses synthesised audio for those reads, so file decoding time is not in the
+  4.14 s; a WAV or AAC read of one second is a few milliseconds.
+- The 2 h timing test asserts the 10 s budget with a 2.4× margin at opt-level 1. If it fails under load, it belongs
+  in the serial timing lane (docs/flaky-tests.md).

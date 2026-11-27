@@ -17,6 +17,7 @@ ove audio loudness <project> <media|path>
 ove audio loudness <project> --timeline
 ove media extract-audio <project> <media> [--format wav|flac]
 ove audio duck <project> --music <items|tracks> --under <items|tracks> [--depth <dB>] [--attack <s>] [--release <s>] [--hold <s>] [--source transcript|level|auto] [--merge|--replace] [--dry-run]
+ove audio sync <project> --ref <item> --targets <items|tracks> [--mode auto|timecode|audio] [--window <s>] [--min-confidence <0-1>] [--drift auto|off] [--dry-run]
 ```
 
 `<media>` is a media id, a file name or a path already in the project; the analysis commands also take any file.
@@ -59,5 +60,28 @@ ove audio duck <project> --music <items|tracks> --under <items|tracks> [--depth 
 
   Keyframe pairs are item-relative seconds and percent. MCP: `duck_audio` with the same arguments (`music`, `under`,
   `depth`, `attack`, `release`, `hold`, `source`, `mode`, `dryRun`). In the app: Audio panel → Duck under dialogue….
+- **sync** lines up recordings of the same moment (a camera and a sound recorder, several cameras) against the
+  reference item `--ref`, as one revision. `--mode auto` (the default) uses source timecode when both media carry
+  it (see **probe**), else the sound; `timecode` and `audio` force one method. Sound sync correlates the cached onset
+  envelopes over every offset (or within `--window` seconds), refines the peak to below 1 ms on the raw audio, and
+  needs at least 3 s of overlap. A match below `--min-confidence` (0.2), or one whose best peak is not clearly above
+  the next one (repeated music), is not placed. For overlaps longer than 150 s it measures clock drift in windows
+  every 30 s with a robust line fit: 20–500 ppm is corrected by changing the speed of an audio-only target (video
+  items keep their speed); other values are reported, not applied (`--drift off` skips the measurement). The most
+  confident target is placed first, and placed targets anchor targets that do not overlap the reference. Placement
+  keeps sub-frame precision. If an item would start before 0, every synced item (the reference too) moves right by
+  the same amount; a move that would overlap another item on the same track is refused and names that item.
+  `--dry-run` prints the plan and changes nothing. Each target reports `status` (placed, unmatched, refused),
+  `method`, `offsetSeconds` (the reference media time at which the target media starts), `confidence`,
+  `driftPpm`, `driftApplied`, `residualMs`, the new `start` and `end`, `movedBy` and the `reason` when it is
+  not placed. When no target is placed the command exits 1 with `sync.unmatched` and the same details. MCP:
+  `sync_items`. In the app: select the clips, right-click the reference clip, then Synchronise selection; a summary
+  shows what moved.
+
+  ```json
+  {"reference": "cam", "placed": 1, "groupShift": 0.0, "dryRun": true, "rev": 1762000000000,
+   "targets": [{"item": "rec", "status": "placed", "method": "audio", "anchor": "cam", "offsetSeconds": 7.250012,
+     "confidence": 0.61, "start": 7.250012, "end": 27.250012, "movedBy": -42.749988, "speed": 1.0}]}
+  ```
 
 These commands need a build with media support (desktop bundles; `cargo build -p ove-cli --features media`).

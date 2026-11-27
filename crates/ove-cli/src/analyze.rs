@@ -79,6 +79,31 @@ pub enum AudioCmd {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Line up recordings against a reference item by timecode or sound, with drift correction, as one revision.
+    Sync {
+        project: String,
+        /// Reference item id (usually the camera).
+        #[arg(long = "ref")]
+        reference: String,
+        /// Item ids or track ids/names to line up, comma-separated.
+        #[arg(long)]
+        targets: String,
+        /// auto (timecode when both media have it, else sound), timecode or audio.
+        #[arg(long, default_value = "auto")]
+        mode: String,
+        /// Largest offset searched, seconds (default: all).
+        #[arg(long)]
+        window: Option<f64>,
+        /// Lowest match confidence accepted (0–1).
+        #[arg(long, default_value_t = 0.2)]
+        min_confidence: f64,
+        /// auto (measure and correct clock drift) or off.
+        #[arg(long, default_value = "auto")]
+        drift: String,
+        /// Show offsets, confidence, method and drift per target without changing anything.
+        #[arg(long)]
+        dry_run: bool,
+    },
 }
 
 pub fn audio(ctx: &Ctx, cmd: &AudioCmd) -> Out {
@@ -105,5 +130,10 @@ pub fn audio(ctx: &Ctx, cmd: &AudioCmd) -> Out {
                     "mode": if *merge { "merge" } else { "replace" }, "dryRun": dry_run}),
             )
         }
+        AudioCmd::Sync { project, reference, targets, mode, window, min_confidence, drift, dry_run } => ctx.tool(
+            "sync_items",
+            json!({"project": project, "reference": reference, "targets": targets, "mode": mode, "window": window,
+                "minConfidence": min_confidence, "drift": drift, "dryRun": dry_run}),
+        ),
     }
 }
