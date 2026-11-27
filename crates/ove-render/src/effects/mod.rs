@@ -1,4 +1,4 @@
-//! Effects: the 41 catalogue effects as CPU per-pixel passes (rayon over rows).
+//! Effects: the 41 catalogue effects and the chroma key as CPU per-pixel passes (rayon over rows).
 //!
 //! Pixel contract (design D5): an effect's per-pixel function returns RGBA. Colour effects are written as RGB
 //! functions and keep their input alpha; keys and mattes return alpha and so change the layer's transparency.
@@ -14,6 +14,7 @@
 
 mod background;
 mod distort;
+pub mod key;
 pub mod spec;
 mod stylize;
 mod util;
@@ -41,8 +42,11 @@ fn pixel_fn(id: &str) -> Option<PixelFn> {
 }
 
 /// Effects that write alpha.
-fn rgba_fn(_id: &str) -> Option<fn(&Ctx, f32, f32) -> V4> {
-    None
+fn rgba_fn(id: &str) -> Option<fn(&Ctx, f32, f32) -> V4> {
+    Some(match id {
+        "chroma-key" => key::chroma_key,
+        _ => return None,
+    })
 }
 
 fn rgb_fn(id: &str) -> Option<fn(&Ctx, f32, f32) -> V3> {
@@ -335,6 +339,9 @@ mod tests {
             let mut img = base.clone();
             apply(&mut img, spec.id, &Map::new(), 1.0, 1.0);
             let same = img.data.chunks_exact(4).zip(base.data.chunks_exact(4)).all(|(a, b)| a[3] == b[3]);
+            if spec.group == Group::Key {
+                continue; // keys write alpha by design
+            }
             if spec.group == Group::Background {
                 assert!(img.data.chunks_exact(4).all(|p| p[3] == 255), "{} fills its area", spec.id);
             } else {

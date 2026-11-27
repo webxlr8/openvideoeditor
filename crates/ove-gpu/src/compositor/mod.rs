@@ -60,6 +60,20 @@ fn pipeline(device: &wgpu::Device, label: &str, source: String) -> wgpu::Compute
     })
 }
 
+/// A pipeline whose shader is checked: `None` (logged) when the driver rejects it, so the caller can fall back to
+/// the CPU instead of producing empty frames.
+fn checked_pipeline(device: &wgpu::Device, label: &str, source: String) -> Option<wgpu::ComputePipeline> {
+    let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let p = pipeline(device, label, source);
+    match pollster::block_on(scope.pop()) {
+        None => Some(p),
+        Some(e) => {
+            tracing::warn!(shader = label, "GPU shader rejected; using the CPU for it: {e}");
+            None
+        }
+    }
+}
+
 impl Pipes {
     fn new(device: &wgpu::Device) -> Pipes {
         Pipes {
@@ -127,10 +141,10 @@ pub struct GpuBackend {
     pool: HashMap<(u32, u32), Vec<wgpu::Texture>>,
     /// Uploaded lattices by the address of their `Arc<Lut>`.
     luts: HashMap<usize, (Weak<Lut>, wgpu::Buffer)>,
-    /// Ported effects' pipelines, built on first use.
-    fx: HashMap<&'static str, wgpu::ComputePipeline>,
-    /// The transition mask pipeline, built on first use.
-    mask: Option<wgpu::ComputePipeline>,
+    /// Ported effects' pipelines, built on first use (`None`: the driver rejected the shader; CPU fallback).
+    fx: HashMap<&'static str, Option<wgpu::ComputePipeline>>,
+    /// The transition mask pipeline, built on first use (inner `None`: rejected by the driver; CPU fallback).
+    mask: Option<Option<wgpu::ComputePipeline>>,
     pub counters: Arc<Counters>,
 }
 
@@ -676,8 +690,17 @@ impl Backend for GpuBackend {
         time: f32,
     ) -> bool {
         let Some(spec) = ove_render::effects::find(id) else { return false };
-        let Some(&id) = effects::PORTED.iter().find(|p| **p == id) else {
-            // Not ported yet: the CPU code on this layer (readback, effect, upload).
+        let native = effects::PORTED.iter().find(|p| **p == id).copied();
+        let pipeline = native.and_then(|id| match self.fx.get(id) {
+            Some(p) => p.clone(),
+            None => {
+                let p = checked_pipeline(&self.ctx.device, id, effects::source(id).unwrap_or_default());
+                self.fx.insert(id, p.clone());
+                p
+            }
+        });
+        let Some(pipeline) = pipeline else {
+            // Not ported (or rejected by the driver): the CPU code on this layer (readback, effect, upload).
             let mut known = false;
             self.cpu(t, &mut |img| known = ove_render::effects::apply(img, id, values, amount, time));
             return known;
@@ -702,15 +725,6 @@ impl Backend for GpuBackend {
             0.0,
         ]));
         let data = self.storage(&f32s(&packed));
-        let pipeline = match self.fx.get(id) {
-            Some(p) => p.clone(),
-            None => {
-                let src = effects::source(id).unwrap_or_default();
-                let p = pipeline(&self.ctx.device, id, src);
-                self.fx.insert(id, p.clone());
-                p
-            }
-        };
         self.unary(t, Pipe::Other(pipeline), Some(&head), Some(&data));
         true
     }
@@ -735,10 +749,14 @@ impl Backend for GpuBackend {
         let pipeline = match &self.mask {
             Some(p) => p.clone(),
             None => {
-                let p = pipeline(&self.ctx.device, "transition mask", effects::MASK.to_string());
+                let p = checked_pipeline(&self.ctx.device, "transition mask", effects::MASK.to_string());
                 self.mask = Some(p.clone());
                 p
             }
+        };
+        let Some(pipeline) = pipeline else {
+            self.cpu(t, &mut |img| st.apply_mask(img));
+            return;
         };
         let head = self.uniform(&f32s(&[kind, dir, st.q, 0.0]));
         self.unary(t, Pipe::Other(pipeline), Some(&head), None);

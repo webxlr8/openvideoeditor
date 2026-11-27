@@ -218,3 +218,32 @@ ones change appearance once, which is the bug fix in fix-render-and-edit-correct
 - 4.4 (open): the timeline preview composites at 1080 lines when the GPU backend is active (540 on the CPU). The
   gate (0 dropped frames over 60 s for the four-layer project) needs the reference machines (M1 with an 8-core GPU,
   a laptop with Intel Iris Xe) and the built app; not measured here.
+
+### Group 5: chroma key
+
+- 5.1 (open): `chroma-key` (`effects/key.rs`, CPU reference; native WGSL from the start, no new fallback). Distance in
+  the BT.709 CbCr plane with chroma divided by luma and measured relative to the key's own chroma; smooth matte from
+  `tolerance` over `softness`, edge blur (16 golden-angle taps), choke, matte levels, matte view, spill suppression
+  near the key colour with luma restored. Synthetic plates (soft round subject over an unevenly lit screen with spill,
+  exact ground truth; 192×108) — the CC0 plates are not in the repository, so these numbers stand in for them:
+  - green: mean matte error (SAD / pixels) 0.0034, edge spill 0.0004, interior mean CIEDE2000 0.000;
+  - blue: mean matte error 0.0072, edge spill 0.0080, interior mean CIEDE2000 0.000;
+  - a dark green screen (a third of the brightness): mean matte error under 0.03; a layer without the key colour is
+    unchanged byte for byte.
+  - Parity at 1080p, three cases (defaults; blue key with edge blur 4 and choke 0.3; matte view with levels): worst
+    max 1/255 on the RTX 4070 and on WARP. FXC rejected a dynamic vector write in the first shader; pipelines of
+    ported effects and masks are now built inside a validation error scope, and a shader the driver rejects falls
+    back to the CPU instead of producing empty frames.
+- 5.2: `Renderer::sample_source` averages the source (before grade and effects) under a viewer point (3×3 source
+  pixels) or rectangle (up to 64×64 samples), with the layer's own placement (shared `media_placement`); a point
+  outside the layer gives nothing. The app's `sample_key_color` sets the key colour as one revision ("sample key
+  colour") or reports `outside`. In the chroma key's panel, "Sample from viewer" arms a crosshair layer over the
+  viewer; a click outside the layer shows "That point is outside the selected layer" and changes nothing (UI test).
+  `ove look --view matte` (MCP `look` `view: "matte"`) shows every key's matte without changing the project; it gives
+  the same frame as the effect's own `matteView` (CLI test).
+- 5.3: `docs/spec/presets.md` has a "Key effects" section and `ove docs color` a "Chroma key" section; a test checks
+  that presets.md lists exactly the registry's effects and parameter names. The effect catalogue is 42 entries: the 41
+  of the reference and the chroma key (group "key", shown first in the effect pickers). The effect golden gained one
+  band; the 41 existing bands are byte-identical.
+- Flaky under full parallel load (passes alone and on repeat): `ove-cli` `export_queue::mcp_export_video_job_status_
+  and_cancel_job` failed once at its cancel step while every crate's tests ran at once.

@@ -267,6 +267,12 @@ export const commands = {
 	matchColor: (itemId: string, referenceTime: number | null, strength: number | null) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("match_color", { itemId, referenceTime, strength })),
 	/**  Histograms (red, green, blue, luma; 64 bins, 0..1) of the timeline frame at `time` seconds. */
 	colorScopes: (time: number | null) => typedError<((number | null)[])[], AppError>(__TAURI_INVOKE("color_scopes", { time })),
+	/**
+	 *  Sets the key colour of chroma key `effect_id` on `item_id` to the mean source colour (before grading) under a
+	 *  viewer point or rectangle (`rect`: x0, y0, x1, y1 as fractions of the frame) at `time` seconds: one revision.
+	 *  A point or rectangle that misses the layer changes nothing and reports `outside`.
+	 */
+	sampleKeyColor: (itemId: string, effectId: string, time: number | null, rect: (number | null)[]) => typedError<KeySample_Serialize, AppError>(__TAURI_INVOKE("sample_key_color", { itemId, effectId, time, rect })),
 	/**  The current compositing status. */
 	compositingStatus: () => typedError<CompositingStatus_Serialize, AppError>(__TAURI_INVOKE("compositing_status")),
 	/**
@@ -972,6 +978,27 @@ export type KeyCheck = {
 	ok: boolean,
 	/**  "Key works." or the provider's error in plain words. */
 	message: string,
+};
+
+/**  What a key colour sample did: the new colour and the project, or that the point was outside the layer. */
+export type KeySample = KeySample_Serialize | KeySample_Deserialize;
+
+/**  What a key colour sample did: the new colour and the project, or that the point was outside the layer. */
+export type KeySample_Deserialize = {
+	/**  The click or rectangle missed the layer: nothing changed. */
+	outside: boolean,
+	/**  The sampled colour (RGB 0..1), when set. */
+	color?: (number | null)[] | null,
+	project?: ProjectView_Deserialize | null,
+};
+
+/**  What a key colour sample did: the new colour and the project, or that the point was outside the layer. */
+export type KeySample_Serialize = {
+	/**  The click or rectangle missed the layer: nothing changed. */
+	outside: boolean,
+	/**  The sampled colour (RGB 0..1), when set. */
+	color: (number | null)[] | null,
+	project: ProjectView_Serialize | null,
 };
 
 /**  One model as the Storage list shows it. */

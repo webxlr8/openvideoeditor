@@ -383,6 +383,7 @@ pub static TOOLS: &[ToolSpec] = &[
             cli("sheet", Str, "Contact-sheet PNG to write"),
             cli("columns", Int, "Contact-sheet columns"),
             BACKEND,
+            arg("view", Str, "result (default) or matte: every chroma key shows its matte (white kept, black removed)"),
         ],
         annotations: READ,
         surfaces: AGENTS,

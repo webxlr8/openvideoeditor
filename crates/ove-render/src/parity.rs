@@ -243,6 +243,8 @@ pub enum Op {
     Lattice(Value),
     /// An effect at its defaults (time 1 s, amount 1).
     Effect(&'static str),
+    /// An effect with these parameter values (time 1 s, amount 1).
+    EffectWith(&'static str, Value),
     /// A transition of the top layer over the mosaic at progress `q`.
     Transition(&'static str, Role, f32),
     /// An effect mixed back at half strength (partial adjustment layer).
@@ -340,6 +342,15 @@ pub fn cases(w: u32, h: u32) -> Vec<Case> {
     for id in ["push-left", "cross-zoom"] {
         out.push(case(format!("transition {id} (outgoing side)"), Op::Transition(id, Role::OutJoin, 0.4)));
     }
+    for (name, v) in [
+        ("blue key, edge blur 4, choke 0.3", json!({"keyColor": [0.2, 0.3, 0.75], "edgeBlur": 4, "choke": 0.3})),
+        (
+            "green key, matte view, levels",
+            json!({"matteView": true, "matteBlack": 0.1, "matteWhite": 0.8, "choke": -0.4}),
+        ),
+    ] {
+        out.push(case(format!("effect chroma-key ({name})"), Op::EffectWith("chroma-key", v)));
+    }
     out.push(case("adjustment at half strength", Op::Mix("duotone")));
     out
 }
@@ -383,6 +394,9 @@ pub fn run(backend: &mut dyn Backend, case: &Case, inputs: &Inputs) -> Rgba {
         }
         Op::Effect(id) => {
             backend.effect(canvas, id, &Map::new(), 1.0, 1.0);
+        }
+        Op::EffectWith(id, v) => {
+            backend.effect(canvas, id, v.as_object().unwrap_or(&Map::new()), 1.0, 1.0);
         }
         Op::Transition(kind, role, q) => {
             let (w, h) = backend.size(canvas);
@@ -483,7 +497,7 @@ mod tests {
         let cs = cases(64, 36);
         let count = |p: &str| cs.iter().filter(|c| c.name.starts_with(p)).count();
         assert_eq!(count("blend "), 32, "16 modes, aligned and transformed");
-        assert_eq!(count("effect "), crate::effects::EFFECTS.len());
+        assert_eq!(count("effect "), crate::effects::EFFECTS.len() + 2, "every effect, and two more chroma keys");
         assert_eq!(count("lut "), 9);
         assert_eq!(count("transition "), TRANSITIONS.len() - 1 + 2);
     }

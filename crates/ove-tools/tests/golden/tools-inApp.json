@@ -396,6 +396,10 @@
         "backend": {
           "type": "string",
           "description": "Compositing backend: auto (default; the GPU when its startup self-test matches the CPU reference), cpu or gpu"
+        },
+        "view": {
+          "type": "string",
+          "description": "result (default) or matte: every chroma key shows its matte (white kept, black removed)"
         }
       },
       "required": [],

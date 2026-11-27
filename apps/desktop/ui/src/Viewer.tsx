@@ -1,3 +1,4 @@
+import { KeySamplerOverlay } from "./KeySampler";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Diagnostics_Serialize, MediaInfo_Serialize, ViewerBackend, ViewerRect } from "./bindings";
 import { commands, events, frameUrl, isTauri, type Result } from "./bridge";
@@ -167,6 +168,7 @@ export function Viewer({
       >
         {stream && <canvas ref={canvasRef} className="viewer-canvas" data-testid="viewer-canvas" />}
         {!media && <div className="viewer-empty">Import media to see it here.</div>}
+        <KeySamplerOverlay onError={onError} />
       </div>
       {toolbarLeft && <div className="viewer-tools-left">{toolbarLeft}</div>}
       <div className="viewer-tools">

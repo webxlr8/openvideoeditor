@@ -233,6 +233,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             fx::import_lut,
             fx::match_color,
             fx::color_scopes,
+            fx::sample_key_color,
             compositing::compositing_status,
             compositing::set_gpu_compositing,
             // Onboarding: the welcome and checklist state, and the sample project.

@@ -50,9 +50,11 @@
 - [ ] 5.1 Implement `chroma-key` (CbCr distance scaled by luma, spill suppression, choke, matte levels, edge blur,
       matte view) on CPU and GPU; verify against the CC0 green and blue test plates with ground-truth mattes (SAD target,
       edge spill < 0.02, interior CIEDE2000 < 1).
-- [ ] 5.2 Viewer sampler for point and rectangle sampling before grading, one revision per sample, outside-layer
+      Status (open): built and verified on synthetic green and blue plates with exact ground-truth mattes (numbers
+      in design.md Results); the CC0 plates are not in the repository yet.
+- [x] 5.2 Viewer sampler for point and rectangle sampling before grading, one revision per sample, outside-layer
       feedback; add `look --view matte`; verify UI tests and the agent matte-view scenario.
-- [ ] 5.3 Document the effect and its parameters in `docs/spec/presets.md` and `ove docs`; verify the docs list matches
+- [x] 5.3 Document the effect and its parameters in `docs/spec/presets.md` and `ove docs`; verify the docs list matches
       the effect registry in a test.
 
 ## 6. Visual scopes

@@ -311,20 +311,8 @@ impl Renderer {
                 if let Some(e) = layer.fields.get("effects") {
                     effect_stack(&mut *self.backend, tex, e, layer);
                 }
-                let (s, crop) = match layer.slot {
-                    Some(_) => {
-                        let (s, c) = layouts::cover(frame.w as f64, frame.h as f64, area_w, area_h, x.scale);
-                        (s, [0, 1, 2, 3].map(|i| c[i].max(layer.crop[i])))
-                    }
-                    None => {
-                        let base = match layer.placement {
-                            Placement::FillHeight => h as f64 / frame.h as f64,
-                            Placement::Fit => (w as f64 / frame.w as f64).min(h as f64 / frame.h as f64),
-                        };
-                        (base * x.scale, layer.crop)
-                    }
-                };
-                let place = Place { cx: centre.0, cy: centre.1, sx: s * flip, sy: s, rotation: x.rotation };
+                let (place, crop) = media_placement(layer, frame.w, frame.h, w, h, k);
+                let s = place.sy;
                 let params = DrawParams {
                     opacity,
                     blend,
@@ -438,6 +426,83 @@ impl Renderer {
         }
     }
 
+    /// The mean source colour (before grade and effects, 0..1) of item `item_id` under the canvas rectangle `rect`
+    /// ([x0, y0, x1, y1] as fractions of the frame; a point when both corners are equal: the 3×3 source pixels
+    /// around it) at `t_us`. `Ok(None)` when the rectangle misses the layer; an error when the item is not a visible
+    /// video or image at that time. The key colour sampler uses this.
+    pub fn sample_source(
+        &mut self,
+        doc: &Document,
+        item_id: &str,
+        t_us: Micros,
+        rect: [f64; 4],
+    ) -> Result<Option<[f32; 3]>, String> {
+        let (w, h) = self.size(doc);
+        let (_, ref_h) = reference_size(&doc.project.aspect_ratio);
+        let k = h as f64 / ref_h as f64;
+        let layer = layers_at(doc, t_us)
+            .into_iter()
+            .find(|l| l.item_id == item_id)
+            .ok_or_else(|| format!("item {item_id} is not visible at this time"))?;
+        let (media_id, src_us, image) = match &layer.kind {
+            LayerKind::Video { media_id, src_us } => (media_id.clone(), *src_us, false),
+            LayerKind::Image { media_id } => (media_id.clone(), 0, true),
+            _ => return Err(format!("item {item_id} is not a video or image")),
+        };
+        let path = media_path(doc, self.bundle.as_deref(), &media_id).ok_or("the item's media has no file")?;
+        let max_h = ((h as f64 * layer.xform.scale.abs().clamp(1.0, 2.0)).ceil() as u32).min(2160);
+        let frame =
+            self.sources.frame(&layer.item_id, &path, src_us, max_h, image).ok_or("the frame could not be decoded")?;
+        let (place, crop) = media_placement(&layer, frame.w, frame.h, w, h, k);
+        let (sw, sh) = (frame.w as f64, frame.h as f64);
+        let (cl, cr) = (sw * crop[3] as f64 / 100.0, sw - sw * crop[1] as f64 / 100.0);
+        let (ct, cb) = (sh * crop[0] as f64 / 100.0, sh - sh * crop[2] as f64 / 100.0);
+        let (sin, cos) = place.rotation.to_radians().sin_cos();
+        // The source pixel under a canvas pixel centre, when it is inside the cropped source.
+        let source = |x: f64, y: f64| -> Option<(i64, i64)> {
+            let (dx, dy) = (x - place.cx, y - place.cy);
+            let u = (dx * cos + dy * sin) / place.sx + sw / 2.0;
+            let v = (-dx * sin + dy * cos) / place.sy + sh / 2.0;
+            (u >= cl && u < cr && v >= ct && v < cb).then_some((u.floor() as i64, v.floor() as i64))
+        };
+        let [x0, y0, x1, y1] = rect.map(|v| v.clamp(0.0, 1.0));
+        let (x0, x1, y0, y1) =
+            (x0.min(x1) * w as f64, x0.max(x1) * w as f64, y0.min(y1) * h as f64, y0.max(y1) * h as f64);
+        let mut points = Vec::new();
+        if x1 - x0 < 1.0 && y1 - y0 < 1.0 {
+            if let Some((u, v)) = source(x0.floor() + 0.5, y0.floor() + 0.5) {
+                for dy in -1..=1 {
+                    for dx in -1..=1 {
+                        points.push((u + dx, v + dy));
+                    }
+                }
+            }
+        } else {
+            // Every canvas pixel of the rectangle, at most 64 × 64 of them.
+            let (nx, ny) = (((x1 - x0).ceil() as usize).clamp(1, 64), ((y1 - y0).ceil() as usize).clamp(1, 64));
+            for j in 0..ny {
+                for i in 0..nx {
+                    let x = x0 + (i as f64 + 0.5) * (x1 - x0) / nx as f64;
+                    let y = y0 + (j as f64 + 0.5) * (y1 - y0) / ny as f64;
+                    points.extend(source(x, y));
+                }
+            }
+        }
+        if points.is_empty() {
+            return Ok(None);
+        }
+        let mut acc = [0.0f64; 3];
+        for (u, v) in &points {
+            let (u, v) = ((*u).clamp(0, frame.w as i64 - 1) as u32, (*v).clamp(0, frame.h as i64 - 1) as u32);
+            let p = frame.px(u, v);
+            for c in 0..3 {
+                acc[c] += p[c] as f64 / 255.0;
+            }
+        }
+        let n = points.len() as f64;
+        Ok(Some(acc.map(|v| (v / n) as f32)))
+    }
+
     /// Renders the frame at timeline time `t_us`.
     pub fn render(&mut self, doc: &Document, t_us: Micros) -> Rgba {
         self.recover();
@@ -484,6 +549,32 @@ impl Renderer {
         self.backend.release(canvas);
         out
     }
+}
+
+/// Where a video or image layer's `fw`×`fh` frame goes on a `w`×`h` canvas (`k` canvas pixels per reference
+/// pixel): its placement and its crop (percent of the source per side). Shared by drawing and the key colour sampler.
+pub fn media_placement(layer: &Layer, fw: u32, fh: u32, w: u32, h: u32, k: f64) -> (Place, [f32; 4]) {
+    let x = &layer.xform;
+    let flip = if x.flip_x { -1.0 } else { 1.0 };
+    let (area_x, area_y, area_w, area_h) = match layer.slot {
+        Some(s) => (s[0] as f64 * w as f64, s[1] as f64 * h as f64, s[2] as f64 * w as f64, s[3] as f64 * h as f64),
+        None => (0.0, 0.0, w as f64, h as f64),
+    };
+    let centre = (area_x + area_w / 2.0 + x.x * k, area_y + area_h / 2.0 + x.y * k);
+    let (s, crop) = match layer.slot {
+        Some(_) => {
+            let (s, c) = layouts::cover(fw as f64, fh as f64, area_w, area_h, x.scale);
+            (s, [0, 1, 2, 3].map(|i| c[i].max(layer.crop[i])))
+        }
+        None => {
+            let base = match layer.placement {
+                Placement::FillHeight => h as f64 / fh as f64,
+                Placement::Fit => (w as f64 / fw as f64).min(h as f64 / fh as f64),
+            };
+            (base * x.scale, layer.crop)
+        }
+    };
+    (Place { cx: centre.0, cy: centre.1, sx: s * flip, sy: s, rotation: x.rotation }, crop)
 }
 
 /// Composites a transitioning layer drawn alone on `off` (canvas-sized) onto `canvas`: its reveal mask, then the

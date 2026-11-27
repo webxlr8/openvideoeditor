@@ -2217,6 +2217,28 @@ function createMock(): {
         .replace(/-cube$/, "");
       return ok<string | null>(`luts/${name}.cube`);
     },
+    // The mock frame is a green screen with the subject in the middle third: points left of 10 % are outside the
+    // layer, points in the middle third sample the subject, the rest the screen.
+    sampleKeyColor: async (itemId: string, effectId: string, time: number | null, rectIn: (number | null)[]) => {
+      const rect = rectIn.map((v) => v ?? 0);
+      const sample = (outside: boolean, color: number[] | null, project: ProjectView_Serialize | null) =>
+        ok({ outside, color, project });
+      track(`sampleKeyColor:${itemId}:${effectId}:${time}:${rect.map((v) => v.toFixed(2)).join(",")}`);
+      const [x0, y0, x1, y1] = rect;
+      if (x1 < 0.1) return sample(true, null, null);
+      const mid = (x0 + x1) / 2 > 0.33 && (x0 + x1) / 2 < 0.66 && (y0 + y1) / 2 > 0.33 && (y0 + y1) / 2 < 0.66;
+      const color = mid ? [0.8, 0.125, 0.125] : [0.12, 0.72, 0.22];
+      const r = await editProject("sample key colour", () => {
+        const i = mock(itemId);
+        if (!i) return;
+        const list = ((i.fields.effects as Fields[] | undefined) ?? []).map((e) =>
+          e.id === effectId ? { ...e, keyColor: color } : e,
+        );
+        i.fields.effects = list;
+      });
+      if (r.status === "error") return r;
+      return sample(false, color, r.data);
+    },
     matchColor: (
       itemId: string,
       referenceTime: number | null,

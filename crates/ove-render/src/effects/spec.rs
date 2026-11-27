@@ -45,6 +45,8 @@ pub enum Group {
     Stylize,
     Distort,
     Background,
+    /// Keys: effects that remove part of the layer (write alpha).
+    Key,
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -83,7 +85,7 @@ const fn e(
     EffectSpec { id, label, group, params, animated }
 }
 
-use Group::{Background as B, Distort as D, Stylize as S};
+use Group::{Background as B, Distort as D, Key as K, Stylize as S};
 
 #[rustfmt::skip]
 pub const EFFECTS: &[EffectSpec] = &[
@@ -131,6 +133,8 @@ pub const EFFECTS: &[EffectSpec] = &[
     e("voronoi", "Voronoi", B, true, &[c("colorA", 0.192, 0.525, 0.812), c("colorB", 0.988, 0.008, 0.867), c("borderColor", 0.0, 0.0, 0.0), n("scale", 1.0, 20.0, 6.0), pc("edgeIntensity", 0.0, 1.0, 0.5), n("edgeSoftness", 0.0, 0.4, 0.05), n("speed", 0.0, 5.0, 0.5)]),
     e("stripes", "Stripes", B, true, &[c("colorA", 0.0, 0.0, 0.0), c("colorB", 1.0, 1.0, 1.0), n("angle", 0.0, 360.0, 45.0), n("density", 1.0, 30.0, 5.0), pc("balance", 0.0, 1.0, 0.5), n("softness", 0.0, 0.5, 0.0), n("speed", -2.0, 2.0, 0.2)]),
     e("studio-background", "Studio background", B, true, &[c("color", 0.847, 0.859, 0.925), c("lightColor", 0.835, 0.894, 0.918), pc("intensity", 0.0, 1.0, 0.4), pc("softness", 0.0, 1.0, 0.5), pt("center", 0.5, 0.2), pc("vignette", 0.0, 1.0, 0.0), n("speed", -5.0, 5.0, 2.0)]),
+    // key
+    e("chroma-key", "Chroma key", K, false, &[c("keyColor", 0.12, 0.72, 0.22), pc("tolerance", 0.0, 1.0, 0.35), pc("softness", 0.0, 1.0, 0.25), pc("spill", 0.0, 1.0, 1.0), n("choke", -1.0, 1.0, 0.0), pc("matteBlack", 0.0, 1.0, 0.0), pc("matteWhite", 0.0, 1.0, 1.0), n("edgeBlur", 0.0, 20.0, 1.0), tg("matteView", 0.0)]),
 ];
 
 pub fn find(id: &str) -> Option<&'static EffectSpec> {
@@ -143,11 +147,11 @@ mod tests {
 
     #[test]
     fn catalogue_matches_the_contract() {
-        assert_eq!(EFFECTS.len(), 41);
+        assert_eq!(EFFECTS.len(), 42, "41 catalogue effects and the chroma key");
         let mut ids: Vec<_> = EFFECTS.iter().map(|e| e.id).collect();
         ids.sort();
         ids.dedup();
-        assert_eq!(ids.len(), 41);
+        assert_eq!(ids.len(), 42);
         assert_eq!(EFFECTS.iter().filter(|e| e.group == Group::Background).count(), 13);
         for e in EFFECTS {
             for p in e.params {
@@ -158,5 +162,32 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// docs/spec/presets.md lists every effect of the registry with its parameter names, and nothing else.
+    #[test]
+    fn the_preset_docs_list_the_registry() {
+        let doc = include_str!("../../../../docs/spec/presets.md");
+        let start = doc.find("## Key effects").expect("key section");
+        let end = doc[start..].find("## Caption styles").map_or(doc.len(), |e| start + e);
+        let mut listed: Vec<(String, Vec<String>)> = doc[start..end]
+            .lines()
+            .filter_map(|l| l.strip_prefix("- `"))
+            .filter_map(|l| {
+                let (id, rest) = l.split_once('`')?;
+                let params = rest
+                    .trim_start_matches(" — ")
+                    .split("; ")
+                    .filter_map(|p| p.split(':').next())
+                    .map(str::to_string)
+                    .collect();
+                Some((id.to_string(), params))
+            })
+            .collect();
+        listed.sort();
+        let mut want: Vec<(String, Vec<String>)> =
+            EFFECTS.iter().map(|e| (e.id.to_string(), e.params.iter().map(|p| p.name.to_string()).collect())).collect();
+        want.sort();
+        assert_eq!(listed, want);
     }
 }

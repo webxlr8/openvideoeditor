@@ -128,6 +128,16 @@ impl Ctx<'_> {
         o
     }
 
+    /// The source pixel under normalised coordinates (nearest, clamped), RGBA in 0..1.
+    #[inline]
+    pub fn texel(&self, u: f32, v: f32) -> V4 {
+        let s = self.src;
+        let x = ((u * self.w) as i64).clamp(0, s.w as i64 - 1) as u32;
+        let y = ((v * self.h) as i64).clamp(0, s.h as i64 - 1) as u32;
+        let i = ((y * s.w + x) * 4) as usize;
+        [0, 1, 2, 3].map(|k| s.data[i + k] as f32 / 255.0)
+    }
+
     /// Aspect-corrected offset from a centre point: x scaled by the aspect so circles stay round.
     #[inline]
     pub fn rel(&self, u: f32, v: f32, c: (f32, f32)) -> (f32, f32) {

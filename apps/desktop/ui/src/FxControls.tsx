@@ -2,6 +2,7 @@
 // shader items, transitions (type, duration, easing, direction), and the colour grade (wheels, curves,
 // saturation, LUT, match, scopes). Each gesture commits one revision.
 
+import { startKeySampling } from "./keySamplerStore";
 import { useEffect, useRef, useState } from "react";
 import { commands } from "./bridge";
 import type { EditResult, Fields } from "./edit";
@@ -112,7 +113,18 @@ function EffectThumb({ id }: { id: string }) {
   return url ? <img className="fx-thumb" src={url} alt="" /> : <span className="fx-thumb placeholder" />;
 }
 
-export function EffectStackEditor({ catalog, fields, set }: { catalog: FxCatalog; fields: Fields; set: (f: Fields, summary?: string) => void }) {
+/** `sampling`: the item and playhead time, for the chroma key's "Sample from viewer" button. */
+export function EffectStackEditor({
+  catalog,
+  fields,
+  set,
+  sampling,
+}: {
+  catalog: FxCatalog;
+  fields: Fields;
+  set: (f: Fields, summary?: string) => void;
+  sampling?: { itemId: string; time: number };
+}) {
   const stack = effectStack(fields);
   const [adding, setAdding] = useState("");
   const save = (next: EffectEntry[], summary: string) => set({ effects: next }, summary);
@@ -159,6 +171,16 @@ export function EffectStackEditor({ catalog, fields, set }: { catalog: FxCatalog
               </span>
             </header>
             <Slider label="Amount" value={num(e.amount, 1)} min={0} max={1} step={0.01} format={pct} onCommit={(v) => save(stack.map((x, j) => (j === i ? { ...x, amount: v } : x)), "effect amount")} />
+            {e.type === "chroma-key" && sampling && e.id && (
+              <button
+                className="btn"
+                data-testid="fx-key-sample"
+                title="Click or drag on the viewer to set the key colour from the source"
+                onClick={() => startKeySampling({ itemId: sampling.itemId, effectId: e.id, time: sampling.time })}
+              >
+                Sample from viewer
+              </button>
+            )}
             {spec?.params.map((p) => <ParamEditor key={p.name} spec={p} values={values} testPrefix={`fx-${e.type}`} onCommit={update} />)}
           </div>
         );
@@ -175,7 +197,7 @@ export function EffectStackEditor({ catalog, fields, set }: { catalog: FxCatalog
           }}
         >
           <option value="">Effect…</option>
-          {(["stylize", "distort", "background"] as const).map((g) => (
+          {(["key", "stylize", "distort", "background"] as const).map((g) => (
             <optgroup key={g} label={GROUP_LABEL[g]}>
               {catalog.effects
                 .filter((s) => s.group === g)

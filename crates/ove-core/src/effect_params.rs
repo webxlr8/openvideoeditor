@@ -48,6 +48,7 @@ pub const NUMERIC_PARAMS: &[(&str, &[&str])] = &[
     ("voronoi", &["scale", "edgeIntensity", "edgeSoftness", "speed"]),
     ("stripes", &["angle", "density", "balance", "softness", "speed"]),
     ("studio-background", &["intensity", "softness", "vignette", "speed"]),
+    ("chroma-key", &["tolerance", "softness", "spill", "choke", "matteBlack", "matteWhite", "edgeBlur"]),
 ];
 
 /// The numeric parameters of effect type `kind`, or `None` for an unknown type.

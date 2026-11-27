@@ -46,6 +46,27 @@ apply the suggestion, inspect again, and repeat until `gap.mean` is below 2 (usu
 
 The output is deterministic: the same request on an unchanged project prints the same bytes.
 
+## Chroma key
+
+The `chroma-key` effect removes a key colour from a clip (green or blue screen). Add it to the clip's `effects`:
+
+```tsx
+<video id="i_talk" start={0} end={12} src="talk" effects={[{id: "k", type: "chroma-key", keyColor: [0.12, 0.72, 0.22]}]} />
+```
+
+- `keyColor` (RGB 0..1): the screen colour. Sample it from the clip: in the viewer, click or drag on the screen.
+- `tolerance` (0.35) and `softness` (0.25): colours closer to the key than `tolerance` are removed; the matte
+  rises to opaque over the next `softness`. Distance is measured in hue and saturation relative to brightness, so a
+  dark or unevenly lit screen keys like a bright one.
+- `spill` (1): removes the screen colour reflected onto the subject near the key colour, keeping brightness.
+- `choke` (−1..1, 0): positive shrinks the matte, negative grows it. `edgeBlur` (pixels, 1) softens its edge.
+- `matteBlack` and `matteWhite` (0 and 1): matte levels; values below black become transparent, above white
+  opaque.
+- `matteView`: show the matte (white kept, black removed) instead of the result. `ove look --view matte` shows
+  every key's matte without changing the project.
+- A key colour that is not in the clip leaves it unchanged. Any numeric parameter takes keyframes
+  (`effects.k.tolerance`).
+
 Refusals (exit 1):
 
 ```sh

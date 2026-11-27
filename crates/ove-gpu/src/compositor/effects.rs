@@ -5,7 +5,7 @@
 
 /// Effect ids with a GPU version.
 /// Chosen by measured cost (tests/costs.rs): the most expensive per frame first.
-pub const PORTED: &[&str] = &["zoom-blur", "tilt-shift", "aurora"];
+pub const PORTED: &[&str] = &["zoom-blur", "tilt-shift", "aurora", "chroma-key"];
 
 /// Shared by every effect shader: the frame header, parameters (in contract order, packed by
 /// `Params::packed`), sampling, the integer hash and the mixing loop.
@@ -220,12 +220,113 @@ fn effect(u: f32, v: f32) -> vec3<f32> {
 }
 "#;
 
+/// `key::chroma_key` (written for the GPU from the start): keyColor, tolerance, softness, spill, choke,
+/// matteBlack, matteWhite, edgeBlur, matteView. Writes alpha, so it has its own main.
+const CHROMA_KEY: &str = r#"
+fn effect(u: f32, v: f32) -> vec3<f32> {
+    return vec3<f32>(0.0);
+}
+
+fn ycc(c: vec3<f32>) -> vec3<f32> {
+    let y = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+    return vec3<f32>(y, (c.b - y) / 1.8556, (c.r - y) / 1.5748);
+}
+
+fn norm_chroma(c: vec3<f32>) -> vec2<f32> {
+    let k = ycc(c);
+    let l = max(k.x, 0.1);
+    return vec2<f32>(k.y / l, k.z / l);
+}
+
+/// (matte, distance) of colour `c`.
+fn matte(c: vec3<f32>) -> vec2<f32> {
+    let key = norm_chroma(param3(0u));
+    let len = max(sqrt(key.x * key.x + key.y * key.y), 0.1);
+    let n = norm_chroma(c);
+    let dx = n.x - key.x;
+    let dy = n.y - key.y;
+    let d = sqrt(dx * dx + dy * dy) / len;
+    let tol = prm[3];
+    let soft = max(prm[4], 0.001);
+    return vec2<f32>(smoothstep1(tol, tol + soft, d), d);
+}
+
+fn key4(u: f32, v: f32, src_a: f32) -> vec4<f32> {
+    let w = head.a.x;
+    let h = head.a.y;
+    let s = sample(u, v);
+    let md = matte(s);
+    var m = md.x;
+    let r = prm[9];
+    if (r >= 0.5) {
+        let taps = 16;
+        var acc = 0.0;
+        for (var i = 0; i < taps; i = i + 1) {
+            let a = f32(i) * 2.399963;
+            let rr = r * sqrt((f32(i) + 0.5) / f32(taps));
+            acc = acc + matte(sample(u + cos(a) * rr / w, v + sin(a) * rr / h)).x;
+        }
+        m = acc / f32(taps);
+    }
+    let ch = prm[6];
+    if (ch > 0.0) {
+        m = clamp((m - ch) / max(1.0 - ch, 1e-3), 0.0, 1.0);
+    } else {
+        m = min(m / max(1.0 + ch, 1e-3), 1.0);
+    }
+    let lo = prm[7];
+    let hi = prm[8];
+    m = clamp((m - lo) / max(hi - lo, 1e-3), 0.0, 1.0);
+    if (prm[10] >= 0.5) {
+        return vec4<f32>(m, m, m, 1.0);
+    }
+    let keyc = param3(0u);
+    // The key channel is green or blue (no dynamic vector writes: FXC rejects them).
+    let blue = keyc.b > keyc.g;
+    let tol = prm[3];
+    let soft = max(prm[4], 0.001);
+    let near = 1.0 - smoothstep1(tol, tol + soft * 2.0 + 1.0, md.y);
+    let keyv = select(s.g, s.b, blue);
+    let limit = select((s.r + s.b) * 0.5, (s.r + s.g) * 0.5, blue);
+    let spill = max(keyv - limit, 0.0) * prm[5] * near;
+    var out = s;
+    if (blue) {
+        out.b = out.b - spill;
+    } else {
+        out.g = out.g - spill;
+    }
+    let dl = spill * select(0.7152, 0.0722, blue);
+    out = clamp(out + vec3<f32>(dl), vec3<f32>(0.0), vec3<f32>(1.0));
+    return vec4<f32>(out, src_a * m);
+}
+
+@compute @workgroup_size(8, 8)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let dims = textureDimensions(src);
+    if (gid.x >= dims.x || gid.y >= dims.y) {
+        return;
+    }
+    let at = vec2<i32>(i32(gid.x), i32(gid.y));
+    let s = round(textureLoad(src, at, 0) * 255.0) / 255.0;
+    let u = (f32(gid.x) + 0.5) / head.a.x;
+    let v = (f32(gid.y) + 0.5) / head.a.y;
+    let o = key4(u, v, s.a);
+    let amount = head.b.x;
+    let q = floor(clamp(s + (o - s) * amount, vec4<f32>(0.0), vec4<f32>(1.0)) * 255.0 + vec4<f32>(0.5)) / 255.0;
+    textureStore(out_tex, at, q);
+}
+"#;
+
 /// The shader source of a ported effect.
 pub fn source(id: &str) -> Option<String> {
     let body = match id {
         "zoom-blur" => ZOOM_BLUR,
         "tilt-shift" => TILT_SHIFT,
         "aurora" => AURORA,
+        "chroma-key" => {
+            let prelude = PRELUDE.replace("fn effect(u: f32, v: f32) -> vec3<f32>;\n", "");
+            return Some(format!("{prelude}{CHROMA_KEY}"));
+        }
         _ => return None,
     };
     // WGSL has no forward declarations: drop the prelude's placeholder line.

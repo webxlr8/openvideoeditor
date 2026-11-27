@@ -313,6 +313,11 @@ mod imp {
             let sheet = a.str("sheet").map(PathBuf::from);
             return storyboard_receipt(ctx, img, &tiles, sheet.as_deref(), Some(rev));
         }
+        let doc = match a.str("view") {
+            None | Some("result") => doc,
+            Some("matte") => ove_render::effects::key::matte_view(&doc),
+            Some(v) => return Err(Fail::new("argument.invalid", format!("view is result or matte, not {v}"))),
+        };
         let times = match a.str("at") {
             Some(s) => parse_times(s)?,
             None => ove_analyze::timeline_times(&doc, a.u32_or("count", 6).max(1), a.f64("every")),
