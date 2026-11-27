@@ -1197,6 +1197,77 @@
       }
     },
     {
+      "name": "duck_audio",
+      "description": "Lower music under dialogue as one revision: writes volume keyframes on the music items (ramp down `attack` before each line of speech, `depth` dB during it, back up over `release`; lines closer than `hold` merge). Speech comes from the dialogue's cached transcript, else from its level. `mode` replace (default) rewrites volume keyframes only in the affected range, so running again replaces an earlier duck; merge multiplies with existing ones. `dryRun` returns the planned keyframes per music item without changing anything.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "music": {
+            "type": [
+              "array",
+              "string"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Music item ids or track ids/names (list, or comma-separated)"
+          },
+          "under": {
+            "type": [
+              "array",
+              "string"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Dialogue item ids or track ids/names (list, or comma-separated)"
+          },
+          "depth": {
+            "type": "number",
+            "description": "dB during speech, -60 to 0 (default -12)"
+          },
+          "attack": {
+            "type": "number",
+            "description": "Seconds of ramp down before speech (default 0.2)"
+          },
+          "release": {
+            "type": "number",
+            "description": "Seconds of ramp up after speech (default 0.4)"
+          },
+          "hold": {
+            "type": "number",
+            "description": "Lines closer than this many seconds merge (default 0.5)"
+          },
+          "source": {
+            "type": "string",
+            "description": "transcript, level or auto (default: transcript when cached, else level)"
+          },
+          "mode": {
+            "type": "string",
+            "description": "replace (default) or merge"
+          },
+          "dryRun": {
+            "type": "boolean",
+            "description": "Return the plan without applying it"
+          }
+        },
+        "required": [
+          "music",
+          "under"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
       "name": "job_status",
       "description": "An export job's state (queued, running, done, failed, cancelled), progress, encoder, output and error. With `wait`, returns once the job has finished.",
       "inputSchema": {

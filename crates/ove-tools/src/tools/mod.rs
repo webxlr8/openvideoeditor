@@ -2,6 +2,7 @@
 
 pub mod analyze;
 pub mod app;
+pub mod audio;
 pub mod code;
 pub mod docs;
 pub mod edit;

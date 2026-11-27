@@ -173,7 +173,7 @@ impl Reader<'_> {
     }
 
     /// Validates a known field's value and reports errors/warnings at the attribute.
-    fn check_value(&mut self, field: &schema::Field, attr: &Attr) -> bool {
+    fn check_value(&mut self, field: &schema::Field, attr: &Attr, owner: Option<&str>) -> bool {
         let mut issues = Vec::new();
         schema::validate(&field.kind, &attr.value, &attr.name, &mut issues);
         let mut ok = true;
@@ -184,7 +184,12 @@ impl Reader<'_> {
             } else {
                 Severity::Warning
             };
-            self.push(diag(sev, attr.value_pos, i.code, i.message));
+            // A keyframe problem names its item, since the attribute alone does not say which one.
+            let message = match owner {
+                Some(id) if i.path.starts_with("keyframeTracks") => format!("item {id}: {}", i.message),
+                _ => i.message,
+            };
+            self.push(diag(sev, attr.value_pos, i.code, message));
         }
         ok
     }
@@ -246,7 +251,7 @@ impl Reader<'_> {
                 }
                 other => {
                     if let Some(f) = schema::track_field(other) {
-                        ok &= self.check_value(f, a);
+                        ok &= self.check_value(f, a, None);
                     }
                     t.fields.insert(other.to_string(), a.value.clone());
                 }
@@ -280,6 +285,8 @@ impl Reader<'_> {
         };
         let mut ok = true;
         let (mut id, mut start, mut end) = (None, None, None);
+        let owner_id = el.attrs.iter().find(|a| a.name == "id").and_then(|a| a.value.as_str()).map(str::to_string);
+        let owner = owner_id.as_deref();
         let mut fields = Map::new();
         for a in &el.attrs {
             match a.name.as_str() {
@@ -341,7 +348,7 @@ impl Reader<'_> {
                 other => {
                     let field = field_for(other);
                     if let Some(f) = schema::item_field(kind, field) {
-                        ok &= self.check_value(f, a);
+                        ok &= self.check_value(f, a, owner);
                     }
                     fields.insert(
                         field.to_string(),

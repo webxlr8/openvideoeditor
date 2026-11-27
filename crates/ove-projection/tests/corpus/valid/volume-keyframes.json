@@ -1,0 +1,40 @@
+{
+  "format": "ove-project",
+  "version": 1,
+  "project": {
+    "id": "p_volume",
+    "name": "Volume keyframes",
+    "createdAt": 1,
+    "updatedAt": 2,
+    "stateUpdatedAt": 2,
+    "aspectRatio": "16:9",
+    "media": [
+      {
+        "id": "m_music",
+        "createdAt": 1,
+        "addedAt": 1,
+        "data": {"type": "audio", "fileName": "music.wav", "duration": 30}
+      },
+      {
+        "id": "m_cam",
+        "createdAt": 1,
+        "addedAt": 1,
+        "data": {"type": "video", "fileName": "camera.mov", "duration": 20, "hasAudio": true}
+      }
+    ],
+    "tracks": [
+      {"id": "t_v1", "name": "V1", "order": 0, "type": "video"},
+      {"id": "t_music", "name": "Music", "order": 1, "type": "audio"}
+    ],
+    "timelineItems": [
+      {"id": "i_cam", "trackId": "t_v1", "type": "video", "startTime": 0, "endTime": 6, "mediaItemId": "m_cam", "volume": 120,
+       "keyframeTracks": [{"property": "volume", "keyframes": [{"time": 0, "value": 100}, {"time": 1.5, "value": 0}, {"time": 4.25, "value": 200}], "easing": "ease-in-out"}]},
+      {"id": "i_music", "trackId": "t_music", "type": "audio", "startTime": 0, "endTime": 12, "mediaItemId": "m_music",
+       "keyframeTracks": [{"property": "volume", "keyframes": [{"time": 2, "value": 100}, {"time": 2.4, "value": 25.12}, {"time": 5, "value": 25.12}, {"time": 5.4, "value": 100}]}]}
+    ]
+  },
+  "media": [
+    {"mediaId": "m_music", "nativePath": "/audio/music.wav", "ownedByBundle": false, "probeStatus": "probed"},
+    {"mediaId": "m_cam", "nativePath": "/footage/camera.mov", "ownedByBundle": false, "probeStatus": "probed"}
+  ]
+}
