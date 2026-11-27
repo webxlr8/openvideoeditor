@@ -183,3 +183,12 @@ VAD 6.x in both forms, one thread, test profile (optimised dependencies).
 - Fillers: the system speech synthesiser read a sentence with 10 hesitations; the base model with the verbatim
   option transcribed all 10 ("hmm" came out as "um"), and only those 10 were selected. Without a labelled interview,
   precision and recall on real conversation are not measured (task 3.1 stays open).
+
+### R5. Surfaces (group 5, Windows)
+
+- Registry tools on the in-app, MCP and pinned surfaces: `get_transcript`, `search_transcript`, `transcribe_media`,
+  `remove_words`, `remove_silence`, `find_fillers`, and `detect_silence` with `mode: "speech"`.
+- `transcribe_media` links the recognition library only in builds with the `speech` feature (`ove-tools`,
+  `ove-cli`); the desktop app enables it. Whether the installer's `ove` command line should include it (it adds
+  whisper.cpp to that binary) is an open packaging decision; without it the tool answers `speech.unavailable`.
+- Task 5.4 (the Transcript panel) was not started in this session.
