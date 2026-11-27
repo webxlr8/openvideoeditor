@@ -9,23 +9,17 @@ use std::sync::{Arc, Mutex, OnceLock};
 use ove_core::model::Document;
 use ove_models::worker::WorkerClient;
 use ove_vision::indexer::MediaKind;
-use serde_json::Value;
+use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
+use specta::Type;
 use tauri::AppHandle;
 
-/// The model worker shared by every search task of this app.
-pub fn worker() -> Arc<WorkerClient> {
-    static WORKER: OnceLock<Arc<WorkerClient>> = OnceLock::new();
-    WORKER.get_or_init(|| Arc::new(WorkerClient::new(ove_program(), &["model-worker"]))).clone()
-}
+use crate::error::{AppError, AppResult, ErrorCode};
+use crate::projects::{ProjectView, lock, serial};
 
-/// The `ove` program next to the app's own program (it serves `ove model-worker`).
-fn ove_program() -> PathBuf {
-    let name = if cfg!(windows) { "ove.exe" } else { "ove" };
-    std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|d| d.join(name)))
-        .filter(|p| p.is_file())
-        .unwrap_or_else(|| PathBuf::from(name))
+/// The model worker shared by indexing and the search tools of this app: the `ove` beside the app serves it.
+pub fn worker() -> Arc<WorkerClient> {
+    ove_tools::tools::search::shared_worker()
 }
 
 /// Content ids already queued in this run of the app.
@@ -49,7 +43,13 @@ pub fn indexable(bundle: &Path, doc: &Document, online: &BTreeSet<&str>) -> Vec<
                 "image" => MediaKind::Image,
                 _ => return None,
             };
-            let name = item.fields.get("name").and_then(Value::as_str).unwrap_or(&e.media_id).to_string();
+            let name = item
+                .fields
+                .get("name")
+                .and_then(Value::as_str)
+                .or_else(|| item.file_name())
+                .unwrap_or(&e.media_id)
+                .to_string();
             Some((cid, ove_store::media::resolve_media_path(bundle, &e.native_path), kind, name))
         })
         .collect()
@@ -59,7 +59,8 @@ pub fn indexable(bundle: &Path, doc: &Document, online: &BTreeSet<&str>) -> Vec<
 /// panel offers the install with its size). Each content is queued once per run; a finished index is reused.
 pub fn queue_indexing(app: &AppHandle, bundle: &Path, items: Vec<(String, PathBuf, MediaKind, String)>) {
     let store = crate::models::store(app);
-    if ove_vision::model::installed(&store).is_err() {
+    // Both the model and the inference runtime must be installed; neither is ever downloaded here.
+    if ove_vision::model::installed(&store).is_err() || ove_models::runtime::library_path(&store).is_err() {
         return;
     }
     let state = tauri::Manager::state::<crate::AppState>(app);
@@ -92,4 +93,105 @@ pub fn queue_indexing(app: &AppHandle, bundle: &Path, items: Vec<(String, PathBu
             },
         );
     }
+}
+
+/// What the media panel's index pill shows.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct MediaIndexStatus {
+    /// The visual search model is installed.
+    pub model_installed: bool,
+    /// Its download size when it is not.
+    pub download_bytes: f64,
+    /// Videos and images with a current index, of all.
+    pub indexed: u32,
+    pub total: u32,
+    /// Indexing tasks queued or running for this project.
+    pub running: u32,
+}
+
+fn bad_args() -> AppError {
+    AppError::new(ErrorCode::InvalidArgument, "The arguments must be a JSON object.")
+}
+
+/// Searches the open project's media (`search_media`): runs off the project turn, so a first query that starts the
+/// model worker does not hold up editing.
+#[tauri::command]
+#[specta::specta]
+pub async fn media_search(app: AppHandle, args: String) -> AppResult<String> {
+    crate::worker::blocking("media_search", move || {
+        let a = match serde_json::from_str::<Value>(&args) {
+            Ok(Value::Object(m)) => m,
+            _ => return Err(bad_args()),
+        };
+        let state = tauri::Manager::state::<crate::AppState>(&app);
+        Ok(crate::transcript::run(&app, &state, "search_media", &a)?.0.to_string())
+    })
+    .await
+}
+
+/// Organises media (`organize_media`): folders, tags, renames and subclips, as one revision.
+#[tauri::command]
+#[specta::specta]
+pub async fn media_organize(app: AppHandle, ops: String) -> AppResult<ProjectView> {
+    serial(&app, "media_organize", move |app, state| {
+        let ops: Value = serde_json::from_str(&ops).map_err(|_| bad_args())?;
+        let mut a = Map::new();
+        a.insert("ops".into(), ops);
+        let (_, view) = crate::transcript::run(app, state, "organize_media", &a)?;
+        match view {
+            Some(v) => Ok(v),
+            None => {
+                let g = lock(&state.projects.open)?;
+                let p = g.as_ref().ok_or_else(|| AppError::new(ErrorCode::NotFound, "No project is open."))?;
+                Ok(crate::projects::view(p))
+            }
+        }
+    })
+    .await
+}
+
+/// The index state of the open project: model installed or its size, indexed files of all, indexing tasks.
+#[tauri::command]
+#[specta::specta]
+pub async fn media_index_status(app: AppHandle) -> AppResult<MediaIndexStatus> {
+    crate::worker::blocking("media_index_status", move || {
+        let state = tauri::Manager::state::<crate::AppState>(&app);
+        let (bundle, doc) = {
+            let g = lock(&state.projects.open)?;
+            let p = g.as_ref().ok_or_else(|| AppError::new(ErrorCode::NotFound, "No project is open."))?;
+            (p.bundle().to_path_buf(), p.doc().clone())
+        };
+        let store = crate::models::store(&app);
+        let (installed, download, prov) = match ove_vision::model::installed(&store) {
+            Ok(f) => (true, 0.0, Some(ove_vision::model::provenance_of(&f))),
+            Err(n) => (false, n.download_bytes as f64, None),
+        };
+        let all: BTreeSet<&str> = doc.project.media.keys().map(String::as_str).collect();
+        let items = indexable(&bundle, &doc, &all);
+        // A model installed since the project opened starts indexing here (each content is queued once).
+        if installed {
+            queue_indexing(&app, &bundle, items.clone());
+        }
+        let indexed = items
+            .iter()
+            .filter(|(cid, ..)| {
+                prov.as_ref().is_some_and(|p| {
+                    matches!(ove_vision::index::lookup(&bundle, cid, Some(p)), ove_vision::index::Lookup::Ready(_))
+                })
+            })
+            .count();
+        let filter = ove_tasks::TaskFilter {
+            project: Some(crate::tasks::project_key(&bundle)),
+            kind: Some(ove_vision::task::KIND.into()),
+        };
+        Ok(MediaIndexStatus {
+            model_installed: installed,
+            download_bytes: download,
+            indexed: indexed as u32,
+            total: items.len() as u32,
+            running: state.tasks.list(&filter).len() as u32,
+        })
+    })
+    .await
 }

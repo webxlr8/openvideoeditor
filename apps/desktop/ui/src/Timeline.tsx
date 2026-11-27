@@ -2,6 +2,7 @@
 // another compatible track), drag an edge to trim (the start edge moves the in-point), right-click for actions.
 // Snapping to the playhead and clip edges is on by default. Every gesture commits one revision on release.
 
+import { CLIP_DRAG_TYPE } from "./media/MediaPanel";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Ghost, ItemView_Serialize, ProjectView_Serialize } from "./bindings";
 import { commands } from "./bridge";
@@ -21,6 +22,9 @@ const TRACK_ICON: Record<string, IconName> = { video: "media", caption: "caption
 export type SelectMode = "replace" | "toggle";
 
 export interface TimelineProps {
+  /** A source range dropped from the media panel (add-semantic-media-search): the track, the timeline time and the
+   * drag payload (`ClipDrag` JSON). */
+  onDropClip?: (trackId: string, time: number, payload: string) => void;
   project: ProjectView_Serialize | null;
   selection: string[];
   playhead: number;
@@ -426,6 +430,15 @@ export function Timeline(props: TimelineProps) {
                   data-testid={`lane-${t.name}`}
                   onPointerDown={(e) => (e.target === e.currentTarget && e.button === 0 ? seekAt(e.clientX) : undefined)}
                   onContextMenu={(e) => laneMenu(e, t.id, t.kind)}
+                  onDragOver={(e) => {
+                    if (props.onDropClip && e.dataTransfer.types.includes(CLIP_DRAG_TYPE)) e.preventDefault();
+                  }}
+                  onDrop={(e) => {
+                    const payload = e.dataTransfer.getData(CLIP_DRAG_TYPE);
+                    if (!payload || !props.onDropClip) return;
+                    e.preventDefault();
+                    props.onDropClip(t.id, snapToFrame(timeAt(e.clientX)), payload);
+                  }}
                 >
                   {ghosts
                     .filter((g) => g.trackId === t.id)

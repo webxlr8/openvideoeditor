@@ -265,6 +265,9 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             // The Transcript panel (add-transcript-editing).
             transcript::transcript_query,
             transcript::transcript_cut,
+            search::media_search,
+            search::media_organize,
+            search::media_index_status,
         ])
         .events(collect_events![
             PlaybackChanged,

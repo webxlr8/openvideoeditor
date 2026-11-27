@@ -241,3 +241,23 @@ it ranks segments and pads ranges, which the existing word-match search does not
 - The 8 examples in `docs/cli/media-search.md` run with their documented exit codes.
 - Text queries embed through the shared `ove model-worker` and are cached on disk per query text
   (`cache/embeddings/queries/`); the worker program is the `ove` binary itself, or the `ove` beside the app.
+
+### Media panel (tasks.md 6.1, 6.2)
+
+`ui/src/media/MediaPanel.tsx` replaces the media branch of the side panel; `npx pnpm@10.28.0 test` (36 files, 210
+tests) passes, 5 of them in `ui/src/media/MediaPanel.test.tsx`:
+
+- One search after typing stops (250 ms); Moments, Spoken, Timelines and Files sections; scope chips search one
+  section; clearing the field shows the media again.
+- "No visual matches" when no shot passes the threshold while Spoken still lists hits; untranscribed files are counted
+  with a Transcribe link; with the model missing, Moments and the pill say so with the size (0.63 GB) and the pill
+  offers the download, which starts only after the person confirms it (the runtime first when it is missing).
+- "Indexing n of N" while indexing; the pill opens the Background Tasks popover.
+- Dropping a Moment on the Main lane plans one `overwrite` (one revision) with `trimStart` = the result's in and the
+  window's length; media cards and subclips drag the same way.
+- "Save as subclip" is one `organize_media` revision, and the subclip then shows under its media.
+- The app commands run the same registry tools: `media_search` (off the project turn, so a first query that starts the
+  model worker does not hold up editing), `media_organize` (one revision) and `media_index_status` (which also queues
+  indexing when the model was installed after the project opened).
+
+Not measured here: results within 300 ms on 10 hours of indexed footage in the built app (tasks.md 7.1).

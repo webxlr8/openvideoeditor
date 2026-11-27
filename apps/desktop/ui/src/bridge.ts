@@ -30,6 +30,7 @@ import type {
   ItemView_Serialize,
   ProjectSummary_Serialize,
   ProjectView_Serialize,
+  MediaIndexStatus,
   ViewerBackend,
   ViewerRect,
   ExportCheck_Serialize as ExportCheck,
@@ -129,6 +130,11 @@ export interface MockControl {
   setTasks(view: TasksView_Serialize): void;
   /** Settings → Storage rows of derived data (bytes in the open project and across the library). */
   storage: { kind: string; label: string; projectBytes: number; totalBytes: number }[];
+  /** The media panel (add-semantic-media-search): the `search_media` result the mock returns for any query, and the
+   * index state the pill shows. */
+  mediaSearch: { result: Record<string, unknown>; status: MediaIndexStatus };
+  /** The last edit-planner request (what a drop on the timeline asked for). */
+  lastPlan?: Record<string, unknown>;
   /** Onboarding state as the native side would keep it. Onboarding is over by default (the welcome would cover
    * every other test); a test of the first run puts `FIRST_RUN` here before rendering. */
   onboarding: OnboardingState;
@@ -758,6 +764,10 @@ function createMock(): {
     transcript: { words: [], pauses: [] },
     localAgents: [],
     onboarding: { ...SETTLED },
+    mediaSearch: {
+      result: { moments: [], spoken: [], timelines: [], files: [], index: { visual: "ready", indexed: 0, total: 0 } },
+      status: { modelInstalled: true, downloadBytes: 0, indexed: 0, total: 0, running: 0 },
+    },
     tasks: { tasks: [], paused: [], runAnyway: [] },
     setTasks(view) {
       control.tasks = view;
@@ -949,6 +959,9 @@ function createMock(): {
             status: "online",
             thumbnail: null,
             skim: null,
+            folder: null,
+            tags: [],
+            subclips: [],
           });
           p.items.push(
             fromDetail({
@@ -1850,6 +1863,7 @@ function createMock(): {
     editPlan: (request: string) => {
       const r = JSON.parse(request) as { op: string; item?: string; start?: number; track?: string; linked?: boolean };
       track(`editPlan:${r.op}`);
+      control.lastPlan = r;
       if (r.op === "move" && r.item) return commands.moveItem(r.item, r.start ?? 0, r.track ?? null, r.linked ?? null);
       // Other verbs are planned by the native side; the mock records the request and changes nothing.
       return publish();
@@ -2154,6 +2168,9 @@ function createMock(): {
             status: "online",
             thumbnail: null,
             skim: null,
+            folder: null,
+            tags: [],
+            subclips: [],
           });
           if (!replace) return;
           const video = new Set(p.tracks.filter((t) => t.kind === "video").map((t) => t.id));
@@ -2794,6 +2811,34 @@ function createMock(): {
       }
       return fail("invalid_argument", `${tool} is not a transcript tool`);
     },
+    // The media panel: search returns `control.mediaSearch.result`; organise applies the steps to the mock media.
+    mediaSearch: (args: string) => {
+      track(`mediaSearch:${(JSON.parse(args) as { scope?: string }).scope ?? "all"}`);
+      return ok(JSON.stringify(control.mediaSearch.result));
+    },
+    mediaIndexStatus: () => {
+      track("mediaIndexStatus");
+      return ok(control.mediaSearch.status);
+    },
+    mediaOrganize: (ops: string) => {
+      const steps = JSON.parse(ops) as Record<string, unknown>[];
+      track(`mediaOrganize:${steps.map((o) => o.op).join(",")}`);
+      return editProject("organise media", (p) => {
+        for (const o of steps) {
+          const ids = ([] as unknown[]).concat(o.media ?? []).map(String);
+          const media = p.media.filter((m) => ids.includes(m.id) || ids.includes(m.name));
+          for (const m of media) {
+            if (o.op === "move") m.folder = (o.folder as string) || null;
+            if (o.op === "tag") m.tags = [...new Set([...m.tags, ...((o.add as string[]) ?? [])])];
+            if (o.op === "saveSubclip")
+              m.subclips = [
+                ...m.subclips,
+                { id: `s${m.subclips.length + 1}`, name: typeof o.name === "string" ? o.name : "Subclip", start: Number(o.in), end: Number(o.out) },
+              ];
+          }
+        }
+      });
+    },
     transcriptCut: (tool: string, args: string) => {
       track(`transcriptCut:${tool}`);
       const a = JSON.parse(args) as Record<string, unknown>;
@@ -3037,6 +3082,9 @@ function createMock(): {
         status: "online",
         thumbnail: null,
         skim: null,
+        folder: null,
+        tags: [],
+        subclips: [],
       });
       const clip = { trackId: "t_main", type: "video", name: "Sample clip", mediaItemId: "m_sample" };
       const caption = (id: string, text: string, startTime: number, endTime: number) => ({

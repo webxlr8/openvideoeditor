@@ -55,9 +55,9 @@
 
 ## 6. Media panel
 
-- [ ] 6.1 Move the media panel to `ui/src/media/` with the search field, sections, scope chips and index status pill;
+- [x] 6.1 Move the media panel to `ui/src/media/` with the search field, sections, scope chips and index status pill;
       verify UI tests for each section and the empty and not-installed states.
-- [ ] 6.2 Add drag-to-timeline for Moment and Spoken results and "Save as subclip"; verify UI tests that a drop creates
+- [x] 6.2 Add drag-to-timeline for Moment and Spoken results and "Save as subclip"; verify UI tests that a drop creates
       one revision with the result's range.
 
 ## 7. Integration checks

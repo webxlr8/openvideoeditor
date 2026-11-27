@@ -334,6 +334,15 @@ export const commands = {
 	transcriptQuery: (tool: string, args: string) => typedError<string, AppError>(__TAURI_INVOKE("transcript_query", { tool, args })),
 	/**  Runs a cutting tool (`remove_words`, `remove_silence`) on the open project as one revision. */
 	transcriptCut: (tool: string, args: string) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("transcript_cut", { tool, args })),
+	/**
+	 *  Searches the open project's media (`search_media`): runs off the project turn, so a first query that starts the
+	 *  model worker does not hold up editing.
+	 */
+	mediaSearch: (args: string) => typedError<string, AppError>(__TAURI_INVOKE("media_search", { args })),
+	/**  Organises media (`organize_media`): folders, tags, renames and subclips, as one revision. */
+	mediaOrganize: (ops: string) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("media_organize", { ops })),
+	/**  The index state of the open project: model installed or its size, indexed files of all, indexing tasks. */
+	mediaIndexStatus: () => typedError<MediaIndexStatus, AppError>(__TAURI_INVOKE("media_index_status")),
 };
 
 /** Events */
@@ -1353,6 +1362,19 @@ export type LocalModels_Serialize = {
 	models: LocalModel_Serialize[],
 };
 
+/**  What the media panel's index pill shows. */
+export type MediaIndexStatus = {
+	/**  The visual search model is installed. */
+	modelInstalled: boolean,
+	/**  Its download size when it is not. */
+	downloadBytes: number | null,
+	/**  Videos and images with a current index, of all. */
+	indexed: number,
+	total: number,
+	/**  Indexing tasks queued or running for this project. */
+	running: number,
+};
+
 /**  Properties shown next to the viewer. */
 export type MediaInfo = MediaInfo_Serialize | MediaInfo_Deserialize;
 
@@ -1402,6 +1424,11 @@ export type MediaView_Deserialize = {
 	thumbnail?: string | null,
 	/**  The hover-skim sheet, once built (served at `ove-skim://localhost/<contentId>.jpg`). */
 	skim?: SkimView | null,
+	/**  Media panel folder (add-semantic-media-search), `/`-separated; none at the top level. */
+	folder?: string | null,
+	tags: string[],
+	/**  Saved source ranges, shown under the media and dragged like it. */
+	subclips: SubclipView[],
 };
 
 export type MediaView_Serialize = {
@@ -1418,6 +1445,11 @@ export type MediaView_Serialize = {
 	thumbnail: string | null,
 	/**  The hover-skim sheet, once built (served at `ove-skim://localhost/<contentId>.jpg`). */
 	skim: SkimView | null,
+	/**  Media panel folder (add-semantic-media-search), `/`-separated; none at the top level. */
+	folder: string | null,
+	tags: string[],
+	/**  Saved source ranges, shown under the media and dragged like it. */
+	subclips: SubclipView[],
 };
 
 /**  One reading as the UI uses it. Times are media seconds; levels are dB. */
@@ -1764,6 +1796,15 @@ export type StorageView_Serialize = {
 	project: string | null,
 	rows: CacheRow[],
 	useProxies: boolean,
+};
+
+/**  A saved subclip of a media item: a named source range. */
+export type SubclipView = {
+	id: string,
+	name: string,
+	/**  Source seconds. */
+	start: number | null,
+	end: number | null,
 };
 
 /**  One task as the popover shows it. */
