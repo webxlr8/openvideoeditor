@@ -11,6 +11,7 @@ pub mod eval;
 pub mod export;
 pub mod fonts;
 pub mod layouts;
+pub mod queue;
 pub mod render;
 pub mod sources;
 pub mod text;

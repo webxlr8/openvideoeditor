@@ -6,9 +6,11 @@ use crate::spec::{
     AGENTS, APP_READ, APP_WRITE, Arg, DESTRUCTIVE, IN_APP, MCP, ModelText, READ, SERVERS, ToolSpec, WRITE, arg, cli,
     req,
 };
-use crate::tools::{analyze, app, code, docs, edit, exchange, media, models, project, timeline};
+use crate::tools::{
+    analyze, app, code, docs, edit, exchange, export, export_queue, export_range, media, models, project, timeline,
+};
 
-const PROJECT: Arg = arg(
+pub(crate) const PROJECT: Arg = arg(
     "project",
     Str,
     "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)",
@@ -349,16 +351,11 @@ pub static TOOLS: &[ToolSpec] = &[
     ToolSpec {
         name: "export_video",
         aliases: &[],
-        about: "Render the timeline to an MP4 (H.264 + AAC). Refused while placeholders are pending. Takes about real time or less.",
-        args: &[
-            PROJECT,
-            req("out", Str, "Output .mp4 path"),
-            arg("height", Int, "720, 1080 (default) or 2160"),
-            arg("fps", Int, "Frame rate (default 30)"),
-        ],
+        about: export::EXPORT_VIDEO_ABOUT,
+        args: export::EXPORT_VIDEO_ARGS,
         annotations: WRITE,
         surfaces: SERVERS,
-        run: exchange::export_video,
+        run: export_queue::export_video,
         model: ModelText::Json,
     },
     ToolSpec {
@@ -524,6 +521,46 @@ pub static TOOLS: &[ToolSpec] = &[
         annotations: READ,
         surfaces: AGENTS,
         run: models::list_models_local,
+        model: ModelText::Json,
+    },
+    ToolSpec {
+        name: "job_status",
+        aliases: &[],
+        about: export_queue::JOB_STATUS_ABOUT,
+        args: export_queue::JOB_STATUS_ARGS,
+        annotations: READ,
+        surfaces: SERVERS,
+        run: export_queue::job_status,
+        model: ModelText::Json,
+    },
+    ToolSpec {
+        name: "cancel_job",
+        aliases: &[],
+        about: export_queue::CANCEL_JOB_ABOUT,
+        args: export_queue::CANCEL_JOB_ARGS,
+        annotations: WRITE,
+        surfaces: SERVERS,
+        run: export_queue::cancel_job,
+        model: ModelText::Json,
+    },
+    ToolSpec {
+        name: "list_export_jobs",
+        aliases: &[],
+        about: export_queue::LIST_EXPORT_JOBS_ABOUT,
+        args: export_queue::LIST_EXPORT_JOBS_ARGS,
+        annotations: READ,
+        surfaces: SERVERS,
+        run: export_queue::list_export_jobs,
+        model: ModelText::Json,
+    },
+    ToolSpec {
+        name: "save_range_as_media",
+        aliases: &[],
+        about: export_range::SAVE_RANGE_ABOUT,
+        args: export_range::SAVE_RANGE_ARGS,
+        annotations: WRITE,
+        surfaces: SERVERS,
+        run: export_range::save_range_as_media,
         model: ModelText::Json,
     },
 ];

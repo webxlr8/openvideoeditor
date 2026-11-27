@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Fail if an FFmpeg build configuration enables GPL, version-3 or nonfree components.
+# Fail if an FFmpeg build configuration enables GPL, version-3 or nonfree components, or SVT-AV1 (excluded until its
+# licence, BSD-3-Clause-Clear plus the AOM patent licence, is ruled on).
 #
 #   tools/ffmpeg/check-license.sh <file>      # config.h excerpt, buildconf.txt, or `ffmpeg -buildconf` output
 #   ffmpeg -hide_banner -buildconf | tools/ffmpeg/check-license.sh -
@@ -14,7 +15,7 @@ bad=()
 # configure flags (FFMPEG_CONFIGURATION / -buildconf / buildconf.txt)
 for flag in --enable-gpl --enable-nonfree --enable-version3 --enable-libx264 --enable-libx265 --enable-libxvid \
             --enable-libfdk-aac --enable-postproc --enable-frei0r --enable-librubberband --enable-libvidstab \
-            --enable-openssl --enable-libsmbclient; do
+            --enable-openssl --enable-libsmbclient --enable-libsvtav1; do
   if grep -q -- "$flag\b" <<<"$text"; then bad+=("$flag"); fi
 done
 # config.h defines

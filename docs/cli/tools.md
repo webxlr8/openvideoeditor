@@ -126,7 +126,7 @@ ove source print Nope                              # exit 1
 | `measure_loudness` |  | mcp, pinned | read | `project`? `media` |
 | `look` |  | in-app, mcp, pinned | read | `project`? `at`? `every`? `count`? `width`? `stats`? `grid`? `storyboard`? |
 | `screenshot` |  | mcp, pinned | read, app | `width`? |
-| `export_video` |  | mcp, pinned | write | `project`? `out` `height`? `fps`? |
+| `export_video` |  | mcp, pinned | write | `project`? `out` `preset`? `format`? `quality`? `resolution`? `height`? `frameRate`? `fps`? `range`? `videoCodec`? `profile`? `bitDepth`? `alpha`? `videoBitrate`? `audioCodec`? `audioBitDepth`? `settings`? `wait`? |
 | `export_timeline_file` |  | mcp, pinned | read | `project`? `file` `fps`? |
 | `import_timeline_file` |  | mcp, pinned | write | `project`? `file` `fps`? |
 | `app_context` |  | mcp, pinned | read, app |  |
@@ -141,4 +141,8 @@ ove source print Nope                              # exit 1
 | `use_project` |  | mcp, pinned | read | `project` |
 | `edit_timeline` |  | in-app, mcp, pinned | write | `project`? `request` `rev`? `preview`? |
 | `list_models_local` |  | in-app, mcp, pinned | read |  |
+| `job_status` |  | mcp, pinned | read | `job_id` `wait`? |
+| `cancel_job` |  | mcp, pinned | write | `job_id` |
+| `list_export_jobs` |  | mcp, pinned | read | `all`? |
+| `save_range_as_media` |  | mcp, pinned | write | `project`? `start` `end` `replace`? `tracks`? `name`? `small`? |
 <!-- tools:end -->

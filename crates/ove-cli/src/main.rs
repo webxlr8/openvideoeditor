@@ -11,6 +11,7 @@ mod app;
 mod common;
 mod docs;
 mod edit;
+mod export;
 mod generate;
 mod mcp;
 mod media;
@@ -128,16 +129,9 @@ enum Cmd {
         #[arg(long)]
         kind: Option<String>,
     },
-    /// Render the timeline to an MP4 file (H.264 + AAC). With --json, progress is printed as JSON lines.
-    Export {
-        project: String,
-        out: PathBuf,
-        /// Output height in pixels; the width follows the aspect ratio.
-        #[arg(long, default_value_t = 1080)]
-        height: u32,
-        #[arg(long, default_value_t = 30)]
-        fps: u32,
-    },
+    /// Render the timeline (or a range) to a video or audio file: a preset, or a format with codec options (see
+    /// `ove docs export`). With --json, progress is printed as JSON lines.
+    Export(export::ExportCmd),
     /// Exchange the timeline with other editors (FCPXML, Premiere/FCP7 XML, EDL, OpenTimelineIO).
     Timeline {
         #[command(subcommand)]
@@ -293,6 +287,7 @@ fn run(cli: &Cli, source: Source) -> Out {
         Cmd::Agents { cmd: None | Some(AgentsCmd::List) } => return docs::agents_list(),
         Cmd::Agents { cmd: Some(AgentsCmd::Connect { agent }) } => return docs::agents_connect(agent),
         Cmd::Models { cmd } => return models::run(cmd, source),
+        Cmd::Export(c) if c.args.worker => return export::worker(),
         Cmd::ModelWorker { .. } => return Err(Fail::new("argument.invalid", "the model worker is started by the app")),
         Cmd::Mcp { .. } => return Err(Fail::new("mcp.nested", "already serving MCP")),
         _ => {}
@@ -340,9 +335,7 @@ fn run(cli: &Cli, source: Source) -> Out {
                 ctx.tool("undo_timeline", json!({"project": project, "rev": rev}))
             }
         }
-        Cmd::Export { project, out, height, fps } => {
-            ctx.tool("export_video", json!({"project": project, "out": out, "height": height, "fps": fps}))
-        }
+        Cmd::Export(a) => export::run(&ctx, a),
         Cmd::Timeline { cmd: TimelineCmd::Export { project, file, format, fps } } => {
             ctx.tool("export_timeline_file", json!({"project": project, "file": file, "format": format, "fps": fps}))
         }
