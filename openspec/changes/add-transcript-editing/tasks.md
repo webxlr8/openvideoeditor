@@ -89,8 +89,13 @@
 - [x] 5.3 Assistant tools with the same contracts; verify an assistant test where a scripted model removes words using
       ids from one transcript read, without re-reading.
       Done: the registry tools are on the in-app surface; `crates/ove-agent/tests/transcript.rs`.
-- [ ] 5.4 Transcript panel: playback follow, click to seek, strike-through selection and Delete to cut, "Remove pauses"
+- [x] 5.4 Transcript panel: playback follow, click to seek, strike-through selection and Delete to cut, "Remove pauses"
       and "Remove fillers" with a preview overlay on clip waveforms; verify UI tests for each action.
+      Done: `apps/desktop/ui/src/TranscriptPanel.tsx` (rail "Transcript"), commands `transcript_query` and `transcript_cut`
+      running the registry tools as the person; the previewed cut is drawn over the clips on the timeline
+      (`cutPreview.ts`); `TranscriptPanel.test.tsx` (7 tests: sentences, click to seek, Shift and Ctrl selection,
+      Delete previews then cuts as one undo step, pauses, fillers review, search, empty state). The check in the built
+      app is task 6.1.
 - [x] 5.5 Mark add-captions task 1.5 as taken over by this change; verify the add-captions tasks file points here.
       Done: `openspec/changes/add-captions/tasks.md` 1.5 names this change and its tasks.
 

@@ -192,3 +192,16 @@ VAD 6.x in both forms, one thread, test profile (optimised dependencies).
   `ove-cli`); the desktop app enables it. Whether the installer's `ove` command line should include it (it adds
   whisper.cpp to that binary) is an open packaging decision; without it the tool answers `speech.unavailable`.
 - Task 5.4 (the Transcript panel) was not started in this session.
+
+### R6. Transcript panel (task 5.4)
+
+- The panel runs the registry tools through two app commands: `transcript_query` (read tools, and cutting tools
+  forced to `apply: false`) and `transcript_cut` (cutting tools, one revision with source `gui`, undone as one
+  step). The panel reads the transcript again after every revision.
+- Words are grouped into sentences as in `segments` mode; the word under the playhead is highlighted and kept in
+  view. Click selects one word and seeks to it; Shift-click selects a run; Ctrl-click (Cmd on macOS) toggles single
+  words; Delete or Backspace previews the cut (summary, ranges, the `timeline.tsx` diff, and red bands over the
+  clips on the timeline); Cut applies it; Escape clears.
+- Remove pauses previews `remove_silence`; Remove fillers lists `find_fillers` candidates with hesitations checked
+  and context words unchecked, each with its time to play from; the checked ones go to the same preview.
+- The bands are drawn over the timeline's clip area rather than on each clip's waveform.
