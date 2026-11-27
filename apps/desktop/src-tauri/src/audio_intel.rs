@@ -123,3 +123,63 @@ pub async fn sync_items(app: AppHandle, request: SyncRequest) -> AppResult<SyncO
     })
     .await
 }
+
+/// One music item's beats on the timeline.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ItemBeats {
+    pub item: String,
+    /// Timeline seconds.
+    pub beats: Vec<f64>,
+    pub downbeats: Vec<f64>,
+}
+
+/// Beats of the audio items, for "Snap to beats".
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TimelineBeats {
+    pub items: Vec<ItemBeats>,
+    /// True when some item has no cached beats and the beat model is not installed.
+    pub model_missing: bool,
+}
+
+/// The beats of every audio item in timeline seconds: cached results, else detected with the local beat model (never
+/// downloaded). Nothing is written into the project.
+#[tauri::command]
+#[specta::specta]
+pub async fn timeline_beats(app: AppHandle) -> AppResult<TimelineBeats> {
+    use ove_tools::tools::audio_intel::{MediaBeats, media_beats};
+    serial(&app, "timeline_beats", move |_app, state| {
+        let (doc, bundle) = {
+            let g = lock(&state.projects.open)?;
+            let project = g.as_ref().ok_or_else(|| AppError::new(ErrorCode::NotFound, "No project is open."))?;
+            (project.doc().clone(), project.bundle().to_path_buf())
+        };
+        let mut items = Vec::new();
+        let mut model_missing = false;
+        let mut by_media: BTreeMap<String, Option<ove_analyze::beats::BeatAnalysis>> = BTreeMap::new();
+        for item in doc.project.items.values().filter(|i| i.kind == "audio") {
+            let Some(media) = item.media_id() else { continue };
+            if !by_media.contains_key(media) {
+                let a = match media_beats(&doc, &bundle, media) {
+                    Ok(MediaBeats::Ready { analysis, .. }) => Some(analysis),
+                    Ok(MediaBeats::NotInstalled { .. }) => {
+                        model_missing = true;
+                        None
+                    }
+                    Err(_) => None,
+                };
+                by_media.insert(media.to_string(), a);
+            }
+            if let Some(Some(a)) = by_media.get(media) {
+                items.push(ItemBeats {
+                    item: item.id.clone(),
+                    beats: ove_analyze::beats::to_timeline(item, &a.beats),
+                    downbeats: ove_analyze::beats::to_timeline(item, &a.downbeats),
+                });
+            }
+        }
+        Ok(TimelineBeats { items, model_missing })
+    })
+    .await
+}

@@ -196,6 +196,11 @@ export const commands = {
 	/**  Lines up the targets against the reference as one revision. */
 	syncItems: (request: SyncRequest) => typedError<SyncOutcome_Serialize, AppError>(__TAURI_INVOKE("sync_items", { request })),
 	/**
+	 *  The beats of every audio item in timeline seconds: cached results, else detected with the local beat model (never
+	 *  downloaded). Nothing is written into the project.
+	 */
+	timelineBeats: () => typedError<TimelineBeats, AppError>(__TAURI_INVOKE("timeline_beats")),
+	/**
 	 *  Save dialog for the export destination; `extension` is the container's (`mp4` when `None`). `None` when
 	 *  cancelled.
 	 */
@@ -1326,6 +1331,14 @@ export type ItemAudio = {
 	volumeEasing: string,
 };
 
+/**  One music item's beats on the timeline. */
+export type ItemBeats = {
+	item: string,
+	/**  Timeline seconds. */
+	beats: (number | null)[],
+	downbeats: (number | null)[],
+};
+
 export type ItemView = ItemView_Serialize | ItemView_Deserialize;
 
 export type ItemView_Deserialize = {
@@ -2224,6 +2237,13 @@ export type TasksView_Serialize = {
 	paused: PauseView[],
 	/**  Reasons the person chose to run anyway. */
 	runAnyway: string[],
+};
+
+/**  Beats of the audio items, for "Snap to beats". */
+export type TimelineBeats = {
+	items: ItemBeats[],
+	/**  True when some item has no cached beats and the beat model is not installed. */
+	modelMissing: boolean,
 };
 
 /**  The written file (`None` when the dialog was cancelled or for a preview) and what it doesn't carry over. */

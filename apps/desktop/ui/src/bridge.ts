@@ -2018,6 +2018,20 @@ function createMock(): {
         }
       });
     },
+    // Beat stand-in: audio items whose name has "music" get a beat every 0.5 s and a downbeat every 2 s.
+    timelineBeats: async () => {
+      track("timelineBeats");
+      const items = (project?.items ?? [])
+        .filter((i) => i.kind === "audio" && /music/i.test(i.name ?? ""))
+        .map((i) => {
+          const start = i.start ?? 0;
+          const end = i.end ?? 0;
+          const beats: number[] = [];
+          for (let t = start; t < end - 1e-9; t += 0.5) beats.push(Math.round(t * 1e6) / 1e6);
+          return { item: i.id, beats, downbeats: beats.filter((_, k) => k % 4 === 0) };
+        });
+      return ok({ items, modelMissing: false });
+    },
     // Sound sync stand-in: every sound target lines up 1.5 s after the reference starts.
     syncItems: async (request: SyncRequest) => {
       track("syncItems");

@@ -36,7 +36,7 @@
 - [x] 3.3 Map beats to timeline seconds through trim, speed and reverse; expose `ove audio beats` and MCP
       `detect_beats`; verify property tests under speed and reverse, a CLI golden test and an MCP contract test;
       update `docs/cli`.
-- [ ] 3.4 Feed beat targets to the snap engine, with downbeats ranked first, and draw beat marks behind the "Snap to
+- [x] 3.4 Feed beat targets to the snap engine, with downbeats ranked first, and draw beat marks behind the "Snap to
       beats" toggle; verify UI tests that an edge lands on a downbeat and that no marks or snapping happen when the
       toggle is off.
 

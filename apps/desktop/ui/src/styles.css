@@ -2593,6 +2593,27 @@ button.preset-card:disabled {
   color: var(--danger);
 }
 
+/* Snap to beats: the toggle and the beat marks on music clips. */
+.beats-toggle {
+  position: absolute;
+  left: 6px;
+  top: 2px;
+  z-index: 5;
+  font-size: 13px;
+}
+.beat-mark {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.25);
+  pointer-events: none;
+}
+.beat-mark.downbeat {
+  width: 2px;
+  background: rgba(255, 214, 102, 0.8);
+}
+
 /* Synchronise selection: the result summary over the timeline. */
 .sync-summary {
   position: absolute;

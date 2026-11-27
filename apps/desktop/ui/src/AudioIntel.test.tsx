@@ -50,3 +50,58 @@ describe("audio sync", () => {
     expect(screen.queryByTestId("menu-sync")).toBeNull();
   });
 });
+
+describe("snap to beats", () => {
+  // The clip title ends with its end time as mm:ss.cc.
+  const endOf = (c: HTMLElement) => {
+    const m = /–(\d+):(\d+)\.(\d+)$/.exec(c.getAttribute("title") ?? "")!;
+    return Number(m[1]) * 60 + Number(m[2]) + Number(m[3]) / 100;
+  };
+
+  async function editorWithMusic() {
+    render(<App />);
+    fireEvent.click(screen.getByTestId("home-open"));
+    await screen.findByTestId("editor");
+    await waitFor(() => expect(clips().length).toBe(1));
+    await act(async () => window.__oveMock!.routePaths(["/tmp/Music.wav"]));
+    await waitFor(() => expect(clips().length).toBe(2));
+  }
+
+  /** Drags the camera clip's end edge (at 60 s) to timeline second `to`. */
+  async function dragCameraEnd(to: number) {
+    const camera = clips().find((c) => c.textContent?.includes("Sample clip.mov"))!;
+    const pps = parseFloat(camera.style.width) / 60;
+    const dx = (to - 60) * pps;
+    fireEvent.pointerDown(camera, { button: 0, clientX: 300 });
+    fireEvent.pointerUp(window);
+    const handle = await screen.findByTestId("trim-end");
+    const before = endOf(camera);
+    fireEvent.pointerDown(handle, { button: 0, clientX: 500 });
+    await act(async () => {
+      window.dispatchEvent(new MouseEvent("pointermove", { clientX: 500 + dx }));
+      window.dispatchEvent(new MouseEvent("pointerup", { clientX: 500 + dx }));
+    });
+    await waitFor(() => expect(endOf(clips().find((c) => c.textContent?.includes("Sample clip.mov"))!)).not.toBe(before));
+    return endOf(clips().find((c) => c.textContent?.includes("Sample clip.mov"))!);
+  }
+
+  it("draws beat marks and lands a dragged edge on a downbeat", async () => {
+    await editorWithMusic();
+    expect(screen.queryAllByTestId("beat-mark").length).toBe(0);
+    fireEvent.click(screen.getByTestId("snap-beats"));
+    await waitFor(() => expect(screen.queryAllByTestId("downbeat-mark").length).toBeGreaterThan(0));
+    expect(screen.queryAllByTestId("beat-mark").length).toBeGreaterThan(0);
+    const end = await dragCameraEnd(56.35);
+    // 56.35 s: the beat at 56.5 s is closer, but the downbeat at 56 s is in reach and wins.
+    expect(end).toBe(56);
+  });
+
+  it("draws no marks and does not snap to beats when the option is off", async () => {
+    await editorWithMusic();
+    expect(screen.queryAllByTestId("beat-mark").length).toBe(0);
+    const end = await dragCameraEnd(56.35);
+    expect(end).not.toBe(56);
+    expect(end).not.toBe(56.5);
+    expect(screen.queryAllByTestId("downbeat-mark").length).toBe(0);
+  });
+});

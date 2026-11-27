@@ -23,7 +23,7 @@ pub fn detect_beats(_: &mut dyn ToolCtx, _: &Args) -> Result<Receipt, Fail> {
 }
 
 #[cfg(feature = "media")]
-pub use beats_imp::detect_beats;
+pub use beats_imp::{MediaBeats, detect_beats, media_beats};
 
 #[cfg(feature = "media")]
 mod beats_imp {
@@ -106,6 +106,42 @@ mod beats_imp {
         Receipt::new(v, text)
     }
 
+    /// A media file's beats: from the cache, else from the installed model (and then cached).
+    pub enum MediaBeats {
+        Ready {
+            analysis: BeatAnalysis,
+            cached: bool,
+        },
+        /// The model files are not in `<root>/beat-this-small/`.
+        NotInstalled {
+            root: PathBuf,
+        },
+    }
+
+    /// The beats of media `media` of `doc`. Never downloads.
+    pub fn media_beats(doc: &ove_core::Document, bundle: &Path, media: &str) -> Result<MediaBeats, Fail> {
+        let path = crate::tools::media::media_file(doc, bundle, media)?;
+        let key = crate::tools::transcript::content_id(doc, media).or_else(|| {
+            path.is_file()
+                .then(|| ove_store::media::identity_fields(&path))
+                .and_then(|f| f.get("contentId")?.as_str().map(str::to_string))
+        });
+        if let Some(c) = key.as_deref().and_then(|k| beats::load(bundle, k)) {
+            return Ok(MediaBeats::Ready { analysis: c, cached: true });
+        }
+        let root = ove_models::default_root()
+            .ok_or_else(|| Fail::new("model.store", "could not find the app data folder (set OVE_MODELS_DIR)"))?;
+        let Some(files) = model_files(&root) else { return Ok(MediaBeats::NotInstalled { root }) };
+        if !path.is_file() {
+            return Err(Fail::new("media.offline", format!("{} is offline", path.display())));
+        }
+        let r = infer(&path, &files)?;
+        if let Some(k) = &key {
+            let _ = beats::store(bundle, k, &r);
+        }
+        Ok(MediaBeats::Ready { analysis: r, cached: false })
+    }
+
     /// `detect_beats`: beats, downbeats, bars, meter and tempo of a media file or an item, from the cache or the
     /// local beat model. Never downloads.
     pub fn detect_beats(ctx: &mut dyn ToolCtx, a: &Args) -> Result<Receipt, Fail> {
@@ -122,30 +158,9 @@ mod beats_imp {
                 .ok_or_else(|| Fail::new("item.noSound", format!("item {q} has no sound")))?,
             None => crate::tools::media::find_media(&doc, &bundle, &q)?,
         };
-        let path = crate::tools::media::media_file(&doc, &bundle, &media)?;
-        let key = crate::tools::transcript::content_id(&doc, &media).or_else(|| {
-            path.is_file()
-                .then(|| ove_store::media::identity_fields(&path))
-                .and_then(|f| f.get("contentId")?.as_str().map(str::to_string))
-        });
-        let cached = key.as_deref().and_then(|k| beats::load(&bundle, k));
-        let was_cached = cached.is_some();
-        let analysis = match cached {
-            Some(c) => c,
-            None => {
-                let root = ove_models::default_root().ok_or_else(|| {
-                    Fail::new("model.store", "could not find the app data folder (set OVE_MODELS_DIR)")
-                })?;
-                let Some(files) = model_files(&root) else { return Ok(not_installed(&root)) };
-                if !path.is_file() {
-                    return Err(Fail::new("media.offline", format!("{} is offline", path.display())));
-                }
-                let r = infer(&path, &files)?;
-                if let Some(k) = &key {
-                    let _ = beats::store(&bundle, k, &r);
-                }
-                r
-            }
+        let (analysis, was_cached) = match media_beats(&doc, &bundle, &media)? {
+            MediaBeats::Ready { analysis, cached } => (analysis, cached),
+            MediaBeats::NotInstalled { root } => return Ok(not_installed(&root)),
         };
         let (sf, st) = if item.is_some() { (None, None) } else { (from, to) };
         let mut v = json!({

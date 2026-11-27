@@ -44,6 +44,9 @@ export interface TimelineProps {
   rangeMenu?: (start: number, end: number) => MenuItem[];
 }
 
+/** Beat and downbeat times of one music item, timeline seconds. */
+type BeatTimes = { item: string; beats: number[]; downbeats: number[] };
+
 type Drag =
   | { kind: "move"; id: string; dx: number; dy: number; ids: string[] }
   | { kind: "trim"; id: string; edge: "start" | "end"; dt: number };
@@ -71,6 +74,29 @@ export function Timeline(props: TimelineProps) {
   const previewSeq = useRef(0);
   const [menu, setMenu] = useState<{ at: { x: number; y: number }; items: MenuItem[] } | null>(null);
   const [syncNote, setSyncNote] = useState<string | null>(null);
+  // Snap to beats: beat and downbeat times of the music items, fetched while the option is on.
+  const [snapBeats, setSnapBeats] = useState(false);
+  const [beatData, setBeatData] = useState<{ items: BeatTimes[]; modelMissing: boolean } | null>(null);
+  const beatRev = project?.rev;
+  useEffect(() => {
+    if (!snapBeats) return;
+    let live = true;
+    const nums = (v: (number | null)[]) => v.filter((t): t is number => t !== null);
+    commands
+      .timelineBeats()
+      .then((r) => {
+        if (live && r.status === "ok")
+          setBeatData({
+            modelMissing: r.data.modelMissing,
+            items: r.data.items.map((b) => ({ item: b.item, beats: nums(b.beats), downbeats: nums(b.downbeats) })),
+          });
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [snapBeats, beatRev]);
+  const beatsOf = new Map((snapBeats ? (beatData?.items ?? []) : []).map((b) => [b.item, b]));
   const cutPreview = useCutPreview();
   const items = project?.items ?? [];
   const tracks = project?.tracks ?? [];
@@ -115,15 +141,26 @@ export function Timeline(props: TimelineProps) {
   const snapTime = (t: number, ignore: string[]) => {
     if (!snap) return t;
     const points = [0, playhead, ...items.filter((i) => !ignore.includes(i.id)).flatMap((i) => [i.start ?? 0, i.end ?? 0])];
-    let best = t;
-    let bestD = SNAP_PX / pps;
-    for (const p of points) {
-      const d = Math.abs(p - t);
-      if (d < bestD) {
-        best = p;
-        bestD = d;
+    const reach = SNAP_PX / pps;
+    const nearest = (list: number[]) => {
+      let best: number | null = null;
+      let bestD = reach;
+      for (const p of list) {
+        const d = Math.abs(p - t);
+        if (d < bestD) {
+          best = p;
+          bestD = d;
+        }
       }
-    }
+      return best;
+    };
+    const others = [...beatsOf.values()].filter((b) => !ignore.includes(b.item));
+    const downbeats = others.flatMap((b) => b.downbeats);
+    const beatTimes = others.flatMap((b) => b.beats);
+    const best = nearest([...points, ...beatTimes, ...downbeats]);
+    if (best === null) return t;
+    // A beat in reach gives way to a downbeat in reach (downbeats rank first).
+    if (beatTimes.includes(best) && !points.includes(best) && !downbeats.includes(best)) return nearest(downbeats) ?? best;
     return best;
   };
 
@@ -477,6 +514,17 @@ export function Timeline(props: TimelineProps) {
                           onContextMenu={(e) => clipMenu(e, i)}
                         >
                           {i.audio && i.mediaId && !i.pending && <ClipAudioLayer item={i} width={g.width} height={ROW_H - 8} onEdit={onEdit} />}
+                          {beatsOf.get(i.id)?.beats.map((t) => {
+                            const down = beatsOf.get(i.id)!.downbeats.includes(t);
+                            return (
+                              <span
+                                key={`beat-${t}`}
+                                className={`beat-mark${down ? " downbeat" : ""}`}
+                                data-testid={down ? "downbeat-mark" : "beat-mark"}
+                                style={{ left: x(t - (i.start ?? 0)) }}
+                              />
+                            );
+                          })}
                           {(i.transitionIn ?? 0) > 0 && <span className="fade-in" style={{ width: x(i.transitionIn ?? 0) }} />}
                           {(i.transitionOut ?? 0) > 0 && <span className="fade-out" style={{ width: x(i.transitionOut ?? 0) }} />}
                           <span className="clip-label">
@@ -520,6 +568,21 @@ export function Timeline(props: TimelineProps) {
         </div>
       </div>
       <ContextMenu at={menu?.at ?? null} items={menu?.items ?? []} onClose={() => setMenu(null)} testId="clip-menu" />
+      <button
+        className={`beats-toggle icon-btn${snapBeats ? " on" : ""}`}
+        aria-pressed={snapBeats}
+        data-testid="snap-beats"
+        title={
+          beatData?.modelMissing
+            ? "Snap to beats: the beat model is not installed, so only music with detected beats snaps"
+            : snapBeats
+              ? "Snap to beats on: edges snap to beats, downbeats first"
+              : "Snap to beats"
+        }
+        onClick={() => setSnapBeats(!snapBeats)}
+      >
+        ♩
+      </button>
       {syncNote && (
         <div className="sync-summary" role="status" data-testid="sync-summary">
           <span>{syncNote}</span>

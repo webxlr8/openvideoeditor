@@ -211,6 +211,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             ducking::duck_preview,
             ducking::duck_audio,
             audio_intel::sync_items,
+            audio_intel::timeline_beats,
             exporting::choose_export_path,
             exporting::reveal_path,
             edits::item_detail,

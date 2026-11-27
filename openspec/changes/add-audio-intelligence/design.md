@@ -222,3 +222,9 @@ Detection (task 3.2) through ove-models ONNX Runtime 1.32 (`crates/ove-cli/tests
 A click track whose three beats sound alike is read as one downbeat per beat by the model; the 3/4 fixture is a
 waltz with harmony, as music has it. Timeline mapping (task 3.3) is checked by a property test against the
 renderer's own source-time mapping under trim, speed (0.25–4×) and reverse.
+
+Snap to beats (task 3.4): the `ove-edit` snap engine takes downbeat targets, and a beat in reach gives way to a
+downbeat in reach (unit test). The timeline's "Snap to beats" toggle fetches the music items' beats in timeline
+seconds (`timeline_beats`: cached, else the local model, never a download), draws beat and downbeat marks and snaps
+moves and trims with the same rule. UI tests: an edge dragged to 56.35 s lands on the downbeat at 56 s although the
+beat at 56.5 s is closer; with the option off there are no marks and the edge does not land on either.
