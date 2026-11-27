@@ -7,7 +7,9 @@ import type { Ghost, ItemView_Serialize, ProjectView_Serialize } from "./binding
 import { commands } from "./bridge";
 import { type EditResult, TIMELINE_FPS, addItems, firstTrack, linkDrift, trackAccepts, updateItem, updateItems, snapToFrame } from "./edit";
 import { Icon, type IconName } from "./icons";
+import { ClipAudioLayer } from "./ClipAudioLayer";
 import { ContextMenu, type MenuItem } from "./Menu";
+import { resetScrub, scrubAudio } from "./scrubAudio";
 import { MOD, type Tool } from "./keys";
 
 export const HEADER_W = 188;
@@ -129,6 +131,24 @@ export function Timeline(props: TimelineProps) {
       .sort((a, b) => (order.get(a.trackId) ?? 0) - (order.get(b.trackId) ?? 0))[0];
     if (hit) onSelect(hit, t - (hit.start ?? 0));
     else onScrub(t);
+  };
+
+  /** Clicking the ruler seeks; dragging along it scrubs, with a grain of the mix at each new time. */
+  const startRulerScrub = (e: React.PointerEvent) => {
+    resetScrub();
+    seekAt(e.clientX);
+    scrubAudio(timeAt(e.clientX));
+    const move = (ev: PointerEvent) => {
+      const t = timeAt(ev.clientX);
+      onScrub(t);
+      scrubAudio(t);
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
   };
 
   const trackAtY = (clientY: number) => {
@@ -338,7 +358,7 @@ export function Timeline(props: TimelineProps) {
     <div className={`timeline tool-${tool}`} data-testid="timeline" data-tool={tool}>
       <div className="tl-scroll" ref={scroller}>
         <div className="tl-content" style={{ width: contentW }}>
-          <div className="ruler" onPointerDown={(e) => seekAt(e.clientX)} data-testid="ruler">
+          <div className="ruler" onPointerDown={startRulerScrub} data-testid="ruler">
             {range.in !== null && <span className="range-in" data-testid="range-in" style={{ left: HEADER_W + x(range.in) }} />}
             {range.out !== null && <span className="range-out" data-testid="range-out" style={{ left: HEADER_W + x(range.out) }} />}
             {range.in !== null && range.out !== null && range.out > range.in && (
@@ -421,6 +441,7 @@ export function Timeline(props: TimelineProps) {
                           onPointerDown={(e) => startMove(e, i)}
                           onContextMenu={(e) => clipMenu(e, i)}
                         >
+                          {i.audio && i.mediaId && !i.pending && <ClipAudioLayer item={i} width={g.width} height={ROW_H - 8} onEdit={onEdit} />}
                           {(i.transitionIn ?? 0) > 0 && <span className="fade-in" style={{ width: x(i.transitionIn ?? 0) }} />}
                           {(i.transitionOut ?? 0) > 0 && <span className="fade-out" style={{ width: x(i.transitionOut ?? 0) }} />}
                           <span className="clip-label">

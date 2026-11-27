@@ -48,6 +48,11 @@ pub const TOPICS: &[(&str, &str, &str)] = &[
         "models list / install / remove: local models and the model store",
         include_str!("../../../../docs/cli/models.md"),
     ),
+    (
+        "transcript",
+        "transcript: the words on the timeline with stable word ids",
+        include_str!("../../../../docs/cli/transcript.md"),
+    ),
 ];
 
 /// The topic list, or one page.

@@ -51,6 +51,50 @@ describe("settings: storage models", () => {
     ).toBe(false);
   });
 
+  it("names the host before installing the runtime, shows progress, and can cancel", async () => {
+    window.__oveMock!.runtime = { installed: false, stepMs: 40 };
+    await openStorage();
+    const source = await screen.findByTestId("model-source-onnxruntime");
+    expect(source.textContent).toBe(
+      "Downloads 16.7 MB from files.pythonhosted.org",
+    );
+    expect(window.__oveMock!.calls).not.toContain(
+      "installLocalModel:onnxruntime",
+    );
+
+    // Cancel stops it; nothing is installed.
+    fireEvent.click(screen.getByTestId("model-install-onnxruntime"));
+    const progress = await screen.findByTestId("model-progress-onnxruntime");
+    expect(progress.textContent).toContain(
+      "Downloading from files.pythonhosted.org",
+    );
+    fireEvent.click(screen.getByTestId("model-cancel-onnxruntime"));
+    await waitFor(() =>
+      expect(screen.getByTestId("models-message").textContent).toBe(
+        "The download of onnxruntime was cancelled.",
+      ),
+    );
+    expect(window.__oveMock!.runtime.installed).toBe(false);
+
+    // Install runs to the end with progress, then the list shows it installed.
+    fireEvent.click(screen.getByTestId("model-install-onnxruntime"));
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("model-progress-onnxruntime").textContent,
+      ).toMatch(/\d+% \(.* of 16\.7 MB\)/),
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("model-state-onnxruntime").textContent).toBe(
+        "installed",
+      ),
+    );
+    expect(screen.getByTestId("models-message").textContent).toBe(
+      "Installed onnxruntime.",
+    );
+    expect(screen.queryByTestId("model-install-onnxruntime")).toBeNull();
+    expect(screen.getByTestId("model-remove-onnxruntime")).toBeTruthy();
+  });
+
   it("waits for the running captions job before removing the model it uses", async () => {
     window.__oveMock!.captions = { installed: ["tiny"], stepMs: 150 };
     // A captions job with the tiny model is running (four transcription steps).

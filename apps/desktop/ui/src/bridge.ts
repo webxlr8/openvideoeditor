@@ -20,6 +20,8 @@ import type {
   ChatItem_Serialize,
   FeedbackDraft_Serialize,
   AppInfo_Serialize,
+  AudioMeter,
+  DuckRequest,
   Diagnostics_Serialize,
   MediaInfo_Serialize,
   PlaybackState,
@@ -83,6 +85,8 @@ export interface MockControl {
   calls: string[];
   /** Simulates the native side routing paths to the window. */
   routePaths(paths: string[]): void;
+  /** Simulates the engine sending a batch of level-meter readings. */
+  meter(batch: AudioMeter): void;
   /** A project opened from outside the window (an agent or the command line, through the control link). */
   remoteOpen(name: string): void;
   /** The simulated assistant: whether a key is stored, how long each streamed step takes, whether the key check
@@ -96,6 +100,8 @@ export interface MockControl {
   };
   /** Simulated speech models: which are on disk, and how long each progress step takes. */
   captions: { installed: string[]; stepMs: number };
+  /** The simulated inference runtime (Settings → Storage): installed or not, and the time per download step. */
+  runtime: { installed: boolean; stepMs: number };
   /** Ids of the supported agents that are "installed on this computer" (none unless a test says so). */
   localAgents: string[];
   /** Reports agents drafted (Help → Feedback), newest first. */
@@ -701,6 +707,9 @@ function createMock(): {
     },
     lastRect: null,
     calls: [],
+    meter(batch) {
+      emit("audio-meter", batch);
+    },
     routePaths(paths) {
       emit("open-paths-requested", { paths });
     },
@@ -711,6 +720,7 @@ function createMock(): {
     },
     agent: { hasKey: true, stepMs: 120, ask: false },
     captions: { installed: [], stepMs: 60 },
+    runtime: { installed: false, stepMs: 20 },
     localAgents: [],
     onboarding: { ...SETTLED },
   };
@@ -920,6 +930,22 @@ function createMock(): {
     "pending",
   ];
   const n = (v: unknown, d = 0) => (typeof v === "number" ? v : d);
+  /** The audio view of a video or audio item, from its document fields (as the core builds it). */
+  const mockAudio = (kind: string, f: Fields): ItemView_Serialize["audio"] => {
+    if (kind !== "video" && kind !== "audio") return undefined;
+    const track = ((f.keyframeTracks as Fields[] | undefined) ?? []).find((t) => t.property === "volume");
+    const keys = ((track?.keyframes as Fields[] | undefined) ?? [])
+      .map((k) => ({ time: n(k.time), value: n(k.value) }))
+      .sort((a, b) => a.time - b.time);
+    return {
+      volume: n(f.volume, 100),
+      reverse: f.playbackDirection === "reverse",
+      fadeIn: n((f.audioFadeIn as Fields | undefined)?.duration),
+      fadeOut: n((f.audioFadeOut as Fields | undefined)?.duration),
+      volumeKeys: keys,
+      volumeEasing: typeof track?.easing === "string" ? track.easing : "linear",
+    };
+  };
   const refresh = (i: MockItem) => {
     const f = i.fields;
     const tr = (k: string) => n((f[k] as Fields | undefined)?.duration);
@@ -934,6 +960,7 @@ function createMock(): {
     i.transitionIn = tr("transitionIn");
     i.transitionOut = tr("transitionOut");
     i.speed = n(f.playbackSpeed, 1);
+    i.audio = mockAudio(i.kind, f);
     return i;
   };
   function fromDetail(d: Fields): MockItem {
@@ -972,6 +999,31 @@ function createMock(): {
     ...i.fields,
   });
   const mock = (id: string) => findItem(id) as MockItem | undefined;
+  /** A stand-in for the duck planner: speech is the middle third of each dialogue clip. */
+  const mockDuck = (r: DuckRequest): { items: string[]; speech: number[][] } | string => {
+    const resolve = (names: string[]) => {
+      const out: ItemView_Serialize[] = [];
+      for (const n of names) {
+        const item = project?.items.find((i) => i.id === n);
+        const track = project?.tracks.find((t) => t.id === n || t.name.toLowerCase() === n.toLowerCase());
+        if (item) out.push(item);
+        else if (track) out.push(...(project?.items.filter((i) => i.trackId === track.id) ?? []));
+        else return `Cannot duck: no item or track "${n}" in this project.`;
+      }
+      return out.filter((i) => i.kind === "audio" || i.kind === "video");
+    };
+    const music = resolve(r.music);
+    const under = resolve(r.under);
+    if (typeof music === "string") return music;
+    if (typeof under === "string") return under;
+    const speech = under.filter((i) => !i.muted).map((i) => {
+      const s = i.start ?? 0;
+      const len = (i.end ?? 0) - s;
+      return [s + len / 3, s + (2 * len) / 3];
+    });
+    if (!speech.length || !music.length) return "No speech was found in the dialogue, so nothing was changed.";
+    return { items: music.map((i) => i.id), speech };
+  };
   const applyEdit = (id: string, set: Fields, unset: string[]) => {
     const i = mock(id);
     if (!i) return;
@@ -994,6 +1046,17 @@ function createMock(): {
   let captionJobModel: string | null = null;
   let freeBytes = 120e9;
   const removeWhenFree: string[] = [];
+  // The inference runtime as the store lists it (Windows numbers), and a running simulated download.
+  const RUNTIME = {
+    id: "onnxruntime",
+    purpose:
+      "Inference runtime for voice activity and other local models (ONNX Runtime)",
+    licence: "MIT",
+    bytes: 23_010_854,
+    downloadBytes: 16_698_767,
+    host: "files.pythonhosted.org",
+  };
+  let runtimeDownload: ReturnType<typeof setInterval> | null = null;
   const removeSpeechModel = (id: string): number => {
     const short = id.replace(/^whisper-/, "");
     const i = control.captions.installed.indexOf(short);
@@ -1682,6 +1745,55 @@ function createMock(): {
       }, 30);
       return ok(null);
     },
+    peakRange: async (mediaId: string, start: number | null, end: number | null, bins: number) => {
+      track("peakRange");
+      // A deterministic stand-in for analysed audio: a tone whose level rises and falls with source time.
+      const a = start ?? 0;
+      const b = end ?? a;
+      const n = Math.max(1, Math.min(16384, Math.floor(bins)));
+      const data: number[] = [];
+      for (let i = 0; i < n; i++) {
+        const t = a + ((i + 0.5) * (b - a)) / n;
+        const level = 0.15 + 0.6 * Math.abs(Math.sin(t * 1.3)) * (0.6 + 0.4 * Math.sin(t * 7.1));
+        for (let c = 0; c < 2; c++) {
+          const v = Math.round(Math.min(1, level * (c === 0 ? 1 : 0.8)) * 127);
+          data.push(-v, v);
+        }
+      }
+      return ok({ status: "ready", message: null, contentId: `mock-${mediaId}`, channels: 2, bins: n, level: 0, data });
+    },
+    scrubAudio: async (t: number | null) => {
+      track(`scrubAudio:${t}`);
+      return ok(null);
+    },
+    duckPreview: async (request: DuckRequest) => {
+      track("duckPreview");
+      const plan = mockDuck(request);
+      if (typeof plan === "string") return fail("invalid_argument", plan);
+      return ok({ source: "level", lines: plan.speech.length, speech: plan.speech, musicItems: plan.items.length, keyframes: plan.items.length * plan.speech.length * 4 });
+    },
+    duckAudio: (request: DuckRequest) => {
+      track("duckAudio");
+      const plan = mockDuck(request);
+      if (typeof plan === "string") return fail("invalid_argument", plan);
+      return editProject(`duck music ${request.depth} dB under dialogue`, () => {
+        const ducked = Math.round(100 * Math.pow(10, (request.depth ?? -12) / 20) * 100) / 100;
+        for (const id of plan.items) {
+          const i = mock(id);
+          if (!i) continue;
+          const s0 = i.start ?? 0;
+          const keyframes = plan.speech.flatMap(([a, b]) => [
+            { time: a - (request.attack ?? 0) - s0, value: 100 },
+            { time: a - s0, value: ducked },
+            { time: b - s0, value: ducked },
+            { time: b + (request.release ?? 0) - s0, value: 100 },
+          ]);
+          const others = ((i.fields.keyframeTracks as Fields[] | undefined) ?? []).filter((t) => t.property !== "volume");
+          i.fields.keyframeTracks = [...others, { property: "volume", keyframes }];
+          refresh(i);
+        }
+      });
+    },
     requestSkim: async (_mediaId: string) => {
       track("requestSkim");
       return ok(null);
@@ -2247,11 +2359,73 @@ function createMock(): {
               : null,
             inUse:
               installed && captionJob !== null && captionJobModel === short,
+            host: "huggingface.co",
+            downloadBytes: MODEL_BYTES[short],
           };
-        }),
+        }).concat([
+          {
+            ...RUNTIME,
+            installed: control.runtime.installed,
+            location: control.runtime.installed
+              ? "C:/Users/you/AppData/Roaming/dev.openvideoeditor.app/models/onnxruntime/1.32.0"
+              : null,
+            inUse: false,
+          },
+        ]),
       }),
+    installLocalModel: (id: string) => {
+      track(`installLocalModel:${id}`);
+      if (id !== RUNTIME.id)
+        return fail("invalid_argument", `unknown model "${id}"`);
+      if (runtimeDownload)
+        return fail("invalid_argument", `${id} is already downloading`);
+      const total = RUNTIME.downloadBytes;
+      const progress = (done: number, finished: boolean, error: string | null) =>
+        emit("local-model-install-progress", {
+          id,
+          host: RUNTIME.host,
+          doneBytes: done,
+          totalBytes: total,
+          finished,
+          error,
+        });
+      progress(0, false, null);
+      let step = 0;
+      runtimeDownload = setInterval(() => {
+        step += 1;
+        if (step < 4) return progress((total * step) / 4, false, null);
+        if (runtimeDownload) clearInterval(runtimeDownload);
+        runtimeDownload = null;
+        control.runtime.installed = true;
+        freeBytes -= RUNTIME.bytes;
+        progress(total, true, null);
+      }, control.runtime.stepMs);
+      return ok(null);
+    },
+    cancelLocalModelInstall: (id: string) => {
+      track(`cancelLocalModelInstall:${id}`);
+      if (!runtimeDownload || id !== RUNTIME.id) return ok(false);
+      clearInterval(runtimeDownload);
+      runtimeDownload = null;
+      emit("local-model-install-progress", {
+        id,
+        host: RUNTIME.host,
+        doneBytes: 0,
+        totalBytes: RUNTIME.downloadBytes,
+        finished: true,
+        error: "cancelled",
+      });
+      return ok(true);
+    },
     removeLocalModel: (id: string) => {
       track(`removeLocalModel:${id}`);
+      if (id === RUNTIME.id) {
+        if (!control.runtime.installed)
+          return ok({ id, status: "notInstalled" as const, freedBytes: 0, freeBytes });
+        control.runtime.installed = false;
+        freeBytes += RUNTIME.bytes;
+        return ok({ id, status: "removed" as const, freedBytes: RUNTIME.bytes, freeBytes });
+      }
       const short = id.replace(/^whisper-/, "");
       if (!CAPTION_MODELS.some(([m]) => m === short))
         return fail("invalid_argument", `unknown model "${id}"`);
@@ -2500,8 +2674,11 @@ function createMock(): {
   const events = {
     agentUiEvent: makeEvent("agent-ui-event"),
     appErrorRaised: makeEvent("app-error-raised"),
+    audioAnalysisChanged: makeEvent("audio-analysis-changed"),
+    audioMeter: makeEvent("audio-meter"),
     captionJobProgress: makeEvent("caption-job-progress"),
     localModelsChanged: makeEvent("local-models-changed"),
+    localModelInstallProgress: makeEvent("local-model-install-progress"),
     exportProgress: makeEvent("export-progress"),
     openPathsRequested: makeEvent("open-paths-requested"),
     playbackChanged: makeEvent("playback-changed"),

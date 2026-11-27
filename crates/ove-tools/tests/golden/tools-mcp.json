@@ -1084,6 +1084,125 @@
       }
     },
     {
+      "name": "get_transcript",
+      "description": "The words said on the timeline, in timeline order: id (`<mediaId>@<sourceMs>`, stable across edits), text, timeline start and end in seconds, clip id, source times and a filler flag, with the project `rev` they were read at. Pages at 10,000 words (`offset`, `limit`). `segments: true` gives sentences instead. Media without a transcript are listed in `untranscribed`.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "clips": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "description": "Only these clip ids (default: every clip with sound)"
+          },
+          "segments": {
+            "type": "boolean",
+            "description": "Sentences instead of words"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "First word of the page (default 0)"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Words per page (default and most 10000)"
+          },
+          "model": {
+            "type": "string",
+            "description": "Only transcripts made with this speech model (tiny, base, small)"
+          },
+          "language": {
+            "type": "string",
+            "description": "Only transcripts in this language (ISO 639-1), with `model`"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "duck_audio",
+      "description": "Lower music under dialogue as one revision: writes volume keyframes on the music items (ramp down `attack` before each line of speech, `depth` dB during it, back up over `release`; lines closer than `hold` merge). Speech comes from the dialogue's cached transcript, else from its level. `mode` replace (default) rewrites volume keyframes only in the affected range, so running again replaces an earlier duck; merge multiplies with existing ones. `dryRun` returns the planned keyframes per music item without changing anything.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "music": {
+            "type": [
+              "array",
+              "string"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Music item ids or track ids/names (list, or comma-separated)"
+          },
+          "under": {
+            "type": [
+              "array",
+              "string"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Dialogue item ids or track ids/names (list, or comma-separated)"
+          },
+          "depth": {
+            "type": "number",
+            "description": "dB during speech, -60 to 0 (default -12)"
+          },
+          "attack": {
+            "type": "number",
+            "description": "Seconds of ramp down before speech (default 0.2)"
+          },
+          "release": {
+            "type": "number",
+            "description": "Seconds of ramp up after speech (default 0.4)"
+          },
+          "hold": {
+            "type": "number",
+            "description": "Lines closer than this many seconds merge (default 0.5)"
+          },
+          "source": {
+            "type": "string",
+            "description": "transcript, level or auto (default: transcript when cached, else level)"
+          },
+          "mode": {
+            "type": "string",
+            "description": "replace (default) or merge"
+          },
+          "dryRun": {
+            "type": "boolean",
+            "description": "Return the plan without applying it"
+          }
+        },
+        "required": [
+          "music",
+          "under"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
       "name": "list_models",
       "description": "List the AI generation models (id, kind, provider, durations, aspect ratios, list price, whether the person has added the provider's key), with this session's confirmed spend and its cap. Prices are estimates; the provider bills the person.",
       "inputSchema": {

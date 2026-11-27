@@ -227,9 +227,26 @@ mod imp {
         Ok(Receipt::new(json!({"ranges": r, "totalSeconds": total, "thresholdDb": threshold, "minSeconds": min}), text))
     }
 
+    /// The loudness of project media from the import analysis cache (`cache/waveforms/<contentId>.json`), analysing
+    /// it once when the cache has none; `None` for a plain file path or media without a content id.
+    fn cached_loudness(ctx: &mut dyn ToolCtx, a: &Args, file: &Path) -> Option<ove_analyze::Loudness> {
+        let q = a.req_str("media").ok()?.to_string();
+        let bundle = ctx.bundle(a.project()).ok()?;
+        let (b, cid) = crate::ctx::read(ctx, &bundle, |p| {
+            let id = crate::tools::media::find_media(p.doc(), p.bundle(), &q)?;
+            let cid = p.doc().registry.get(&id).and_then(|e| e.fields.get("contentId")?.as_str().map(str::to_string));
+            Ok((p.bundle().to_path_buf(), cid))
+        })
+        .ok()?;
+        ove_analyze::analysis::ensure(&b, &cid?, file).ok().map(|s| s.loudness)
+    }
+
     pub fn measure_loudness(ctx: &mut dyn ToolCtx, a: &Args) -> Result<Receipt, Fail> {
         let file = media_or_file(ctx, a)?;
-        let l = ove_analyze::loudness(&file).map_err(fail)?;
+        let l = match cached_loudness(ctx, a, &file) {
+            Some(l) => l,
+            None => ove_analyze::loudness(&file).map_err(fail)?,
+        };
         let text = format!(
             "integrated {} LUFS · range {:.1} LU · sample peak {:.1} dBFS · true peak {:.1} dBTP",
             fmt_db(l.integrated_lufs),

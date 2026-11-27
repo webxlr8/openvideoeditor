@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::recognize::Word;
+use crate::transcript::Word;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

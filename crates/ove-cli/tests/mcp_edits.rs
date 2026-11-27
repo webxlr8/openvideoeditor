@@ -51,7 +51,15 @@ struct Mcp {
 
 impl Mcp {
     fn start(lib: &Path) -> Mcp {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_ove"))
+        Mcp::start_with(lib, &[])
+    }
+
+    fn start_with(lib: &Path, env: &[(&str, &str)]) -> Mcp {
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_ove"));
+        for (k, v) in env {
+            cmd.env(k, v);
+        }
+        let mut child = cmd
             .arg("--library")
             .arg(lib)
             .arg("mcp")
@@ -234,4 +242,62 @@ fn two_sessions_are_told_apart_and_each_undoes_only_its_own_change() {
         .to_string();
     assert!(element(&text, "i0").contains("name=\"Item 0\""), "{text}");
     assert!(element(&text, "i1").contains("name=\"Two 1\""), "{text}");
+}
+
+fn rename(m: &mut Mcp, id: &str, to: &str) -> Value {
+    let printed = m.call("print_timeline", json!({"project": "Demo"}));
+    let text = printed["structuredContent"]["text"].as_str().unwrap().to_string();
+    let rev = printed["structuredContent"]["rev"].as_i64().unwrap();
+    let line = element(&text, id);
+    let new = line.replacen(&format!("Title {}", &id[1..]), to, 1);
+    m.call("apply_timeline", json!({"project": "Demo", "rev": rev, "edits": [{"oldText": line, "newText": new}]}))
+}
+
+/// unify-agent-tool-layer task 4.3: the session keeps the project open between calls and keeps its lock; it lets go
+/// once idle, so the app (here: this test opening the project for writing, as the app does) can open it. While the
+/// app holds it, the session's edit is refused with `project.locked` (no app link here) and the session carries on.
+#[test]
+fn the_session_holds_the_project_between_calls_and_lets_the_app_open_it_when_idle() {
+    let (_d, lib) = setup(3);
+    let bundle = ove_store::Library::open(&lib, Arc::new(ove_core::SystemClock)).unwrap().find("Demo").unwrap();
+    let mut m = Mcp::start_with(&lib, &[("OVE_MCP_HOLD_MS", "400")]);
+    let r = rename(&mut m, "i0", "First");
+    assert_eq!(r["isError"], false, "{r}");
+
+    // Right after the call the session still holds the project, with the existing lock.
+    let open =
+        || ove_store::project::Project::open(&bundle, ove_store::project::Mode::Write, Arc::new(ove_core::SystemClock));
+    let e = open().expect_err("the session holds the project");
+    assert_eq!(e.code(), "project.locked");
+    assert!(e.to_string().contains("ove"), "the holder is named: {e}");
+
+    // Once the session is idle, the app opens it.
+    let t0 = std::time::Instant::now();
+    let app = loop {
+        match open() {
+            Ok(p) => break p,
+            Err(e) if e.code() == "project.locked" && t0.elapsed() < std::time::Duration::from_secs(10) => {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            Err(e) => panic!("the app could not open the project: {e}"),
+        }
+    };
+    assert!(t0.elapsed() < std::time::Duration::from_secs(3), "released after {:?}", t0.elapsed());
+    assert!(app.doc().to_string_pretty().contains("First"), "the session's edit is saved");
+
+    // While the app holds it, the session's edit is refused and nothing is lost; the session goes on.
+    let r = rename(&mut m, "i1", "Second");
+    assert_eq!(r["isError"], true, "{r}");
+    assert_eq!(r["structuredContent"]["error"]["code"], "project.locked");
+    drop(app);
+    let r = rename(&mut m, "i1", "Second");
+    assert_eq!(r["isError"], false, "{r}");
+    let history = m.call("timeline_history", json!({"project": "Demo"}));
+    let summaries: Vec<String> = history["structuredContent"]["revisions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["summary"].as_str().unwrap_or_default().to_string())
+        .collect();
+    assert_eq!(summaries.iter().filter(|s| s.starts_with("source apply")).count(), 2, "{summaries:?}");
 }

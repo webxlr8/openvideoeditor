@@ -14,6 +14,7 @@ mod media;
 #[cfg(feature = "audio-output")]
 mod output;
 mod player;
+pub mod scrub;
 mod transport;
 
 pub use audio::AudioRing;

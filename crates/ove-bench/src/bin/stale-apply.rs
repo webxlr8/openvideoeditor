@@ -3,6 +3,10 @@
 //! with the printed revision cached (the usual case: the agent printed it in this session) and without (a new
 //! session that kept the old rev).
 //!
+//! With `OVE_BENCH_SESSION=1` the headless context keeps the bundle open between calls, as `ove mcp` does
+//! (unify-agent-tool-layer task 4.3): the edits in between are made in the same session while it holds the bundle,
+//! so the timed apply opens nothing and writes no snapshot. `OVE_BENCH_HELD=1` measures the app's context instead.
+//!
 //! ```text
 //! cargo run -p ove-bench --release --bin stale-apply [-- --items N --behind K --runs N]
 //! ```
@@ -49,19 +53,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let bundle = p.bundle().to_path_buf();
         p.close()?;
 
+        let session = std::env::var_os("OVE_BENCH_SESSION").is_some();
         let mut ctx = BundleCtx::open(Some(&lib), Surface::Mcp, Source::Mcp)?;
+        if session {
+            ctx.hold = Some(std::time::Duration::from_secs(600));
+        }
         let printed = ove_tools::call(&mut ctx, "print_timeline", &obj(json!({"project": "Bench"})))?;
         let text = printed.json["text"].as_str().unwrap_or_default().to_string();
         let rev = printed.json["rev"].as_i64().unwrap_or_default();
-        // The person's edits in between, each its own revision.
-        let mut p = Project::open(&bundle, Mode::Write, clock.clone())?;
-        for k in 0..behind {
-            let set = obj(json!({"name": format!("Person {k}")}));
-            p.apply(vec![Op::UpdateItem { id: format!("i{}", items - 1 - k), set }], Source::Gui, None)?;
+        // The edits in between, each its own revision: the person's, or (session mode) made while the session
+        // holds the bundle.
+        if session {
+            for k in 0..behind {
+                let set = obj(json!({"name": format!("Person {k}")}));
+                let op = Op::UpdateItem { id: format!("i{}", items - 1 - k), set };
+                ove_tools::ToolCtx::edit(&mut ctx, &bundle, &mut |e| {
+                    e.apply(vec![op.clone()], "rename".into()).map(|_| ())
+                })?;
+            }
+        } else {
+            let mut p = Project::open(&bundle, Mode::Write, clock.clone())?;
+            for k in 0..behind {
+                let set = obj(json!({"name": format!("Person {k}")}));
+                p.apply(vec![Op::UpdateItem { id: format!("i{}", items - 1 - k), set }], Source::Gui, None)?;
+            }
+            p.close()?;
         }
-        p.close()?;
         let cached = run % 2 == 0;
-        if !cached {
+        if !cached && !session {
             // A new session: nothing printed in this process yet.
             ctx = BundleCtx::open(Some(&lib), Surface::Mcp, Source::Mcp)?;
             forget(&bundle, rev);

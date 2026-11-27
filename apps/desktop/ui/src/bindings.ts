@@ -139,6 +139,20 @@ export const commands = {
 	 *  Sent once per hover, never per pointer move.
 	 */
 	requestSkim: (mediaId: string) => typedError<null, AppError>(__TAURI_INVOKE("request_skim", { mediaId })),
+	/**
+	 *  Peaks of a media file's source range (seconds) in `bins` columns, from the analysis cache. Never decodes: while
+	 *  the analysis is not ready the status is `pending`, and its task is moved to interactive priority.
+	 */
+	peakRange: (mediaId: string, start: number | null, end: number | null, bins: number) => typedError<PeakRangeView_Serialize, AppError>(__TAURI_INVOKE("peak_range", { mediaId, start, end, bins })),
+	/**
+	 *  Plays the grain of the open project's timeline mix at `t` seconds. Called up to 60 times a second while the play
+	 *  head is dragged; it returns at once (the worker plays only the latest).
+	 */
+	scrubAudio: (t: number | null) => typedError<null, AppError>(__TAURI_INVOKE("scrub_audio", { t })),
+	/**  What a duck would change, without changing anything. */
+	duckPreview: (request: DuckRequest) => typedError<DuckPreview, AppError>(__TAURI_INVOKE("duck_preview", { request })),
+	/**  Ducks the music under the dialogue as one revision. */
+	duckAudio: (request: DuckRequest) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("duck_audio", { request })),
 	/**  Save dialog for the export destination. `None` when cancelled. */
 	chooseExportPath: (defaultName: string) => typedError<string | null, AppError>(__TAURI_INVOKE("choose_export_path", { defaultName })),
 	/**  Shows a file in the system file manager. */
@@ -266,15 +280,25 @@ export const commands = {
 	 *  ends, then sends `localModelsChanged`.
 	 */
 	removeLocalModel: (id: string) => typedError<LocalModelsChanged_Serialize, AppError>(__TAURI_INVOKE("remove_local_model", { id })),
+	/**
+	 *  Downloads a model or the inference runtime after the person asked for it in Settings → Storage (this is their
+	 *  consent). Returns at once; `localModelInstallProgress` reports the host and progress, and the end.
+	 */
+	installLocalModel: (id: string) => typedError<null, AppError>(__TAURI_INVOKE("install_local_model", { id })),
+	/**  Cancels a download started with `install_local_model`. Returns false when none was running. */
+	cancelLocalModelInstall: (id: string) => typedError<boolean, AppError>(__TAURI_INVOKE("cancel_local_model_install", { id })),
 };
 
 /** Events */
 export const events = {
 	agentUiEvent: makeEvent<AgentUiEvent_Serialize, AgentUiEvent_Deserialize>("agent-ui-event"),
 	appErrorRaised: makeEvent<AppErrorRaised, AppErrorRaised>("app-error-raised"),
+	audioAnalysisChanged: makeEvent<AudioAnalysisChanged, AudioAnalysisChanged>("audio-analysis-changed"),
+	audioMeter: makeEvent<AudioMeter_Serialize, AudioMeter_Deserialize>("audio-meter"),
 	captionJobProgress: makeEvent<CaptionJobProgress_Serialize, CaptionJobProgress_Deserialize>("caption-job-progress"),
 	exportProgress: makeEvent<ExportProgress_Serialize, ExportProgress_Deserialize>("export-progress"),
 	generationUpdated: makeEvent<GenerationUpdated, GenerationUpdated>("generation-updated"),
+	localModelInstallProgress: makeEvent<LocalModelInstallProgress_Serialize, LocalModelInstallProgress_Deserialize>("local-model-install-progress"),
 	localModelsChanged: makeEvent<LocalModelsChanged_Serialize, LocalModelsChanged_Deserialize>("local-models-changed"),
 	openPathsRequested: makeEvent<OpenPathsRequested, OpenPathsRequested>("open-paths-requested"),
 	playbackChanged: makeEvent<PlaybackChanged, PlaybackChanged>("playback-changed"),
@@ -441,6 +465,34 @@ export type AppInfo_Serialize = {
 	libraryDir: string | null,
 };
 
+/**  A media file's analysis finished (or failed): the UI asks for its peaks again. */
+export type AudioAnalysisChanged = {
+	contentId: string,
+	/**  ready | error */
+	status: string,
+};
+
+/**  A batch of meter readings. */
+export type AudioMeter = AudioMeter_Serialize | AudioMeter_Deserialize;
+
+/**  A batch of meter readings. */
+export type AudioMeter_Deserialize = {
+	/**  Media seconds being heard when the batch was sent. */
+	heard: number | null,
+	/**  Whether the mix is playing; when false the meters fall back. */
+	playing: boolean,
+	readings: MeterReadingView_Deserialize[],
+};
+
+/**  A batch of meter readings. */
+export type AudioMeter_Serialize = {
+	/**  Media seconds being heard when the batch was sent. */
+	heard: number | null,
+	/**  Whether the mix is playing; when false the meters fall back. */
+	playing: boolean,
+	readings: MeterReadingView_Serialize[],
+};
+
 /**  What to caption. */
 export type AutoCaptionRequest = AutoCaptionRequest_Serialize | AutoCaptionRequest_Deserialize;
 
@@ -588,6 +640,36 @@ export type Diagnostics_Serialize = {
 	avOffsetMs: number | null,
 	processMemoryBytes: number | null,
 	audioAvailable: boolean,
+};
+
+/**  What a duck would change. */
+export type DuckPreview = {
+	/**  transcript | level */
+	source: string,
+	/**  Lines of speech found. */
+	lines: number,
+	/**  Speech, seconds, as [start, end] pairs. */
+	speech: ((number | null)[])[],
+	musicItems: number,
+	keyframes: number,
+};
+
+/**  What to duck, under what, and how. */
+export type DuckRequest = {
+	/**  Music item ids or track ids/names. */
+	music: string[],
+	/**  Dialogue item ids or track ids/names. */
+	under: string[],
+	/**  dB during speech (-60 to 0). */
+	depth: number | null,
+	/**  Seconds. */
+	attack: number | null,
+	release: number | null,
+	hold: number | null,
+	/**  transcript | level | auto */
+	source: string,
+	/**  replace | merge */
+	mode: string,
 };
 
 /**
@@ -786,6 +868,19 @@ export type HistoryRow_Serialize = {
 	client: string | null,
 };
 
+/**  What the timeline needs to draw a clip's waveform and gain line. */
+export type ItemAudio = {
+	/**  Static volume, percent (0–200). */
+	volume: number | null,
+	reverse: boolean,
+	/**  Audio fade durations, seconds (0 when none). */
+	fadeIn: number | null,
+	fadeOut: number | null,
+	/**  Volume keyframes in time order (empty when none). */
+	volumeKeys: VolumeKey[],
+	volumeEasing: string,
+};
+
 export type ItemView = ItemView_Serialize | ItemView_Deserialize;
 
 export type ItemView_Deserialize = {
@@ -808,6 +903,8 @@ export type ItemView_Deserialize = {
 	speed: number | null,
 	/**  Link group value, when the item is linked. */
 	link?: string | null,
+	/**  Volume, fades and volume keyframes of video and audio items, for the waveform and gain line. */
+	audio?: ItemAudio | null,
 };
 
 export type ItemView_Serialize = {
@@ -830,6 +927,8 @@ export type ItemView_Serialize = {
 	speed: number | null,
 	/**  Link group value, when the item is linked. */
 	link: string | null,
+	/**  Volume, fades and volume keyframes of video and audio items, for the waveform and gain line. */
+	audio?: ItemAudio,
 };
 
 /**  The result of trying the saved key with a real (free) request. */
@@ -841,6 +940,38 @@ export type KeyCheck = {
 
 /**  One model as the Storage list shows it. */
 export type LocalModel = LocalModel_Serialize | LocalModel_Deserialize;
+
+/**
+ *  Progress of a download the person started in Settings → Storage. The first event names the host the files come
+ *  from; the last has `finished` set, with `error` when it failed or was cancelled.
+ */
+export type LocalModelInstallProgress = LocalModelInstallProgress_Serialize | LocalModelInstallProgress_Deserialize;
+
+/**
+ *  Progress of a download the person started in Settings → Storage. The first event names the host the files come
+ *  from; the last has `finished` set, with `error` when it failed or was cancelled.
+ */
+export type LocalModelInstallProgress_Deserialize = {
+	id: string,
+	host: string,
+	doneBytes: number | null,
+	totalBytes: number | null,
+	finished: boolean,
+	error?: string | null,
+};
+
+/**
+ *  Progress of a download the person started in Settings → Storage. The first event names the host the files come
+ *  from; the last has `finished` set, with `error` when it failed or was cancelled.
+ */
+export type LocalModelInstallProgress_Serialize = {
+	id: string,
+	host: string,
+	doneBytes: number | null,
+	totalBytes: number | null,
+	finished: boolean,
+	error: string | null,
+};
 
 /**  One model as the Storage list shows it. */
 export type LocalModel_Deserialize = {
@@ -854,6 +985,10 @@ export type LocalModel_Deserialize = {
 	location?: string | null,
 	/**  A running job uses it (removal waits for the job). */
 	inUse: boolean,
+	/**  Where it downloads from (shown before the first download). */
+	host?: string | null,
+	/**  Bytes to download (an archive counts once). */
+	downloadBytes: number | null,
 };
 
 /**  One model as the Storage list shows it. */
@@ -868,6 +1003,10 @@ export type LocalModel_Serialize = {
 	location: string | null,
 	/**  A running job uses it (removal waits for the job). */
 	inUse: boolean,
+	/**  Where it downloads from (shown before the first download). */
+	host: string | null,
+	/**  Bytes to download (an archive counts once). */
+	downloadBytes: number | null,
 };
 
 export type LocalModels = LocalModels_Serialize | LocalModels_Deserialize;
@@ -974,6 +1113,33 @@ export type MediaView_Serialize = {
 	skim: SkimView | null,
 };
 
+/**  One reading as the UI uses it. Times are media seconds; levels are dB. */
+export type MeterReadingView = MeterReadingView_Serialize | MeterReadingView_Deserialize;
+
+/**  One reading as the UI uses it. Times are media seconds; levels are dB. */
+export type MeterReadingView_Deserialize = {
+	start: number | null,
+	end: number | null,
+	/**  Sample peak, RMS and true peak per channel (left, right). */
+	peak: (number | null)[],
+	rms: (number | null)[],
+	truePeak: (number | null)[],
+	momentary?: number | null,
+	shortTerm?: number | null,
+};
+
+/**  One reading as the UI uses it. Times are media seconds; levels are dB. */
+export type MeterReadingView_Serialize = {
+	start: number | null,
+	end: number | null,
+	/**  Sample peak, RMS and true peak per channel (left, right). */
+	peak: (number | null)[],
+	rms: (number | null)[],
+	truePeak: (number | null)[],
+	momentary: number | null,
+	shortTerm: number | null,
+};
+
 export type ModelOption = {
 	id: string,
 	label: string,
@@ -1046,6 +1212,39 @@ export type OnboardingState_Serialize = {
 /**  Paths routed to the running app (second launch, Open With, Dock/taskbar drop, window drop). */
 export type OpenPathsRequested = {
 	paths: string[],
+};
+
+/**  Peaks of a source range, or why there are none yet. */
+export type PeakRangeView = PeakRangeView_Serialize | PeakRangeView_Deserialize;
+
+/**  Peaks of a source range, or why there are none yet. */
+export type PeakRangeView_Deserialize = {
+	/**  ready | pending | error | none (the media has no sound) */
+	status: string,
+	message?: string | null,
+	/**  The media's content id: the key for caching peaks in the UI and matching [`AudioAnalysisChanged`]. */
+	contentId?: string | null,
+	channels: number,
+	bins: number,
+	/**  Pyramid level read (bin size 256 × 2^level sample frames). */
+	level: number,
+	/**  `bins × channels × 2` values (min, max) from -127 to 127. */
+	data: number[],
+};
+
+/**  Peaks of a source range, or why there are none yet. */
+export type PeakRangeView_Serialize = {
+	/**  ready | pending | error | none (the media has no sound) */
+	status: string,
+	message: string | null,
+	/**  The media's content id: the key for caching peaks in the UI and matching [`AudioAnalysisChanged`]. */
+	contentId: string | null,
+	channels: number,
+	bins: number,
+	/**  Pyramid level read (bin size 256 × 2^level sample frames). */
+	level: number,
+	/**  `bins × channels × 2` values (min, max) from -127 to 127. */
+	data: number[],
 };
 
 /**  Playback state changed (frame, play/pause, speed, loop, volume). */
@@ -1430,6 +1629,14 @@ export type ViewerStats_Serialize = {
 	imageHeight: number,
 	/**  Time from the last seek/step request to the frame being presented. */
 	lastSeekMs: number | null,
+};
+
+/**  One volume keyframe as the timeline draws it. */
+export type VolumeKey = {
+	/**  Seconds from the item's start. */
+	time: number | null,
+	/**  Percent, 0–200. */
+	value: number | null,
 };
 
 /**  Where the welcome stands. */

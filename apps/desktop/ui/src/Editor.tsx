@@ -23,6 +23,7 @@ import { Dropdown } from "./Menu";
 import { fire, runCommand } from "./notify";
 import { formatShort, formatTimecode, parseTimecode } from "./timecode";
 import { Viewer } from "./Viewer";
+import { Meters } from "./Meters";
 import { type EditResult, firstTrack, itemDetail, snapToFrame } from "./edit";
 import { Inspector } from "./Inspector";
 import { EDIT_ACTIONS, MOD, type Tool, keyToAction } from "./keys";
@@ -455,6 +456,7 @@ export function Editor({
               toolbarLeft={projectBar}
             />
           </ErrorBoundary>
+          {layout.viewerOpen && <Meters />}
         </div>
         <TransportBar
           playback={playback}

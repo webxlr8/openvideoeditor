@@ -1,6 +1,7 @@
 //! End-to-end recognition on synthetic speech (espeak-ng + system ffmpeg generate the clip). Needs the base model:
 //! set `OVE_WHISPER_MODEL_DIR` to a folder holding `ggml-base.bin` (downloaded if missing) — run with `--ignored`.
 //! Without espeak-ng or ffmpeg the test fails, unless `OVE_ALLOW_MISSING_MEDIA_TOOLS=1` makes it print "skipped".
+#![cfg(feature = "recognize")]
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,

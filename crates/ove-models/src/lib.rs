@@ -2,20 +2,26 @@
 //! immutable locations, verified and resumable downloads with a free-space check, and the model store shared by every
 //! feature and project (`<app data>/models`).
 
+pub mod archive;
+pub mod check;
 pub mod download;
 pub mod error;
 pub mod infer;
 pub mod manifest;
 #[cfg(feature = "onnx")]
 pub mod onnx;
+pub mod runtime;
 pub mod space;
 pub mod store;
+#[cfg(feature = "tract")]
+pub mod tract;
 pub mod worker;
 
 pub use error::{ModelError, Result};
-pub use manifest::{Manifest, ModelFile, RuntimeKind};
+pub use manifest::{ArchiveMember, Manifest, ModelFile, RuntimeKind};
 pub use store::{
-    CONSENT_ABOVE_BYTES, Ensure, InstallOutcome, Lease, ModelStatus, NotInstalled, Origin, Progress, Store, UrlOverride,
+    CONSENT_ABOVE_BYTES, Ensure, InstallOutcome, Lease, ModelStatus, NotInstalled, Origin, Progress, Store,
+    UrlOverride, needs_consent,
 };
 
 use std::path::PathBuf;

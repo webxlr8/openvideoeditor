@@ -295,6 +295,29 @@ Additive. Old bundles open unchanged. The MCP whole-file `source` mode stays. Th
   client `e2e-client`). Q's revision and items are unchanged and Q stays in front. Opening P in the app shows the new
   name. Flow time 10.2 s. When the app gets several windows, this test checks that a write to an open but hidden
   project still lands.
+- Task 4.3, session hold (2026-11-27, Windows 11 x64, Ryzen 9 5950X, release build, `stale-apply` 5,000 items,
+  10 revisions behind, 7 runs). `ove mcp` keeps the project it edits open (with its write lock) for 2 s after the
+  last call (`OVE_MCP_HOLD_MS`) and closes it, writing the snapshot and projection, when idle or on disconnect.
+  Two more costs per call were found and removed: resolving the project by name scanned the library on every call
+  (70–390 ms on this library; a name resolved in the session now maps straight to the held project), and every edit
+  rewrote the diagnostics file and printed the projection a second time even when the diagnostics had not changed
+  (about 20 ms; now skipped when unchanged). Other workers were building on the machine during the run, so the
+  three modes were measured back to back:
+
+  | Mode | Cached rev, median | Range |
+  |---|---|---|
+  | Headless, opened and closed per call (before) | 328 ms | 222–611 ms |
+  | Held in the app (`AppCtx`) | 170 ms | 144–186 ms |
+  | Headless session holding the bundle (`OVE_BENCH_SESSION=1`) | 102 ms | 91–126 ms |
+
+  The gate (150 ms or less) is met. The app's own context is slower than the session here because its editor does
+  not skip the unchanged diagnostics write; that path is not part of this task.
+- Lock behaviour: right after a call the session holds the lock (another writer gets `project.locked` naming
+  `ove`); after the hold time the app opens the project (released within 3 s in the test); while the app holds it,
+  the session's edit is refused with `project.locked` and the session carries on. A writer that finds the lock held
+  by another `ove` process waits up to 3 s for it, so two sessions on one project still alternate
+  (`two_sessions_are_told_apart_and_each_undoes_only_its_own_change`). Trade-off: the person cannot open a project
+  in the app for up to 2 s after an agent's last headless call.
 
 ### Group 5: frames for agents
 
@@ -371,6 +394,8 @@ Additive. Old bundles open unchanged. The MCP whole-file `source` mode stays. Th
   removed the whole object; a person's later change still conflicts (unit test in `crates/ove-store/src/undo.rs`).
 - Task 8.2 (both OSes, built apps, real flow) stays open: the timings above are Windows only, with the stand-in
   provider.
+
+- After merging the transcript and audio tools of other changes: 50 tools; in-app 29, MCP 49, pinned 47.
 
 ### Group 7: local feedback queue (Windows 11 x64)
 

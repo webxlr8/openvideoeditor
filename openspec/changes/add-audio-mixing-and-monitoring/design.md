@@ -148,3 +148,50 @@ that the true-peak limiter replaces the sample-peak limiter, covered by the gold
 To be filled during apply: analysis throughput (× real time), waveform draw time for 50 visible clips, scrub latency
 p95 (cached and cold), meter CPU use, export loudness accuracy on fixtures, on the macOS and Windows reference
 machines.
+
+Measured on the Windows 11 x64 development machine (debug test builds unless stated). The macOS reference machine
+and the built app (group 7) are not measured yet.
+
+- Volume keyframes (group 1): a 100 % → 0 % linear fade over 1 s reads −30.00 dB at 0.5 s in the mixed output
+  (`volume_keyframes_fade_in_db_and_preview_equals_export`); the 32-sample block gain stays within 0.1 dB of the dB
+  curve. Mixing the same timeline in 1024-frame blocks (preview), 1600/1601-frame blocks (export per video frame)
+  and odd 37/4093/512-frame blocks gives bit-identical samples.
+- Import analysis (group 2): one pass over a 10 s stereo 48 kHz WAV takes 118 ms in a debug build (85× real time);
+  three waveform range queries and one loudness query afterwards decode nothing (decoder opens: exactly 1). The
+  peak file is 16 148 bytes for 10 s of stereo, so about 5.8 MB per hour, not the 1.4 MB D2 estimated: the 256-frame
+  base level of two channels alone is 2.7 MB per hour and the upper levels add as much again. Still small next to
+  the media; the Storage pane will list and clear it (background-tasks task 6.3).
+- The analysis runs as a `derivative` task in the `cpu` class on the shared scheduler, keyed by the media content
+  id; the peak cache Storage row is deferred to the background-tasks change.
+- Waveforms (group 3): drawing 50 clips of 1200 columns each takes 45.8 ms in the UI test runner (jsdom, Node, a
+  recording context: this is the column and gain computation, not GPU rasterisation). The real draw time in the
+  built app's web view is part of task 7.1. The canvas covers only the visible part of a clip plus 200 px each side
+  (at most 4096 px), and a volume change redraws from the same peaks without a new query.
+- Note: `SkimThumb.test.tsx` ("each tile within 16 ms") failed once in a full-suite run under load and passed when
+  run again; it is a timing assertion outside this change.
+- Meters (group 4): a −6 dBFS sine reads −6.0 dB peak and true peak (within 0.1 dB) and −9.0 dB RMS in every
+  reading; a 997 Hz stereo sine at −6 dBFS reads −6.0 LUFS momentary and short-term. Readings cover 256 frames
+  (5.3 ms) each and carry their media time; the engine sends batches at most 30 times per second, and the UI takes,
+  each display frame, the readings under the heard position. A simulated loopback (clicks every second, batches every
+  33 ms delivered 3 ms late, 60 fps display) shows every click within one display frame (16.7 ms) of when it is
+  heard. A loopback test through a real output device is part of task 7.1. Ballistics cost 0.70 µs per display
+  frame (0.004 % of one core at 60 fps) in the test runner; the frame loop stops when the meters are idle.
+- The BS.1770 primitives (K-weighting, true peak, gating, loudness range) moved to `ove-render/src/loudness.rs` for
+  the meters; `ove-analyze` now uses and re-exports them, and its loudness tests (including the FFmpeg `ebur128`
+  comparison) pass unchanged. Task 6.1 stays open until group 6 checks it against its own verification.
+- Scrub (group 4): event-to-grain time, with the real mixer on a two-track 20 s timeline in a debug build, is p95
+  0.03 ms when the window is cached (1199 events of a slow drag with direction prefetch) and p95 15.2 ms cold (20
+  events, 19 of them jumps to unplayed areas). This excludes the output device's buffer; the heard latency in the
+  built app is part of task 7.1. At the cut and at the join of a spliced grain the step is within the signal's own
+  step plus 1e-3 (raised-cosine 2 ms fade of the queued audio). Scrub plays through its own output stream, so the
+  playback clock is untouched.
+- Ducking (group 5): on a synthetic fixture (steady music, dialogue lines at 2–4 s and 6–7.5 s), the level gate
+  finds both lines within 10 ms, the keyframes sit at the ramp corners within 10 ms, and the mixed music is
+  −12.00 dB during speech (checked within 0.5 dB at six points) and 0.00 dB away from it (within 0.2 dB at six
+  points). Transcript word timings map through trim and speed. Running again at −6 dB in replace mode gives −6 dB,
+  not −18 dB; merge mode gives −18 dB. Forty short lines in 20 s simplify to at most 2 keyframes per second.
+  The panel shows "No speech was found" and changes nothing when the dialogue is silent.
+- The gate thresholds are fixed for now: opens above −32 dBFS, closes after 150 ms below −42 dBFS, spans shorter
+  than 120 ms are not speech. They suit dialogue at normal levels; very quiet dialogue needs the transcript source.
+- The design's "dialogue changed since last duck" note (Risks) is not built in this group: it needs a record of
+  which revision a duck was made from, and no task covers it. Listed for the follow-up.

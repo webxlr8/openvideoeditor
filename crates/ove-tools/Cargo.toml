@@ -18,6 +18,8 @@ ove-interchange = { path = "../ove-interchange" }
 ove-models = { path = "../ove-models" }
 ove-projection = { path = "../ove-projection" }
 ove-store = { path = "../ove-store" }
+# Reading cached transcripts only: no recognition library.
+ove-transcribe = { path = "../ove-transcribe", default-features = false }
 ove-graphics = { path = "../ove-graphics", optional = true }
 ove-analyze = { path = "../ove-analyze", optional = true }
 ove-media = { path = "../ove-media", optional = true }

@@ -6,6 +6,7 @@ pub mod assistant;
 pub mod captions;
 pub mod commands;
 pub mod control;
+pub mod ducking;
 pub mod edits;
 pub mod engine;
 pub mod error;
@@ -16,18 +17,21 @@ pub mod generation;
 pub mod interchange;
 pub mod logging;
 pub mod media;
+pub mod meters;
 pub mod models;
 pub mod motion;
 pub mod onboarding;
 pub mod projects;
 pub mod sample;
 pub mod scripted_dialogs;
+pub mod scrub;
 pub mod spend;
 pub mod support;
 pub mod tasks;
 pub mod timeline;
 pub mod transport;
 pub mod viewer;
+pub mod waveforms;
 pub mod window_state;
 pub mod worker;
 
@@ -176,6 +180,10 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             exporting::export_project,
             exporting::cancel_export,
             tasks::request_skim,
+            waveforms::peak_range,
+            scrub::scrub_audio,
+            ducking::duck_preview,
+            ducking::duck_audio,
             exporting::choose_export_path,
             exporting::reveal_path,
             edits::item_detail,
@@ -230,6 +238,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             // Settings → Storage: local machine-learning models (add-model-runtime).
             models::local_models,
             models::remove_local_model,
+            models::install_local_model,
+            models::cancel_local_model_install,
         ])
         .events(collect_events![
             PlaybackChanged,
@@ -246,6 +256,9 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             assistant::AgentUiEvent,
             captions::CaptionJobProgress,
             models::LocalModelsChanged,
+            waveforms::AudioAnalysisChanged,
+            meters::AudioMeter,
+            models::LocalModelInstallProgress,
         ])
         .error_handling(tauri_specta::ErrorHandlingMode::Result)
 }

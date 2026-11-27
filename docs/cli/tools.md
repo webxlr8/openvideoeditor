@@ -172,6 +172,8 @@ ove source print Nope                              # exit 1
 | `use_project` |  | mcp, pinned | read | `project` |
 | `edit_timeline` |  | in-app, mcp, pinned | write | `project`? `request` `rev`? `preview`? |
 | `list_models_local` |  | in-app, mcp, pinned | read |  |
+| `get_transcript` |  | in-app, mcp, pinned | read | `project`? `clips`? `segments`? `offset`? `limit`? `model`? `language`? |
+| `duck_audio` |  | in-app, mcp, pinned | write | `project`? `music` `under` `depth`? `attack`? `release`? `hold`? `source`? `mode`? `dryRun`? |
 | `list_models` |  | in-app, mcp, pinned | read | `kind`? |
 | `generate_image` |  | in-app, mcp, pinned | spends | `project`? `prompt` `model`? `aspect`? `image`? `durationSeconds`? `start`? `track`? `name`? `confirm`? |
 | `generate_video` |  | in-app, mcp, pinned | spends | `project`? `prompt` `model`? `durationSeconds`? `aspect`? `image`? `negativePrompt`? `seed`? `start`? `track`? `name`? `confirm`? |

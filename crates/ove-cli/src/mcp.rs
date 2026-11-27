@@ -2,9 +2,11 @@
 //! tool registry (`ove-tools`): `tools/list` lists the registry's MCP tools and `tools/call` runs their handlers,
 //! the same ones the command line runs. Edits are recorded with source `mcp`.
 
-use std::io::Write;
+use std::io::{BufRead, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{Receiver, RecvTimeoutError};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use ove_core::revision::{Actor, ActorKind, Source};
 use ove_tools::{Fail, LinkCtx, Surface, ToolCtx};
@@ -42,6 +44,19 @@ verify_timeline. Times are seconds. When the app has the project open, edits app
 
 const PROTOCOLS: [&str; 3] = ["2025-06-18", "2025-03-26", "2024-11-05"];
 
+/// How long the session keeps a project open after its last call (unify-agent-tool-layer task 4.3): calls in a
+/// burst skip opening the bundle and writing its snapshot, and the project is free again for the app and other
+/// writers soon after the agent stops. `OVE_MCP_HOLD_MS` overrides it (0 closes after every call).
+pub const HOLD: std::time::Duration = std::time::Duration::from_secs(2);
+
+fn hold() -> std::time::Duration {
+    std::env::var("OVE_MCP_HOLD_MS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .map(std::time::Duration::from_millis)
+        .unwrap_or(HOLD)
+}
+
 /// Serves MCP on stdin/stdout until stdin closes.
 pub fn serve(library: Option<&Path>, project: Option<&str>, turn: Option<&str>) -> std::io::Result<()> {
     let surface = if project.is_some() { Surface::Pinned } else { Surface::Mcp };
@@ -55,11 +70,38 @@ pub fn serve(library: Option<&Path>, project: Option<&str>, turn: Option<&str>) 
     let session = format!("mcp-{:x}-{:x}", ove_tools::fail::now_ms(), std::process::id());
     ctx.inner.actor =
         Some(Actor { kind: ActorKind::Mcp, session: Some(session), turn: turn.map(str::to_string), client: None });
+    let hold = hold();
+    ctx.inner.hold = (!hold.is_zero()).then_some(hold);
+    // Lines arrive on a reader thread, so the held project can be closed while the client is quiet, and a tool
+    // waiting for the client's answer to a confirmation prompt reads from the same stream.
+    let (tx, rx) = std::sync::mpsc::channel::<std::io::Result<String>>();
+    std::thread::spawn(move || {
+        for line in std::io::stdin().lock().lines() {
+            let end = line.is_err();
+            if tx.send(line).is_err() || end {
+                break;
+            }
+        }
+    });
+    let lines: Lines = Arc::new(Mutex::new(rx));
     // Generation: jobs run in a background `ove generate _run`; without the app, the client's confirmation prompt
     // asks the person to approve a spend.
     ctx.inner.runner = Some(crate::generate::runner(ctx.root().to_path_buf()));
-    ctx.inner.confirm = Some(Box::new(elicit));
-    while let Some(line) = read_line()? {
+    let prompt_lines = lines.clone();
+    ctx.inner.confirm = Some(Box::new(move |card: &Value| elicit(&prompt_lines, card)));
+    loop {
+        let wait = ctx.inner.idle_in().unwrap_or(std::time::Duration::from_secs(3600));
+        let got = lines.lock().unwrap_or_else(PoisonError::into_inner).recv_timeout(wait);
+        let line = match got {
+            Ok(line) => line?,
+            Err(RecvTimeoutError::Timeout) => {
+                if let Err(f) = ctx.inner.release_if_idle() {
+                    eprintln!("ove mcp: closing the project failed: {}", f.message);
+                }
+                continue;
+            }
+            Err(RecvTimeoutError::Disconnected) => break,
+        };
         if line.trim().is_empty() {
             continue;
         }
@@ -73,17 +115,18 @@ pub fn serve(library: Option<&Path>, project: Option<&str>, turn: Option<&str>) 
             send(&r)?;
         }
     }
-    Ok(())
+    ctx.inner.release().map_err(|f| std::io::Error::other(f.message))
 }
 
-/// One line from stdin (`None` at the end). Read a line at a time, so a tool waiting for the client's answer to a
-/// confirmation prompt reads from the same stream.
-fn read_line() -> std::io::Result<Option<String>> {
-    let mut s = String::new();
-    if std::io::stdin().read_line(&mut s)? == 0 {
-        return Ok(None);
+/// The client's lines, read on a thread (see [`serve`]).
+type Lines = Arc<Mutex<Receiver<std::io::Result<String>>>>;
+
+/// The next line from the client (`None` once it closed the session).
+fn next_line(lines: &Lines) -> std::io::Result<Option<String>> {
+    match lines.lock().unwrap_or_else(PoisonError::into_inner).recv() {
+        Ok(line) => line.map(Some),
+        Err(_) => Ok(None),
     }
-    Ok(Some(s.trim_end_matches(['\r', '\n']).to_string()))
 }
 
 fn send(v: &Value) -> std::io::Result<()> {
@@ -98,7 +141,7 @@ static ELICITATION: AtomicBool = AtomicBool::new(false);
 /// Asks the client to show the person a priced request (MCP `elicitation/create`) and waits for the answer. Only an
 /// explicit accept with `approve: true` approves; declining, cancelling or an error does not. Messages that arrive
 /// meanwhile are answered as busy (pings normally).
-fn elicit(card: &Value) -> Result<bool, Fail> {
+fn elicit(lines: &Lines, card: &Value) -> Result<bool, Fail> {
     if !ELICITATION.load(Ordering::SeqCst) {
         return Err(ove_tools::ctx::confirm_required());
     }
@@ -119,7 +162,7 @@ fn elicit(card: &Value) -> Result<bool, Fail> {
     let io = |e: std::io::Error| Fail::new("confirm.required", format!("the confirmation prompt failed: {e}"));
     send(&request).map_err(io)?;
     loop {
-        let Some(line) = read_line().map_err(io)? else {
+        let Some(line) = next_line(lines).map_err(io)? else {
             return Err(Fail::new(
                 "confirm.required",
                 "the client closed the session before answering; nothing was spent",

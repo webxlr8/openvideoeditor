@@ -199,3 +199,27 @@ with visible progress). This needs the owner's sign-off and the macOS row before
 - Parity through the adapter (ONNX Runtime 1.32.0 library): Silero VAD 1.64e-4 and Beat This 6.2e-5 against the
   PyTorch reference, the same in process and in the worker. 2,814 VAD steps plus 3 Beat This chunks took 2.7 s in
   the worker.
+
+### R6. Runtime library download (task 3.3, Windows)
+
+Decided at gate 1: ONNX Runtime 1.32.0 from the official wheels on the Python package index. The file locations
+there are content addressed (`/packages/<2>/<2>/<60 hex>/<file>`), so the manifest check accepts them as immutable.
+
+| Platform | Wheel (download) | Library (installed) | Notices installed next to it |
+|---|---|---|---|
+| Windows x64 | 16,698,767 bytes | `onnxruntime.dll`, 22,668,640 bytes | `LICENSE` 1,094 bytes, `ThirdPartyNotices.txt` 341,120 bytes |
+| macOS arm64 (14 or later) | 22,519,308 bytes | `libonnxruntime.1.32.0.dylib`, 35,272,344 bytes | `LICENSE` 1,073 bytes, `ThirdPartyNotices.txt` 334,795 bytes |
+
+- Every member is pinned by size and SHA-256 as well as the wheel; both real wheels pass an offline install with
+  those pins (`the_pinned_wheel_installs_offline`).
+- Consent: the runtime is native code from a third-party host, so it downloads only after the person's action
+  (Settings → Storage Install, or `--yes` at the terminal), although it is under 50 MB. A feature or agent gets
+  "runtime not installed" with the download size, the host and the install command.
+- Clean-profile install on Windows (debug `ove`, home connection): "runtime not installed" (exit 1) without
+  `--yes`; with `--yes` the 16.7 MB wheel downloaded, verified and extracted in 5.3 s; the store then holds the
+  library, `LICENSE` and `ThirdPartyNotices.txt` (23.0 MB) and no wheel. `ove model-worker` with no
+  `OVE_ONNXRUNTIME_LIB` loaded that library from the store.
+- Added dependency: `zip` 9.8.2 (MIT), `deflate` feature only (pulls `flate2` with `zlib-rs`, and `zopfli`).
+- `tract` stays buildable as the `ove-models` feature `tract`; the nightly job builds it. It is not in any shipped
+  binary.
+- Not measured here: the macOS download and load (needs the macOS machine; part of 5.1).

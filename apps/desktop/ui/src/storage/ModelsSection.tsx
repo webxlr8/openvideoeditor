@@ -1,8 +1,10 @@
-// Settings → Storage, Models: the local machine-learning models (speech recognition today), each with its purpose,
-// size and folder, and Remove. Removing a model that a running job uses waits for the job, and says so.
+// Settings → Storage, Models: the local machine-learning models (speech recognition, the inference runtime), each
+// with its purpose, size and folder, Install and Remove. Install names the host before anything downloads and shows
+// progress with Cancel. Removing a model that a running job uses waits for the job, and says so.
 import { useCallback, useEffect, useState } from "react";
 
 import type {
+  LocalModelInstallProgress_Serialize,
   LocalModelsChanged_Serialize,
   LocalModels_Serialize,
 } from "../bindings";
@@ -23,10 +25,18 @@ function outcome(r: LocalModelsChanged_Serialize): string {
   return `Removed ${r.id}: ${sizeText(r.freedBytes)} freed${r.freeBytes != null ? `, ${sizeText(r.freeBytes)} free` : ""}.`;
 }
 
+function percent(p: LocalModelInstallProgress_Serialize): number {
+  if (!p.totalBytes) return 0;
+  return Math.floor(((p.doneBytes ?? 0) * 100) / p.totalBytes);
+}
+
 export function ModelsSection({ onError }: { onError: ErrorSink }) {
   const [list, setList] = useState<LocalModels_Serialize | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [waiting, setWaiting] = useState<string[]>([]);
+  const [downloads, setDownloads] = useState<
+    Record<string, LocalModelInstallProgress_Serialize>
+  >({});
 
   const refresh = useCallback(
     () => runCommand(commands.localModels(), setList, onError),
@@ -39,8 +49,37 @@ export function ModelsSection({ onError }: { onError: ErrorSink }) {
       setMessage(outcome(e.payload));
       refresh();
     });
-    return () => unlisten(off);
+    const offInstall = events.localModelInstallProgress.listen((e) => {
+      const p = e.payload;
+      setDownloads((d) => {
+        const next = { ...d };
+        if (p.finished) delete next[p.id];
+        else next[p.id] = p;
+        return next;
+      });
+      if (p.finished) {
+        setMessage(
+          p.error
+            ? p.error === "cancelled"
+              ? `The download of ${p.id} was cancelled.`
+              : `Could not install ${p.id}: ${p.error}`
+            : `Installed ${p.id}.`,
+        );
+        refresh();
+      }
+    });
+    return () => {
+      unlisten(off);
+      unlisten(offInstall);
+    };
   }, [refresh]);
+
+  const install = (id: string) => {
+    runCommand(commands.installLocalModel(id), () => {}, onError);
+  };
+  const cancel = (id: string) => {
+    runCommand(commands.cancelLocalModelInstall(id), () => {}, onError);
+  };
 
   const remove = (id: string) => {
     runCommand(
@@ -60,7 +99,8 @@ export function ModelsSection({ onError }: { onError: ErrorSink }) {
     <div data-testid="models-section">
       <p className="muted small">
         Models download when a feature first needs one; none ship with the app.
-        Models larger than 50 MB download only after you agree.
+        Models larger than 50 MB, and the inference runtime, download only after
+        you agree.
         {list && (
           <>
             {" "}
@@ -94,7 +134,43 @@ export function ModelsSection({ onError }: { onError: ErrorSink }) {
               {m.location && (
                 <span className="muted small mono">{m.location}</span>
               )}
+              {!m.installed && !downloads[m.id] && m.host && (
+                <span
+                  className="muted small"
+                  data-testid={`model-source-${m.id}`}
+                >
+                  Downloads {sizeText(m.downloadBytes)} from{" "}
+                  <span className="mono">{m.host}</span>
+                </span>
+              )}
+              {downloads[m.id] && (
+                <span className="small" data-testid={`model-progress-${m.id}`}>
+                  Downloading from{" "}
+                  <span className="mono">{downloads[m.id].host}</span>:{" "}
+                  {percent(downloads[m.id])}% (
+                  {sizeText(downloads[m.id].doneBytes)} of{" "}
+                  {sizeText(downloads[m.id].totalBytes)})
+                </span>
+              )}
             </div>
+            {!m.installed &&
+              (downloads[m.id] ? (
+                <button
+                  className="btn"
+                  onClick={() => cancel(m.id)}
+                  data-testid={`model-cancel-${m.id}`}
+                >
+                  Cancel
+                </button>
+              ) : (
+                <button
+                  className="btn"
+                  onClick={() => install(m.id)}
+                  data-testid={`model-install-${m.id}`}
+                >
+                  Install
+                </button>
+              ))}
             {m.installed && (
               <button
                 className="btn"

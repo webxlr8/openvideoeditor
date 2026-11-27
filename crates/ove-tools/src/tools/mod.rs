@@ -2,6 +2,7 @@
 
 pub mod analyze;
 pub mod app;
+pub mod audio;
 pub mod code;
 pub mod docs;
 pub mod edit;
@@ -12,3 +13,4 @@ pub mod media;
 pub mod models;
 pub mod project;
 pub mod timeline;
+pub mod transcript;
