@@ -40,6 +40,8 @@ export interface TimelineProps {
   tool?: Tool;
   /** Marked in and out points, seconds. */
   range?: { in: number | null; out: number | null };
+  /** The marked range's menu (right-click on it in the ruler): export it, save it as media, render it in place. */
+  rangeMenu?: (start: number, end: number) => MenuItem[];
 }
 
 type Drag =
@@ -360,7 +362,19 @@ export function Timeline(props: TimelineProps) {
     <div className={`timeline tool-${tool}`} data-testid="timeline" data-tool={tool}>
       <div className="tl-scroll" ref={scroller}>
         <div className="tl-content" style={{ width: contentW }}>
-          <div className="ruler" onPointerDown={startRulerScrub} data-testid="ruler">
+          <div
+            className="ruler"
+            // The right button opens the marked range's menu instead of scrubbing.
+            onPointerDown={(e) => e.button !== 2 && startRulerScrub(e)}
+            onContextMenu={(e) => {
+              const t = timeAt(e.clientX);
+              if (range.in === null || range.out === null || t < range.in || t > range.out) return;
+              e.preventDefault();
+              const list = props.rangeMenu?.(range.in, range.out) ?? [];
+              if (list.length) setMenu({ at: { x: e.clientX, y: e.clientY }, items: list });
+            }}
+            data-testid="ruler"
+          >
             {range.in !== null && <span className="range-in" data-testid="range-in" style={{ left: HEADER_W + x(range.in) }} />}
             {range.out !== null && <span className="range-out" data-testid="range-out" style={{ left: HEADER_W + x(range.out) }} />}
             {range.in !== null && range.out !== null && range.out > range.in && (

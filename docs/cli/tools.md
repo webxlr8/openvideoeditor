@@ -193,5 +193,8 @@ ove source print Nope                              # exit 1
 | `cancel_job` |  | mcp, pinned | write | `job_id` |
 | `list_export_jobs` |  | mcp, pinned | read | `all`? |
 | `save_range_as_media` |  | mcp, pinned | write | `project`? `start` `end` `replace`? `tracks`? `name`? `small`? |
+| `list_tasks` |  | in-app, mcp, pinned | read, app | `project`? `kind`? |
+| `wait_tasks` |  | in-app, mcp, pinned | read, app | `project`? `kind`? `timeoutSeconds`? |
+| `cancel_task` |  | in-app, mcp, pinned | destructive | `id` |
 | `organize_media` |  | in-app, mcp, pinned | write | `project`? `ops` |
 <!-- tools:end -->

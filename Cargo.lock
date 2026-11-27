@@ -4239,6 +4239,7 @@ dependencies = [
  "ove-projection",
  "ove-render",
  "ove-store",
+ "ove-tasks",
  "ove-tools",
  "ove-transcribe",
  "ove-vision",

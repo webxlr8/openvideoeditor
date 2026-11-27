@@ -3,6 +3,7 @@
 
 pub mod agents;
 pub mod assistant;
+pub mod background;
 pub mod captions;
 pub mod commands;
 pub mod control;
@@ -11,6 +12,7 @@ pub mod edits;
 pub mod engine;
 pub mod error;
 pub mod exporting;
+pub mod exports;
 pub mod feedback;
 pub mod fx;
 pub mod generation;
@@ -22,11 +24,13 @@ pub mod models;
 pub mod motion;
 pub mod onboarding;
 pub mod projects;
+pub mod proxies;
 pub mod sample;
 pub mod scripted_dialogs;
 pub mod scrub;
 pub mod search;
 pub mod spend;
+pub mod storage;
 pub mod support;
 pub mod tasks;
 pub mod timeline;
@@ -181,7 +185,23 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             exporting::open_timeline,
             exporting::export_project,
             exporting::cancel_export,
+            // The export queue: dialog, Exports panel, save range as media (extend-export-formats-and-queue).
+            exports::export_options,
+            exports::check_export,
+            exports::queue_export,
+            exports::export_jobs,
+            exports::cancel_export_job,
+            exports::export_again,
+            exports::clear_finished_exports,
+            exports::save_range_as_media,
             tasks::request_skim,
+            proxies::set_use_proxies,
+            background::list_tasks,
+            background::cancel_task,
+            background::pause_tasks,
+            background::run_anyway,
+            storage::storage_usage,
+            storage::clear_cache,
             waveforms::peak_range,
             scrub::scrub_audio,
             ducking::duck_preview,
@@ -264,6 +284,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             waveforms::AudioAnalysisChanged,
             meters::AudioMeter,
             models::LocalModelInstallProgress,
+            background::TasksChanged,
         ])
         .error_handling(tauri_specta::ErrorHandlingMode::Result)
 }
@@ -597,10 +618,13 @@ pub fn run() -> ExitCode {
             }
 
             let engine = engine::spawn(handle.clone(), viewer_tx.clone())?;
+            // Exports a closed app or a crash left running go back in the queue, and a worker picks them up.
+            exports::recover_on_start();
 
             app.manage(stream);
             let background = tasks::new_scheduler();
             tasks::follow_playback(&handle, &background);
+            background::follow(&handle, &background);
             app.manage(AppState {
                 engine,
                 projects: projects::Projects::default(),
@@ -617,6 +641,7 @@ pub fn run() -> ExitCode {
             });
 
             app.manage(spend::SpendCards::default());
+            app.manage(proxies::Proxies::default());
             // The command line / MCP server reach the app through the control link.
             control::start(&handle);
             app.manage(generation::Generation::default());

@@ -404,6 +404,8 @@ impl ove_tools::AppHost for DesktopApp<'_> {
     fn app(&mut self, method: &str, params: serde_json::Value) -> Result<serde_json::Value, ove_tools::Fail> {
         match method {
             "context" => Ok(crate::control::context(&self.host.app)),
+            "tasks" => crate::background::tasks_method(&self.host.app.state::<AppState>().tasks, &params)
+                .map_err(|r| ove_tools::Fail::new(r.code, r.message)),
             "seek" => {
                 let seconds = params["seconds"].as_f64().unwrap_or(0.0);
                 let _ = AgentUiEvent::Seek { seconds }.emit(&self.host.app);

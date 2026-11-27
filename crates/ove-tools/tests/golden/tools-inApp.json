@@ -1243,6 +1243,68 @@
     "eager_input_streaming": true
   },
   {
+    "name": "list_tasks",
+    "description": "List the app's unfinished background tasks (thumbnails, skim sheets, proxies, captions, export, analysis): id, kind, label, project, priority, state (queued, running, paused with its reason) and progress. Background work runs only in the app: without it the list is empty.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "project": {
+          "type": "string",
+          "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+        },
+        "kind": {
+          "type": "string",
+          "description": "Only this kind (thumbnail, skim, proxy, captions, export, audio-analysis, …)"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "eager_input_streaming": true
+  },
+  {
+    "name": "wait_tasks",
+    "description": "Wait until the matching background tasks are done (for example the proxies of a project), or until the time-out: the result says whether they are done and how many remain. Paused tasks (playback, battery) do not finish while paused.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "project": {
+          "type": "string",
+          "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+        },
+        "kind": {
+          "type": "string",
+          "description": "Only this kind (thumbnail, skim, proxy, captions, export, audio-analysis, …)"
+        },
+        "timeoutSeconds": {
+          "type": "number",
+          "description": "Seconds to wait at most (default 30, at most 600)"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "eager_input_streaming": true
+  },
+  {
+    "name": "cancel_task",
+    "description": "Cancel one background task by id (from list_tasks). It stops within a second and leaves no partial output; the result reports it cancelled. Derived data (thumbnails, skim sheets, proxies) is queued again the next time it is needed.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "integer",
+          "description": "The task id"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "eager_input_streaming": true
+  },
+  {
     "name": "organize_media",
     "description": "Organise the project's media in one undoable revision: `move` media into a folder (`folder`: a `/`-separated path, empty or null for the top level), `rename` a media item (display name; `src` names in the timeline follow it), `tag` (`add` / `remove` tags), `createFolder`, `renameFolder` (`from`, `to`; media inside and below move with it), `deleteFolder` (its media move to the parent folder), `saveSubclip` (`media`, `name`, `in`, `out` in source seconds), `removeSubclip` (`media`, `id`) and `smartFolder` (`path`, a saved `query` and `scope`). Ops apply in order; `media` takes ids, file names or timeline names. Edits the person makes meanwhile to other fields are kept.",
     "input_schema": {

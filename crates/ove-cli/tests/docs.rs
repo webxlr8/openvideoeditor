@@ -110,6 +110,13 @@ fn project_examples() {
     }
 }
 
+/// docs/cli/tasks.md: `ove tasks` without the app (no background work exists outside it).
+#[test]
+fn tasks_examples() {
+    let (d, lib) = setup();
+    assert_eq!(run_examples("tasks.md", &lib, d.path()), 4);
+}
+
 #[test]
 fn interchange_examples_and_round_trip() {
     let (d, lib) = setup();

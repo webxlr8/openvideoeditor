@@ -1,9 +1,10 @@
-// Left-rail tool panels: Text, Transitions, Effects, Audio, Layout (Captions: CaptionsPanel.tsx). Each action is one
+// Left-rail tool panels: Text, Transitions, Effects, Audio, Layout, Exports (Captions: CaptionsPanel.tsx). Each action is one
 // revision.
 
 import { useEffect, useState } from "react";
 import type {
   AppError,
+  ExportJobView,
   ItemView_Serialize,
   ProjectView_Serialize,
 } from "./bindings";
@@ -34,9 +35,16 @@ import {
 } from "./fx";
 import { DuckPopover } from "./DuckPopover";
 import { Icon } from "./icons";
-import { fire } from "./notify";
+import { fire, runCommand } from "./notify";
 import { PanelHint, selectFirst } from "./onboarding/PanelHint";
 import { TextAnimationPicker } from "./Motion";
+import {
+  fmtSeconds,
+  jobActive,
+  openExport,
+  useExportJobs,
+} from "./ExportDialog";
+import "./export.css";
 
 export interface PanelProps {
   project: ProjectView_Serialize;
@@ -984,5 +992,142 @@ export function LayoutPanel({
         ))}
       </div>
     </>
+  );
+}
+
+const STATUS_LABEL: Record<string, string> = {
+  queued: "Waiting",
+  running: "Exporting",
+  done: "Done",
+  failed: "Failed",
+  cancelled: "Cancelled",
+};
+
+/** One job of the export queue. */
+function ExportJobRow({
+  job,
+  onChanged,
+  onError,
+}: {
+  job: ExportJobView;
+  onChanged: () => void;
+  onError?: (e: AppError) => void;
+}) {
+  const by =
+    job.requestedBy === "person" ? null : job.requestedBy === "cli" ? "command line" : job.requestedBy;
+  return (
+    <div className="xq-job" data-testid="export-job" data-status={job.status} data-id={job.id}>
+      <div className="xq-head">
+        <strong title={job.out}>{job.fileName}</strong>
+        <span className={`xq-status ${job.status}`} data-testid="export-job-status">
+          {job.status === "running" ? `${Math.round((job.progress ?? 0) * 100)}%` : STATUS_LABEL[job.status]}
+        </span>
+      </div>
+      <span className="muted">
+        {job.projectName} · {job.summary}
+        {job.range && ` · ${fmtSeconds(job.range[0] ?? 0)}–${fmtSeconds(job.range[1] ?? 0)}`}
+        {by && ` · by ${by}`}
+      </span>
+      {jobActive(job) && (
+        <div className="xp-progress">
+          <div className="xp-progress-bar" style={{ width: `${((job.progress ?? 0) * 100).toFixed(1)}%` }} />
+        </div>
+      )}
+      {job.status === "done" && (
+        <span className="muted">
+          {job.encoder}
+          {job.secondsTaken != null && ` · ${job.secondsTaken.toFixed(1)} s`}
+          {job.loudness && ` · ${job.loudness}`}
+        </span>
+      )}
+      {job.status === "failed" && <span className="xp-error">{job.error}</span>}
+      <div className="xq-actions">
+        {jobActive(job) && (
+          <button
+            className="btn"
+            data-testid="export-job-cancel"
+            onClick={() => runCommand(commands.cancelExportJob(job.id), onChanged, onError)}
+          >
+            Cancel
+          </button>
+        )}
+        {job.status === "done" && (
+          <button
+            className="btn"
+            data-testid="export-job-reveal"
+            onClick={() => runCommand(commands.revealPath(job.out), undefined, onError)}
+          >
+            Show in folder
+          </button>
+        )}
+        {!jobActive(job) && job.thisProject && (
+          <button
+            className="btn"
+            data-testid="export-job-again"
+            onClick={() => runCommand(commands.exportAgain(job.id), onChanged, onError)}
+          >
+            Export again
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Exports: the export queue shared with `ove` and agents. Queued and running jobs first, then the ones finished in
+ * the last day, newest first. */
+export function ExportsPanel({ onError }: Pick<PanelProps, "onError">) {
+  const { jobs, refresh } = useExportJobs(onError);
+  const active = (jobs ?? []).filter(jobActive);
+  const finished = (jobs ?? []).filter((j) => !jobActive(j)).reverse();
+  return (
+    <div data-testid="exports-panel">
+      <div className="chips-row">
+        {(jobs ?? []).length > 0 && (
+          <button className="chip-sm" data-testid="exports-new" onClick={() => openExport()}>
+            Export…
+          </button>
+        )}
+        {finished.length > 0 && (
+          <button
+            className="chip-sm"
+            data-testid="exports-clear"
+            onClick={() => runCommand(commands.clearFinishedExports(), refresh, onError)}
+          >
+            Clear finished
+          </button>
+        )}
+      </div>
+      {jobs === null ? (
+        <Empty>Reading the export queue…</Empty>
+      ) : jobs.length === 0 ? (
+        <PanelHint panel="exports" action="Export…" onAction={() => openExport()}>
+          Exports you start here, from the command line or from an agent wait, run and finish in this list.
+        </PanelHint>
+      ) : (
+        <>
+          {active.length > 0 && (
+            <>
+              <h5 className="panel-sub">In progress ({active.length})</h5>
+              <div className="xq-list">
+                {active.map((j) => (
+                  <ExportJobRow key={j.id} job={j} onChanged={refresh} onError={onError} />
+                ))}
+              </div>
+            </>
+          )}
+          {finished.length > 0 && (
+            <>
+              <h5 className="panel-sub">Finished</h5>
+              <div className="xq-list">
+                {finished.map((j) => (
+                  <ExportJobRow key={j.id} job={j} onChanged={refresh} onError={onError} />
+                ))}
+              </div>
+            </>
+          )}
+        </>
+      )}
+    </div>
   );
 }
