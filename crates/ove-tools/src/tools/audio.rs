@@ -29,6 +29,14 @@ pub fn duck_audio(_: &mut dyn ToolCtx, _: &Args) -> Result<Receipt, Fail> {
 #[cfg(feature = "media")]
 pub use imp::duck_audio;
 
+#[cfg(not(feature = "media"))]
+pub fn extract_audio(_: &mut dyn ToolCtx, _: &Args) -> Result<Receipt, Fail> {
+    Err(Fail::new("media.unavailable", "this build of ove cannot read media; build it with `--features media`"))
+}
+
+#[cfg(feature = "media")]
+pub use imp::extract_audio;
+
 #[cfg(feature = "media")]
 mod imp {
     use ove_analyze::duck::{self, DuckParams, Mode, SpeechSource};
@@ -46,6 +54,77 @@ mod imp {
         Ok((v * 1e6).round() as i64)
     }
 
+    /// `extract_audio`: a media file's sound as a new WAV (24-bit) or FLAC file in the bundle's `media/` folder,
+    /// added to the library in one revision.
+    pub fn extract_audio(ctx: &mut dyn ToolCtx, a: &Args) -> Result<Receipt, Fail> {
+        use ove_render::export::settings::Container;
+        let q = a.req_str("media")?.to_string();
+        let container = match a.str("format").unwrap_or("wav") {
+            "wav" => Container::Wav,
+            "flac" => Container::Flac,
+            f => return Err(Fail::new("argument.invalid", format!("`format` is wav or flac, not {f}"))),
+        };
+        let bundle = ctx.bundle(a.project())?;
+        let (doc, bundle, _) = crate::ctx::snapshot(ctx, &bundle)?;
+        let id = crate::tools::media::find_media(&doc, &bundle, &q)?;
+        let src = crate::tools::media::media_file(&doc, &bundle, &id)?;
+        let name = doc.project.media.get(&id).and_then(|m| m.file_name()).unwrap_or(&id).to_string();
+        if !src.is_file() {
+            return Err(Fail::new("media.offline", format!("“{name}” is offline; reconnect or relink it first")));
+        }
+        let info = ove_media::probe(&src).map_err(|e| Fail::new("media.unreadable", format!("{name}: {e}")))?;
+        let Some(audio) = info.audio.as_ref() else {
+            return Err(Fail::new("media.noAudio", format!("“{name}” has no audio, so there is nothing to extract")));
+        };
+        let dur = audio.duration_us.or(info.duration_us).filter(|d| *d > 0).unwrap_or(1_000_000);
+        // The file's sound alone, as a one-item timeline, through the export writers (partial files, offline checks).
+        let one = json!([
+            {"op": "addTrack", "track": {"id": "t", "name": "Audio", "order": 0, "type": "audio"}},
+            {"op": "addMedia", "media": {"id": "m", "data": {"type": "audio", "fileName": name, "duration": dur as f64 / 1e6, "hasAudio": true}},
+                "entry": {"mediaId": "m", "nativePath": src.display().to_string(), "ownedByBundle": false}},
+            {"op": "addItem", "item": {"id": "a", "trackId": "t", "type": "audio", "startTime": 0, "endTime": dur as f64 / 1e6, "mediaItemId": "m"}}
+        ]);
+        let ops: Vec<ove_core::Op> = serde_json::from_value(one).map_err(|e| Fail::new("internal", e.to_string()))?;
+        let solo = ove_core::ops::apply_batch(&ove_core::model::Document::new("x", "extract", 1), &ops)
+            .map_err(|e| Fail::new("internal", format!("{e:?}")))?
+            .doc;
+        let stem =
+            std::path::Path::new(&name).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or(id.clone());
+        let dir = bundle.join("media");
+        let mut file = dir.join(format!("{stem} (audio).{}", container.extension()));
+        let mut n = 2;
+        while file.exists() {
+            file = dir.join(format!("{stem} (audio {n}).{}", container.extension()));
+            n += 1;
+        }
+        let settings = ove_render::ExportSettings::for_container(container);
+        let cancel = std::sync::atomic::AtomicBool::new(false);
+        ove_render::export(&solo, None, &file, &settings, &cancel, |_| {})
+            .map_err(|e| Fail::new("extract.failed", format!("could not extract the sound of “{name}”: {e}")))?;
+        let now = crate::fail::now_ms();
+        let new_id = format!("m_{now:x}_audio");
+        let (media, mut entry, _, _) = crate::tools::media::describe(&file, &new_id, now, 5_000_000)?;
+        let rel = format!("media/{}", file.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default());
+        entry["nativePath"] = json!(rel);
+        entry["ownedByBundle"] = json!(true);
+        let out = file.clone();
+        let rev = edit(ctx, &bundle, |w| {
+            let r = w.apply(
+                vec![ove_core::Op::AddMedia { media: media.clone(), entry: Some(entry.clone()) }],
+                format!("extract audio from {name}"),
+            );
+            if r.is_err() {
+                let _ = std::fs::remove_file(&out);
+            }
+            r
+        })?;
+        let v = json!({"rev": rev, "media": new_id, "path": file.display().to_string(), "from": id,
+            "format": container.name(), "duration": dur as f64 / 1e6});
+        Ok(Receipt::new(
+            v,
+            format!("rev {rev}: extracted the sound of “{name}” to {} as media {new_id}", file.display()),
+        ))
+    }
     pub fn duck_audio(ctx: &mut dyn ToolCtx, a: &Args) -> Result<Receipt, Fail> {
         let music = names(a, "music")?;
         let under = names(a, "under")?;

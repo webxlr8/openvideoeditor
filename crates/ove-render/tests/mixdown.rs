@@ -209,3 +209,29 @@ fn volume_keyframes_fade_in_db_and_preview_equals_export() {
     let after = rms(&left[RATE as usize + 48..]);
     assert_eq!(after, 0.0, "silent after the last keyframe");
 }
+
+#[test]
+fn quiet_mixes_pass_the_true_peak_limiter_unchanged_and_hot_ones_stay_under_minus_one_dbtp() {
+    let dir = tempfile::tempdir().unwrap();
+    let Some(quiet) = tone(dir.path(), 440, 0.4, 3) else { return };
+    let d = doc(&[(&quiet, 1.0)], 3.0);
+    // Through the limiter in playback-sized blocks vs. the raw sum: within 1 LSB of 16-bit audio.
+    let limited = mix_in(&d, &[1024], RATE as usize * 2);
+    let raw = Mixer::new(None).mix_raw(&d, 0, RATE as usize * 2);
+    let worst = limited.iter().zip(&raw).map(|(a, b)| (a - b).abs()).fold(0f32, f32::max);
+    assert!(worst <= 1.0 / 32_768.0, "quiet mix changed by {worst}");
+    // Two full-scale tones summed: the true peak of the export stays at or under -1 dBTP.
+    let Some(hot) = tone(dir.path(), 997, 0.999, 2) else { return };
+    let h = doc(&[(&hot, 1.0), (&hot, 1.0)], 2.0);
+    let out = mix_in(&h, &[1600, 1601], RATE as usize * 2);
+    let mut tp = [ove_render::loudness::TruePeak::default(), ove_render::loudness::TruePeak::default()];
+    let mut m = 0f64;
+    for f in out.chunks_exact(2) {
+        for c in 0..2 {
+            m = m.max(tp[c].push(f64::from(f[c])));
+        }
+    }
+    let dbtp = 20.0 * m.log10();
+    eprintln!("hot mix true peak {dbtp:.3} dBTP, quiet mix max change {worst:e}");
+    assert!(dbtp <= -1.0, "true peak {dbtp} dBTP");
+}

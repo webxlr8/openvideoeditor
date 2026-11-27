@@ -75,8 +75,61 @@ pub struct ExportResult {
     /// Set when the video encoder is a fallback for H.264 (see [`encoder_warning`]).
     pub encoder_warning: Option<String>,
     pub seconds_taken: f64,
+    /// Loudness normalisation, when the settings set a target: the mix before and after, and the gain applied.
+    pub loudness: Option<LoudnessReport>,
 }
 
+/// What loudness normalisation did (design D8): the mix measured before (pass 1) and as written (pass 2).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LoudnessReport {
+    pub target_lufs: f64,
+    /// Integrated loudness and true peak of the mix without normalisation; `None` loudness = silent.
+    pub before_lufs: Option<f64>,
+    pub before_true_peak_dbtp: f64,
+    pub after_lufs: Option<f64>,
+    pub after_true_peak_dbtp: f64,
+    /// The static gain applied before the limiter (0 for a silent mix).
+    pub gain_db: f64,
+    /// The mix had no audible sound, so no gain was applied.
+    pub silent: bool,
+}
+
+/// Measures the mix of `[start, end)` as it would export without normalisation (pass 1: audio only, no video).
+pub fn measure_mix(
+    doc: &Document,
+    bundle: Option<&Path>,
+    start: Micros,
+    end: Micros,
+    cancel: &AtomicBool,
+) -> Result<crate::loudness::LoudnessSummary, ExportError> {
+    measure_mix_with_gain(doc, bundle, start, end, 0.0, cancel)
+}
+
+/// Measures the mix as it would export with a static gain (dB) before the true-peak limiter.
+pub fn measure_mix_with_gain(
+    doc: &Document,
+    bundle: Option<&Path>,
+    start: Micros,
+    end: Micros,
+    gain_db: f64,
+    cancel: &AtomicBool,
+) -> Result<crate::loudness::LoudnessSummary, ExportError> {
+    let mut mixer = Mixer::new(bundle);
+    mixer.set_gain_db(gain_db);
+    let mut meter = crate::loudness::StereoLoudness::default();
+    let total = frames_for(end - start);
+    let mut done = 0usize;
+    while done < total {
+        if cancel.load(Ordering::Relaxed) {
+            return Err(ExportError::Cancelled);
+        }
+        let n = (total - done).min(RATE as usize);
+        meter.push(&mixer.mix(doc, start + (done as i128 * 1_000_000 / RATE as i128) as Micros, n));
+        done += n;
+    }
+    Ok(meter.summary())
+}
 #[derive(Debug, thiserror::Error)]
 pub enum ExportError {
     #[error("{0}")]
@@ -313,14 +366,71 @@ pub fn export(
 ) -> Result<ExportResult, ExportError> {
     let p = prepare(doc, bundle, settings)?;
     let mut mixer = Mixer::new(bundle);
-    let mut sound = |t: Micros, n: usize| mixer.mix(doc, t, n);
-    if p.plan.video.is_none() {
-        return run(&p, out, None, &mut sound, cancel, &mut progress);
+    // Loudness target: pass 1 measures the mix, pass 2 writes it with one static gain before the limiter.
+    let before = match p.plan.loudness {
+        Some(_) => Some(measure_mix(doc, bundle, p.start, p.end, cancel)?),
+        None => None,
+    };
+    let gain_db = match (p.plan.loudness, before.and_then(|b| b.integrated_lufs)) {
+        (Some(target), Some(measured)) => normalising_gain(doc, bundle, &p, target, measured, cancel)?,
+        _ => 0.0,
+    };
+    mixer.set_gain_db(gain_db);
+    let mut after = crate::loudness::StereoLoudness::default();
+    let measure_after = before.is_some();
+    let mut sound = |t: Micros, n: usize| {
+        let s = mixer.mix(doc, t, n);
+        if measure_after {
+            after.push(&s);
+        }
+        s
+    };
+    let mut result = if p.plan.video.is_none() {
+        run(&p, out, None, &mut sound, cancel, &mut progress)?
+    } else {
+        let mut renderer = Renderer::new(bundle, p.height);
+        renderer.set_transparent(p.plan.video.as_ref().is_some_and(|v| v.alpha));
+        let mut frame = |t: Micros| Picture::Rgba8(renderer.render(doc, t));
+        run(&p, out, Some(&mut frame), &mut sound, cancel, &mut progress)?
+    };
+    if let (Some(target), Some(b)) = (p.plan.loudness, before) {
+        let a = after.summary();
+        result.loudness = Some(LoudnessReport {
+            target_lufs: target,
+            before_lufs: b.integrated_lufs,
+            before_true_peak_dbtp: b.true_peak_dbtp,
+            after_lufs: a.integrated_lufs,
+            after_true_peak_dbtp: a.true_peak_dbtp,
+            gain_db: (gain_db * 100.0).round() / 100.0,
+            silent: b.integrated_lufs.is_none(),
+        });
     }
-    let mut renderer = Renderer::new(bundle, p.height);
-    renderer.set_transparent(p.plan.video.as_ref().is_some_and(|v| v.alpha));
-    let mut frame = |t: Micros| Picture::Rgba8(renderer.render(doc, t));
-    run(&p, out, Some(&mut frame), &mut sound, cancel, &mut progress)
+    Ok(result)
+}
+
+/// The largest gain loudness normalisation applies.
+const MAX_GAIN_DB: f64 = 40.0;
+
+/// The static gain that brings the limited mix to `target`. The first guess is `target - measured`; when the true-peak
+/// limiter then takes loudness away (a peaky mix), the mix is measured again with the gain and limiter until it is
+/// within 0.1 LU (at most five audio-only passes), so the export lands on the target.
+fn normalising_gain(
+    doc: &Document,
+    bundle: Option<&Path>,
+    p: &Prepared,
+    target: f64,
+    measured: f64,
+    cancel: &AtomicBool,
+) -> Result<f64, ExportError> {
+    let mut gain = (target - measured).clamp(-MAX_GAIN_DB, MAX_GAIN_DB);
+    for _ in 0..5 {
+        let Some(l) = measure_mix_with_gain(doc, bundle, p.start, p.end, gain, cancel)?.integrated_lufs else { break };
+        if (target - l).abs() <= 0.1 {
+            break;
+        }
+        gain = (gain + target - l).clamp(-MAX_GAIN_DB, MAX_GAIN_DB);
+    }
+    Ok(gain)
 }
 
 /// Removes the temporary export file when dropped (failure, cancel or panic) unless it was kept.
@@ -455,6 +565,7 @@ fn run(
         audio_encoder,
         encoder_fallbacks: fallbacks,
         seconds_taken: started.elapsed().as_secs_f64(),
+        loudness: None,
     })
 }
 

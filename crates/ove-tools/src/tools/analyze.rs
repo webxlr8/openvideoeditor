@@ -241,7 +241,30 @@ mod imp {
         ove_analyze::analysis::ensure(&b, &cid?, file).ok().map(|s| s.loudness)
     }
 
+    /// `measure_loudness` with `timeline`: the mix of the whole timeline as it would export (gain off, true-peak
+    /// limiter on).
+    fn timeline_loudness(ctx: &mut dyn ToolCtx, a: &Args) -> Result<Receipt, Fail> {
+        let bundle = ctx.bundle(a.project())?;
+        let (doc, bundle, _) = crate::ctx::snapshot(ctx, &bundle)?;
+        let cancel = std::sync::atomic::AtomicBool::new(false);
+        let l = ove_render::export::measure_mix(&doc, Some(&bundle), 0, doc.duration(), &cancel)
+            .map_err(|e| Fail::new("loudness.failed", e.to_string()))?;
+        let text = match l.integrated_lufs {
+            Some(i) => format!(
+                "timeline: integrated {i:.1} LUFS · range {:.1} LU · true peak {:.1} dBTP · {:.1} s",
+                l.loudness_range_lu, l.true_peak_dbtp, l.duration
+            ),
+            None => format!("timeline: silent (below the -70 LUFS gate) · {:.1} s", l.duration),
+        };
+        let mut v = serde_json::to_value(l).unwrap_or(Value::Null);
+        v["timeline"] = json!(true);
+        Ok(Receipt::new(v, text))
+    }
+
     pub fn measure_loudness(ctx: &mut dyn ToolCtx, a: &Args) -> Result<Receipt, Fail> {
+        if a.bool("timeline") {
+            return timeline_loudness(ctx, a);
+        }
         let file = media_or_file(ctx, a)?;
         let l = match cached_loudness(ctx, a, &file) {
             Some(l) => l,

@@ -36,8 +36,15 @@ pub enum AudioCmd {
         #[arg(long, default_value_t = 0.5)]
         min: f64,
     },
-    /// Integrated loudness (LUFS), loudness range, sample and true peak.
-    Loudness { project: String, media: String },
+    /// Integrated loudness (LUFS), loudness range, sample and true peak of a media file, or of the timeline mix.
+    Loudness {
+        project: String,
+        /// Media id, file name or path (omit with --timeline).
+        media: Option<String>,
+        /// Measure the timeline mix as it would export.
+        #[arg(long, conflicts_with = "media")]
+        timeline: bool,
+    },
     /// Lower music under dialogue: volume keyframes on the music items, as one revision.
     Duck {
         project: String,
@@ -87,8 +94,8 @@ pub fn audio(ctx: &Ctx, cmd: &AudioCmd) -> Out {
             "detect_silence",
             json!({"project": project, "media": media, "thresholdDb": threshold, "minDuration": min}),
         ),
-        AudioCmd::Loudness { project, media } => {
-            ctx.tool("measure_loudness", json!({"project": project, "media": media}))
+        AudioCmd::Loudness { project, media, timeline } => {
+            ctx.tool("measure_loudness", json!({"project": project, "media": media, "timeline": timeline}))
         }
         AudioCmd::Duck { project, music, under, depth, attack, release, hold, source, merge, replace: _, dry_run } => {
             ctx.tool(

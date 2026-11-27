@@ -153,6 +153,15 @@ enum Cmd {
         height: u32,
         #[arg(long, default_value_t = 30)]
         fps: u32,
+        /// Write the mix alone (no video): m4a (AAC), wav (24-bit) or flac; see --format.
+        #[arg(long)]
+        audio_only: bool,
+        /// Audio-only format: m4a, wav or flac (default: from the file extension, else m4a).
+        #[arg(long)]
+        format: Option<String>,
+        /// Loudness target, integrated LUFS: off, -14, -16, -23 or -24.
+        #[arg(long, allow_negative_numbers = true)]
+        loudness: Option<String>,
     },
     /// Exchange the timeline with other editors (FCPXML, Premiere/FCP7 XML, EDL, OpenTimelineIO).
     Timeline {
@@ -363,8 +372,16 @@ fn run(cli: &Cli, source: Source) -> Out {
                 ctx.tool("undo_timeline", json!({"project": project, "rev": rev}))
             }
         }
-        Cmd::Export { project, out, height, fps } => {
-            ctx.tool("export_video", json!({"project": project, "out": out, "height": height, "fps": fps}))
+        Cmd::Export { project, out, height, fps, audio_only, format, loudness } => {
+            let audio = audio_only.then(|| format.clone().unwrap_or_default());
+            let loudness = loudness.as_deref().filter(|l| *l != "off").map(|l| match l.parse::<f64>() {
+                Ok(v) => json!(v),
+                Err(_) => json!(l),
+            });
+            ctx.tool(
+                "export_video",
+                json!({"project": project, "out": out, "height": height, "fps": fps, "audioOnly": audio, "loudness": loudness}),
+            )
         }
         Cmd::Timeline { cmd: TimelineCmd::Export { project, file, format, fps } } => {
             ctx.tool("export_timeline_file", json!({"project": project, "file": file, "format": format, "fps": fps}))

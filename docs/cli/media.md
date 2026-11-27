@@ -14,6 +14,8 @@ ove audio levels <project> <media|path> [--points <n>]
 ove audio waveform <project> <media|path> --out <file.png> [--width <px>] [--height <px>]
 ove audio silence <project> <media|path> [--threshold <dB>] [--min <s>]
 ove audio loudness <project> <media|path>
+ove audio loudness <project> --timeline
+ove media extract-audio <project> <media> [--format wav|flac]
 ove audio duck <project> --music <items|tracks> --under <items|tracks> [--depth <dB>] [--attack <s>] [--release <s>] [--hold <s>] [--source transcript|level|auto] [--merge|--replace] [--dry-run]
 ```
 
@@ -29,6 +31,10 @@ ove audio duck <project> --music <items|tracks> --under <items|tracks> [--depth 
 - **levels** gives peak and RMS dBFS per bucket; **silence** lists ranges quieter than `--threshold` (−40 dB) for at
   least `--min` (0.5 s); **loudness** measures integrated loudness (LUFS, ITU-R BS.1770 / EBU R128 gating),
   loudness range, sample peak and true peak.
+- **loudness --timeline** measures the timeline mix as it would export (true-peak limiter on, no loudness target).
+- **extract-audio** writes a media file's sound into the bundle's `media/` folder as 24-bit WAV (default) or FLAC
+  and adds it to the library as a new audio media entry, in one revision (undo removes the entry). Refused with
+  `media.noAudio` when the file has no audio stream and `media.offline` when it is offline. MCP: `extract_audio`.
 - **duck** lowers music under dialogue. It writes volume keyframes on the music items (`--music`: item ids or track
   ids or names, comma-separated) as one revision, so the result shows on the clips' gain lines, prints in
   `timeline.tsx` and undoes in one step. The level ramps down over `--attack` (0.2 s) before each line of speech,

@@ -54,14 +54,14 @@
 
 ## 6. Loudness and audio-only export
 
-- [ ] 6.1 Move the BS.1770 core into `ove-render` and re-export it from `ove-analyze`; verify existing loudness tests
+- [x] 6.1 Move the BS.1770 core into `ove-render` and re-export it from `ove-analyze`; verify existing loudness tests
       pass unchanged and results still match FFmpeg's `ebur128` within 0.1 LU.
-- [ ] 6.2 Replace the sample-peak limiter with the true-peak look-ahead limiter; verify true peak ≤ −1.0 dBTP on a hot
+- [x] 6.2 Replace the sample-peak limiter with the true-peak look-ahead limiter; verify true peak ≤ −1.0 dBTP on a hot
       fixture and golden exports of quiet fixtures unchanged within 1 LSB.
-- [ ] 6.3 Add loudness presets to export (two-pass measure and gain) with before and after values in the result, plus
+- [x] 6.3 Add loudness presets to export (two-pass measure and gain) with before and after values in the result, plus
       `ove audio loudness --timeline`; verify a −30 LUFS fixture exports at −14.0 ± 0.5 LUFS and the silent-timeline
       case completes without gain.
-- [ ] 6.4 Add the audio kind to the export settings (m4a with priming edit list, WAV 24-bit, FLAC) and
+- [x] 6.4 Add the audio kind to the export settings (m4a with priming edit list, WAV 24-bit, FLAC) and
       `ove media extract-audio` with MCP `extract_audio`; verify WAV samples match the mixer within 1 LSB, m4a
       duration equals the timeline within one AAC frame, the offline-media refusal leaves no file, and the no-audio
       refusal; update `docs/cli`.
