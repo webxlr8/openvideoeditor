@@ -72,6 +72,12 @@
           "items": {
             "$ref": "#/$defs/item"
           }
+        },
+        "markers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/marker"
+          }
         }
       }
     },
@@ -4002,6 +4008,55 @@
           }
         }
       ]
+    },
+    "marker": {
+      "type": "object",
+      "required": [
+        "id",
+        "at"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Marker id."
+        },
+        "at": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Timeline time of the marker, in seconds."
+        },
+        "dur": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Duration in seconds; 0 for a point marker.",
+          "default": 0
+        },
+        "name": {
+          "type": "string",
+          "description": "Short label."
+        },
+        "color": {
+          "type": "string",
+          "description": "A named colour (red, orange, yellow, green, teal, blue, purple, pink) or #rrggbb."
+        },
+        "status": {
+          "enum": [
+            "open",
+            "review",
+            "resolved"
+          ],
+          "description": "Review status: open, review or resolved.",
+          "default": "open"
+        },
+        "assignee": {
+          "type": "string",
+          "description": "Who should act on it: `user`, `agent` or a name."
+        },
+        "note": {
+          "type": "string",
+          "description": "Free text, at most 4,000 characters."
+        }
+      }
     }
   }
 }

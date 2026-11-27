@@ -455,6 +455,7 @@ pub const PROJECT_FIELDS: &[Field] = &[
     f("media", Kind::Any, "Media items."),
     f("timelineItems", Kind::Any, "Items."),
     f("tracks", Kind::Any, "Tracks."),
+    f("markers", Kind::Any, "Timeline markers (see Marker)."),
 ];
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -682,6 +683,34 @@ pub fn default_value(field: &Field) -> Option<Value> {
         Def::Bool(b) => Value::Bool(b),
         Def::Str(s) => Value::String(s.to_string()),
     })
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Markers (add-markers-keyframe-lanes-and-versions D1)
+// ---------------------------------------------------------------------------------------------------------------
+
+/// Review statuses of a marker, in workflow order.
+pub const MARKER_STATUSES: &[&str] = &["open", "review", "resolved"];
+/// Named marker colours; any `#rrggbb` value is accepted too.
+pub const MARKER_COLORS: &[&str] = &["red", "orange", "yellow", "green", "teal", "blue", "purple", "pink"];
+/// Longest marker note, in characters.
+pub const MARKER_NOTE_MAX: usize = 4000;
+
+/// Marker fields in projection attribute order (head fields first).
+pub const MARKER_FIELDS: &[Field] = &[
+    f("id", Kind::Str, "Marker id."),
+    f("at", Kind::Time, "Timeline time of the marker, in seconds."),
+    fd("dur", Kind::Time, Def::Num(0.0), "Duration in seconds; 0 for a point marker."),
+    f("name", Kind::Str, "Short label."),
+    f("color", Kind::Str, "A named colour (red, orange, yellow, green, teal, blue, purple, pink) or #rrggbb."),
+    fd("status", Kind::Enum(MARKER_STATUSES), Def::Str("open"), "Review status: open, review or resolved."),
+    f("assignee", Kind::Str, "Who should act on it: `user`, `agent` or a name."),
+    f("note", Kind::Str, "Free text, at most 4,000 characters."),
+];
+
+/// Looks up a known marker field.
+pub fn marker_field(name: &str) -> Option<&'static Field> {
+    MARKER_FIELDS.iter().find(|f| f.name == name)
 }
 
 #[cfg(test)]

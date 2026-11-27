@@ -47,6 +47,13 @@ pub struct Counts {
     pub added: usize,
     pub updated: usize,
     pub removed: usize,
+    /// Markers added, changed or removed.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub markers: usize,
+}
+
+fn is_zero(n: &usize) -> bool {
+    *n == 0
 }
 
 /// A planned apply.
@@ -96,6 +103,10 @@ impl Plan {
                 names.join(", ")
             ));
         }
+        if self.counts.markers > 0 {
+            let n = self.counts.markers;
+            parts.push(format!("changed {n} marker{}", if n == 1 { "" } else { "s" }));
+        }
         if parts.is_empty() && !self.ops.is_empty() {
             parts.push("updated tracks or settings".into());
         }
@@ -127,6 +138,8 @@ fn counts(ops: &[Op]) -> Counts {
             Op::UpdateItem { id, .. } | Op::UnsetItemFields { id, .. } => {
                 updated.insert(id.clone());
             }
+            Op::AddMarker { .. } | Op::UpdateMarker { .. } => c.markers += 1,
+            Op::RemoveMarkers { ids } => c.markers += ids.len(),
             _ => {}
         }
     }
@@ -206,6 +219,7 @@ pub fn plan_rebased(input: &ApplyInput, ripples_since: &dyn Fn(i64) -> Vec<Rippl
                 .unwrap_or("")
                 .trim_start_matches("items[")
                 .trim_start_matches("tracks[")
+                .trim_start_matches("markers[")
                 .trim_end_matches(']');
             errs.push(at(merged.positions.get(id), issue.code, issue.message.clone()));
         }

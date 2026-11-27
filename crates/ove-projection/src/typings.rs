@@ -55,6 +55,17 @@ pub fn typings() -> String {
         prop(&mut s, f, "fps");
     }
     s.push_str("  children?: unknown;\n}\n\n");
+    s.push_str("interface MarkerProps {\n");
+    for f in schema::MARKER_FIELDS {
+        if f.name == "at" {
+            s.push_str(&format!("  /** {} */\n  at: Seconds;\n", f.doc));
+        } else if f.name == "id" {
+            s.push_str("  /** Marker id; omit for a new marker. */\n  id?: string;\n");
+        } else {
+            prop(&mut s, f, f.name);
+        }
+    }
+    s.push_str("  [attribute: string]: unknown;\n}\n\n");
     s.push_str("interface TrackProps {\n  /** Track id; omit for a new track. */\n  id?: string;\n  name?: string;\n  kind: TrackKind;\n");
     for f in schema::TRACK_FIELDS {
         prop(&mut s, f, f.name);
@@ -74,7 +85,7 @@ pub fn typings() -> String {
         s.push_str("}\n\n");
     }
     s.push_str("declare global {\n  namespace JSX {\n    interface Element {}\n    interface IntrinsicElements {\n");
-    s.push_str("      timeline: TimelineProps;\n      track: TrackProps;\n");
+    s.push_str("      timeline: TimelineProps;\n      marker: MarkerProps;\n      track: TrackProps;\n");
     for t in schema::ITEM_TYPES {
         s.push_str(&format!("      {}: {}Props;\n", tag_for(t), pascal(tag_for(t))));
     }

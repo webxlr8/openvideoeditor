@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::Value;
 
-use ove_core::model::{Document, Item, MediaItem};
+use ove_core::model::{Document, Item, Marker, MediaItem};
 use ove_core::schema;
 
 use crate::format::{attr_value, micros};
@@ -227,6 +227,41 @@ pub const ITEM_RESERVED: &[&str] = &[
     EXTRA_ATTR,
 ];
 pub const TRACK_RESERVED: &[&str] = &["id", "name", "kind", "order", "type", EXTRA_ATTR];
+/// Marker attributes with a meaning in projections.
+pub const MARKER_RESERVED: &[&str] = &["id", "at", "dur", "status", EXTRA_ATTR];
+/// Notes longer than this print as a braced string, so they sit on their own line.
+pub const LONG_NOTE: usize = 200;
+
+/// Attributes of a marker in print order: id, at, dur (when not 0), name, color, status (when not open), assignee,
+/// note, then unknown fields sorted by key.
+pub fn marker_attrs(m: &Marker) -> Vec<(String, String)> {
+    let mut attrs = vec![("id".to_string(), attr_value(&Value::String(m.id.clone())))];
+    attrs.push(("at".into(), format!("{{{}}}", micros(m.at))));
+    if m.dur != 0 {
+        attrs.push(("dur".into(), format!("{{{}}}", micros(m.dur))));
+    }
+    for f in schema::MARKER_FIELDS.iter().skip(3) {
+        let v = if f.name == "status" {
+            Some(Value::String(m.status.clone()))
+        } else {
+            m.fields.get(f.name).map(normal::canon)
+        };
+        let Some(v) = v else { continue };
+        if schema::is_default(f, &v) {
+            continue;
+        }
+        let text = match &v {
+            Value::String(s) if f.name == "note" && s.chars().count() > LONG_NOTE => {
+                format!("{{{}}}", crate::format::literal(&v))
+            }
+            _ => attr_value(&v),
+        };
+        attrs.push((f.name.to_string(), text));
+    }
+    let unknown: Vec<(&String, &Value)> = m.fields.iter().filter(|(k, _)| schema::marker_field(k).is_none()).collect();
+    push_unknown(&mut attrs, unknown, MARKER_RESERVED);
+    attrs
+}
 
 /// True when a field name can be written as a JSX attribute.
 pub fn is_attr_name(k: &str) -> bool {
@@ -278,6 +313,9 @@ pub fn print(doc: &Document, ctx: &PrintContext) -> String {
         timeline_attrs.push(("fps".into(), attr_value(&fps)));
     }
     element(&mut out, "  ", "timeline", &timeline_attrs, false);
+    for m in doc.markers_in_order() {
+        element(&mut out, "    ", "marker", &marker_attrs(m), true);
+    }
     for t in &doc.project.tracks {
         let t = normal::track(t);
         let mut attrs = vec![

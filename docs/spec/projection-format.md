@@ -51,8 +51,9 @@ revision the file was printed from (the merge base). Lines, in order: format mar
 
 | Element | Contains | Attributes |
 |---|---|---|
-| `<timeline>` | `<track>` only | `aspect` (16:9, 4:3, 3:4, 9:16, 1:1, 4:5), `fps` (frame rate, 1–240, default 30); others warn `attr.unknown` and are ignored |
+| `<timeline>` | `<marker>` and `<track>` elements | `aspect` (16:9, 4:3, 3:4, 9:16, 1:1, 4:5), `fps` (frame rate, 1–240, default 30); others warn `attr.unknown` and are ignored |
 | `<track>` | items only | `id` (omit for a new track), `name`, `kind` (= document `type`: video, audio, caption, adjustment, layout), `locked`, `visible`, `muted`, `syncLock` (default `true`), unknown fields |
+| `<marker>` | nothing (self-closing) | `id` (omit for a new marker), `at` (seconds), `dur` (seconds, default 0: a point marker), `name`, `color` (a named colour or `#rrggbb`), `status` (`open`, `review`, `resolved`; default `open`), `assignee`, `note` (at most 4,000 characters), unknown fields |
 | `<clip>` (video), `<image>`, `<audio>`, `<text>`, `<caption>`, `<code>`, `<adjustment>`, `<shader>` | nothing (self-closing) | see below |
 
 Track order is element order (first = top layer); the document's `order` is never written. An item's track is the
@@ -79,6 +80,19 @@ move, trim, slip and delete together in the editor and in edit commands. Example
   <track id="t_music" name="Music" kind="audio" syncLock={false}>
     <audio id="i_m" start={0} end={8} in={2.04} src="camera" />
   </track>
+</timeline>
+```
+
+**Markers.** Markers print inside `<timeline>`, before the tracks, ordered by `at`, then id, with attributes in the
+order `id`, `at`, `dur`, `name`, `color`, `status`, `assignee`, `note`, then unknown fields sorted by key. `dur={0}`
+and `status="open"` are omitted. A note longer than 200 characters prints as a braced string, so the element wraps
+and the note sits on its own line. Markers merge one marker at a time and one field at a time (rule 4 below), so
+edits to different markers, or to different fields of one marker, never conflict.
+
+```tsx
+<timeline aspect="16:9">
+  <marker id="m1" at={12.4} dur={3} name="Tighten" color="#e5484d" status="review" assignee="agent" />
+  <track id="t_v1" name="V1" kind="video">…</track>
 </timeline>
 ```
 
@@ -168,7 +182,8 @@ Text-edit apply takes `{oldText, newText}` edits against the projection printed 
 | `enum.known`, `value.type`, `value.range`, `value.nonNegative`, `value.finite` | error | Value invalid for a known field (field registry) |
 | `object.key.unknown` | warning | Unknown key inside a known object (kept) |
 | `src.unresolved` | error | `src` is not a media name or id and no file exists at the path |
-| `item.id.unique`, `track.id.unique` | error | An id appears twice in the file |
+| `item.id.unique`, `track.id.unique`, `marker.id.unique` | error | An id appears twice in the file |
+| `marker.note.length` | error | A marker note is longer than 4,000 characters |
 | `item.time.order` | error | `end` is not after `start` |
 | any document invariant code | error | The merged result would violate a document invariant (reported at the item) |
 

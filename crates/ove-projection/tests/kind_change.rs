@@ -36,6 +36,7 @@ fn doc(item: Item) -> Document {
             media: Default::default(),
             items: [(item.id.clone(), Arc::new(item))].into_iter().collect(),
             tracks: vec![track(0), track(1)],
+            markers: Default::default(),
             extra: Default::default(),
         },
         registry: Default::default(),

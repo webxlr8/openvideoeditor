@@ -1,0 +1,26 @@
+{
+  "format": "ove-project",
+  "version": 1,
+  "project": {
+    "id": "p_markers",
+    "name": "Markers",
+    "createdAt": 1,
+    "updatedAt": 1,
+    "stateUpdatedAt": 1762000100000,
+    "aspectRatio": "16:9",
+    "media": [],
+    "tracks": [
+      {"id": "t_main", "name": "Main", "order": 0, "type": "video"}
+    ],
+    "timelineItems": [
+      {"id": "i_title", "trackId": "t_main", "type": "text", "startTime": 0, "endTime": 30, "textContent": "Hi"}
+    ],
+    "markers": [
+      {"id": "m_intro", "at": 0, "dur": 0, "status": "open"},
+      {"id": "m_tighten", "at": 12.4, "dur": 3, "status": "review", "name": "Tighten", "color": "#e5484d", "assignee": "agent", "note": "Cut the pause after the first sentence."},
+      {"id": "m_done", "at": 20, "dur": 0, "status": "resolved", "name": "Logo", "color": "blue", "zReviewer": "sam", "odd key": 1},
+      {"id": "m_long", "at": 25.5, "dur": 0, "status": "open", "assignee": "user", "note": "This note is long on purpose so the printer has to wrap it: the opening needs a slower pace, the second shot should hold for one more beat, the logo sting is too loud against the voice, and the closing card needs the new address from the brief."}
+    ]
+  },
+  "media": []
+}

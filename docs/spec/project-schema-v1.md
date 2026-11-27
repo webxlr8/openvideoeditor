@@ -33,6 +33,7 @@ Conventions:
 | `media` | any |  |  | Media items. |
 | `timelineItems` | any |  |  | Items. |
 | `tracks` | any |  |  | Tracks. |
+| `markers` | any |  |  | Timeline markers (see Marker). |
 
 Other project fields (`cast`, `temp`, `mediaBaseDirectory`, …) are preserved and changed with `updateProject`.
 
@@ -69,6 +70,21 @@ Other project fields (`cast`, `temp`, `mediaBaseDirectory`, …) are preserved a
 | `size` | integer ≥ 0 |  |  | Last known file size in bytes. |
 | `modifiedAt` | integer |  |  | Last known modification time, ms since the epoch. |
 | `contentId` | string |  |  | Content identity: hash of the size and sampled content; derived data is keyed by it. |
+
+## Marker (`project.markers[]`)
+
+Written in time order, then id; omitted when there are none.
+
+| field | type / range | default | required | meaning |
+|---|---|---|---|---|
+| `id` | string |  | yes | Marker id. |
+| `at` | seconds ≥ 0 |  | yes | Timeline time of the marker, in seconds. |
+| `dur` | seconds ≥ 0 | `0` |  | Duration in seconds; 0 for a point marker. |
+| `name` | string |  |  | Short label. |
+| `color` | string |  |  | A named colour (red, orange, yellow, green, teal, blue, purple, pink) or #rrggbb. |
+| `status` | `open` \| `review` \| `resolved` | `"open"` |  | Review status: open, review or resolved. |
+| `assignee` | string |  |  | Who should act on it: `user`, `agent` or a name. |
+| `note` | string |  |  | Free text, at most 4,000 characters. |
 
 ## Items
 

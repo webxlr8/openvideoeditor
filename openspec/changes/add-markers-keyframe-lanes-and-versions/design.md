@@ -98,3 +98,24 @@ All new fields are optional. `keyframeTracks` keeps its shape. `versions.json` i
   remote URL (host to be decided); community skill catalog URL is configurable and 3 original starter skills ship.
   None of these block this change.
 - Marker colour palette: 8 named colours plus any hex value (assumed).
+
+## Results
+
+Measured on the Windows 11 build machine (debug build, `cargo test`).
+
+### Group 1: markers in the document and projection
+
+- Markers live in `project.markers` (written in time order, then id; the key is left out when there are none, so
+  existing bundles and golden files are unchanged). Ops: `addMarker`, `updateMarker` (set and unset),
+  `removeMarkers`; invariants `marker.id.unique`, `marker.note.length`, `value.nonNegative` on `at`/`dur`,
+  `enum.known` on `status`. `crates/ove-core/tests/markers.rs`: 6 tests pass.
+- Projection: golden corpus case `valid/markers` (point, range, unknown fields, a 244-character note printed as a
+  braced string on its own line) and invalid cases `marker-status-unknown` (`enum.known` at 22:35, `value.type`,
+  `attr.required`) and `marker-id-duplicate` (`marker.id.unique`, `marker.note.length`, `structure.element`).
+- Round trip with marker generators (`arb_document_with_markers`): 10,000 cases pass in 12 s, together with the
+  merge property below.
+- Merge: the item merge's per-field 3-way rule is now one shared step (`Ctx::decide_fields`) used by items and
+  markers. Item-only steps (ripple rebase, kind-dependent views, duplicate-add detection) stay in the item loop;
+  markers have no tracks, so they are not rebased through ripples on apply. Property "concurrent edits to different
+  markers never conflict and both are kept": 10,000 cases pass. The existing merge property suite
+  (`tests/properties.rs`, `tests/rebase.rs`) passes unchanged.

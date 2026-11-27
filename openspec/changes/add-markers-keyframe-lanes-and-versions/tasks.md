@@ -2,11 +2,11 @@
 
 ## 1. Markers in the document and projection
 
-- [ ] 1.1 Add the marker entity, ops and invariants to `ove-core`; verify unit tests for each op and each invariant
+- [x] 1.1 Add the marker entity, ops and invariants to `ove-core`; verify unit tests for each op and each invariant
       refusal.
-- [ ] 1.2 Print and parse `<marker>` elements, update `timeline.d.ts` and `docs/spec/projection-format.md`; verify
+- [x] 1.2 Print and parse `<marker>` elements, update `timeline.d.ts` and `docs/spec/projection-format.md`; verify
       golden corpus cases (valid and invalid) and the 10,000-case round trip with marker generators.
-- [ ] 1.3 Generalise the item merge into a keyed-entity merge used for items and markers; verify the existing merge
+- [x] 1.3 Generalise the item merge into a keyed-entity merge used for items and markers; verify the existing merge
       property suite still passes and a new property: concurrent edits to different markers never conflict.
 
 ## 2. Markers in edits and agents

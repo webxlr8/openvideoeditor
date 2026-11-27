@@ -14,6 +14,26 @@ interface TimelineProps {
   children?: unknown;
 }
 
+interface MarkerProps {
+  /** Marker id; omit for a new marker. */
+  id?: string;
+  /** Timeline time of the marker, in seconds. */
+  at: Seconds;
+  /** Duration in seconds; 0 for a point marker. */
+  dur?: Seconds;
+  /** Short label. */
+  name?: string;
+  /** A named colour (red, orange, yellow, green, teal, blue, purple, pink) or #rrggbb. */
+  color?: string;
+  /** Review status: open, review or resolved. */
+  status?: "open" | "review" | "resolved";
+  /** Who should act on it: `user`, `agent` or a name. */
+  assignee?: string;
+  /** Free text, at most 4,000 characters. */
+  note?: string;
+  [attribute: string]: unknown;
+}
+
 interface TrackProps {
   /** Track id; omit for a new track. */
   id?: string;
@@ -508,6 +528,7 @@ declare global {
     interface Element {}
     interface IntrinsicElements {
       timeline: TimelineProps;
+      marker: MarkerProps;
       track: TrackProps;
       clip: ClipProps;
       image: ImageProps;

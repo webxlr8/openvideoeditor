@@ -9,14 +9,14 @@ use std::sync::Arc;
 use serde::Serialize;
 use serde_json::{Map, Value};
 
-use ove_core::model::{Document, Item, MediaItem, RegistryEntry, Track};
+use ove_core::model::{Document, Item, Marker, MediaItem, RegistryEntry, Track};
 use ove_core::schema::{self, Kind};
 use ove_core::time::{Micros, json_to_micros, micros_to_json};
 use ove_core::timemap::Ripple;
 
 use crate::normal;
 use crate::parse::Pos;
-use crate::read::{FileItem, FileModel, FileTrack, new_media_json};
+use crate::read::{FileItem, FileMarker, FileModel, FileTrack, new_media_json};
 
 /// Which side wins a conflict.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
@@ -273,6 +273,166 @@ impl Ctx<'_> {
         match self.prefer {
             Prefer::File => Some(f),
             Prefer::Editor => None,
+        }
+    }
+
+    /// The keyed-entity field merge shared by items and markers (design D3): for each field the file changed from
+    /// the base, the 3-way rule against the entity's current view. Returns the field values the target must take.
+    fn decide_fields(
+        &mut self,
+        id: &str,
+        changed: Vec<(Path, Option<Value>)>,
+        base: &Map<String, Value>,
+        current: &Map<String, Value>,
+    ) -> Vec<(Path, Option<Value>)> {
+        let mut out = Vec::new();
+        for (p, f) in changed {
+            if let Some(new) = self.decide(id, &path_str(&p), get(base, &p), f, get(current, &p)) {
+                out.push((p, new));
+            }
+        }
+        out
+    }
+}
+
+/// Field-level changes from `b` to `f` for entities without nested known objects (markers).
+fn flat_changes(b: &Map<String, Value>, f: &Map<String, Value>) -> Vec<(Path, Option<Value>)> {
+    let keys: BTreeSet<&String> = b.keys().chain(f.keys()).collect();
+    keys.into_iter().filter(|k| b.get(*k) != f.get(*k)).map(|k| ((k.clone(), None), f.get(k).cloned())).collect()
+}
+
+fn file_marker_view(f: &FileMarker) -> Map<String, Value> {
+    let mut v = f.fields.clone();
+    if !v.contains_key("status") {
+        v.insert("status".into(), Value::String(Marker::DEFAULT_STATUS.into()));
+    }
+    v.insert("at".into(), micros_to_json(f.at));
+    v.insert("dur".into(), micros_to_json(f.dur));
+    v
+}
+
+fn marker_from_view(id: &str, v: &Map<String, Value>) -> Marker {
+    let mut m = Marker::point(id, 0);
+    for (k, val) in v {
+        set_marker_field(&mut m, k, Some(val.clone()));
+    }
+    m
+}
+
+fn set_marker_field(m: &mut Marker, k: &str, v: Option<Value>) {
+    match k {
+        "at" => m.at = v.as_ref().and_then(json_to_micros).unwrap_or(0),
+        "dur" => m.dur = v.as_ref().and_then(json_to_micros).unwrap_or(0),
+        "status" => {
+            m.status = v.and_then(|v| v.as_str().map(str::to_string)).unwrap_or_else(|| Marker::DEFAULT_STATUS.into())
+        }
+        _ => match v {
+            Some(v) => {
+                m.fields.insert(k.to_string(), v);
+            }
+            None => {
+                m.fields.shift_remove(k);
+            }
+        },
+    }
+}
+
+/// Merges the file's markers onto the target, marker by marker and field by field (spec: Marker merge).
+fn merge_markers(
+    ctx: &mut Ctx,
+    base: &Document,
+    current: &Document,
+    file: &FileModel,
+    m: &mut Document,
+    positions: &mut BTreeMap<String, Pos>,
+    seed: &mut u64,
+) {
+    let taken = |id: &str| {
+        base.project.markers.contains_key(id)
+            || current.project.markers.contains_key(id)
+            || file.markers.iter().any(|f| f.id.as_deref() == Some(id))
+    };
+    let mut seen = BTreeSet::new();
+    let mut new_ids: Vec<String> = Vec::new();
+    let mut claimed: BTreeSet<String> = BTreeSet::new();
+    for fm in &file.markers {
+        let fv = file_marker_view(fm);
+        match fm.id.as_ref().filter(|id| base.project.markers.contains_key(*id)) {
+            Some(id) => {
+                seen.insert(id.clone());
+                positions.insert(id.clone(), fm.pos);
+                let bv = normal::marker_view(&base.project.markers[id]);
+                let ch = flat_changes(&bv, &fv);
+                if ch.is_empty() {
+                    continue;
+                }
+                match m.project.markers.get(id).cloned() {
+                    None => {
+                        ctx.conflicts.push(Conflict {
+                            id: id.clone(),
+                            field: "marker".into(),
+                            file_value: Some(Value::Object(fv.clone())),
+                            editor_value: None,
+                            kept: ctx.prefer,
+                            message: format!("marker {id} was edited in the file but removed in the editor"),
+                            group: None,
+                        });
+                        if ctx.prefer == Prefer::File {
+                            m.project.markers.insert(id.clone(), Arc::new(marker_from_view(id, &fv)));
+                        }
+                    }
+                    Some(cm) => {
+                        let cv = normal::marker_view(&cm);
+                        let mut mk = (*cm).clone();
+                        for ((k, _), new) in ctx.decide_fields(id, ch, &bv, &cv) {
+                            set_marker_field(&mut mk, &k, new);
+                        }
+                        if mk != *cm {
+                            m.project.markers.insert(id.clone(), Arc::new(mk));
+                        }
+                    }
+                }
+            }
+            None => {
+                // The same file applied twice: an identical marker added since the base is already applied.
+                let same = current.project.markers.iter().find(|(cid, cm)| {
+                    !base.project.markers.contains_key(*cid) && !claimed.contains(*cid) && normal::marker_view(cm) == fv
+                });
+                if let Some((cid, _)) = same {
+                    claimed.insert(cid.clone());
+                    positions.insert(cid.clone(), fm.pos);
+                    continue;
+                }
+                let id = match &fm.id {
+                    Some(id) if !current.project.markers.contains_key(id) && !new_ids.contains(id) => id.clone(),
+                    _ => fresh_id("mk_", &|x: &str| taken(x) || new_ids.iter().any(|n| n == x), seed),
+                };
+                positions.insert(id.clone(), fm.pos);
+                new_ids.push(id.clone());
+                m.project.markers.insert(id.clone(), Arc::new(marker_from_view(&id, &fv)));
+            }
+        }
+    }
+    for (id, bm) in &base.project.markers {
+        if seen.contains(id) {
+            continue;
+        }
+        if let Some(cm) = current.project.markers.get(id) {
+            let changed = normal::marker_view(cm) != normal::marker_view(bm);
+            if changed {
+                ctx.conflicts.push(Conflict {
+                    id: id.clone(),
+                    field: "marker".into(),
+                    file_value: None,
+                    editor_value: Some(cm.to_json()),
+                    kept: ctx.prefer,
+                    message: format!("marker {id} was removed in the file but changed in the editor"),
+                    group: None,
+                });
+            }
+            if !changed || ctx.prefer == Prefer::File {
+                m.project.markers.remove(id);
+            }
         }
     }
 }
@@ -548,10 +708,8 @@ pub fn merge_rebased(
                     Some(ci) => {
                         let cv = item_view_as(&ci, &fi.kind);
                         let mut item = (*ci).clone();
-                        for (p, f) in ch {
-                            if let Some(new) = ctx.decide(id, &path_str(&p), get(&bv, &p), f, get(&cv, &p)) {
-                                set_path(&mut item, &p, new);
-                            }
+                        for (p, new) in ctx.decide_fields(id, ch, &bv, &cv) {
+                            set_path(&mut item, &p, new);
                         }
                         if item != *ci {
                             m.project.items.insert(id.clone(), Arc::new(item));
@@ -612,5 +770,6 @@ pub fn merge_rebased(
             }
         }
     }
+    merge_markers(&mut ctx, base, current, file, &mut m, &mut positions, &mut seed);
     Merged { target: m, conflicts: ctx.conflicts, removed, positions, new_ids }
 }

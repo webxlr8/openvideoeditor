@@ -16,6 +16,6 @@ pub mod testgen;
 pub mod time;
 pub mod timemap;
 
-pub use model::{Document, Item, MediaItem, RegistryEntry, Track};
+pub use model::{Document, Item, Marker, MediaItem, RegistryEntry, Track};
 pub use ops::{Applied, BatchError, Op, apply_batch};
 pub use revision::{Clock, Prepared, RevisionRecord, Session, Source, SystemClock};

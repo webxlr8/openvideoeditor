@@ -54,6 +54,13 @@ pub fn touched(ops: &[Op]) -> BTreeSet<(String, String)> {
             Op::UpdateProject { set, unset } => {
                 t.extend(set.keys().chain(unset).map(|k| ("project".into(), k.clone())))
             }
+            Op::AddMarker { marker } => {
+                t.insert((format!("marker:{}", id_of(marker)), "*".into()));
+            }
+            Op::RemoveMarkers { ids } => t.extend(ids.iter().map(|id| (format!("marker:{id}"), "*".into()))),
+            Op::UpdateMarker { id, set, unset } => {
+                t.extend(set.keys().chain(unset).map(|k| (format!("marker:{id}"), k.clone())))
+            }
         }
     }
     t

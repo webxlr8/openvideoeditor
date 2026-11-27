@@ -44,6 +44,8 @@ pub struct Project {
     pub items: imbl::OrdMap<String, Arc<Item>>,
     /// Sorted by `order`; orders are 0..n.
     pub tracks: Vec<Track>,
+    /// Timeline markers by id (`project.markers`); written in time order, omitted when empty.
+    pub markers: imbl::OrdMap<String, Arc<Marker>>,
     /// Other project fields (cast, temp, mediaBaseDirectory, unknown), in original order.
     pub extra: Fields,
 }
@@ -85,6 +87,21 @@ pub struct RegistryEntry {
     pub fields: Fields,
 }
 
+/// A timeline marker (add-markers-keyframe-lanes-and-versions D1): a point (`dur` 0) or a range, with a review
+/// status. Name, colour, note, assignee and unknown fields live in the field map.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Marker {
+    pub id: String,
+    /// Timeline time in microseconds.
+    pub at: Micros,
+    /// Duration in microseconds; 0 for a point marker.
+    pub dur: Micros,
+    /// `open`, `review` or `resolved` (checked by the invariants).
+    pub status: String,
+    /// name, color, note, assignee and unknown fields, in original order.
+    pub fields: Fields,
+}
+
 /// A structural problem reading a document: the JSON path of the first invalid field and why.
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 #[error("{path}: {message}")]
@@ -120,6 +137,7 @@ impl Document {
                 media: BTreeMap::new(),
                 items: imbl::OrdMap::new(),
                 tracks: Vec::new(),
+                markers: imbl::OrdMap::new(),
                 extra: Fields::new(),
             },
             registry: BTreeMap::new(),
@@ -133,6 +151,17 @@ impl Document {
 
     pub fn item(&self, id: &str) -> Option<&Item> {
         self.project.items.get(id).map(|a| a.as_ref())
+    }
+
+    pub fn marker(&self, id: &str) -> Option<&Marker> {
+        self.project.markers.get(id).map(|a| a.as_ref())
+    }
+
+    /// Markers ordered by time, then id (the order they are written and printed in).
+    pub fn markers_in_order(&self) -> Vec<&Marker> {
+        let mut v: Vec<&Marker> = self.project.markers.values().map(|a| a.as_ref()).collect();
+        v.sort_by(|a, b| (a.at, &a.id).cmp(&(b.at, &b.id)));
+        v
     }
 
     /// The timeline frame rate (`fps`), or the default 30 when absent or invalid.
@@ -365,6 +394,60 @@ impl RegistryEntry {
     }
 }
 
+impl Marker {
+    pub const HEAD: [&'static str; 4] = ["id", "at", "dur", "status"];
+    /// The status of a marker that does not name one.
+    pub const DEFAULT_STATUS: &'static str = "open";
+
+    /// A new point marker with status open.
+    pub fn point(id: impl Into<String>, at: Micros) -> Marker {
+        Marker { id: id.into(), at, dur: 0, status: Self::DEFAULT_STATUS.into(), fields: Fields::new() }
+    }
+
+    pub fn from_json(v: &Value, path: &str) -> Result<Marker, ReadError> {
+        let o = obj(v, path)?;
+        let dur = if o.contains_key("dur") { req_time(o, "dur", path)? } else { 0 };
+        let status = if o.contains_key("status") { req_str(o, "status", path)? } else { Self::DEFAULT_STATUS.into() };
+        Ok(Marker {
+            id: req_str(o, "id", path)?,
+            at: req_time(o, "at", path)?,
+            dur,
+            status,
+            fields: rest(o, &Self::HEAD),
+        })
+    }
+
+    pub fn to_json(&self) -> Value {
+        let mut m = Map::new();
+        m.insert("id".into(), self.id.clone().into());
+        m.insert("at".into(), micros_to_json(self.at));
+        m.insert("dur".into(), micros_to_json(self.dur));
+        m.insert("status".into(), self.status.clone().into());
+        m.extend(self.fields.iter().map(|(k, v)| (k.clone(), v.clone())));
+        Value::Object(m)
+    }
+
+    /// Value of a field by wire name (head or map).
+    pub fn get(&self, key: &str) -> Option<Value> {
+        match key {
+            "id" => Some(self.id.clone().into()),
+            "at" => Some(micros_to_json(self.at)),
+            "dur" => Some(micros_to_json(self.dur)),
+            "status" => Some(self.status.clone().into()),
+            _ => self.fields.get(key).cloned(),
+        }
+    }
+
+    /// The end of the marker (`at` for a point marker).
+    pub fn end(&self) -> Micros {
+        self.at + self.dur
+    }
+
+    pub fn str_field(&self, key: &str) -> Option<&str> {
+        self.fields.get(key).and_then(Value::as_str)
+    }
+}
+
 impl Document {
     /// Reads the structure of a current-version document. Does not check invariants (see
     /// [`crate::invariants::check_document`]) and does not migrate (see [`crate::migrate`]).
@@ -414,6 +497,19 @@ impl Document {
             }
         }
 
+        let mut markers = imbl::OrdMap::new();
+        if let Some(arr) = p.get("markers") {
+            let arr =
+                arr.as_array().ok_or_else(|| ReadError::new("value.type", "$.project.markers", "must be an array"))?;
+            for (i, mk) in arr.iter().enumerate() {
+                let path = format!("$.project.markers[{i}]");
+                let marker = Marker::from_json(mk, &path)?;
+                if markers.insert(marker.id.clone(), Arc::new(marker)).is_some() {
+                    return Err(ReadError::new("marker.id.unique", format!("{path}.id"), "duplicate marker id"));
+                }
+            }
+        }
+
         let mut registry = BTreeMap::new();
         if let Some(arr) = root.get("media") {
             let arr = arr.as_array().ok_or_else(|| ReadError::new("value.type", "$.media", "must be an array"))?;
@@ -443,6 +539,7 @@ impl Document {
                 media,
                 items,
                 tracks,
+                markers,
                 extra: rest(
                     p,
                     &[
@@ -455,6 +552,7 @@ impl Document {
                         "media",
                         "timelineItems",
                         "tracks",
+                        "markers",
                     ],
                 ),
             },
@@ -476,6 +574,9 @@ impl Document {
         pm.insert("media".into(), Value::Array(p.media.values().map(|m| m.to_json()).collect()));
         pm.insert("tracks".into(), Value::Array(p.tracks.iter().map(Track::to_json).collect()));
         pm.insert("timelineItems".into(), Value::Array(self.items_in_canonical_order().map(|i| i.to_json()).collect()));
+        if !p.markers.is_empty() {
+            pm.insert("markers".into(), Value::Array(self.markers_in_order().iter().map(|m| m.to_json()).collect()));
+        }
 
         let mut root = Map::new();
         root.insert("format".into(), self.format.clone().into());

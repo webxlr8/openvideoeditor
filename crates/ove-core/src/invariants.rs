@@ -16,10 +16,12 @@
 //! | `value.nonNegative` | times, trims, durations and other non-negative values are ≥ 0 |
 //! | `value.range` | a number is within its documented range |
 //! | `project.format` | the document's format id is this app's |
+//! | `marker.id.unique` | marker ids are unique (enforced when adding) |
+//! | `marker.note.length` | a marker note has at most 4,000 characters |
 
 use std::collections::{BTreeSet, HashSet};
 
-use crate::model::{Document, FORMAT_ID, Item, Track};
+use crate::model::{Document, FORMAT_ID, Item, Marker, Track};
 use crate::schema::{self, Issue, Kind, Severity};
 
 fn err(code: &'static str, path: String, message: String) -> Issue {
@@ -34,6 +36,43 @@ pub fn item_path(id: &str) -> String {
 /// Path prefix used for a track in issues: `tracks[<id>]`.
 pub fn track_path(id: &str) -> String {
     format!("tracks[{id}]")
+}
+
+/// Path prefix used for a marker in issues: `markers[<id>]`.
+pub fn marker_path(id: &str) -> String {
+    format!("markers[{id}]")
+}
+
+/// Checks one marker: non-negative time and duration, a known status, known field types and the note length.
+pub fn check_marker(m: &Marker, out: &mut Vec<Issue>) {
+    let p = marker_path(&m.id);
+    if m.at < 0 {
+        out.push(err("value.nonNegative", format!("{p}.at"), format!("{p}.at must not be negative")));
+    }
+    if m.dur < 0 {
+        out.push(err("value.nonNegative", format!("{p}.dur"), format!("{p}.dur must not be negative")));
+    }
+    if !schema::MARKER_STATUSES.contains(&m.status.as_str()) {
+        out.push(err(
+            "enum.known",
+            format!("{p}.status"),
+            format!("{p}.status must be one of {}, got \"{}\"", schema::MARKER_STATUSES.join(", "), m.status),
+        ));
+    }
+    for (k, v) in &m.fields {
+        if let Some(f) = schema::marker_field(k) {
+            schema::validate(&f.kind, v, &format!("{p}.{k}"), out);
+        }
+    }
+    if let Some(note) = m.str_field("note")
+        && note.chars().count() > schema::MARKER_NOTE_MAX
+    {
+        out.push(err(
+            "marker.note.length",
+            format!("{p}.note"),
+            format!("marker {} has a note longer than {} characters", m.id, schema::MARKER_NOTE_MAX),
+        ));
+    }
 }
 
 /// Checks one item (fields and references). Pushes errors and warnings.
@@ -167,6 +206,9 @@ pub fn check_document(doc: &Document) -> Vec<Issue> {
     }
     for item in doc.project.items.values() {
         check_item(doc, item, &mut out);
+    }
+    for m in doc.project.markers.values() {
+        check_marker(m, &mut out);
     }
     out
 }

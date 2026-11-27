@@ -115,6 +115,7 @@ pub fn project_schema() -> Value {
                     "media": {"type": "array", "items": {"$ref": "#/$defs/mediaItem"}},
                     "tracks": {"type": "array", "items": {"$ref": "#/$defs/track"}},
                     "timelineItems": {"type": "array", "items": {"$ref": "#/$defs/item"}},
+                    "markers": {"type": "array", "items": {"$ref": "#/$defs/marker"}},
                 },
             },
             "media": {"type": "array", "items": {"$ref": "#/$defs/registryEntry"}},
@@ -128,6 +129,7 @@ pub fn project_schema() -> Value {
                 "properties": props(schema::REGISTRY_FIELDS.iter()),
             },
             "item": {"oneOf": item_variants},
+            "marker": {"type": "object", "required": ["id", "at"], "properties": props(schema::MARKER_FIELDS.iter())},
         }
     })
 }
@@ -222,6 +224,9 @@ Conventions:\n\
     s.push_str("## Registry entry (`media[]`)\n\n");
     let rf: Vec<&Field> = schema::REGISTRY_FIELDS.iter().collect();
     table(&mut s, &rf, &["mediaId", "nativePath", "ownedByBundle"]);
+    s.push_str("## Marker (`project.markers[]`)\n\nWritten in time order, then id; omitted when there are none.\n\n");
+    let mkf: Vec<&Field> = schema::MARKER_FIELDS.iter().collect();
+    table(&mut s, &mkf, &["id", "at"]);
     s.push_str("## Items\n\nEvery item has these head fields:\n\n");
     let hf: Vec<&Field> = schema::ITEM_HEAD.iter().collect();
     table(&mut s, &hf, &["id", "trackId", "type", "startTime", "endTime"]);

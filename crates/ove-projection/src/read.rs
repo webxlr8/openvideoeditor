@@ -37,6 +37,18 @@ pub struct FileItem {
     pub pos: Pos,
 }
 
+/// A `<marker>` element.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FileMarker {
+    /// `None` for a new marker without an id.
+    pub id: Option<String>,
+    pub at: Micros,
+    pub dur: Micros,
+    /// status (when given), name, color, assignee, note and unknown fields, normalised.
+    pub fields: Fields,
+    pub pos: Pos,
+}
+
 /// A new media file referenced by path.
 #[derive(Debug, Clone, PartialEq)]
 pub struct NewMedia {
@@ -52,6 +64,8 @@ pub struct FileModel {
     pub fps: Option<Value>,
     pub tracks: Vec<FileTrack>,
     pub items: Vec<FileItem>,
+    /// `<marker>` elements in file order.
+    pub markers: Vec<FileMarker>,
     pub new_media: Vec<NewMedia>,
 }
 
@@ -385,6 +399,80 @@ impl Reader<'_> {
             pos: el.pos,
         })
     }
+
+    fn marker(&mut self, el: &Element) -> Option<FileMarker> {
+        let mut ok = true;
+        let (mut id, mut at, mut dur) = (None, None, 0);
+        let mut fields = Map::new();
+        for a in &el.attrs {
+            match a.name.as_str() {
+                "id" => match a.value.as_str() {
+                    Some(s) => id = Some(s.to_string()),
+                    None => {
+                        self.push(diag(Severity::Error, a.value_pos, "value.type", "id must be a string"));
+                        ok = false;
+                    }
+                },
+                "at" | "dur" => match json_to_micros(&a.value).filter(|us| *us >= 0) {
+                    Some(us) => {
+                        if a.name == "at" {
+                            at = Some(us)
+                        } else {
+                            dur = us
+                        }
+                    }
+                    None => {
+                        self.push(diag(
+                            Severity::Error,
+                            a.value_pos,
+                            "value.type",
+                            format!("{} must be a non-negative number of seconds", a.name),
+                        ));
+                        ok = false;
+                    }
+                },
+                crate::print::EXTRA_ATTR => match a.value.as_object() {
+                    Some(o) => fields.extend(o.iter().map(|(k, v)| (k.clone(), v.clone()))),
+                    None => {
+                        self.push(diag(Severity::Error, a.value_pos, "value.type", "extraFields must be an object"));
+                        ok = false;
+                    }
+                },
+                other => {
+                    if let Some(f) = schema::marker_field(other) {
+                        ok &= self.check_value(f, a, None);
+                    }
+                    if other == "note" && a.value.as_str().is_some_and(|s| s.chars().count() > schema::MARKER_NOTE_MAX)
+                    {
+                        self.push(diag(
+                            Severity::Error,
+                            a.value_pos,
+                            "marker.note.length",
+                            format!("note must be at most {} characters", schema::MARKER_NOTE_MAX),
+                        ));
+                        ok = false;
+                    }
+                    fields.insert(other.to_string(), normal::canon(&a.value));
+                }
+            }
+        }
+        if !el.children.is_empty() {
+            self.push(diag(
+                Severity::Error,
+                el.children[0].pos,
+                "structure.element",
+                "<marker> cannot contain elements",
+            ));
+            ok = false;
+        }
+        let Some(at) = at else {
+            if ok && !el.invalid.iter().any(|a| a == "at") {
+                self.push(diag(Severity::Error, el.pos, "attr.required", "<marker> needs at"));
+            }
+            return None;
+        };
+        ok.then(|| FileMarker { id, at, dur, fields: normal::marker_fields(&fields), pos: el.pos })
+    }
 }
 
 /// Reads the element tree. Returns the model and the diagnostics found (errors make the model unusable).
@@ -446,12 +534,29 @@ pub fn read(root: &Element, r: Resolve) -> (FileModel, Vec<Diagnostic>) {
     }
     let mut ids = BTreeMap::new();
     for t in &root.children {
+        if t.tag == "marker" {
+            if let Some(m) = rd.marker(t) {
+                if let Some(id) = &m.id
+                    && ids.insert(format!("marker:{id}"), t.pos).is_some()
+                {
+                    rd.push(diag(
+                        Severity::Error,
+                        t.pos,
+                        "marker.id.unique",
+                        format!("marker id \"{id}\" appears twice"),
+                    ));
+                    continue;
+                }
+                model.markers.push(m);
+            }
+            continue;
+        }
         if t.tag != "track" {
             rd.push(diag(
                 Severity::Error,
                 t.pos,
                 "structure.element",
-                format!("<timeline> may only contain <track> elements, found <{}>", t.tag),
+                format!("<timeline> may only contain <marker> and <track> elements, found <{}>", t.tag),
             ));
             continue;
         }
