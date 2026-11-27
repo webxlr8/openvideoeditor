@@ -8,16 +8,14 @@ use ove_core::Item;
 use ove_core::ops::Op;
 use ove_core::time::{Micros, json_to_micros, micros_to_json, secs_to_micros};
 use ove_store::project::Project;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
-use tauri::AppHandle;
+use specta::Type;
+use tauri::{AppHandle, Manager};
 
 use crate::AppState;
 use crate::error::{AppError, AppResult, ErrorCode};
 use crate::projects::{ProjectView, edit, lock, serial};
-
-/// Shortest item an edit may leave (one frame at 25 fps).
-const MIN_DURATION: Micros = 40_000;
 
 fn bad(msg: impl Into<String>) -> AppError {
     AppError::new(ErrorCode::InvalidArgument, msg)
@@ -144,13 +142,40 @@ fn free_start(p: &Project, track: &str, from: Micros, dur: Micros, ignore: &[Str
     items.iter().map(|i| i.end).max().unwrap_or(0).max(from)
 }
 
+/// New link values for copies: copied items that shared a link share a new one (the copies are a new group, not
+/// members of the original's); a copy whose partners were not copied is no longer linked.
+fn relink(items: &mut [Value]) {
+    let mut count: std::collections::BTreeMap<String, usize> = Default::default();
+    for i in items.iter() {
+        if let Some(l) = i.get("link").and_then(Value::as_str) {
+            *count.entry(l.to_string()).or_default() += 1;
+        }
+    }
+    let fresh: std::collections::BTreeMap<String, String> = count
+        .into_iter()
+        .filter(|(_, n)| *n > 1)
+        .map(|(l, _)| (l, format!("l_{}", new_item_id().trim_start_matches("i_"))))
+        .collect();
+    for i in items.iter_mut() {
+        let Some(o) = i.as_object_mut() else { continue };
+        match o.get("link").and_then(Value::as_str).and_then(|l| fresh.get(l)).cloned() {
+            Some(l) => {
+                o.insert("link".into(), l.into());
+            }
+            None => {
+                o.shift_remove("link");
+            }
+        }
+    }
+}
+
 /// Duplicates items right after themselves on their track (or at the track's end when that is taken).
 #[tauri::command]
 #[specta::specta]
 pub async fn duplicate_items(app: AppHandle, ids: Vec<String>) -> AppResult<ProjectView> {
     serial(&app, "duplicate_items", move |app, state| {
         let ops = with_project(state, |p| {
-            let mut ops = Vec::new();
+            let mut copies = Vec::new();
             for id in &ids {
                 let it = item(p, id)?;
                 let dur = it.end - it.start;
@@ -159,9 +184,10 @@ pub async fn duplicate_items(app: AppHandle, ids: Vec<String>) -> AppResult<Proj
                 j["id"] = new_item_id().into();
                 j["startTime"] = micros_to_json(at);
                 j["endTime"] = micros_to_json(at + dur);
-                ops.push(Op::AddItem { item: j });
+                copies.push(j);
             }
-            Ok(ops)
+            relink(&mut copies);
+            Ok(copies.into_iter().map(|item| Op::AddItem { item }).collect::<Vec<_>>())
         })?;
         edit(app, state, ops, "duplicate")
     })
@@ -174,7 +200,8 @@ pub async fn duplicate_items(app: AppHandle, ids: Vec<String>) -> AppResult<Proj
 #[specta::specta]
 pub async fn paste_items(app: AppHandle, items_json: String, at: f64) -> AppResult<ProjectView> {
     serial(&app, "paste_items", move |app, state| {
-        let items: Vec<Value> = parse(&items_json, "the clipboard")?;
+        let mut items: Vec<Value> = parse(&items_json, "the clipboard")?;
+        relink(&mut items);
         let at = secs_to_micros(at.max(0.0)).unwrap_or(0);
         let ops = with_project(state, |p| {
             let min = items.iter().filter_map(|i| i.get("startTime").and_then(json_to_micros)).min().unwrap_or(0);
@@ -219,87 +246,138 @@ pub async fn paste_items(app: AppHandle, items_json: String, at: f64) -> AppResu
     .await
 }
 
-/// The trim of one edge, in microseconds: `(start, end, trimStart)` after moving `edge` to `time`, keeping the
-/// source in sync (moving the start edge moves the in-point by the same amount × speed) and within the source.
-pub fn trimmed(
-    it: &Item,
-    media_duration: Option<Micros>,
-    edge: &str,
-    time: Micros,
-) -> Result<(Micros, Micros, Micros), String> {
-    let speed = it.fields.get("playbackSpeed").and_then(Value::as_f64).unwrap_or(1.0).max(0.01);
-    let has_source = it.media_id().is_some() && matches!(it.kind.as_str(), "video" | "audio");
-    let trim = it.time_field("trimStart");
-    let reverse = it.fields.get("playbackDirection").and_then(Value::as_str) == Some("reverse");
-    if has_source && reverse {
-        // Reverse playback shows the source backwards: the start edge is the source's latest frame and the end edge
-        // is `trimStart`. So the end edge moves the in-point and the start edge is limited by the source length.
-        return match edge {
-            "start" => {
-                let mut start = time.clamp(0, it.end - MIN_DURATION);
-                if let Some(d) = media_duration {
-                    let earliest = it.end - ((d - trim).max(0) as f64 / speed).round() as Micros;
-                    start = start.max(earliest.min(it.end - MIN_DURATION));
-                }
-                Ok((start, it.end, trim))
-            }
-            "end" => {
-                let latest = it.end + (trim as f64 / speed).round() as Micros;
-                let end = time.max(it.start + MIN_DURATION).min(latest);
-                let new_trim = trim + ((it.end - end) as f64 * speed).round() as Micros;
-                Ok((it.start, end, new_trim.max(0)))
-            }
-            other => Err(format!("unknown edge {other}")),
-        };
+/// Plans an edit with the shared planners and applies it as one revision. A refusal changes nothing and becomes
+/// the command's error (its message names what blocked the edit); a plan with no ops returns the current view.
+pub(crate) fn plan_and_apply(app: &AppHandle, state: &AppState, req: ove_edit::Request) -> AppResult<ProjectView> {
+    let plan = with_project(state, |p| {
+        ove_edit::plan_with(p.doc(), &req, &mut new_item_id).map_err(|r| {
+            let code = if r.code == "item.missing" { ErrorCode::NotFound } else { ErrorCode::InvalidArgument };
+            AppError::new(code, r.message)
+        })
+    })?;
+    if plan.is_empty() {
+        let g = lock(&state.projects.open)?;
+        let p = g.as_ref().ok_or_else(|| bad("No project is open."))?;
+        return Ok(crate::projects::cached_view(app, state, p));
     }
-    match edge {
-        "start" => {
-            let mut start = time.clamp(0, it.end - MIN_DURATION);
-            if has_source {
-                // Cannot reveal source before its first frame.
-                let earliest = it.start - (trim as f64 / speed).round() as Micros;
-                start = start.max(earliest);
-                let new_trim = trim + ((start - it.start) as f64 * speed).round() as Micros;
-                Ok((start, it.end, new_trim.max(0)))
-            } else {
-                Ok((start, it.end, trim))
+    if plan.time_map.is_empty() {
+        return edit(app, state, plan.ops, &plan.summary);
+    }
+    // A ripple records how it moved time, so a projection printed before it rebases onto it.
+    let mut g = lock(&state.projects.open)?;
+    let p = g.as_mut().ok_or_else(|| bad("No project is open."))?;
+    p.apply_mapped(plan.ops, ove_core::revision::Source::Gui, Some(plan.summary), plan.time_map)?;
+    crate::projects::emit_view(app, Some(p)).ok_or_else(|| AppError::new(ErrorCode::Internal, "No project is open."))
+}
+
+fn parse_request(json: &str) -> AppResult<ove_edit::Request> {
+    parse(json, "the edit request")
+}
+
+/// Applies one edit verb (an `ove-edit` request as JSON: `{"op": "rippleDelete", "items": ["…"]}`, times in seconds)
+/// as one revision. A refusal is the error and changes nothing.
+#[tauri::command]
+#[specta::specta]
+pub async fn edit_plan(app: AppHandle, request: String) -> AppResult<ProjectView> {
+    let req = parse_request(&request)?;
+    serial(&app, "edit_plan", move |app, state| plan_and_apply(app, state, req)).await
+}
+
+/// An item where an edit would put it.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct Ghost {
+    pub id: String,
+    pub track_id: String,
+    pub start: f64,
+    pub end: f64,
+}
+
+/// Why an edit would be refused.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct EditRefusal {
+    pub code: String,
+    /// Items to outline.
+    pub culprits: Vec<String>,
+    pub message: String,
+}
+
+/// What an edit would do, without doing it: the items it adds or changes at their new place (for ghost
+/// rendering), the items it removes, the items that stopped at a limit, or why it would be refused.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct EditPreview {
+    pub summary: String,
+    pub ghosts: Vec<Ghost>,
+    pub removed: Vec<String>,
+    pub limited: Vec<String>,
+    pub refusal: Option<EditRefusal>,
+}
+
+/// Plans an edit verb without applying it (no revision): what a drag would do while it is held.
+#[tauri::command]
+#[specta::specta]
+pub async fn edit_preview(app: AppHandle, request: String) -> AppResult<EditPreview> {
+    let req = parse_request(&request)?;
+    crate::worker::blocking("edit_preview", move || {
+        let state = app.state::<AppState>();
+        with_project(&state, |p| Ok(preview(p.doc(), &req)))
+    })
+    .await
+}
+
+/// The preview of a request on a document.
+pub fn preview(doc: &ove_core::Document, req: &ove_edit::Request) -> EditPreview {
+    let secs = |us: Micros| us as f64 / 1e6;
+    match ove_edit::plan_with(doc, req, &mut new_item_id) {
+        Err(r) => EditPreview {
+            summary: String::new(),
+            ghosts: vec![],
+            removed: vec![],
+            limited: vec![],
+            refusal: Some(EditRefusal { code: r.code, culprits: r.culprits, message: r.message }),
+        },
+        Ok(plan) => {
+            let mut ghosts = Vec::new();
+            let mut removed = Vec::new();
+            for id in &plan.touched {
+                match plan.result.item(id) {
+                    Some(it) => ghosts.push(Ghost {
+                        id: id.clone(),
+                        track_id: it.track_id.clone(),
+                        start: secs(it.start),
+                        end: secs(it.end),
+                    }),
+                    None => removed.push(id.clone()),
+                }
             }
+            EditPreview { summary: plan.summary, ghosts, removed, limited: plan.limited, refusal: None }
         }
-        "end" => {
-            let mut end = time.max(it.start + MIN_DURATION);
-            if has_source && let Some(d) = media_duration {
-                let latest = it.start + ((d - trim).max(0) as f64 / speed).round() as Micros;
-                end = end.min(latest.max(it.start + MIN_DURATION));
-            }
-            Ok((it.start, end, trim))
-        }
-        other => Err(format!("unknown edge {other}")),
     }
 }
 
-/// Trims an item's start or end edge to `time` (seconds on the timeline).
+/// Trims an item's start or end edge to `time` (seconds on the timeline), keeping the source in sync and within the
+/// source. Linked items trim with it unless `linked` is false (Alt in the timeline: a J or L cut). The trimmed edge
+/// may overlap a neighbour (an overlap plays as a crossfade).
 #[tauri::command]
 #[specta::specta]
-pub async fn trim_item(app: AppHandle, id: String, edge: String, time: f64) -> AppResult<ProjectView> {
+pub async fn trim_item(
+    app: AppHandle,
+    id: String,
+    edge: String,
+    time: f64,
+    linked: Option<bool>,
+) -> AppResult<ProjectView> {
+    let edge = match edge.as_str() {
+        "start" => ove_edit::Edge::Start,
+        "end" => ove_edit::Edge::End,
+        other => return Err(bad(format!("unknown edge {other}"))),
+    };
+    let to = secs_to_micros(time).ok_or_else(|| bad("The time is invalid."))?;
     serial(&app, "trim_item", move |app, state| {
-        let set = with_project(state, |p| {
-            let it = item(p, &id)?;
-            let dur = it
-                .media_id()
-                .and_then(|m| p.doc().project.media.get(m))
-                .and_then(|m| m.data().and_then(|d| d.get("duration")).and_then(json_to_micros));
-            let t = secs_to_micros(time).ok_or_else(|| bad("The time is invalid."))?;
-            let (s, e, tr) = trimmed(&it, dur, &edge, t).map_err(bad)?;
-            // Keyframes and caption segments are stored relative to the start: keep them at the same timeline times.
-            let mut set = ove_core::retime::rebase_start(&it, s);
-            set.insert("startTime".into(), micros_to_json(s));
-            set.insert("endTime".into(), micros_to_json(e));
-            if tr != it.time_field("trimStart") {
-                set.insert("trimStart".into(), micros_to_json(tr));
-            }
-            Ok(set)
-        })?;
-        edit(app, state, vec![Op::UpdateItem { id, set }], "trim")
+        let linked = linked.unwrap_or(true);
+        plan_and_apply(app, state, ove_edit::Request::Trim { item: id, edge, to, linked, crossfade: true })
     })
     .await
 }
@@ -368,48 +446,49 @@ mod tests {
     use ove_core::revision::Source;
     use ove_store::Library;
 
-    fn clip(start: f64, end: f64, trim: f64, speed: f64) -> Item {
-        Item::from_json(
-            &json!({"id": "c", "trackId": "t", "type": "video", "startTime": start, "endTime": end,
-                    "trimStart": trim, "mediaItemId": "m", "playbackSpeed": speed}),
-            "item",
+    #[test]
+    fn preview_shows_where_items_go_and_changes_nothing() {
+        let mut d = ove_core::Document::new("p", "Preview", 1);
+        d = ove_core::ops::apply_batch(
+            &d,
+            &[
+                Op::AddTrack { track: json!({"id": "v", "name": "V", "order": 0, "type": "video"}) },
+                Op::AddTrack { track: json!({"id": "a", "name": "A", "order": 1, "type": "audio"}) },
+                Op::AddItem {
+                    item: json!({"id": "x", "trackId": "v", "type": "text", "startTime": 0, "endTime": 2, "link": "L"}),
+                },
+                Op::AddItem {
+                    item: json!({"id": "y", "trackId": "a", "type": "text", "startTime": 0, "endTime": 2, "link": "L"}),
+                },
+            ],
         )
         .unwrap()
+        .doc;
+        let before = d.clone();
+        let req: ove_edit::Request = serde_json::from_value(json!({"op": "move", "item": "x", "start": 3})).unwrap();
+        let p = preview(&d, &req);
+        assert!(p.refusal.is_none());
+        let mut ghosts: Vec<(String, f64)> = p.ghosts.iter().map(|g| (g.id.clone(), g.start)).collect();
+        ghosts.sort_by(|a, b| a.0.cmp(&b.0));
+        assert_eq!(ghosts, vec![("x".to_string(), 3.0), ("y".to_string(), 3.0)]);
+        assert_eq!(d, before);
+        let req: ove_edit::Request = serde_json::from_value(json!({"op": "split", "items": ["x"], "at": 9})).unwrap();
+        assert_eq!(preview(&d, &req).refusal.unwrap().code, "edit.outside");
     }
 
     #[test]
-    fn trim_start_moves_the_in_point() {
-        let c = clip(10.0, 20.0, 2.0, 1.0);
-        assert_eq!(trimmed(&c, Some(30_000_000), "start", 12_000_000).unwrap(), (12_000_000, 20_000_000, 4_000_000));
-        // Cannot go before the first source frame: in-point 2 s → earliest start 8 s.
-        assert_eq!(trimmed(&c, Some(30_000_000), "start", 5_000_000).unwrap(), (8_000_000, 20_000_000, 0));
-        // At 2× speed, 1 s of timeline is 2 s of source.
-        let fast = clip(10.0, 20.0, 2.0, 2.0);
-        assert_eq!(trimmed(&fast, None, "start", 11_000_000).unwrap(), (11_000_000, 20_000_000, 4_000_000));
-    }
-
-    #[test]
-    fn trim_end_stays_within_the_source() {
-        let c = clip(10.0, 20.0, 2.0, 1.0);
-        // Source is 15 s, in-point 2 s → at most 13 s of clip.
-        assert_eq!(trimmed(&c, Some(15_000_000), "end", 40_000_000).unwrap(), (10_000_000, 23_000_000, 2_000_000));
-        assert_eq!(trimmed(&c, Some(15_000_000), "end", 9_000_000).unwrap().1, 10_000_000 + MIN_DURATION);
-        assert!(trimmed(&c, None, "middle", 0).is_err());
-    }
-
-    #[test]
-    fn reverse_trim_moves_the_other_source_edge() {
-        let mut c = clip(10.0, 20.0, 2.0, 1.0);
-        c.fields.insert("playbackDirection".into(), json!("reverse"));
-        // The start edge shows the latest source frame: trimming it leaves the in-point alone.
-        assert_eq!(trimmed(&c, Some(30_000_000), "start", 12_000_000).unwrap(), (12_000_000, 20_000_000, 2_000_000));
-        // Extending the start is limited by the source length: 30 s source, in-point 2 s → at most 28 s of clip.
-        assert_eq!(trimmed(&c, Some(30_000_000), "start", 0).unwrap(), (0, 20_000_000, 2_000_000));
-        assert_eq!(trimmed(&c, Some(14_000_000), "start", 0).unwrap(), (8_000_000, 20_000_000, 2_000_000));
-        // The end edge shows the in-point: pulling it in by 3 s moves the in-point 3 s later.
-        assert_eq!(trimmed(&c, None, "end", 17_000_000).unwrap(), (10_000_000, 17_000_000, 5_000_000));
-        // Extending the end reveals earlier source, down to the first frame (in-point 2 s → end at most 22 s).
-        assert_eq!(trimmed(&c, None, "end", 40_000_000).unwrap(), (10_000_000, 22_000_000, 0));
+    fn copies_get_their_own_link_group() {
+        let mut items = vec![
+            json!({"id": "v", "link": "L"}),
+            json!({"id": "a", "link": "L"}),
+            json!({"id": "w", "link": "M"}),
+            json!({"id": "t"}),
+        ];
+        relink(&mut items);
+        assert_eq!(items[0]["link"], items[1]["link"]);
+        assert_ne!(items[0]["link"], json!("L"));
+        assert!(items[2].get("link").is_none(), "a copy without its partner is not linked");
+        assert!(items[3].get("link").is_none());
     }
 
     #[test]

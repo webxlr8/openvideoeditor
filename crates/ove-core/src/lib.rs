@@ -14,6 +14,7 @@ pub mod schema;
 #[cfg(feature = "testgen")]
 pub mod testgen;
 pub mod time;
+pub mod timemap;
 
 pub use model::{Document, Item, MediaItem, RegistryEntry, Track};
 pub use ops::{Applied, BatchError, Op, apply_batch};

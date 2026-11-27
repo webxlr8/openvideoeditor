@@ -177,11 +177,48 @@ export function nextAdjacent(p: ProjectView_Serialize, item: ItemView_Serialize)
   return p.items.find((i) => i.trackId === item.trackId && i.id !== item.id && Math.abs((i.start ?? 0) - (item.end ?? 0)) < 0.05);
 }
 
-/** Project frame rate used for placing items (the timeline renders at 30 fps). */
+/**
+ * Drift of linked items, in frames at `fps`: for each member of a link group that is out of sync, how many frames
+ * later than the group's earliest member it shows the same source (`start − in ÷ speed`). In-sync and unlinked items
+ * are absent. Verify reports the same drift as `link.offset`.
+ */
+export function linkDrift(items: ItemView_Serialize[], fps: number): Map<string, number> {
+  const zero = (i: ItemView_Serialize) => (i.start ?? 0) - (i.trimStart ?? 0) / Math.max(0.01, i.speed ?? 1);
+  const groups = new Map<string, ItemView_Serialize[]>();
+  for (const i of items) {
+    if (!i.link) continue;
+    groups.set(i.link, [...(groups.get(i.link) ?? []), i]);
+  }
+  const out = new Map<string, number>();
+  for (const members of groups.values()) {
+    if (members.length < 2) continue;
+    const base = Math.min(...members.map(zero));
+    for (const m of members) {
+      const frames = Math.round((zero(m) - base) * fps * 10) / 10;
+      if (frames !== 0) out.set(m.id, frames);
+    }
+  }
+  return out;
+}
+
+/** Frame rate of a timeline without its own (`fps` on the timeline). */
 export const TIMELINE_FPS = 30;
 
+/** The open timeline's frame rate. Set from the project view whenever it changes (see `setTimelineFps`). */
+let currentFps = TIMELINE_FPS;
+
+/** Makes `snapToFrame` use the open timeline's frame rate. */
+export function setTimelineFps(fps: number | null | undefined) {
+  currentFps = fps && fps > 0 ? fps : TIMELINE_FPS;
+}
+
+/** The open timeline's frame rate. */
+export function timelineFps(): number {
+  return currentFps;
+}
+
 /** Snaps a time in seconds to the nearest frame of the timeline grid, at microsecond precision. */
-export function snapToFrame(t: number, fps = TIMELINE_FPS): number {
+export function snapToFrame(t: number, fps = currentFps): number {
   const frames = Math.round(Math.max(0, t) * fps);
   return Math.round((frames / fps) * 1e6) / 1e6;
 }

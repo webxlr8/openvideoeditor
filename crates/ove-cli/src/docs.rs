@@ -6,46 +6,7 @@ use serde_json::{Value, json};
 
 use crate::common::{Fail, Out};
 
-/// Built-in documentation pages (the files in docs/cli).
-pub const TOPICS: &[(&str, &str, &str)] = &[
-    ("agents", "How an agent edits a project with ove (start here)", include_str!("../../../docs/cli/agents.md")),
-    ("timeline", "source print / check / apply, verify, history, undo", include_str!("../../../docs/cli/timeline.md")),
-    (
-        "project",
-        "project list / create / show / rename / duplicate / remove / open / reveal",
-        include_str!("../../../docs/cli/project.md"),
-    ),
-    ("media", "media list / add / remove / relink / probe", include_str!("../../../docs/cli/media.md")),
-    (
-        "app",
-        "app context / open / seek / play / pause and how edits reach the running app",
-        include_str!("../../../docs/cli/app.md"),
-    ),
-    ("export", "export to MP4", include_str!("../../../docs/cli/export.md")),
-    (
-        "interchange",
-        "timeline export / import (FCPXML, XML, EDL, OTIO)",
-        include_str!("../../../docs/cli/interchange.md"),
-    ),
-    ("mcp", "the MCP server and agent setup", include_str!("../../../docs/cli/mcp.md")),
-];
-
-pub fn docs(topic: Option<&str>) -> Out {
-    match topic {
-        None => {
-            let text = TOPICS.iter().map(|(n, about, _)| format!("{n}\t{about}")).collect::<Vec<_>>().join("\n");
-            let v = json!({"topics": TOPICS.iter().map(|(n, about, _)| json!({"name": n, "about": about})).collect::<Vec<_>>()});
-            Ok((v, format!("{text}\n\n`ove docs <topic>` prints one.")))
-        }
-        Some(t) => {
-            let (n, _, body) = TOPICS
-                .iter()
-                .find(|(n, ..)| n.eq_ignore_ascii_case(t))
-                .ok_or_else(|| Fail::new("docs.notFound", format!("no topic {t}; `ove docs` lists them")))?;
-            Ok((json!({"topic": n, "text": body}), body.trim_end().to_string()))
-        }
-    }
-}
+use ove_tools::tools::docs::TOPICS;
 
 /// The agent skill: front matter + the agents guide.
 pub fn skill_text() -> String {

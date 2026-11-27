@@ -9,6 +9,7 @@ The CLI can serve itself as an stdio MCP server; tools mirror CLI commands. Para
 - `print_timeline` (read-only) — project*:string, from:integer, lines:integer
 - `check_timeline` (read-only) — project*:string, edits:array, rev:integer, source:string, prefer:enum(file|editor)
 - `apply_timeline` — project*:string, edits:array, rev:integer, source:string, prefer:enum(file|editor)
+- `edit_timeline` — project*:string, request*:string (JSON: `{"op": "split" | "trim" | "rippleTrim" | "rippleDelete" | "delete" | "insert" | "overwrite" | "lift" | "extract" | "closeGap" | "slip" | "slide" | "roll" | "move", …}`, times in seconds), rev:integer, preview:boolean. One revision per call; `preview` returns the plan without applying it; a request made against an older `rev` is moved through the ripples made since; a refusal is a tool error with `code` and `details.culprits`. (This app's addition: `ove edit`.)
 - `verify_timeline` (read-only) — project*:string
 - `timeline_history` (read-only) — project*:string
 - `undo_timeline` — project*:string, rev:integer

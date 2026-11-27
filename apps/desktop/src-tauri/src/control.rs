@@ -7,7 +7,7 @@ use std::path::Path;
 use std::sync::Mutex;
 
 use ove_core::ops::Op;
-use ove_core::revision::Source;
+use ove_core::revision::{Actor, ActorKind, Source};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use specta::Type;
@@ -56,7 +56,7 @@ fn same_bundle(a: &Path, b: &Path) -> bool {
     c(a) == c(b)
 }
 
-fn context(app: &AppHandle) -> Value {
+pub fn context(app: &AppHandle) -> Value {
     let state = app.state::<AppState>();
     let project = lock(&state.projects.open).ok().and_then(|g| {
         g.as_ref().map(|p| {
@@ -112,6 +112,19 @@ fn socket_source(params: &Value) -> Result<Source, ove_control::Refusal> {
     }
 }
 
+/// The actor of a change sent over the control link: as with the source, only the command line and its MCP server
+/// use the link, so only the kinds `cli` and `mcp` are accepted (none when absent). Session, turn and client name
+/// are the caller's own labels.
+fn socket_actor(params: &Value) -> Result<Option<Actor>, ove_control::Refusal> {
+    let Some(v) = params.get("actor").filter(|v| !v.is_null()) else { return Ok(None) };
+    match serde_json::from_value::<Actor>(v.clone()) {
+        Ok(a) if matches!(a.kind, ActorKind::Cli | ActorKind::Mcp) => Ok(Some(a)),
+        _ => {
+            Err(refusal("actor.invalid", format!("changes over the control link come from cli or mcp actors, not {v}")))
+        }
+    }
+}
+
 fn handle(app: &AppHandle, method: &str, params: Value) -> Result<Value, ove_control::Refusal> {
     match method {
         "context" => Ok(context(app)),
@@ -141,11 +154,12 @@ fn handle(app: &AppHandle, method: &str, params: Value) -> Result<Value, ove_con
             let ops: Vec<Op> = serde_json::from_value(params.get("ops").cloned().unwrap_or(Value::Null))
                 .map_err(|e| refusal("ops.invalid", e.to_string()))?;
             let source = socket_source(&params)?;
+            let actor = socket_actor(&params)?;
             let summary = params.get("summary").and_then(Value::as_str).map(str::to_string);
             let state = app.state::<AppState>();
             let mut g = lock(&state.projects.open).map_err(|e| refusal("app.busy", e.message))?;
             let p = check_open(g.as_mut(), &params)?;
-            p.apply(ops, source, summary).map_err(|e| refusal(e.code(), e.to_string()))?;
+            p.apply_as(ops, source, summary, actor).map_err(|e| refusal(e.code(), e.to_string()))?;
             emit(app, Some(p));
             Ok(json!({"rev": p.rev()}))
         }
@@ -160,6 +174,19 @@ fn handle(app: &AppHandle, method: &str, params: Value) -> Result<Value, ove_con
                 Some(c) => json!({"rev": c.record.rev, "summary": c.record.summary}),
                 None => json!({"rev": null}),
             })
+        }
+        "undo" => {
+            // Selective undo of the caller's revisions (agents' `undo_timeline` / `undo_my_changes`).
+            let revs: Vec<i64> = serde_json::from_value(params.get("revs").cloned().unwrap_or(Value::Null))
+                .map_err(|e| refusal("argument.invalid", format!("revs: {e}")))?;
+            let actor = socket_actor(&params)?;
+            let summary = params.get("summary").and_then(Value::as_str).unwrap_or("undo").to_string();
+            let state = app.state::<AppState>();
+            let mut g = lock(&state.projects.open).map_err(|e| refusal("app.busy", e.message))?;
+            let p = check_open(g.as_mut(), &params)?;
+            let rev = ove_tools::ctx::undo_on(p, &revs, summary, actor).map_err(|f| refusal(&f.code, f.message))?;
+            emit(app, Some(p));
+            Ok(json!({"rev": rev}))
         }
         other => Err(refusal("method.unknown", format!("unknown method {other}"))),
     }
@@ -206,5 +233,15 @@ mod tests {
             assert_eq!(e.code, "source.invalid", "{spoofed}");
         }
         assert!(socket_source(&json!({"source": 3})).is_err());
+    }
+
+    #[test]
+    fn socket_actors_are_cli_or_mcp_only() {
+        assert_eq!(socket_actor(&json!({})).unwrap(), None);
+        let a = socket_actor(&json!({"actor": {"kind": "mcp", "session": "s", "client": "c"}})).unwrap().unwrap();
+        assert_eq!((a.kind, a.session.as_deref(), a.client.as_deref()), (ActorKind::Mcp, Some("s"), Some("c")));
+        for spoofed in ["user", "assistant", "template", "generation"] {
+            assert_eq!(socket_actor(&json!({"actor": {"kind": spoofed}})).unwrap_err().code, "actor.invalid");
+        }
     }
 }

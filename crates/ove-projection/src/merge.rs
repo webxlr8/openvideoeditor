@@ -11,7 +11,8 @@ use serde_json::{Map, Value};
 
 use ove_core::model::{Document, Item, MediaItem, RegistryEntry, Track};
 use ove_core::schema::{self, Kind};
-use ove_core::time::micros_to_json;
+use ove_core::time::{Micros, json_to_micros, micros_to_json};
+use ove_core::timemap::Ripple;
 
 use crate::normal;
 use crate::parse::Pos;
@@ -37,6 +38,10 @@ pub struct Conflict {
     pub editor_value: Option<Value>,
     pub kept: Prefer,
     pub message: String,
+    /// When the editor's side of the conflict comes from a ripple edit: `ripple <rev>`. Conflicts with one ripple
+    /// share this value, so they read as one group (the ripple moved them together).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -208,12 +213,38 @@ fn fresh_id(prefix: &str, taken: &dyn Fn(&str) -> bool, seed: &mut u64) -> Strin
     }
 }
 
-struct Ctx {
+struct Ctx<'r> {
     prefer: Prefer,
     conflicts: Vec<Conflict>,
+    ripples: &'r [Ripple],
 }
 
-impl Ctx {
+impl Ctx<'_> {
+    /// The conflict group of an id: the latest ripple that touched it.
+    fn group(&self, id: &str) -> Option<String> {
+        self.ripples.iter().rev().find(|r| r.touched.contains(id)).map(|r| format!("ripple {}", r.rev))
+    }
+
+    /// Maps an item edge of the base revision on `track` through every ripple since, oldest first.
+    fn rebase(&self, track: &str, t: Micros, end: bool) -> Micros {
+        self.ripples.iter().fold(t, |t, r| if end { r.map.map_end(track, t) } else { r.map.map(track, t) })
+    }
+
+    /// Rebases a base view and a file view of one item: each base edge passes through the ripples since the base,
+    /// and the file's edge keeps its distance from the base edge (the file's edit is relative to where the item
+    /// was). An item the file did not move stays where the ripples put it.
+    fn rebase_views(&self, base: &mut Map<String, Value>, file: &mut Map<String, Value>, track: &str) {
+        for k in ["startTime", "endTime"] {
+            let (Some(b), Some(f)) = (base.get(k).and_then(json_to_micros), file.get(k).and_then(json_to_micros))
+            else {
+                continue;
+            };
+            let moved = self.rebase(track, b, k == "endTime");
+            base.insert(k.into(), micros_to_json(moved));
+            file.insert(k.into(), micros_to_json(moved + (f - b)));
+        }
+    }
+
     /// The 3-way rule for one value. Returns `Some(new)` when the target must change.
     fn decide(
         &mut self,
@@ -229,6 +260,7 @@ impl Ctx {
         if c == f {
             return None;
         }
+        let group = self.group(id);
         self.conflicts.push(Conflict {
             id: id.to_string(),
             field: field.to_string(),
@@ -236,6 +268,7 @@ impl Ctx {
             editor_value: c,
             kept: self.prefer,
             message: format!("{id}.{field} was changed both in the file and in the editor"),
+            group,
         });
         match self.prefer {
             Prefer::File => Some(f),
@@ -255,7 +288,22 @@ fn insert_after_predecessors(list: &mut Vec<String>, order: &[String], missing: 
 
 /// Merges a file model (printed from `base`) onto `current`.
 pub fn merge(base: &Document, current: &Document, file: &FileModel, prefer: Prefer, now_ms: i64) -> Merged {
-    let mut ctx = Ctx { prefer, conflicts: Vec::new() };
+    merge_rebased(base, current, file, prefer, now_ms, &[])
+}
+
+/// [`merge`] after ripple edits: `ripples` are the ripples committed between the base and the current revision,
+/// oldest first. The start and end of every item the file changed that also exists in the base pass through their
+/// time maps first, so the item lands where the author of the file meant it relative to its neighbours. Items the
+/// file did not change and items the file adds keep their times.
+pub fn merge_rebased(
+    base: &Document,
+    current: &Document,
+    file: &FileModel,
+    prefer: Prefer,
+    now_ms: i64,
+    ripples: &[Ripple],
+) -> Merged {
+    let mut ctx = Ctx { prefer, conflicts: Vec::new(), ripples };
     let mut m = current.clone();
     let mut positions = BTreeMap::new();
     let mut seed = (now_ms as u64) ^ 0x9e37_79b9_7f4a_7c15 ^ (current.project.rev as u64);
@@ -279,6 +327,20 @@ pub fn merge(base: &Document, current: &Document, file: &FileModel, prefer: Pref
         let c = Some(Value::String(current.project.aspect_ratio.clone()));
         if let Some(Some(Value::String(v))) = ctx.decide("timeline", "aspect", b, Some(Value::String(fa.clone())), c) {
             m.project.aspect_ratio = v;
+        }
+    }
+
+    // Frame rate: compared as effective values, so an absent `fps` and `fps={30}` are the same.
+    let fps_of = |d: &Document| normal::canon(&Value::from(d.fps()));
+    let file_fps = file.fps.clone().unwrap_or_else(|| Value::from(schema::DEFAULT_FPS));
+    let file_fps = normal::canon(&file_fps);
+    if file_fps != fps_of(base)
+        && let Some(Some(v)) = ctx.decide("timeline", "fps", Some(fps_of(base)), Some(file_fps), Some(fps_of(current)))
+    {
+        if schema::project_field("fps").is_some_and(|f| schema::is_default(f, &v)) {
+            m.project.extra.shift_remove("fps");
+        } else {
+            m.project.extra.insert("fps".into(), v);
         }
     }
 
@@ -324,6 +386,7 @@ pub fn merge(base: &Document, current: &Document, file: &FileModel, prefer: Pref
                             editor_value: None,
                             kept: prefer,
                             message: format!("track {id} was edited in the file but removed in the editor"),
+                            group: None,
                         });
                         if prefer == Prefer::File {
                             m.project.tracks.push(Track {
@@ -374,6 +437,7 @@ pub fn merge(base: &Document, current: &Document, file: &FileModel, prefer: Pref
                     editor_value: None,
                     kept: prefer,
                     message: format!("track {} was removed in the file but changed in the editor", bt.id),
+                    group: None,
                 });
             }
             if !changed || prefer == Prefer::File {
@@ -402,6 +466,7 @@ pub fn merge(base: &Document, current: &Document, file: &FileModel, prefer: Pref
             editor_value: Some(c_order.clone().into()),
             kept: prefer,
             message: "the track order was changed both in the file and in the editor".into(),
+            group: None,
         });
     }
     let mut order: Vec<String>;
@@ -447,10 +512,15 @@ pub fn merge(base: &Document, current: &Document, file: &FileModel, prefer: Pref
                 positions.insert(id.clone(), fi.pos);
                 let bi = &base.project.items[id];
                 // Compared as the kind the file gives the item (the same kind unless the file changes it).
-                let bv = item_view_as(bi, &fi.kind);
-                let ch = changes(&fi.kind, &bv, &fv);
+                let mut bv = item_view_as(bi, &fi.kind);
+                let mut ch = changes(&fi.kind, &bv, &fv);
                 if ch.is_empty() {
                     continue;
+                }
+                let mut fv = fv;
+                if !ripples.is_empty() {
+                    ctx.rebase_views(&mut bv, &mut fv, &bi.track_id);
+                    ch = changes(&fi.kind, &bv, &fv);
                 }
                 match m.project.items.get(id).cloned() {
                     None => {
@@ -461,6 +531,7 @@ pub fn merge(base: &Document, current: &Document, file: &FileModel, prefer: Pref
                             editor_value: None,
                             kept: prefer,
                             message: format!("item {id} was edited in the file but removed in the editor"),
+                            group: ctx.group(id),
                         });
                         if prefer == Prefer::File {
                             let item = Item {
@@ -532,6 +603,7 @@ pub fn merge(base: &Document, current: &Document, file: &FileModel, prefer: Pref
                     editor_value: Some(ci.to_json()),
                     kept: prefer,
                     message: format!("item {id} was removed in the file but changed in the editor"),
+                    group: ctx.group(id),
                 });
             }
             if !changed || prefer == Prefer::File {

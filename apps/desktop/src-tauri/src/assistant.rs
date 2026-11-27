@@ -346,6 +346,8 @@ struct DesktopHost {
     cancel: Arc<AtomicBool>,
     /// Revisions committed by tool calls since the turn last asked.
     revs: Vec<i64>,
+    /// The chat and turn running (recorded as the actor of each revision).
+    turn: Option<(String, String)>,
 }
 
 impl DesktopHost {
@@ -370,7 +372,51 @@ impl DesktopHost {
     }
 }
 
+/// The app as seen by registry tools: the open project, and the app calls the assistant may make.
+struct DesktopApp<'a> {
+    host: &'a mut DesktopHost,
+}
+
+impl ove_tools::AppHost for DesktopApp<'_> {
+    fn with_open(
+        &mut self,
+        edit: bool,
+        f: &mut dyn FnMut(&mut ove_store::Project) -> Result<(), ove_tools::Fail>,
+    ) -> Result<(), ove_tools::Fail> {
+        let state = self.host.app.state::<AppState>();
+        let mut g =
+            crate::projects::lock(&state.projects.open).map_err(|e| ove_tools::Fail::new("app.busy", e.message))?;
+        let p = g
+            .as_mut()
+            .ok_or_else(|| ove_tools::Fail::new("app.noProject", "No project is open in the editor anymore."))?;
+        let before = p.rev();
+        let out = f(p);
+        if edit && p.rev() != before {
+            // The project is locked: a new revision here is this tool's.
+            self.host.revs.push(p.rev());
+            crate::projects::emit(&self.host.app, Some(p));
+        }
+        out
+    }
+    fn app(&mut self, method: &str, params: serde_json::Value) -> Result<serde_json::Value, ove_tools::Fail> {
+        match method {
+            "context" => Ok(crate::control::context(&self.host.app)),
+            "seek" => {
+                let seconds = params["seconds"].as_f64().unwrap_or(0.0);
+                let _ = AgentUiEvent::Seek { seconds }.emit(&self.host.app);
+                Ok(serde_json::json!({}))
+            }
+            other => {
+                Err(ove_tools::Fail::new("app.unavailable", format!("`{other}` is not available to the assistant")))
+            }
+        }
+    }
+}
+
 impl ToolHost for DesktopHost {
+    fn begin_turn(&mut self, chat_id: &str, turn_id: &str) {
+        self.turn = Some((chat_id.to_string(), turn_id.to_string()));
+    }
     fn print_timeline(&mut self, from: Option<usize>, lines: Option<usize>) -> Result<String, String> {
         self.with_project(|p| Ok(tools::print(p, from, lines)), false)
     }
@@ -405,6 +451,28 @@ impl ToolHost for DesktopHost {
     fn seek_viewer(&mut self, seconds: f64) -> Result<String, String> {
         let _ = AgentUiEvent::Seek { seconds }.emit(&self.app);
         Ok(format!("Showing {seconds:.2}s."))
+    }
+    /// Every registry tool runs its handler on the open project through `AppCtx`, except importing (the app's own
+    /// import also starts probing and thumbnails) and seeking (the viewer follows an event).
+    fn run_tool(
+        &mut self,
+        tool: &'static ove_tools::ToolSpec,
+        args: &serde_json::Map<String, serde_json::Value>,
+    ) -> Option<Result<ove_agent::tools::ToolOutput, String>> {
+        if matches!(tool.name, "add_media" | "seek") {
+            return None;
+        }
+        let turn = self.turn.clone();
+        let mut host = DesktopApp { host: self };
+        let mut ctx = match &turn {
+            Some((chat, turn)) => ove_tools::AppCtx::assistant_in(&mut host, chat, turn),
+            None => ove_tools::AppCtx::assistant(&mut host),
+        };
+        Some(
+            ove_tools::call(&mut ctx, tool.name, args)
+                .map(|r| ove_agent::tools::ToolOutput { text: tool.model_text(&r), images: r.images })
+                .map_err(|f| f.model_text()),
+        )
     }
     fn ask_user(&mut self, question_id: &str, _question: &str, _options: &[String]) -> Result<String, String> {
         let state = self.app.state::<AppState>();
@@ -748,33 +816,35 @@ pub fn fill_review(r: &mut TurnReview, bundle: &Path, present: &HashSet<String>)
 /// the project as it is now (later edits to other items are kept). Fails, changing nothing, when later edits touched
 /// the same items in a way that can't be reverted.
 pub fn undo_turn(p: &mut ove_store::Project, revs: &[i64]) -> AppResult<i64> {
+    use ove_store::undo::UndoError;
     let mut sorted = revs.to_vec();
     sorted.sort_unstable();
     sorted.dedup();
-    let mut ops = Vec::new();
-    for rev in sorted.iter().rev() {
-        let rec = ove_store::project::read_record(p.bundle(), *rev).map_err(|_| {
-            AppError::new(
-                ErrorCode::NotFound,
-                "This turn's changes are no longer in the project's history, so it can't be undone in one step.",
-            )
-        })?;
-        ops.extend(rec.inverse);
-    }
-    if ops.is_empty() {
-        return Err(AppError::new(ErrorCode::InvalidArgument, "This turn made no changes to undo."));
-    }
     let n = sorted.len();
     let summary = format!("undo the assistant's turn ({n} change{})", if n == 1 { "" } else { "s" });
-    let c = p.apply(ops, Source::Undo, Some(summary)).map_err(|e| {
+    let later = |what: String| {
         AppError::new(
             ErrorCode::InvalidArgument,
             format!(
-                "This turn can't be undone in one step because later edits changed the same items ({e}). Open History (the clock next to Undo) to go back to before it."
+                "This turn can't be undone in one step because later edits changed the same items ({what}). Open History (the clock next to Undo) to go back to before it."
             ),
         )
-    })?;
-    Ok(c.record.rev)
+    };
+    match p.undo_selected(&sorted, Source::Undo, summary, None) {
+        Ok(c) => Ok(c.record.rev),
+        Err(UndoError::Nothing) => Err(AppError::new(ErrorCode::InvalidArgument, "This turn made no changes to undo.")),
+        Err(UndoError::Conflict(c)) => Err(later(
+            c.iter()
+                .map(|x| format!("{} {}", x.item.as_deref().unwrap_or(&x.object), x.field))
+                .collect::<Vec<_>>()
+                .join(", "),
+        )),
+        Err(UndoError::Store(e)) if e.code() == "undo.unavailable" => Err(AppError::new(
+            ErrorCode::NotFound,
+            "This turn's changes are no longer in the project's history, so it can't be undone in one step.",
+        )),
+        Err(UndoError::Store(e)) => Err(later(e.to_string())),
+    }
 }
 
 #[tauri::command]
@@ -914,7 +984,7 @@ pub async fn agent_send(app: AppHandle, chat_id: Option<String>, text: String) -
             .spawn(move || {
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     let client = Client::new(key);
-                    let mut host = DesktopHost { app: app2.clone(), cancel: cancel.clone(), revs: Vec::new() };
+                    let mut host = DesktopHost { app: app2.clone(), cancel: cancel.clone(), revs: Vec::new(), turn: None };
                     let cfg = TurnConfig {
                         model,
                         max_requests: limits.max_requests as usize,

@@ -4,8 +4,10 @@
 #![forbid(unsafe_code)]
 
 pub mod audio;
+pub mod grid;
 pub mod image;
 pub mod look;
+pub mod storyboard;
 pub mod video;
 
 pub use audio::{Levels, Loudness, Range, levels, loudness, silence, waveform_png};

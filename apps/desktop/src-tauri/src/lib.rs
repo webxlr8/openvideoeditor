@@ -15,6 +15,7 @@ pub mod generation;
 pub mod interchange;
 pub mod logging;
 pub mod media;
+pub mod models;
 pub mod motion;
 pub mod onboarding;
 pub mod projects;
@@ -174,6 +175,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             edits::duplicate_items,
             edits::paste_items,
             edits::trim_item,
+            edits::edit_plan,
+            edits::edit_preview,
             edits::add_track,
             edits::rename_track,
             edits::reorder_tracks,
@@ -214,6 +217,9 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             onboarding::onboarding_state,
             onboarding::onboarding_update,
             sample::create_sample_project,
+            // Settings → Storage: local machine-learning models (add-model-runtime).
+            models::local_models,
+            models::remove_local_model,
         ])
         .events(collect_events![
             PlaybackChanged,
@@ -227,6 +233,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             exporting::ExportProgress,
             assistant::AgentUiEvent,
             captions::CaptionJobProgress,
+            models::LocalModelsChanged,
         ])
         .error_handling(tauri_specta::ErrorHandlingMode::Result)
 }

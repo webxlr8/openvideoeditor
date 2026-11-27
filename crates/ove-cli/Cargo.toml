@@ -18,19 +18,22 @@ ove-analyze = { path = "../ove-analyze", optional = true }
 ove-agents = { path = "../ove-agents" }
 ove-control = { path = "../ove-control" }
 ove-core = { path = "../ove-core" }
+ove-edit = { path = "../ove-edit" }
 ove-generate = { path = "../ove-generate" }
 ove-guard = { path = "../ove-guard" }
 ove-interchange = { path = "../ove-interchange" }
 ove-projection = { path = "../ove-projection" }
 ove-media = { path = "../ove-media", optional = true }
+ove-models = { path = "../ove-models", features = ["onnx"] }
 ove-render = { path = "../ove-render", optional = true }
 ove-store = { path = "../ove-store" }
+ove-tools = { path = "../ove-tools" }
 serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
 tempfile = "3"
 
 [features]
 # Reading media, analysis and `ove export` (links FFmpeg). Desktop bundles build the CLI with it.
-media = ["dep:ove-analyze", "dep:ove-media", "dep:ove-render"]
+media = ["dep:ove-analyze", "dep:ove-media", "dep:ove-render", "ove-tools/media"]
 # Former name of `media`.
 export = ["media"]
 
