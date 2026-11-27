@@ -7,6 +7,7 @@ use crate::canvas::Rgba;
 use crate::text::parse_color;
 
 pub type V3 = [f32; 3];
+pub type V4 = [f32; 4];
 
 /// Parameter values resolved against the contract: defaults filled, numbers clamped to their ranges.
 #[derive(Debug, Clone, Default)]
@@ -71,6 +72,22 @@ impl Params {
         self.vecs.iter().find(|e| e.0 == k).map_or([0.0; 3], |e| e.1)
     }
 
+    /// The values in contract order as floats (a number or toggle: 1; a colour: 3; a point: 2), for GPU shaders.
+    pub fn packed(&self, spec: &EffectSpec) -> Vec<f32> {
+        let mut out = Vec::new();
+        for s in spec.params {
+            match s.kind {
+                ParamKind::Color => out.extend(self.c(s.name)),
+                ParamKind::Point => {
+                    let (x, y) = self.pt(s.name);
+                    out.extend([x, y]);
+                }
+                _ => out.push(self.n(s.name)),
+            }
+        }
+        out
+    }
+
     pub fn pt(&self, k: &str) -> (f32, f32) {
         let v = self.vecs.iter().find(|e| e.0 == k).map_or([0.5, 0.5, 0.0], |e| e.1);
         (v[0], v[1])
@@ -109,6 +126,16 @@ impl Ctx<'_> {
             o[k] = (top + (bot - top) * fy) / 255.0;
         }
         o
+    }
+
+    /// The source pixel under normalised coordinates (nearest, clamped), RGBA in 0..1.
+    #[inline]
+    pub fn texel(&self, u: f32, v: f32) -> V4 {
+        let s = self.src;
+        let x = ((u * self.w) as i64).clamp(0, s.w as i64 - 1) as u32;
+        let y = ((v * self.h) as i64).clamp(0, s.h as i64 - 1) as u32;
+        let i = ((y * s.w + x) * 4) as usize;
+        [0, 1, 2, 3].map(|k| s.data[i + k] as f32 / 255.0)
     }
 
     /// Aspect-corrected offset from a centre point: x scaled by the aspect so circles stay round.

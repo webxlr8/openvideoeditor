@@ -96,6 +96,12 @@ fn documented_examples_run_with_documented_exit_codes() {
 }
 
 #[test]
+fn color_examples() {
+    let (d, lib) = setup();
+    assert_eq!(run_examples("color.md", &lib, d.path()), 3);
+}
+
+#[test]
 fn project_examples() {
     let (d, lib) = setup();
     assert_eq!(run_examples("project.md", &lib, d.path()), 7);

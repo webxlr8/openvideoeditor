@@ -310,6 +310,23 @@ export const commands = {
 	matchColor: (itemId: string, referenceTime: number | null, strength: number | null) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("match_color", { itemId, referenceTime, strength })),
 	/**  Histograms (red, green, blue, luma; 64 bins, 0..1) of the timeline frame at `time` seconds. */
 	colorScopes: (time: number | null) => typedError<((number | null)[])[], AppError>(__TAURI_INVOKE("color_scopes", { time })),
+	/**
+	 *  Sets the key colour of chroma key `effect_id` on `item_id` to the mean source colour (before grading) under a
+	 *  viewer point or rectangle (`rect`: x0, y0, x1, y1 as fractions of the frame) at `time` seconds: one revision.
+	 *  A point or rectangle that misses the layer changes nothing and reports `outside`.
+	 */
+	sampleKeyColor: (itemId: string, effectId: string, time: number | null, rect: (number | null)[]) => typedError<KeySample_Serialize, AppError>(__TAURI_INVOKE("sample_key_color", { itemId, effectId, time, rect })),
+	/**  Which scope the colour panel shows (`waveform`, `parade`, `vectorscope`), or none to stop binning. */
+	setScope: (scope: string | null) => typedError<null, AppError>(__TAURI_INVOKE("set_scope", { scope })),
+	/**  The latest scope grid, when newer than `since` (its `seq`). */
+	scopeFrame: (since: number | null) => typedError<ScopeFrame | null, AppError>(__TAURI_INVOKE("scope_frame", { since })),
+	/**  The current compositing status. */
+	compositingStatus: () => typedError<CompositingStatus_Serialize, AppError>(__TAURI_INVOKE("compositing_status")),
+	/**
+	 *  Allows or forbids the GPU for compositing. Applies to timeline previews built (the timeline is rebuilt on every
+	 *  edit and on open) and exports started after the change.
+	 */
+	setGpuCompositing: (enabled: boolean) => typedError<CompositingStatus_Serialize, AppError>(__TAURI_INVOKE("set_gpu_compositing", { enabled })),
 	/**  The onboarding state (a first run when there is none yet). */
 	onboardingState: () => typedError<OnboardingState_Serialize, AppError>(__TAURI_INVOKE("onboarding_state")),
 	/**  Changes the onboarding state and returns it as it is now. */
@@ -763,6 +780,31 @@ export type ClearResult_Serialize = {
 	/**  Files that could not be removed (in use); they go on the next clear. */
 	left: number,
 	view: StorageView_Serialize,
+};
+
+/**  What Settings and the diagnostics overlay show. */
+export type CompositingStatus = CompositingStatus_Serialize | CompositingStatus_Deserialize;
+
+/**  What Settings and the diagnostics overlay show. */
+export type CompositingStatus_Deserialize = {
+	/**  The person allows the GPU (Settings → Rendering). */
+	gpuEnabled: boolean,
+	/**  The backend in use: "gpu" or "cpu"; "starting" until the startup self-test has run. */
+	backend: string,
+	adapter?: string | null,
+	/**  Why this backend. */
+	reason: string,
+};
+
+/**  What Settings and the diagnostics overlay show. */
+export type CompositingStatus_Serialize = {
+	/**  The person allows the GPU (Settings → Rendering). */
+	gpuEnabled: boolean,
+	/**  The backend in use: "gpu" or "cpu"; "starting" until the startup self-test has run. */
+	backend: string,
+	adapter: string | null,
+	/**  Why this backend. */
+	reason: string,
 };
 
 /**  One desktop client as the Connect list shows it. */
@@ -1339,6 +1381,27 @@ export type KeyCheck = {
 	message: string,
 };
 
+/**  What a key colour sample did: the new colour and the project, or that the point was outside the layer. */
+export type KeySample = KeySample_Serialize | KeySample_Deserialize;
+
+/**  What a key colour sample did: the new colour and the project, or that the point was outside the layer. */
+export type KeySample_Deserialize = {
+	/**  The click or rectangle missed the layer: nothing changed. */
+	outside: boolean,
+	/**  The sampled colour (RGB 0..1), when set. */
+	color?: (number | null)[] | null,
+	project?: ProjectView_Deserialize | null,
+};
+
+/**  What a key colour sample did: the new colour and the project, or that the point was outside the layer. */
+export type KeySample_Serialize = {
+	/**  The click or rectangle missed the layer: nothing changed. */
+	outside: boolean,
+	/**  The sampled colour (RGB 0..1), when set. */
+	color: (number | null)[] | null,
+	project: ProjectView_Serialize | null,
+};
+
 /**  One model as the Storage list shows it. */
 export type LocalModel = LocalModel_Serialize | LocalModel_Deserialize;
 
@@ -1798,6 +1861,19 @@ export type SavedRange_Serialize = {
 	replaced: boolean,
 	/**  "ProRes 422 HQ", "DNxHR HQ", … */
 	format: string | null,
+};
+
+/**  The latest scope for the panel. */
+export type ScopeFrame = {
+	/**  Increases with every new grid. */
+	seq: number | null,
+	scope: string,
+	/**  Timeline time of the frame, microseconds. */
+	ptsUs: number | null,
+	width: number,
+	height: number,
+	/**  `width × height` density bytes (0 empty … 255 fullest), row-major, base64. */
+	data: string,
 };
 
 export type SendResult = {

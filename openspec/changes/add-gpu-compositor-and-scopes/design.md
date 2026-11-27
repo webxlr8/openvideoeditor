@@ -104,3 +104,166 @@ ones change appearance once, which is the bug fix in fix-render-and-edit-correct
 - DirectML is not used here; wgpu on D3D12 and Metal only.
 - Reference machines for the 1080p30 gate: M1 (8-core GPU) and a laptop with Intel Iris Xe, unless the owner names
   others.
+
+## Results
+
+### Group 1: numeric colour readout (CPU), measured 2026-11-27 on the Windows 11 x64 worker (CPU only, no GPU used)
+
+- `ove-analyze::color_stats`: 9 unit tests on synthetic frames (grey ramp: mean 50.00 %, p2 1.96 %, p98 98.04 %,
+  even 16-bin histogram; 75 % colour bars: saturation 6/7, six equal hue bins; warm and cool casts move CIELAB b* by
+  more than 10; skin tone within 8° of the 123° line, red and yellow shifts on the expected sides; CIEDE2000 matches 6
+  published reference pairs within 0.001).
+- Deviation from D8: the suggestion is not built from `fit_match`. On the warm-shift loop, the Lab mean and
+  standard-deviation fit of `fit_match` settled at a fixed point with mean ΔE00 4.2 (from 9.4) and did not improve
+  with more rounds. `suggestedOps` now fits a line per channel through matching quantiles (5 % … 95 %, clipped values
+  left out), composes it with the shot's current gain and offset wheels, and scales saturation to the reference's
+  CIELAB chroma. Each step is capped (gain ±0.35, offset ±0.25, saturation ×0.75…1.33). `fit_match` is unchanged and
+  still drives the app's Match colour action.
+- Mock-agent loop (task 1.4, `crates/ove-cli/tests/color.rs`, H.264 test clips at 320×180, measured at 180 lines):
+  mean ΔE00 per round 4.302 → 1.441 → 2.185 → 1.135. The first round, applied as `suggestedEdit` through the
+  projection, is below 2. Later rounds, applied as `suggestedOps`, stay within ±1 of the goal (a small overshoot comes
+  from composing per-channel wheels ahead of saturation).
+- Repeat output is byte-identical (CLI test). Refusals exit 1: time past the end (names the duration), missing
+  reference (names it), `--isolate` without `--item`, unknown item.
+- Fixture note: the LGPL FFmpeg build on this machine has no still-image demuxer, so the tests use short H.264 clips
+  made by the fixture FFmpeg instead of PNG stills.
+
+### Group 2: backend trait and parity harness
+
+- `ove_render::backend`: the `Backend` trait over image handles (`Tex`) with create, upload, read, release, size,
+  `cpu` (run CPU code on an image), copy, draw, grade, lut, effect, transition mask, mix and opaque. Every operation
+  has a default that uses `cpu` with the reference code, so a backend overrides only what it does natively (D2).
+  `CpuBackend` keeps uploaded frames shared until written (no extra copy). The renderer drives the backend;
+  `Renderer::new` keeps the CPU backend, `Renderer::with_backend` and `set_backend` take another. All 112 ove-render
+  tests (unit, blend, effect and caption goldens, export safety, mixdown, motion, render) pass unchanged; the HDR
+  fixture test was skipped (needs python3, `OVE_ALLOW_MISSING_MEDIA_TOOLS=1`).
+- `ove_render::parity`: max channel difference, mean channel difference and CIEDE2000 p99 (ΔE computed only for
+  pixels whose colour differs); one mosaic frame of 4 charts (75 % bars, grey ramp, hue and saturation sweep, alpha
+  checker) and 3 procedural reference pictures (landscape, portrait stand-in, textured interior). The repository has
+  no real camera frames, so the "real frames" are procedural stand-ins. 113 cases: 3 draws, 16 blend modes aligned
+  and transformed, the basic grade, a grade lattice, 9 LUT presets, 41 effects, 23 visual transitions plus 2
+  outgoing sides, and a half-strength adjustment.
+- The effect goldens were already tolerance-based and shared by all three operating systems (wave 0,
+  `tests/golden/effects-48x27.pam`, 1 step per channel); no Linux-only hashes were left to replace.
+- Tasks 2.2 and 2.3 stay open until a CI run: the harness runs in the workspace test step on Linux, macOS and Windows
+  and the new "GPU parity (software adapter)" step and nightly `gpu-parity` job are written, but no CI run was made
+  from this worker (no push). Local results are under Group 3.
+
+### Group 3: GPU compositor core (Windows 11 worker; adapters named per measurement)
+
+- `crates/ove-gpu/src/compositor/`: `GpuBackend` implements the backend trait with wgpu compute shaders for layer
+  drawing (inverse affine map, crop, rounded corners, bilinear sampling, opacity, all 16 blend modes and `add`), the
+  basic grade (per-channel tables from `canvas::grade_tables`, then saturation and vibrance), LUTs and baked grade
+  lattices (tetrahedral lookup), partial mixes and the final alpha pass. Effects, transition masks and captions run
+  per layer on the CPU (readback, CPU code, upload) until they are ported (D2).
+- Deviations from D1 and 3.1, with reasons: images are `rgba8unorm` storage textures and every shader rounds to 8
+  bits where the CPU reference does (the reference is 8-bit, so this keeps parity at 1 step; 16-bit float
+  intermediates come with add-color-management-and-subject-mattes). Lattices are storage buffers read with the same
+  tetrahedral arithmetic as the CPU, not 3D textures (hardware filtering is trilinear and less exact). Which pixels a
+  hard layer edge covers is decided on the CPU per row with the reference's f64 arithmetic and passed as spans:
+  computed in f32 on the GPU, single edge pixels flipped (one case measured max 184/255 at one pixel before this).
+- Parity (`cargo test -p ove-gpu --test parity`, 113 cases at 1920×1080, every case within tolerance):
+  - NVIDIA GeForce RTX 4070 (Dx12, DiscreteGpu, driver 32.0.16.1088): worst max 1/255, worst mean 0.000/255,
+    CIEDE2000 p99 0.000 everywhere; CPU 7.5 s, GPU 5.2 s for all cases including uploads and readbacks.
+  - Microsoft Basic Render Driver (WARP; Dx12, Cpu, driver 10.0.22621.5160): worst max 1/255; GPU 113 s.
+  - 97 native GPU passes and 57 CPU fallbacks per run (effects, masks).
+- Wrong shader (task 2.3 check): the difference blend scaled by 0.9 fails exactly "blend difference" (max 25/255,
+  mean 3.222/255, CIEDE2000 p99 5.347) and "blend difference, transformed" on both the RTX 4070 and WARP.
+- Whole project (`render_parity`, 360p, 53 frames: one clip per effect for all 41 effects, 8 blend modes over
+  transformed, cropped, rounded clips, grade with wheels and a LUT, a wipe join, a push, a shader item, text):
+  RTX 4070 worst max 1/255, worst mean 0.010/255.
+- Selection (D9): `select(auto)` opens a hardware adapter (software adapters are not used automatically), runs the
+  self-test (draws, 3 blend modes, grade, lattice, LUT, mix at 192×108) once per adapter and process, and falls back
+  to the CPU with the reason. RTX 4070: "GPU self-test passed". A forced self-test failure gives the CPU backend and
+  "GPU self-test failed …". A device loss during rendering (simulated with `LossHandle::trigger`) switches the
+  renderer to the CPU backend, logs it, and the next frame equals the CPU frame byte for byte.
+- `ove render` (alias of `export`), `look` and `color inspect` take `--backend auto|cpu|gpu` (also `OVE_BACKEND`)
+  and report `"backend": {"name", "adapter", "reason"}`; an unknown name exits 1 naming the valid ones. The app keeps
+  the choice in `compositing.json` (Settings → Rendering, on by default), runs the self-test at startup in the
+  background, uses it for the timeline preview, Match colour and export, and the diagnostics overlay shows
+  "timeline compositor (GPU, <adapter>; N ms/frame)" or "(CPU — <reason>; …)". UI test: the toggle switches the
+  status between "Active: GPU (…)" and "Active: CPU — the GPU is turned off in Settings."
+- Not measured here: the built app on macOS and Windows (task 7.1).
+
+### Group 4: effects, transitions and alpha
+
+- 4.1: the per-pixel effect function returns RGBA (`PixelFn::Rgba`) or RGB (`PixelFn::Rgb`, input alpha kept). All
+  28 colour and distortion effects keep the alpha of a semi-transparent layer exactly; the 13 background generators
+  fill their area as before (unit test `existing_effects_keep_input_alpha`). The effect goldens are unchanged.
+- 4.2: keyframe tracks with the property `effects.<effect id>.<parameter>` animate a numeric effect parameter with the
+  shared evaluator (`eval::track_value`, the one transform keyframes use). Zoom blur intensity keyframed 0 → 20 over
+  1 s gives 10 at 0.5 s and the same pixels as a static 10. `ove source apply` refuses a track on a parameter the
+  effect does not have (`keyframe.effect.param`, "effect zoom-blur ("b") has no numeric parameter "radius" …") or on
+  an effect id the item does not have (`keyframe.effect.exists`). ove-core keeps the table of numeric parameters
+  (`effect_params.rs`), and an ove-render test keeps it equal to the effect contract. The JSON schema and
+  `timeline.d.ts` accept the new property form (`effects.${string}.${string}`).
+- 4.3 (open; Option A, approved by the CTO and CEO: port by measured cost, every port passes parity on the RTX 4070
+  and WARP before it lands). Per-frame cost at 1920×1080 (`cargo test -p ove-gpu --test costs -- --ignored`,
+  NVIDIA GeForce RTX 4070, median of 5; "GPU backend" is the native shader, or the CPU fallback with readback and
+  upload):
+  - Native now: zoom-blur 68.9 ms on the CPU → 3.4 ms; tilt-shift 56.7 → 3.0 ms; aurora 70.2 → 0.8 ms; transition
+    masks wipe-left 3.6 → 0.6 ms, radial-wipe 9.6 → 1.0 ms, ink-bleed 17.6 → 0.8 ms, mask-glitch 8.3 → 0.8 ms.
+    Parity at 1080p: worst max 1/255 on the RTX 4070 and on WARP for each.
+  - On the CPU fallback: 38 of the 41 effects (duotone, tritone, gradient-map, posterize, solarize, halftone, dither,
+    engraving, watercolor, pixelate, chromatic-aberration, glitch, vhs, crt-screen, light-leak, lens-flare, bulge,
+    spherize, lens-distortion, twirl, wave-distortion, kaleidoscope, mirror, polar-coordinates, fluted-glass,
+    glass-tiles, mesh-gradient, flowing-gradient, plasma, swirl, marble, godrays, sunburst, spiral, conic-gradient,
+    voronoi, stripes, studio-background), and so the glitch, chromatic-aberration and light-leak post effects of
+    transitions. Costliest on the fallback: watercolor 80.9 ms, flowing-gradient 43.8 ms.
+  - Watercolor was ported and failed parity: its pigment-pool step `round(x·6)` lands on the other side of a step on
+    a few pixels (max 27/255, mean 0.000/255), so it stays on the CPU. Hard quantisation steps like this need exact
+    arithmetic shared by both sides before they can move.
+  - The effect noise uses the existing integer hash (`util::hash21`), ported bit for bit, rather than a new PCG
+    hash: it is already an integer hash on both sides, and changing it would change every noise effect's look.
+- 4.4 (open): the timeline preview composites at 1080 lines when the GPU backend is active (540 on the CPU). The
+  gate (0 dropped frames over 60 s for the four-layer project) needs the reference machines (M1 with an 8-core GPU,
+  a laptop with Intel Iris Xe) and the built app; not measured here.
+
+### Group 5: chroma key
+
+- 5.1 (open): `chroma-key` (`effects/key.rs`, CPU reference; native WGSL from the start, no new fallback). Distance in
+  the BT.709 CbCr plane with chroma divided by luma and measured relative to the key's own chroma; smooth matte from
+  `tolerance` over `softness`, edge blur (16 golden-angle taps), choke, matte levels, matte view, spill suppression
+  near the key colour with luma restored. Synthetic plates (soft round subject over an unevenly lit screen with spill,
+  exact ground truth; 192×108) — the CC0 plates are not in the repository, so these numbers stand in for them:
+  - green: mean matte error (SAD / pixels) 0.0034, edge spill 0.0004, interior mean CIEDE2000 0.000;
+  - blue: mean matte error 0.0072, edge spill 0.0080, interior mean CIEDE2000 0.000;
+  - a dark green screen (a third of the brightness): mean matte error under 0.03; a layer without the key colour is
+    unchanged byte for byte.
+  - Parity at 1080p, three cases (defaults; blue key with edge blur 4 and choke 0.3; matte view with levels): worst
+    max 1/255 on the RTX 4070 and on WARP. FXC rejected a dynamic vector write in the first shader; pipelines of
+    ported effects and masks are now built inside a validation error scope, and a shader the driver rejects falls
+    back to the CPU instead of producing empty frames.
+- 5.2: `Renderer::sample_source` averages the source (before grade and effects) under a viewer point (3×3 source
+  pixels) or rectangle (up to 64×64 samples), with the layer's own placement (shared `media_placement`); a point
+  outside the layer gives nothing. The app's `sample_key_color` sets the key colour as one revision ("sample key
+  colour") or reports `outside`. In the chroma key's panel, "Sample from viewer" arms a crosshair layer over the
+  viewer; a click outside the layer shows "That point is outside the selected layer" and changes nothing (UI test).
+  `ove look --view matte` (MCP `look` `view: "matte"`) shows every key's matte without changing the project; it gives
+  the same frame as the effect's own `matteView` (CLI test).
+- 5.3: `docs/spec/presets.md` has a "Key effects" section and `ove docs color` a "Chroma key" section; a test checks
+  that presets.md lists exactly the registry's effects and parameter names. The effect catalogue is 42 entries: the 41
+  of the reference and the chroma key (group "key", shown first in the effect pickers). The effect golden gained one
+  band; the 41 existing bands are byte-identical.
+- Flaky under full parallel load (passes alone and on repeat): `ove-cli` `export_queue::mcp_export_video_job_status_
+  and_cancel_job` failed once at its cancel step while every crate's tests ran at once.
+
+### Group 6: visual scopes
+
+- 6.1: `ove_render::scopes` bins a frame into 256 × 256 counts for the luma waveform, the RGB parade (three 85-column
+  panels) and the vectorscope (BT.709 Cb right, Cr up), with integer arithmetic on code values and log density as
+  u8. The GPU compute pass (`GpuBackend::scope`, atomic counters) gives exactly the CPU counts for all three scopes
+  (RTX 4070 and WARP). Colour bars: every 75 % bar lands in its target box (±2 bins) and every bar's waveform level is
+  within 1 bin. Cost per 960×540 frame: CPU 3.6 ms (waveform), 3.9 ms (parade), 3.9 ms (vectorscope) on this
+  32-core machine (target ≤ 6 ms); GPU 0.48 ms each on the RTX 4070 and 2.4–3.9 ms on WARP, including the 256 KB
+  readback (target ≤ 2 ms).
+- 6.2: the frame the viewer presents (`timeline::to_viewer`) is offered to a scope worker; it bins the scope the
+  colour panel shows at most every 66 ms (15 Hz) and drops frames while busy, so playback never waits. The panel
+  (Colour tab, under the histogram) polls `scope_frame` every 66 ms and draws the 64 KB grid (base64, about 87 KB
+  per update) on a canvas, with Waveform, Parade and Vectorscope buttons. UI test: after a grade change while
+  paused, a new scope frame is drawn well within 200 ms. Measured in the real app: not yet (task 7.1).
+- 6.3: `ove look --scope waveform|parade|vectorscope` (MCP `look` `scope`) writes the scope image (512 × 512, with
+  the graticule: level lines, or the centre cross, 75 % target boxes and skin line) to `--out` (a .png for one time,
+  else a folder) and returns it to agents; `--scope histogram2` exits 1 and lists the valid names.
+- Flaky under full parallel load (passes alone and on repeat): the app's `scrub::tests::scrub_latency_and_edits`
+  (a latency bound).

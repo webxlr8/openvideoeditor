@@ -112,6 +112,9 @@ pub struct ExportArgs {
     /// and after).
     #[arg(long, allow_negative_numbers = true)]
     pub loudness: Option<String>,
+    /// Compositing backend: auto (the GPU when its self-test passes), cpu or gpu.
+    #[arg(long)]
+    pub backend: Option<String>,
 }
 
 /// `START-END` (also `START,END` or `START:END`) in seconds.
@@ -161,6 +164,9 @@ pub fn tool_args(a: &ExportArgs) -> Result<Map<String, Value>, Fail> {
                 Fail::new("argument.invalid", format!("--loudness is off, -14, -16, -23 or -24, not {l}"))
             })?;
         put("loudness", json!(v));
+    }
+    if let Some(b) = &a.backend {
+        put("backend", json!(b));
     }
     Ok(m)
 }

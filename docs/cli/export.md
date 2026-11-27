@@ -1,6 +1,6 @@
 # `ove export`
 
-Renders the timeline, or a range of it, to a video or audio file. Available when the CLI is built with the `media`
+Renders the timeline, or a range of it, to a video or audio file (`ove render` is the same command). Available when the CLI is built with the `media`
 feature (`cargo build -p ove-cli --features media`; desktop bundles include it). The MCP tool `export_video` takes the
 same settings.
 
@@ -8,7 +8,7 @@ same settings.
 ove export <project> <out> [--preset <name>] [--format <container>] [--video-codec <codec>] [--profile <p>]
            [--bit-depth <8|10|12>] [--quality <level>] [--alpha] [--audio-codec <codec>] [--audio-bit-depth <16|24>]
            [--range <start-end>] [--size <height|match>] [--height <px>] [--fps <n>] [--audio-only]
-           [--loudness off|-14|-16|-23|-24] [--detach] [--json]
+           [--loudness off|-14|-16|-23|-24] [--backend auto|cpu|gpu] [--detach] [--json]
 ```
 
 ## Settings
@@ -30,6 +30,7 @@ for MP4, MOV and MKV; VP9 and Opus for WebM; AAC for M4A; 24-bit PCM for WAV; 24
 | range | `START-END` in seconds; only that part is rendered. The end must be after the start and inside the timeline. |
 | size | A height (`720`, `1080` (default), `2160`, `4k`); the width follows the aspect ratio. `match`: the timeline's own size (1920×1080 for 16:9, 1080×1920 for 9:16, …). |
 | fps | 1–120 (default 30; presets use the timeline's rate). |
+| backend (`--backend`) | The compositing backend: `auto` (default, or `OVE_BACKEND`) uses the GPU when a hardware adapter passes a startup self-test against the CPU reference, else the CPU; `cpu` and `gpu` force one (`gpu` fails the job when there is no adapter at all). Both make the same frames within the parity tolerance (largest channel difference 2/255, mean 0.25/255, CIEDE2000 p99 1.0). The backend stays the same for the whole job; when a GPU device is lost, the remaining frames are made on the CPU. The result reports it as `"backend": "gpu: GPU self-test passed (<adapter>)"`. |
 
 Combinations that cannot be written are refused before anything renders (exit 1, code `export.invalid`), with a
 message that names the conflicting fields: ProRes in MP4, alpha with H.264, 10-bit H.264, a range that ends before it

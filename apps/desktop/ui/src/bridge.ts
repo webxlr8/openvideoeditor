@@ -81,6 +81,13 @@ export function skimUrl(contentId: string): string {
 // Browser mock
 
 export interface MockControl {
+  /** The simulated compositing backend (Settings → Rendering, the diagnostics overlay). */
+  compositing?: {
+    gpuEnabled: boolean;
+    backend: string;
+    adapter: string | null;
+    reason: string;
+  };
   /** Crash reports the native side would list. */
   crashReports?: { path: string; at: number; summary: string; seen: boolean }[];
   /** The feedback page a build may set (`OVE_FEEDBACK_URL`); none by default. */
@@ -2186,6 +2193,32 @@ function createMock(): {
       return ok({ mediaId: `m_r${n}`, file, itemId: replace ? `i_r${n}` : null, replaced: replace, format: "ProRes 422 HQ" });
     },
     revealPath: (path: string) => (track(`revealPath:${path}`), ok(null)),
+    compositingStatus: () =>
+      ok(
+        control.compositing ?? {
+          gpuEnabled: true,
+          backend: "gpu",
+          adapter: "Mock GPU",
+          reason: "GPU self-test passed (Mock GPU)",
+        },
+      ),
+    setGpuCompositing: (enabled: boolean) => {
+      track(`setGpuCompositing:${enabled}`);
+      control.compositing = enabled
+        ? {
+            gpuEnabled: true,
+            backend: "gpu",
+            adapter: "Mock GPU",
+            reason: "GPU self-test passed (Mock GPU)",
+          }
+        : {
+            gpuEnabled: false,
+            backend: "cpu",
+            adapter: null,
+            reason: "the GPU is turned off in Settings",
+          };
+      return ok(control.compositing);
+    },
     crashReports: () => Promise.resolve(control.crashReports ?? []),
     markCrashReportsSeen: () => {
       for (const r of control.crashReports ?? []) r.seen = true;
@@ -2526,6 +2559,28 @@ function createMock(): {
         .replace(/-cube$/, "");
       return ok<string | null>(`luts/${name}.cube`);
     },
+    // The mock frame is a green screen with the subject in the middle third: points left of 10 % are outside the
+    // layer, points in the middle third sample the subject, the rest the screen.
+    sampleKeyColor: async (itemId: string, effectId: string, time: number | null, rectIn: (number | null)[]) => {
+      const rect = rectIn.map((v) => v ?? 0);
+      const sample = (outside: boolean, color: number[] | null, project: ProjectView_Serialize | null) =>
+        ok({ outside, color, project });
+      track(`sampleKeyColor:${itemId}:${effectId}:${time}:${rect.map((v) => v.toFixed(2)).join(",")}`);
+      const [x0, y0, x1, y1] = rect;
+      if (x1 < 0.1) return sample(true, null, null);
+      const mid = (x0 + x1) / 2 > 0.33 && (x0 + x1) / 2 < 0.66 && (y0 + y1) / 2 > 0.33 && (y0 + y1) / 2 < 0.66;
+      const color = mid ? [0.8, 0.125, 0.125] : [0.12, 0.72, 0.22];
+      const r = await editProject("sample key colour", () => {
+        const i = mock(itemId);
+        if (!i) return;
+        const list = ((i.fields.effects as Fields[] | undefined) ?? []).map((e) =>
+          e.id === effectId ? { ...e, keyColor: color } : e,
+        );
+        i.fields.effects = list;
+      });
+      if (r.status === "error") return r;
+      return sample(false, color, r.data);
+    },
     matchColor: (
       itemId: string,
       referenceTime: number | null,
@@ -2549,6 +2604,16 @@ function createMock(): {
           },
         };
       }),
+    setScope: (scope: string | null) => {
+      track(`setScope:${scope ?? "none"}`);
+      return ok(null);
+    },
+    // A new scope grid whenever the project changes (the engine re-renders the paused frame on every edit).
+    scopeFrame: (since: number | null) => {
+      const seq = project?.rev ?? 0;
+      if (since != null && seq <= since) return ok(null);
+      return ok({ seq, scope: "waveform", ptsUs: 0, width: 256, height: 256, data: btoa("\u0000".repeat(65536)) });
+    },
     colorScopes: (time: number | null) => {
       track(`colorScopes:${time ?? 0}`);
       const bins = (shift: number) =>

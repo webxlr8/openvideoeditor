@@ -6,6 +6,7 @@ pub mod assistant;
 pub mod background;
 pub mod captions;
 pub mod commands;
+pub mod compositing;
 pub mod connectors;
 pub mod control;
 pub mod ducking;
@@ -27,6 +28,7 @@ pub mod onboarding;
 pub mod projects;
 pub mod proxies;
 pub mod sample;
+pub mod scopes;
 pub mod scripted_dialogs;
 pub mod scrub;
 pub mod skills;
@@ -254,6 +256,11 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             fx::import_lut,
             fx::match_color,
             fx::color_scopes,
+            fx::sample_key_color,
+            scopes::set_scope,
+            scopes::scope_frame,
+            compositing::compositing_status,
+            compositing::set_gpu_compositing,
             // Onboarding: the welcome and checklist state, and the sample project.
             onboarding::onboarding_state,
             onboarding::onboarding_update,
@@ -662,6 +669,7 @@ pub fn run() -> ExitCode {
             app.manage(proxies::Proxies::default());
             // The command line / MCP server reach the app through the control link.
             control::start(&handle);
+            compositing::init(&handle);
             app.manage(generation::Generation::default());
             app.manage(onboarding::Onboarding::new(app.path().app_config_dir().ok()));
 

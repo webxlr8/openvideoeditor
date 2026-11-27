@@ -24,6 +24,9 @@ pub enum Kind {
     SignedTime,
     /// One of a fixed list of strings.
     Enum(&'static [&'static str]),
+    /// A keyframe property: one of a fixed list, or an effect parameter `effects.<effect entry id>.<parameter>`
+    /// (the entry and parameter are checked against the item's effects by the invariants).
+    KeyframeProperty(&'static [&'static str]),
     /// An object with known keys. `open` objects accept extra keys silently (preset parameters); closed objects
     /// keep unknown keys but report a warning.
     Obj { fields: &'static [Field], open: bool },
@@ -141,7 +144,11 @@ const KEYFRAME: &[Field] =
     &[f("time", Kind::Time, "Seconds from the item's start."), f("value", NUM, "Property value at that time.")];
 const KEYFRAME_KIND: Kind = Kind::Obj { fields: KEYFRAME, open: false };
 const KEYFRAME_TRACK: &[Field] = &[
-    f("property", Kind::Enum(KEYFRAME_PROPERTIES), "Animated property."),
+    f(
+        "property",
+        Kind::KeyframeProperty(KEYFRAME_PROPERTIES),
+        "Animated property, or an effect parameter as `effects.<effect id>.<parameter>`.",
+    ),
     f("keyframes", Kind::Arr(&KEYFRAME_KIND), "Keyframes in time order."),
     fd("easing", Kind::Enum(EASINGS), Def::Str("linear"), "Interpolation between keyframes."),
 ];
@@ -522,6 +529,18 @@ pub fn validate(kind: &Kind, v: &Value, path: &str, out: &mut Vec<Issue>) {
                 "enum.known",
                 path,
                 format!("{path} must be one of {}, got {}", values.join(", "), short(v)),
+            )),
+        },
+        Kind::KeyframeProperty(values) => match v.as_str() {
+            Some(s) if values.contains(&s) || crate::effect_params::split_property(s).is_some() => {}
+            _ => out.push(Issue::err(
+                "enum.known",
+                path,
+                format!(
+                    "{path} must be one of {}, or effects.<effect id>.<parameter>, got {}",
+                    values.join(", "),
+                    short(v)
+                ),
             )),
         },
         Kind::Arr(elem) => match v.as_array() {

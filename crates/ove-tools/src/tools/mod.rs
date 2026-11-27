@@ -3,7 +3,9 @@
 pub mod analyze;
 pub mod app;
 pub mod audio;
+pub mod backend;
 pub mod code;
+pub mod color;
 pub mod deadair;
 pub mod docs;
 pub mod edit;

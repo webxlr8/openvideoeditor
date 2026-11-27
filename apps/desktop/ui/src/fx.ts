@@ -22,7 +22,7 @@ export interface ParamSpec {
 export interface EffectSpec {
   id: string;
   label: string;
-  group: "stylize" | "distort" | "background";
+  group: "stylize" | "distort" | "background" | "key";
   params: ParamSpec[];
   animated: boolean;
 }
@@ -101,7 +101,12 @@ export function usePreview(kind: "effect" | "lut", id: string): string | null {
   return url;
 }
 
-export const GROUP_LABEL: Record<EffectSpec["group"], string> = { stylize: "Stylize", distort: "Distort", background: "Backgrounds" };
+export const GROUP_LABEL: Record<EffectSpec["group"], string> = {
+  stylize: "Stylize",
+  distort: "Distort",
+  background: "Backgrounds",
+  key: "Keys",
+};
 
 // ---------------------------------------------------------------------------------------------------------------
 // Values

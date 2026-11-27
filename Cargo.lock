@@ -4359,9 +4359,13 @@ name = "ove-gpu"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
+ "ove-core",
  "ove-media",
+ "ove-render",
  "png",
  "pollster",
+ "serde_json",
+ "tempfile",
  "thiserror 2.0.21",
  "tracing",
  "wgpu",
@@ -4532,6 +4536,7 @@ dependencies = [
  "ove-core",
  "ove-edit",
  "ove-generate",
+ "ove-gpu",
  "ove-graphics",
  "ove-guard",
  "ove-interchange",
