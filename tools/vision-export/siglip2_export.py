@@ -232,7 +232,7 @@ def main() -> None:
             golden["texts"].append(
                 {"text": text, "ids": [int(x) for x in row], "embedding": [round(float(x), 6) for x in emb]}
             )
-        (args.golden / "reference.json").write_text(json.dumps(golden, separators=(",", ":")) + "\n")
+        (args.golden / "reference.json").write_text(json.dumps(golden, separators=(",", ":")) + "\n", newline="\n")
         print(f"golden written to {args.golden}")
 
     # Our own exports.
