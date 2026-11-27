@@ -13,6 +13,7 @@ use ove_store::project::Project;
 use serde_json::Value;
 
 use crate::fail::Fail;
+use crate::session::Session;
 
 /// The agent surface a call arrives on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -64,6 +65,11 @@ pub trait Editor {
     /// Reverts the revisions `revs` as one new revision (source `undo`), keeping every other change; refused with
     /// `undo.conflict` when later changes touched the same fields.
     fn undo_selected(&mut self, revs: &[i64], summary: String) -> Result<i64, Fail>;
+    /// [`Editor::apply`] recorded as `actor`'s change instead of the context's (a generation job filling the
+    /// placeholder its agent asked for). Editors that cannot record another actor apply it as their own.
+    fn apply_by(&mut self, ops: Vec<Op>, summary: String, _actor: Option<Actor>) -> Result<i64, Fail> {
+        self.apply(ops, summary)
+    }
     /// Records the warnings listed in the next printed header.
     fn set_diagnostics(&mut self, lines: Vec<String>) -> Result<(), Fail>;
     /// True when the edit goes through the running app.
@@ -112,6 +118,30 @@ pub trait ToolCtx {
     fn progress(&mut self, _percent: i64, _detail: &Value) {}
     /// A long call that reported progress finished.
     fn progress_done(&mut self) {}
+    /// The session's state kept between calls (quotes, spend, recent tools). `None`: this context has no session, so
+    /// generation and feedback are not available.
+    fn session(&self) -> Option<Session> {
+        None
+    }
+    /// Shows the person a priced request (`card`) and waits for their answer: `Ok(true)` approved, `Ok(false)`
+    /// declined. Only a person answers: the running app's price card, the in-app question card, or the MCP client's
+    /// confirmation prompt. Refused with `confirm.required` when no person can be asked here.
+    fn ask_spend(&mut self, _card: &Value) -> Result<bool, Fail> {
+        Err(confirm_required())
+    }
+    /// Starts the generation worker for a saved job (`ove-generate` job file in `bundle`).
+    fn start_generation(&mut self, _bundle: &Path, _job: &str) -> Result<(), Fail> {
+        Err(Fail::new("generate.unavailable", "generation jobs cannot be started here"))
+    }
+}
+
+/// The refusal when spending needs a person and none can be asked.
+pub fn confirm_required() -> Fail {
+    Fail::new(
+        "confirm.required",
+        "Spending needs a person's approval, and none could be asked: open OpenVideoEditor (it shows a price card), \
+         or use an MCP client that supports confirmation prompts (elicitation). Nothing was spent.",
+    )
 }
 
 fn internal() -> Fail {
@@ -169,6 +199,10 @@ impl Editor for LocalEditor<'_> {
     }
     fn apply(&mut self, ops: Vec<Op>, summary: String) -> Result<i64, Fail> {
         self.project.apply_as(ops, self.source, Some(summary), self.actor.clone())?;
+        Ok(self.project.rev())
+    }
+    fn apply_by(&mut self, ops: Vec<Op>, summary: String, actor: Option<Actor>) -> Result<i64, Fail> {
+        self.project.apply_as(ops, self.source, Some(summary), actor.or_else(|| self.actor.clone()))?;
         Ok(self.project.rev())
     }
     fn apply_mapped(

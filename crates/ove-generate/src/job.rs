@@ -85,6 +85,10 @@ pub struct Job {
     /// Provider-specific details (seconds generated, voice used, …).
     #[serde(default)]
     pub details: Value,
+    /// Who asked for it (an agent session): the revision that fills the placeholder is recorded as theirs, so their
+    /// undo reverts placeholder and fill together. Absent in jobs started by a person and in older job files.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actor: Option<ove_core::revision::Actor>,
 }
 
 /// A request already queued at the provider (fal): where to poll, read the result and cancel. The URLs come from the
@@ -325,6 +329,7 @@ mod tests {
             updated_at: 0,
             worker_pid: None,
             details: Value::Null,
+            actor: None,
         }
     }
 

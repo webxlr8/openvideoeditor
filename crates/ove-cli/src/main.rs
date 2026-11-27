@@ -11,6 +11,7 @@ mod app;
 mod common;
 mod docs;
 mod edit;
+mod export;
 mod generate;
 mod mcp;
 mod media;
@@ -139,29 +140,10 @@ enum Cmd {
         #[arg(long)]
         kind: Option<String>,
     },
-    /// Render the timeline to an MP4 file (H.264 + AAC). With --json, progress is printed as JSON lines.
+    /// Render the timeline (or a range) to a video or audio file: a preset, or a format with codec options (see
+    /// `ove docs export`). With --json, progress is printed as JSON lines. `ove render` is the same command.
     #[command(alias = "render")]
-    Export {
-        project: String,
-        out: PathBuf,
-        /// Output height in pixels; the width follows the aspect ratio.
-        #[arg(long, default_value_t = 1080)]
-        height: u32,
-        #[arg(long, default_value_t = 30)]
-        fps: u32,
-        /// Write the mix alone (no video): m4a (AAC), wav (24-bit) or flac; see --format.
-        #[arg(long)]
-        audio_only: bool,
-        /// Audio-only format: m4a, wav or flac (default: from the file extension, else m4a).
-        #[arg(long)]
-        format: Option<String>,
-        /// Loudness target, integrated LUFS: off, -14, -16, -23 or -24.
-        #[arg(long, allow_negative_numbers = true)]
-        loudness: Option<String>,
-        /// Compositing backend: auto (the GPU when its self-test passes), cpu or gpu.
-        #[arg(long)]
-        backend: Option<String>,
-    },
+    Export(export::ExportCmd),
     /// Exchange the timeline with other editors (FCPXML, Premiere/FCP7 XML, EDL, OpenTimelineIO).
     Timeline {
         #[command(subcommand)]
@@ -350,6 +332,7 @@ fn run(cli: &Cli, source: Source) -> Out {
         Cmd::Agents { cmd: None | Some(AgentsCmd::List) } => return docs::agents_list(),
         Cmd::Agents { cmd: Some(AgentsCmd::Connect { agent }) } => return docs::agents_connect(agent),
         Cmd::Models { cmd } => return models::run(cmd, source),
+        Cmd::Export(c) if c.args.worker => return export::worker(),
         Cmd::ModelWorker { .. } => return Err(Fail::new("argument.invalid", "the model worker is started by the app")),
         Cmd::Mcp { .. } => return Err(Fail::new("mcp.nested", "already serving MCP")),
         _ => {}
@@ -405,17 +388,7 @@ fn run(cli: &Cli, source: Source) -> Out {
                 ctx.tool("undo_timeline", json!({"project": project, "rev": rev}))
             }
         }
-        Cmd::Export { project, out, height, fps, audio_only, format, loudness, backend } => {
-            let audio = audio_only.then(|| format.clone().unwrap_or_default());
-            let loudness = loudness.as_deref().filter(|l| *l != "off").map(|l| match l.parse::<f64>() {
-                Ok(v) => json!(v),
-                Err(_) => json!(l),
-            });
-            ctx.tool(
-                "export_video",
-                json!({"project": project, "out": out, "height": height, "fps": fps, "audioOnly": audio, "loudness": loudness, "backend": backend}),
-            )
-        }
+        Cmd::Export(a) => export::run(&ctx, a),
         Cmd::Timeline { cmd: TimelineCmd::Export { project, file, format, fps } } => {
             ctx.tool("export_timeline_file", json!({"project": project, "file": file, "format": format, "fps": fps}))
         }
@@ -440,6 +413,9 @@ fn exit_code(f: &Fail) -> u8 {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
+    // Queued exports and other renders pick the compositing backend through this (design D9).
+    #[cfg(feature = "media")]
+    ove_tools::tools::backend::install_provider();
     if let Cmd::ModelWorker { idle_secs } = cli.cmd {
         return model_worker::main(idle_secs);
     }

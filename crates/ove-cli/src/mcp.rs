@@ -4,9 +4,12 @@
 
 use std::io::{BufRead, Write};
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{Receiver, RecvTimeoutError};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use ove_core::revision::{Actor, ActorKind, Source};
-use ove_tools::{LinkCtx, Surface, ToolCtx};
+use ove_tools::{Fail, LinkCtx, Surface, ToolCtx};
 use serde_json::{Map, Value, json};
 
 /// Most images returned by one call.
@@ -69,7 +72,8 @@ pub fn serve(library: Option<&Path>, project: Option<&str>, turn: Option<&str>) 
         Some(Actor { kind: ActorKind::Mcp, session: Some(session), turn: turn.map(str::to_string), client: None });
     let hold = hold();
     ctx.inner.hold = (!hold.is_zero()).then_some(hold);
-    // Lines arrive on a reader thread, so the held project can be closed while the client is quiet.
+    // Lines arrive on a reader thread, so the held project can be closed while the client is quiet, and a tool
+    // waiting for the client's answer to a confirmation prompt reads from the same stream.
     let (tx, rx) = std::sync::mpsc::channel::<std::io::Result<String>>();
     std::thread::spawn(move || {
         for line in std::io::stdin().lock().lines() {
@@ -79,18 +83,24 @@ pub fn serve(library: Option<&Path>, project: Option<&str>, turn: Option<&str>) 
             }
         }
     });
-    let mut stdout = std::io::stdout().lock();
+    let lines: Lines = Arc::new(Mutex::new(rx));
+    // Generation: jobs run in a background `ove generate _run`; without the app, the client's confirmation prompt
+    // asks the person to approve a spend.
+    ctx.inner.runner = Some(crate::generate::runner(ctx.root().to_path_buf()));
+    let prompt_lines = lines.clone();
+    ctx.inner.confirm = Some(Box::new(move |card: &Value| elicit(&prompt_lines, card)));
     loop {
         let wait = ctx.inner.idle_in().unwrap_or(std::time::Duration::from_secs(3600));
-        let line = match rx.recv_timeout(wait) {
+        let got = lines.lock().unwrap_or_else(PoisonError::into_inner).recv_timeout(wait);
+        let line = match got {
             Ok(line) => line?,
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+            Err(RecvTimeoutError::Timeout) => {
                 if let Err(f) = ctx.inner.release_if_idle() {
                     eprintln!("ove mcp: closing the project failed: {}", f.message);
                 }
                 continue;
             }
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+            Err(RecvTimeoutError::Disconnected) => break,
         };
         if line.trim().is_empty() {
             continue;
@@ -102,11 +112,83 @@ pub fn serve(library: Option<&Path>, project: Option<&str>, turn: Option<&str>) 
             Ok(msg) => handle_contained(&msg, &mut ctx),
         };
         if let Some(r) = reply {
-            writeln!(stdout, "{r}")?;
-            stdout.flush()?;
+            send(&r)?;
         }
     }
     ctx.inner.release().map_err(|f| std::io::Error::other(f.message))
+}
+
+/// The client's lines, read on a thread (see [`serve`]).
+type Lines = Arc<Mutex<Receiver<std::io::Result<String>>>>;
+
+/// The next line from the client (`None` once it closed the session).
+fn next_line(lines: &Lines) -> std::io::Result<Option<String>> {
+    match lines.lock().unwrap_or_else(PoisonError::into_inner).recv() {
+        Ok(line) => line.map(Some),
+        Err(_) => Ok(None),
+    }
+}
+
+fn send(v: &Value) -> std::io::Result<()> {
+    let mut out = std::io::stdout().lock();
+    writeln!(out, "{v}")?;
+    out.flush()
+}
+
+/// Whether the client said in `initialize` that it can show confirmation prompts (MCP elicitation).
+static ELICITATION: AtomicBool = AtomicBool::new(false);
+
+/// Asks the client to show the person a priced request (MCP `elicitation/create`) and waits for the answer. Only an
+/// explicit accept with `approve: true` approves; declining, cancelling or an error does not. Messages that arrive
+/// meanwhile are answered as busy (pings normally).
+fn elicit(lines: &Lines, card: &Value) -> Result<bool, Fail> {
+    if !ELICITATION.load(Ordering::SeqCst) {
+        return Err(ove_tools::ctx::confirm_required());
+    }
+    let id = format!("ove-confirm-{}", card["quoteId"].as_str().unwrap_or_default());
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "method": "elicitation/create",
+        "params": {
+            "message": ove_tools::tools::generate::card_text(card),
+            "requestedSchema": {
+                "type": "object",
+                "properties": {"approve": {"type": "boolean", "title": "Approve this spend", "description": "Your provider account is billed; nothing is spent without this."}},
+                "required": ["approve"],
+            },
+        },
+    });
+    let io = |e: std::io::Error| Fail::new("confirm.required", format!("the confirmation prompt failed: {e}"));
+    send(&request).map_err(io)?;
+    loop {
+        let Some(line) = next_line(lines).map_err(io)? else {
+            return Err(Fail::new(
+                "confirm.required",
+                "the client closed the session before answering; nothing was spent",
+            ));
+        };
+        let Ok(msg) = serde_json::from_str::<Value>(&line) else { continue };
+        if msg.get("id").and_then(Value::as_str) == Some(id.as_str()) && msg.get("method").is_none() {
+            if let Some(e) = msg.get("error") {
+                return Err(Fail::new(
+                    "confirm.required",
+                    format!("the client could not show the confirmation prompt ({e}); nothing was spent"),
+                ));
+            }
+            let r = msg.get("result").cloned().unwrap_or(Value::Null);
+            return Ok(r["action"] == "accept" && r["content"]["approve"] == true);
+        }
+        // A request meanwhile: pings are answered, anything else waits for the person's answer.
+        if let (Some(rid), Some(method)) = (msg.get("id"), msg.get("method").and_then(Value::as_str)) {
+            let reply = if method == "ping" {
+                json!({"jsonrpc": "2.0", "id": rid, "result": {}})
+            } else {
+                json!({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "busy: waiting for the person to answer a price prompt"}})
+            };
+            send(&reply).map_err(io)?;
+        }
+    }
 }
 
 pub fn handle(msg: &Value, ctx: &mut dyn ToolCtx) -> Option<Value> {
@@ -121,6 +203,9 @@ pub fn handle(msg: &Value, ctx: &mut dyn ToolCtx) -> Option<Value> {
             if let Some(name) = params.pointer("/clientInfo/name").and_then(Value::as_str) {
                 ctx.set_client(name);
             }
+            // A client that can show confirmation prompts lets a person approve a spend without the app.
+            ELICITATION
+                .store(params.pointer("/capabilities/elicitation").is_some_and(Value::is_object), Ordering::SeqCst);
             let asked = params.get("protocolVersion").and_then(Value::as_str).unwrap_or(PROTOCOLS[0]);
             let version = if PROTOCOLS.contains(&asked) { asked } else { PROTOCOLS[0] };
             Ok(json!({
@@ -188,7 +273,7 @@ mod tests {
 
     use ove_store::Library;
     use ove_store::project::Project;
-    use ove_tools::{Editor, Fail};
+    use ove_tools::Editor;
 
     use super::*;
 

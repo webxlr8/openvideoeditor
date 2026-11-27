@@ -45,7 +45,9 @@ struct State {
 
 fn state() -> &'static Mutex<State> {
     static S: OnceLock<Mutex<State>> = OnceLock::new();
-    S.get_or_init(|| Mutex::new(State { file: None, gpu_enabled: true, status: None }))
+    // Unit tests of the app do not depend on the machine's GPU (ove-gpu tests the GPU backend); the app itself
+    // starts with the GPU allowed and reads the setting in [`init`].
+    S.get_or_init(|| Mutex::new(State { file: None, gpu_enabled: !cfg!(test), status: None }))
 }
 
 fn choice(gpu_enabled: bool) -> Choice {
@@ -112,6 +114,14 @@ pub fn init(app: &AppHandle) {
         s.file = file;
         s.gpu_enabled = enabled;
     }
+    // Queued exports (and any render without its own backend) use the same choice.
+    ove_render::backend::set_provider(|choice| match choice.and_then(Choice::parse) {
+        Some(c) => select(c).map(|s| (s.backend, format!("{}: {}", s.name, s.reason))),
+        None => {
+            let (b, s) = backend();
+            Ok((b, format!("{}: {}", s.backend, s.reason)))
+        }
+    });
     let _ = crate::worker::spawn_contained("gpu self-test", || {
         let (_, status) = backend();
         tracing::info!(backend = %status.backend, reason = %status.reason, "compositing backend");

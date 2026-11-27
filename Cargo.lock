@@ -4486,6 +4486,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "tracing",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4529,6 +4530,7 @@ dependencies = [
  "ove-control",
  "ove-core",
  "ove-edit",
+ "ove-generate",
  "ove-gpu",
  "ove-graphics",
  "ove-guard",

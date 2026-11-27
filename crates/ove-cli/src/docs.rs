@@ -148,7 +148,25 @@ pub fn doctor(library: Option<&Path>) -> Out {
             Ok(v) => add("media", true, format!("FFmpeg {v}")),
             Err(_) => add("media", false, "FFmpeg libraries could not be loaded".into()),
         }
-        add("export encoders", true, ove_render::export::encoder_candidates().join(", "));
+        // One line per codec: the encoders that work here, else why none does (a missing HEVC or AV1 hardware
+        // encoder is normal, so these lines never fail the check).
+        let report = ove_render::export::encoder_report();
+        for codec in ove_render::export::VideoCodec::ALL {
+            let of: Vec<_> = report.iter().filter(|c| c.codec == codec).collect();
+            let works: Vec<String> =
+                of.iter().filter(|c| c.works).map(|c| format!("{} ({})", c.encoder, c.label)).collect();
+            let detail = if works.is_empty() {
+                let why: Vec<String> =
+                    of.iter().map(|c| format!("{}: {}", c.encoder, c.detail.as_deref().unwrap_or(""))).collect();
+                format!(
+                    "none on this computer ({})",
+                    if why.is_empty() { "no candidate".into() } else { why.join("; ") }
+                )
+            } else {
+                works.join(", ")
+            };
+            add(&format!("export {}", codec.label()), true, detail);
+        }
     }
     #[cfg(not(feature = "media"))]
     add("media", false, "this build cannot read media or export (build with --features media)".into());

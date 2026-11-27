@@ -774,7 +774,7 @@
     },
     {
       "name": "export_video",
-      "description": "Render the timeline to an MP4 (H.264 + AAC), or the mix alone (audioOnly: m4a, wav or flac) without rendering video. `loudness` normalises the mix to a target with a true-peak limit and reports loudness before and after. Refused while placeholders are pending or media is offline. Takes about real time or less.",
+      "description": "Render the timeline (or a range of it) to a video or audio file. Pick a `preset` (see `docs` topic `export`: \"YouTube 1080p\", \"ProRes 422 HQ master\", \"ProRes 4444 with alpha\", \"DNxHR HQ master\", \"Web VP9\", \"Audio WAV 24-bit\", …), or a `format` (mp4, mov, mkv, webm, m4a, wav, flac; default: the extension of `out`) with optional codec fields. HEVC and AV1 need a hardware encoder. Refused while placeholders are pending or media is offline, and for combinations that cannot be written (the error names the fields). Exports run one at a time in a queue shared with the app; the call returns a job id (use `job_status`, `cancel_job`), or the result with `wait`. `audioOnly` writes the mix alone; `loudness` normalises it to a target with a true-peak limit and the result reports loudness before and after. The result names the encoder used.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -784,15 +784,76 @@
           },
           "out": {
             "type": "string",
-            "description": "Output .mp4 path"
+            "description": "Output file path; its extension must match the format"
+          },
+          "preset": {
+            "type": "string",
+            "description": "Named export preset"
+          },
+          "format": {
+            "type": "string",
+            "description": "Container: mp4, mov, mkv, webm, m4a, wav or flac"
+          },
+          "quality": {
+            "type": "string",
+            "description": "very low, low, medium (default), high or very high"
+          },
+          "resolution": {
+            "type": "string",
+            "description": "720p, 1080p (default), 4k, or match (the timeline's own size)"
           },
           "height": {
             "type": "integer",
-            "description": "720, 1080 (default) or 2160"
+            "description": "Output height in pixels (instead of resolution)"
+          },
+          "frameRate": {
+            "type": "number",
+            "description": "Frames per second (default 30, or the preset's)"
           },
           "fps": {
             "type": "integer",
-            "description": "Frame rate (default 30)"
+            "description": "Same as frameRate"
+          },
+          "range": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 2,
+            "maxItems": 2,
+            "description": "[start, end] in seconds: export only this part"
+          },
+          "videoCodec": {
+            "type": "string",
+            "description": "h264, hevc, prores, dnxhr, vp9 or av1"
+          },
+          "profile": {
+            "type": "string",
+            "description": "ProRes: proxy, lt, standard, hq, 4444; DNxHR: lb, sq, hq, hqx, 444; HEVC: main, main10"
+          },
+          "bitDepth": {
+            "type": "integer",
+            "description": "Video bit depth: 8, 10 or 12"
+          },
+          "alpha": {
+            "type": "boolean",
+            "description": "Keep transparency (ProRes 4444 in MOV, VP9 in WebM)"
+          },
+          "videoBitrate": {
+            "type": "integer",
+            "description": "Video bit rate in bits per second (H.264, HEVC, AV1), instead of quality"
+          },
+          "audioCodec": {
+            "type": "string",
+            "description": "aac, pcm, flac, opus, or none"
+          },
+          "audioBitDepth": {
+            "type": "integer",
+            "description": "PCM and FLAC: 16 or 24"
+          },
+          "settings": {
+            "type": "object",
+            "description": "A whole export settings value (see `docs` topic `export`)"
           },
           "audioOnly": {
             "type": "string",
@@ -801,6 +862,10 @@
           "loudness": {
             "type": "number",
             "description": "Loudness target, integrated LUFS: -14, -16, -23 or -24 (default off); the result reports before and after"
+          },
+          "wait": {
+            "type": "boolean",
+            "description": "Return when the export has finished (default: return the job id at once; follow it with job_status)"
           },
           "backend": {
             "type": "string",
@@ -1483,6 +1548,551 @@
         },
         "required": [
           "media"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "list_models",
+      "description": "List the AI generation models (id, kind, provider, durations, aspect ratios, list price, whether the person has added the provider's key), with this session's confirmed spend and its cap. Prices are estimates; the provider bills the person.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "image",
+              "video",
+              "voice",
+              "music",
+              "sfx"
+            ],
+            "description": "Only models of this kind"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "generate_image",
+      "description": "Generate a still image and place it as a clip. Spends the person's money in two steps: call without `confirm` to get the plan, the estimate and a quoteId (nothing is spent); then call again with the same arguments and `confirm: <quoteId>`, and a person approves the price in the app or their client. The quote lasts 10 minutes and is valid only for that exact request; a session cannot spend above the person's cap (spend.cap). Approved, a pending placeholder goes on the timeline (one revision you can undo) and the receipt gives its item id, its printed line and the jobId for generation_status.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "prompt": {
+            "type": "string",
+            "description": "What to make"
+          },
+          "model": {
+            "type": "string",
+            "description": "Model id from list_models (default: the kind's default model)"
+          },
+          "aspect": {
+            "type": "string",
+            "enum": [
+              "16:9",
+              "9:16",
+              "1:1",
+              "4:3",
+              "3:4"
+            ],
+            "description": "Default: the project's"
+          },
+          "image": {
+            "type": "string",
+            "description": "Reference image (file path)"
+          },
+          "durationSeconds": {
+            "type": "number",
+            "description": "Clip length on the timeline (default 5)"
+          },
+          "start": {
+            "type": "number",
+            "description": "Timeline start in seconds (default: after the track's last clip)"
+          },
+          "track": {
+            "type": "string",
+            "description": "Track name or id (default: Overlay for pictures, Audio for sound)"
+          },
+          "name": {
+            "type": "string",
+            "description": "Clip name"
+          },
+          "confirm": {
+            "type": "string",
+            "description": "The quoteId from the first call. Spending still needs a person to approve the price; this argument alone never spends."
+          }
+        },
+        "required": [
+          "prompt"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "generate_video",
+      "description": "Generate a video clip from a prompt, or from a first frame (`image`). Spends the person's money in two steps: call without `confirm` to get the plan, the estimate and a quoteId (nothing is spent); then call again with the same arguments and `confirm: <quoteId>`, and a person approves the price in the app or their client. The quote lasts 10 minutes and is valid only for that exact request; a session cannot spend above the person's cap (spend.cap). Approved, a pending placeholder goes on the timeline (one revision you can undo) and the receipt gives its item id, its printed line and the jobId for generation_status.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "prompt": {
+            "type": "string",
+            "description": "What to make"
+          },
+          "model": {
+            "type": "string",
+            "description": "Model id from list_models (default: the kind's default model)"
+          },
+          "durationSeconds": {
+            "type": "number",
+            "description": "Seconds (the model's lengths; list_models)"
+          },
+          "aspect": {
+            "type": "string",
+            "enum": [
+              "16:9",
+              "9:16",
+              "1:1"
+            ],
+            "description": "Default: the project's"
+          },
+          "image": {
+            "type": "string",
+            "description": "First frame (file path)"
+          },
+          "negativePrompt": {
+            "type": "string",
+            "description": "What to avoid"
+          },
+          "seed": {
+            "type": "integer"
+          },
+          "start": {
+            "type": "number",
+            "description": "Timeline start in seconds (default: after the track's last clip)"
+          },
+          "track": {
+            "type": "string",
+            "description": "Track name or id (default: Overlay for pictures, Audio for sound)"
+          },
+          "name": {
+            "type": "string",
+            "description": "Clip name"
+          },
+          "confirm": {
+            "type": "string",
+            "description": "The quoteId from the first call. Spending still needs a person to approve the price; this argument alone never spends."
+          }
+        },
+        "required": [
+          "prompt"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "generate_voice",
+      "description": "Generate speech from text and place it on an audio track. Spends the person's money in two steps: call without `confirm` to get the plan, the estimate and a quoteId (nothing is spent); then call again with the same arguments and `confirm: <quoteId>`, and a person approves the price in the app or their client. The quote lasts 10 minutes and is valid only for that exact request; a session cannot spend above the person's cap (spend.cap). Approved, a pending placeholder goes on the timeline (one revision you can undo) and the receipt gives its item id, its printed line and the jobId for generation_status.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "text": {
+            "type": "string",
+            "description": "What the voice says"
+          },
+          "model": {
+            "type": "string",
+            "description": "Model id from list_models (default: the kind's default model)"
+          },
+          "voice": {
+            "type": "string",
+            "description": "Voice name or id"
+          },
+          "speed": {
+            "type": "number"
+          },
+          "stability": {
+            "type": "number"
+          },
+          "style": {
+            "type": "number"
+          },
+          "start": {
+            "type": "number",
+            "description": "Timeline start in seconds (default: after the track's last clip)"
+          },
+          "track": {
+            "type": "string",
+            "description": "Track name or id (default: Overlay for pictures, Audio for sound)"
+          },
+          "name": {
+            "type": "string",
+            "description": "Clip name"
+          },
+          "confirm": {
+            "type": "string",
+            "description": "The quoteId from the first call. Spending still needs a person to approve the price; this argument alone never spends."
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "generate_music",
+      "description": "Generate music from a description. Spends the person's money in two steps: call without `confirm` to get the plan, the estimate and a quoteId (nothing is spent); then call again with the same arguments and `confirm: <quoteId>`, and a person approves the price in the app or their client. The quote lasts 10 minutes and is valid only for that exact request; a session cannot spend above the person's cap (spend.cap). Approved, a pending placeholder goes on the timeline (one revision you can undo) and the receipt gives its item id, its printed line and the jobId for generation_status.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "prompt": {
+            "type": "string",
+            "description": "Style, mood, instruments"
+          },
+          "model": {
+            "type": "string",
+            "description": "Model id from list_models (default: the kind's default model)"
+          },
+          "durationSeconds": {
+            "type": "number",
+            "description": "Seconds (default 30)"
+          },
+          "instrumental": {
+            "type": "boolean",
+            "description": "No vocals"
+          },
+          "start": {
+            "type": "number",
+            "description": "Timeline start in seconds (default: after the track's last clip)"
+          },
+          "track": {
+            "type": "string",
+            "description": "Track name or id (default: Overlay for pictures, Audio for sound)"
+          },
+          "name": {
+            "type": "string",
+            "description": "Clip name"
+          },
+          "confirm": {
+            "type": "string",
+            "description": "The quoteId from the first call. Spending still needs a person to approve the price; this argument alone never spends."
+          }
+        },
+        "required": [
+          "prompt"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "generate_sfx",
+      "description": "Generate a sound effect from a description. Spends the person's money in two steps: call without `confirm` to get the plan, the estimate and a quoteId (nothing is spent); then call again with the same arguments and `confirm: <quoteId>`, and a person approves the price in the app or their client. The quote lasts 10 minutes and is valid only for that exact request; a session cannot spend above the person's cap (spend.cap). Approved, a pending placeholder goes on the timeline (one revision you can undo) and the receipt gives its item id, its printed line and the jobId for generation_status.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "prompt": {
+            "type": "string",
+            "description": "The sound"
+          },
+          "model": {
+            "type": "string",
+            "description": "Model id from list_models (default: the kind's default model)"
+          },
+          "durationSeconds": {
+            "type": "number",
+            "description": "Seconds (default 5)"
+          },
+          "start": {
+            "type": "number",
+            "description": "Timeline start in seconds (default: after the track's last clip)"
+          },
+          "track": {
+            "type": "string",
+            "description": "Track name or id (default: Overlay for pictures, Audio for sound)"
+          },
+          "name": {
+            "type": "string",
+            "description": "Clip name"
+          },
+          "confirm": {
+            "type": "string",
+            "description": "The quoteId from the first call. Spending still needs a person to approve the price; this argument alone never spends."
+          }
+        },
+        "required": [
+          "prompt"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "generation_status",
+      "description": "A generation job's state (queued, running, done, failed, cancelled), progress, output and error. `wait` waits until it finishes (at most two minutes per call); `cancel` asks it to stop.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The job id (jobId from the generate call)"
+          },
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "wait": {
+            "type": "boolean",
+            "description": "Wait until it finishes (at most 2 minutes)"
+          },
+          "cancel": {
+            "type": "boolean",
+            "description": "Ask it to stop"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "cancel_generation",
+      "description": "Ask a running generation job to stop. Its pending placeholder is removed when it stops; a finished job is left as it is.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The job id"
+          },
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "send_feedback",
+      "description": "Draft a report about OpenVideoEditor itself (a bug, something confusing or missing, an idea) for the person to review. It is stored on this computer only and never sent: the person reads it in Help > Feedback, edits or deletes it, and sends it themselves if they want. Write the summary in your own words: what you tried, what happened, what you expected. Leave out names, file paths, prompts and anything else the person typed or showed. The app and OS versions and this session's last tool names are added. At most 8 reports per session; an exact duplicate is not stored again.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "category": {
+            "type": "string",
+            "enum": [
+              "bug",
+              "confusing",
+              "missing",
+              "idea"
+            ]
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ]
+          },
+          "summary": {
+            "type": "string",
+            "description": "The report, paraphrased (at most 2000 characters)"
+          }
+        },
+        "required": [
+          "category",
+          "severity",
+          "summary"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "job_status",
+      "description": "An export job's state (queued, running, done, failed, cancelled), progress, encoder, output and error. With `wait`, returns once the job has finished.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "description": "The job id export_video returned"
+          },
+          "wait": {
+            "type": "boolean",
+            "description": "Return when the job has finished"
+          }
+        },
+        "required": [
+          "job_id"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "cancel_job",
+      "description": "Cancel a queued or running export job: a running one stops within 2 seconds and leaves no partial file. Refused for a finished job, whose file is kept.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "description": "The job id export_video returned"
+          }
+        },
+        "required": [
+          "job_id"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "list_export_jobs",
+      "description": "List the export queue, oldest first: every queued and running job, and those finished in the last day (all: every job). The app, `ove` and MCP share this queue.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "all": {
+            "type": "boolean",
+            "description": "Include jobs finished more than a day ago"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "save_range_as_media",
+      "description": "Render a range of the timeline into a new media file owned by the project (one revision). With `replace`, the same revision replaces what the range covers on `tracks` (default: every track except audio tracks) with one clip of the new media: a render in place, undone in one step. The file is DNxHR HQ or ProRes 422 HQ in MOV at the project's size (`small`: H.264 MP4).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "start": {
+            "type": "number",
+            "description": "Range start in seconds"
+          },
+          "end": {
+            "type": "number",
+            "description": "Range end in seconds"
+          },
+          "replace": {
+            "type": "boolean",
+            "description": "Also replace the covered items with one clip of the new media"
+          },
+          "tracks": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "description": "Track ids or names to render and replace (default: all but audio tracks)"
+          },
+          "name": {
+            "type": "string",
+            "description": "Name of the new media"
+          },
+          "small": {
+            "type": "boolean",
+            "description": "H.264 in MP4 instead of an intermediate codec (smaller, lossy)"
+          }
+        },
+        "required": [
+          "start",
+          "end"
         ],
         "additionalProperties": false
       },

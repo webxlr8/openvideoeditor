@@ -479,6 +479,9 @@ pub struct ExportSettings {
     pub loudness: Option<f64>,
     /// Video encoder to force (testing); `None` picks automatically.
     pub encoder: Option<String>,
+    /// Compositing backend: `auto`, `cpu` or `gpu`; `None` is the program's default (design D9).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backend: Option<String>,
 }
 
 impl Default for ExportSettings {
@@ -495,6 +498,7 @@ impl Default for ExportSettings {
             hdr: None,
             loudness: None,
             encoder: None,
+            backend: None,
         }
     }
 }
@@ -610,6 +614,16 @@ pub enum Chroma {
     C420,
     C422,
     C444,
+}
+
+impl Chroma {
+    pub fn label(self) -> &'static str {
+        match self {
+            Chroma::C420 => "4:2:0",
+            Chroma::C422 => "4:2:2",
+            Chroma::C444 => "4:4:4",
+        }
+    }
 }
 
 /// Validated video settings.

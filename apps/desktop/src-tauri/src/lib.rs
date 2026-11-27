@@ -12,6 +12,7 @@ pub mod edits;
 pub mod engine;
 pub mod error;
 pub mod exporting;
+pub mod feedback;
 pub mod fx;
 pub mod generation;
 pub mod interchange;
@@ -25,9 +26,11 @@ pub mod projects;
 pub mod sample;
 pub mod scripted_dialogs;
 pub mod scrub;
+pub mod spend;
 pub mod support;
 pub mod tasks;
 pub mod timeline;
+pub mod transcript;
 pub mod transport;
 pub mod viewer;
 pub mod waveforms;
@@ -153,6 +156,10 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             support::check_for_updates,
             support::open_url,
             support::feedback_info,
+            // Help → Feedback: reports agents drafted, kept on this computer (unify-agent-tool-layer).
+            feedback::feedback_drafts,
+            feedback::save_feedback_draft,
+            feedback::delete_feedback_draft,
             // AI generation with the user's provider keys (change 14).
             generation::generation_catalog,
             generation::set_provider_key,
@@ -163,6 +170,10 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             generation::generation_jobs,
             generation::cancel_generation,
             generation::list_voices,
+            // Agents spend only after a person approves the price (unify-agent-tool-layer).
+            spend::answer_spend,
+            spend::spend_cap,
+            spend::set_spend_cap,
             interchange::timeline_formats,
             interchange::export_timeline,
             interchange::import_timeline,
@@ -233,6 +244,9 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             models::remove_local_model,
             models::install_local_model,
             models::cancel_local_model_install,
+            // The Transcript panel (add-transcript-editing).
+            transcript::transcript_query,
+            transcript::transcript_cut,
         ])
         .events(collect_events![
             PlaybackChanged,
@@ -243,6 +257,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             projects::ProjectChanged,
             control::RemoteOpened,
             generation::GenerationUpdated,
+            spend::SpendRequested,
+            spend::SpendSettled,
             exporting::ExportProgress,
             assistant::AgentUiEvent,
             captions::CaptionJobProgress,
@@ -602,6 +618,7 @@ pub fn run() -> ExitCode {
                 tasks: background,
             });
 
+            app.manage(spend::SpendCards::default());
             // The command line / MCP server reach the app through the control link.
             control::start(&handle);
             compositing::init(&handle);

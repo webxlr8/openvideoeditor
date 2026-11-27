@@ -64,7 +64,7 @@ fn render_and_look_take_a_forced_backend() {
 
     let out = d.path().join("cpu.mp4");
     let r = ok(&lib, &["render", "B", out.to_str().unwrap(), "--height", "180", "--backend", "cpu"]);
-    assert_eq!(r["backend"]["name"], "cpu", "{r}");
+    assert!(r["backend"].as_str().unwrap().starts_with("cpu:"), "{r}");
     assert!(out.is_file());
 
     // A GPU, when this machine has one: the output says so.
@@ -73,12 +73,11 @@ fn render_and_look_take_a_forced_backend() {
     if gpu.status.success() {
         let text = String::from_utf8_lossy(&gpu.stdout);
         let v: Value = serde_json::from_str(text.lines().last().unwrap()).unwrap();
-        assert_eq!(v["backend"]["name"], "gpu", "{v}");
-        assert!(v["backend"]["adapter"].is_string());
-        eprintln!("gpu render on {}", v["backend"]["adapter"]);
+        assert!(v["backend"].as_str().unwrap().starts_with("gpu:"), "{v}");
+        eprintln!("gpu render: {}", v["backend"]);
     } else {
         let err = String::from_utf8_lossy(&gpu.stderr);
-        assert!(err.contains("gpu.unavailable"), "{err}");
+        assert!(err.contains("GPU") || err.contains("gpu"), "{err}");
         eprintln!("no GPU on this machine: {err}");
     }
 

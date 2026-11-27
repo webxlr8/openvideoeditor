@@ -100,6 +100,31 @@ pub trait Backend: Send {
     }
 }
 
+/// Chooses the compositing backend for renders that do not get one passed in (queued exports): set once by the
+/// program that can open a GPU (the app, `ove`). It takes the requested choice (`auto`, `cpu`, `gpu`; `None` is
+/// the program's default) and returns the backend with a one-line description, or why a forced choice is impossible.
+pub type Provider = fn(Option<&str>) -> Result<Provided, String>;
+
+/// A backend with a one-line description of why it was chosen.
+pub type Provided = (Box<dyn Backend>, String);
+
+static PROVIDER: std::sync::OnceLock<Provider> = std::sync::OnceLock::new();
+
+/// Installs the process's backend provider (the first call wins).
+pub fn set_provider(p: Provider) {
+    let _ = PROVIDER.set(p);
+}
+
+/// The backend for `choice` from the installed provider; `Ok(None)` (the CPU reference) when there is none or
+/// the CPU is asked for.
+pub fn provide(choice: Option<&str>) -> Result<Option<Provided>, String> {
+    match PROVIDER.get() {
+        Some(p) => p(choice).map(Some),
+        None if choice.is_some_and(|c| c.eq_ignore_ascii_case("gpu")) => Err("this program has no GPU backend".into()),
+        None => Ok(None),
+    }
+}
+
 /// `dst = before + (dst − before)·k`.
 pub fn mix_back(dst: &mut Rgba, before: &Rgba, k: f32) {
     use rayon::prelude::*;

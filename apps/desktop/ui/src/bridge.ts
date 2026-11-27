@@ -18,6 +18,7 @@ import type {
   AppError,
   AutoCaptionRequest_Deserialize,
   ChatItem_Serialize,
+  FeedbackDraft_Serialize,
   AppInfo_Serialize,
   AudioMeter,
   DuckRequest,
@@ -108,8 +109,19 @@ export interface MockControl {
   captions: { installed: string[]; stepMs: number };
   /** The simulated inference runtime (Settings → Storage): installed or not, and the time per download step. */
   runtime: { installed: boolean; stepMs: number };
+  /** The Transcript panel's stand-in: timeline words (as `get_transcript` gives them) and dead-air ranges. */
+  transcript: { words: MockWord[]; pauses: { start: number; end: number }[] };
   /** Ids of the supported agents that are "installed on this computer" (none unless a test says so). */
   localAgents: string[];
+  /** Reports agents drafted (Help → Feedback), newest first. */
+  feedbackDrafts: FeedbackDraft_Serialize[];
+  /** Settings → Generation: the most one agent session may spend (USD). */
+  spendCap: number;
+  /** What a simulated agent session has spent, and the answers given to its price cards. */
+  spend: { spentUsd: number; answers: Record<string, boolean>; refused: string[] };
+  /** Simulates an agent asking to spend (the control method `confirm_spend`): over the cap it is refused without a
+   * card, as the native session does; otherwise a price card shows. */
+  requestSpend(card: { quoteId: string; estimateUsd: number; text?: string }): void;
   /** Onboarding state as the native side would keep it. Onboarding is over by default (the welcome would cover
    * every other test); a test of the first run puts `FIRST_RUN` here before rendering. */
   onboarding: OnboardingState;
@@ -494,6 +506,24 @@ const MOCK_CAPTION_PRESETS = (
 
 type Listener = (event: { payload: unknown }) => void;
 
+/** A word of the mock transcript (the shape `get_transcript` returns). */
+export type MockWord = {
+  id: string;
+  text: string;
+  start: number;
+  end: number;
+  clipId: string;
+  mediaId: string;
+  sourceStart: number;
+  sourceEnd: number;
+  filler: boolean;
+  contextFiller: boolean;
+};
+
+/** Case, accents and punctuation folded away, as transcript search does. */
+export const foldWord = (w: string) =>
+  w.normalize("NFD").replace(/\p{M}/gu, "").replace(/[^\p{L}\p{N}]/gu, "").toLowerCase();
+
 function createMock(): {
   commands: Commands;
   events: Events;
@@ -587,6 +617,8 @@ function createMock(): {
 
   // Generation mock state.
   const genKeys = new Set<string>();
+  // Price cards waiting for an answer: quote id → estimate.
+  const pendingSpend = new Map<string, number>();
   const genJobs: {
     id: string;
     kind: string;
@@ -681,6 +713,25 @@ function createMock(): {
   });
   const control: MockControl = {
     rects: [],
+    feedbackDrafts: [],
+    spendCap: 5,
+    spend: { spentUsd: 0, answers: {}, refused: [] },
+    requestSpend(card) {
+      if (control.spend.spentUsd + card.estimateUsd > control.spendCap + 1e-9) {
+        control.spend.refused.push(card.quoteId);
+        return;
+      }
+      emit("spend-requested", {
+        quoteId: card.quoteId,
+        text: card.text ?? "An agent asks to spend.",
+        estimateUsd: card.estimateUsd,
+        client: "stand-in agent",
+        prompt: "",
+        project: "",
+        expiresAt: Date.now() + 600_000,
+      });
+      pendingSpend.set(card.quoteId, card.estimateUsd);
+    },
     lastRect: null,
     calls: [],
     meter(batch) {
@@ -697,6 +748,7 @@ function createMock(): {
     agent: { hasKey: true, stepMs: 120, ask: false },
     captions: { installed: [], stepMs: 60 },
     runtime: { installed: false, stepMs: 20 },
+    transcript: { words: [], pauses: [] },
     localAgents: [],
     onboarding: { ...SETTLED },
   };
@@ -1022,6 +1074,9 @@ function createMock(): {
   let captionJobModel: string | null = null;
   let freeBytes = 120e9;
   const removeWhenFree: string[] = [];
+  // The Transcript panel's words: kept on the mock project once cut, so undo and redo bring them back.
+  const transcriptOf = (): MockControl["transcript"] =>
+    (project as { mockTranscript?: MockControl["transcript"] } | null)?.mockTranscript ?? control.transcript;
   // The inference runtime as the store lists it (Windows numbers), and a running simulated download.
   const RUNTIME = {
     id: "onnxruntime",
@@ -1844,6 +1899,47 @@ function createMock(): {
           "startup: app dev | OS Browser (64-bit) | arch web | GPU mock | decode mock",
         feedbackUrl: control.feedbackUrl ?? null,
       }),
+    // Help → Feedback: drafts kept on this computer (unify-agent-tool-layer).
+    feedbackDrafts: () => ok(control.feedbackDrafts.map((d) => ({ ...d }))),
+    saveFeedbackDraft: (id: string, summary: string) => {
+      track(`saveFeedbackDraft:${id}`);
+      const d = control.feedbackDrafts.find((x) => x.id === id);
+      if (!d) return fail("not_found", `no feedback report ${id}`);
+      if (!summary.trim()) return fail("invalid_argument", "the summary is empty");
+      d.summary = summary.trim();
+      d.edited = true;
+      d.report = `[${d.category} · ${d.severity}] ${d.summary}
+`;
+      return ok({ ...d });
+    },
+    deleteFeedbackDraft: (id: string) => {
+      track(`deleteFeedbackDraft:${id}`);
+      const n = control.feedbackDrafts.length;
+      control.feedbackDrafts = control.feedbackDrafts.filter((x) => x.id !== id);
+      return control.feedbackDrafts.length < n
+        ? ok(null)
+        : fail("not_found", `no feedback report ${id}`);
+    },
+    // Price cards and the spending limit (unify-agent-tool-layer).
+    answerSpend: (quoteId: string, approved: boolean) => {
+      track(`answerSpend:${quoteId}:${approved}`);
+      const usd = pendingSpend.get(quoteId);
+      if (usd === undefined)
+        return fail("invalid_argument", "That price card is no longer waiting.");
+      pendingSpend.delete(quoteId);
+      control.spend.answers[quoteId] = approved;
+      if (approved) control.spend.spentUsd += usd;
+      emit("spend-settled", quoteId);
+      return ok(null);
+    },
+    spendCap: () => Promise.resolve(control.spendCap),
+    setSpendCap: (usd: number | null) => {
+      track(`setSpendCap:${usd}`);
+      if (usd == null || !Number.isFinite(usd) || usd < 0 || usd > 10_000)
+        return fail("invalid_argument", "the spend cap is an amount from $0 to $10,000");
+      control.spendCap = Math.round(usd * 100) / 100;
+      return ok(control.spendCap);
+    },
     // Generation (change 14): a catalog, keys in memory, jobs that finish after a moment.
     generationCatalog: () => Promise.resolve(JSON.stringify(genCatalog())),
     setProviderKey: (provider: string, key: string) => {
@@ -2363,6 +2459,64 @@ function createMock(): {
       }, control.runtime.stepMs);
       return ok(null);
     },
+    // The Transcript panel: the registry tools as the app runs them (get_transcript, search_transcript, find_fillers,
+    // remove_words, remove_silence), over `control.transcript`.
+    transcriptQuery: (tool: string, args: string) => {
+      track(`transcriptQuery:${tool}`);
+      const a = JSON.parse(args) as Record<string, unknown>;
+      const t = transcriptOf();
+      const rev = project?.rev ?? 0;
+      if (tool === "get_transcript")
+        return ok(JSON.stringify({ rev, words: t.words, totalWords: t.words.length, offset: 0, nextOffset: null, untranscribed: [] }));
+      if (tool === "search_transcript") {
+        const want = (typeof a.phrase === "string" ? a.phrase : "").split(/\s+/).map(foldWord).filter(Boolean);
+        const folded = t.words.map((w) => foldWord(w.text));
+        const hits = [];
+        for (let k = 0; want.length && k + want.length <= t.words.length; k++) {
+          if (want.every((x, j) => folded[k + j] === x)) {
+            const ws = t.words.slice(k, k + want.length);
+            hits.push({ mediaId: ws[0].mediaId, text: ws.map((w) => w.text).join(" "), sourceStart: ws[0].sourceStart, sourceEnd: ws[ws.length - 1].sourceEnd, wordIds: ws.map((w) => w.id), uses: [{ clipId: ws[0].clipId, start: ws[0].start, end: ws[ws.length - 1].end }] });
+          }
+        }
+        return ok(JSON.stringify({ rev, phrase: a.phrase, hits, untranscribed: 0 }));
+      }
+      if (tool === "find_fillers")
+        return ok(JSON.stringify({ rev, fillers: t.words.filter((w) => w.filler || w.contextFiller).map((w) => ({ kind: "word", id: w.id, text: w.text, start: w.start, end: w.end, selected: w.filler && !w.contextFiller, context: w.contextFiller })) }));
+      if (tool === "remove_words") {
+        const ids = (a.ids as string[] | undefined) ?? [];
+        const missing = ids.filter((id) => !t.words.some((w) => w.id === id));
+        if (missing.length) return fail("invalid_argument", `these words are not on the timeline: ${missing.join(", ")}`);
+        const words = t.words.filter((w) => ids.includes(w.id));
+        return ok(JSON.stringify({ rev, dryRun: true, summary: `remove ${ids.length} word${ids.length === 1 ? "" : "s"}`, removedWords: ids, ranges: words.map((w) => ({ clipId: w.clipId, start: w.start, end: w.end, wordIds: [w.id] })), diff: `--- timeline.tsx\n+++ timeline.tsx\n@@ -1,1 +1,1 @@\n-${words.map((w) => w.text).join(" ")}\n+` }));
+      }
+      if (tool === "remove_silence") {
+        const total = t.pauses.reduce((s, p) => s + p.end - p.start, 0);
+        return ok(JSON.stringify({ rev, dryRun: true, speechFound: true, changed: false, summary: `remove dead air (${t.pauses.length} cuts, ${total.toFixed(1)} s)`, ranges: t.pauses.map((p) => ({ clipId: "", start: p.start, end: p.end, wordIds: [] })), diff: t.pauses.length ? "--- timeline.tsx\n+++ timeline.tsx\n@@ -1,1 +1,1 @@\n-gap\n+" : "" }));
+      }
+      return fail("invalid_argument", `${tool} is not a transcript tool`);
+    },
+    transcriptCut: (tool: string, args: string) => {
+      track(`transcriptCut:${tool}`);
+      const a = JSON.parse(args) as Record<string, unknown>;
+      const t = { ...transcriptOf() };
+      const cut = (ranges: { start: number; end: number }[], summary: string) =>
+        editProject(summary, (pv) => {
+          for (const r of [...ranges].sort((x, y) => y.start - x.start)) {
+            const len = r.end - r.start;
+            t.words = t.words.filter((w) => w.end <= r.start || w.start >= r.end).map((w) => (w.start >= r.end ? { ...w, start: w.start - len, end: w.end - len } : w));
+            t.pauses = t.pauses.filter((p) => p.end <= r.start || p.start >= r.end);
+          }
+          (pv as { mockTranscript?: MockControl["transcript"] }).mockTranscript = t;
+        });
+      if (tool === "remove_words") {
+        const ids = (a.ids as string[] | undefined) ?? [];
+        const ranges = t.words.filter((w) => ids.includes(w.id)).map((w) => ({ start: w.start, end: w.end }));
+        if (!ranges.length) return fail("invalid_argument", "nothing selected");
+        return cut(ranges, `remove ${ids.length} word${ids.length === 1 ? "" : "s"}`);
+      }
+      if (tool === "remove_silence") return cut([...t.pauses], `remove dead air (${t.pauses.length} cuts)`);
+      return fail("invalid_argument", `${tool} is not a cutting tool`);
+    },
     cancelLocalModelInstall: (id: string) => {
       track(`cancelLocalModelInstall:${id}`);
       if (!runtimeDownload || id !== RUNTIME.id) return ok(false);
@@ -2646,6 +2800,8 @@ function createMock(): {
     projectChanged: makeEvent("project-changed"),
     remoteOpened: makeEvent("remote-opened"),
     generationUpdated: makeEvent("generation-updated"),
+    spendRequested: makeEvent("spend-requested"),
+    spendSettled: makeEvent("spend-settled"),
     viewerBackendChanged: makeEvent("viewer-backend-changed"),
     viewerFrameReady: makeEvent("viewer-frame-ready"),
   } as unknown as Events;
