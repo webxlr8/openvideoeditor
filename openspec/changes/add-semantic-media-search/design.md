@@ -177,3 +177,33 @@ model load, 5.0 s warm (about 500 ms per image, CPU, 4 threads).
 - Index files: relink keeps the index (same content id, no encoder call); a damaged file fails its CRC, is deleted
   and rebuilt. On Windows a mapped index file cannot be replaced, so readers drop their map before a rebuild.
 - Still images that the LGPL FFmpeg build cannot decode (PNG, until the FFmpeg rebuild) are read with the PNG reader.
+
+### Ranking and spoken search (tasks.md 3.1–3.3)
+
+Recall harness (`cargo test -p ove-vision --features media --test recall -- --ignored`): 12 synthetic 3-second clips
+(test cards, fractals, noisy colour fields, rings, stripes, cellular patterns), one query each, through the real
+sampler, index and ranking. This set is far easier than real footage and only proves the harness; the labelled set of
+the owner's footage is still needed (`OVE_RECALL_SET` runs the harness on it).
+
+| Model | recall@5 | recall@10 | MRR |
+|---|---|---|---|
+| Shipped (half-precision image, 4-bit text) | 1.000 | 1.000 | 0.903–0.944 |
+| Full precision | 1.000 | 1.000 | 0.903–0.944 |
+
+The two models give the same ranks; MRR moves between runs because the noise in the colour-field clips is random.
+Text confidence for the right clip: 0.17–0.98. "More like this": every clip's own frame ranks its shot first. Unrelated
+synthetic pictures still reach image–image cosines of 0.78–0.94, so the similarity floor is set at 0.8 until it can be
+re-fitted on the labelled set; the text threshold stays at 0.1 for the same reason.
+
+Query latency (`cargo test -p ove-vision --test latency`, median of 7, ove-vision and the f16 conversion built
+optimised in test builds as in shipped builds):
+
+| Rows | Index files | Query | Opening the files (map + CRC, once per session) |
+|---|---|---|---|
+| 10,000 | 10 | 6.4 ms | 7 ms |
+| 100,000 | 100 | 18.1 ms | 57 ms |
+
+Spoken search: golden tests for accents, case, punctuation, a quoted phrase across a sentence (segment) boundary,
+150 ms padding kept inside the media, and BM25 order (repeated and rarer terms first). 100,000 words: index 94 ms,
+query 2 ms. The search reuses the transcript-search folding from `ove-transcribe`; it lives in `ove-vision` because
+it ranks segments and pads ranges, which the existing word-match search does not.

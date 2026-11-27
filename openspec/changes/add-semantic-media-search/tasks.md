@@ -31,9 +31,12 @@
 
 - [ ] 3.1 Implement best-frame-per-shot ranking, calibrated confidence, suggested windows and "more like this"; verify
       recall@5/@10 and MRR on the labelled set and record them in design.md Results.
-- [ ] 3.2 Implement folded, phrase-aware, BM25-ranked transcript search with padded word ranges; verify golden tests
+      _Apply note: implemented; the harness runs on a 12-clip synthetic set (design.md Results). Open: the labelled
+      set of the owner's footage (≥ 300 shots, 100 queries) and the threshold re-fit on it._
+- [x] 3.2 Implement folded, phrase-aware, BM25-ranked transcript search with padded word ranges; verify golden tests
       for accents, punctuation and phrases that cross segment boundaries.
 - [ ] 3.3 Measure query latency at 10,000 and 100,000 rows on both OSes; verify it is ≤ 50 ms at 100,000 rows.
+      _Apply note: Windows measured (18 ms at 100,000 rows, design.md Results). Open: macOS._
 
 ## 4. Organisation
 

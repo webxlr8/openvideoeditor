@@ -102,3 +102,17 @@ opt-level = 3
 
 [profile.test.package.whisper-rs-sys]
 opt-level = 3
+
+# Visual search ranks by streamed f16 dot products; optimise it (and the f16 conversion) in dev and test builds too,
+# so the measured query latency is the shipped one.
+[profile.dev.package.ove-vision]
+opt-level = 3
+
+[profile.test.package.ove-vision]
+opt-level = 3
+
+[profile.dev.package.half]
+opt-level = 3
+
+[profile.test.package.half]
+opt-level = 3
