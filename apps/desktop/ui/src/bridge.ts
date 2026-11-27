@@ -31,6 +31,12 @@ import type {
   ProjectView_Serialize,
   ViewerBackend,
   ViewerRect,
+  ExportCheck_Serialize as ExportCheck,
+  ExportForm_Serialize as ExportForm,
+  ExportForm_Deserialize,
+  ExportJobView_Serialize as ExportJobView,
+  ExportOptions_Serialize as ExportOptions,
+  ExportPresetView_Serialize as ExportPresetView,
 } from "./bindings";
 import {
   type OnboardingChange,
@@ -78,6 +84,8 @@ export interface MockControl {
   feedbackUrl?: string | null;
   /** Frame rate of projects the mock creates (30 unless a test sets one). */
   fps?: number;
+  /** Holds the simulated export worker: queued exports stay queued until it is released. */
+  exportHold?: boolean;
   /** How long a simulated generation job takes (ms). */
   generationMs?: number;
   rects: ViewerRect[];
@@ -1020,6 +1028,150 @@ function createMock(): {
     ...i.fields,
   });
   const mock = (id: string) => findItem(id) as MockItem | undefined;
+  // The export queue's stand-in: jobs advance one at a time in queue order, as the detached worker runs them.
+  const exportJobsList: ExportJobView[] = [];
+  let queueTimer: ReturnType<typeof setInterval> | null = null;
+  const formSummary = (f: ExportForm) => {
+    const parts = [f.container.toUpperCase()];
+    if (f.video) {
+      const p = f.video.profile ? ` ${f.video.profile === "hq" ? "422 HQ" : f.video.profile}` : "";
+      parts.push(`${f.video.codec === "prores" ? "ProRes" : f.video.codec === "h264" ? "H.264" : f.video.codec.toUpperCase()}${p}${f.video.alpha ? " with alpha" : ""}`);
+    }
+    if (f.audio)
+      parts.push(f.audio.codec === "pcm" ? `PCM ${f.audio.bitDepth ?? 24}-bit` : f.audio.codec.toUpperCase());
+    if (f.loudness != null) parts.push(`${f.loudness} LUFS`);
+    return parts.join(" · ");
+  };
+  const checkForm = (f: ExportForm): ExportCheck => {
+    const bad = (message: string, fields: string[]): ExportCheck => ({
+      ok: false,
+      message,
+      fields,
+      extension: f.container,
+      summary: "",
+      frameSize: null,
+    });
+    const v = f.video;
+    if (v && v.codec === "prores" && !["mov", "mkv"].includes(f.container))
+      return bad(`ProRes cannot go in ${f.container}; choose MOV or MKV.`, ["video.codec", "container"]);
+    if (v?.alpha && !(v.codec === "prores" && v.profile === "4444") && !(v.codec === "vp9" && f.container === "webm"))
+      return bad(`${v.codec} has no transparency; use ProRes 4444 or VP9 in WebM.`, ["video.alpha", "video.codec"]);
+    if (v?.codec === "hevc") return bad("No HEVC encoder on this computer; choose ProRes or H.264.", ["video.codec"]);
+    if (f.loudness != null && !f.audio) return bad("A loudness target needs audio.", ["loudness", "audio"]);
+    const d = project?.durationSeconds ?? 0;
+    if (f.range) {
+      const [a, b] = f.range as [number, number];
+      if (!(b > a)) return bad(`Range end (${b} s) must be after its start (${a} s).`, ["range"]);
+      if (b > d + 1e-6) return bad(`Range ${a} s – ${b} s is outside the timeline, which ends at ${d} s.`, ["range"]);
+    }
+    const size = v ? (f.size === "match" ? "1920×1080" : `${Math.round((Number(f.size) * 16) / 9 / 2) * 2}×${f.size}`) : null;
+    return {
+      ok: true,
+      message: null,
+      fields: [],
+      extension: f.container,
+      summary: `${formSummary(f)}${size ? ` · ${size} · ${f.fps === "match" ? projectFps() : f.fps} fps` : ""}${f.range ? ` · ${(f.range[0] ?? 0).toFixed(2)}–${(f.range[1] ?? 0).toFixed(2)} s` : ""}`,
+      frameSize: size,
+    };
+  };
+  const mockPreset = (name: string, about: string, form: Partial<ExportForm>, unavailable: string | null = null): ExportPresetView => {
+    const full: ExportForm = { container: "mp4", video: null, audio: null, size: "match", fps: "match", range: null, loudness: null, ...form };
+    return { name, about, form: full, summary: formSummary(full), unavailable };
+  };
+  const exportPresets = (): ExportPresetView[] => [
+    mockPreset("YouTube 1080p", "H.264 and AAC in MP4, 1080 pixels high", {
+      video: { codec: "h264", profile: null, bitDepth: null, quality: "high", alpha: false },
+      audio: { codec: "aac", bitDepth: null, bitrate: null },
+      size: "1080",
+    }),
+    mockPreset("ProRes 422 HQ master", "ProRes 422 HQ and 24-bit PCM in MOV", {
+      container: "mov",
+      video: { codec: "prores", profile: "hq", bitDepth: null, quality: "medium", alpha: false },
+      audio: { codec: "pcm", bitDepth: 24, bitrate: null },
+    }),
+    mockPreset("ProRes 4444 with alpha", "ProRes 4444 with a transparent background", {
+      container: "mov",
+      video: { codec: "prores", profile: "4444", bitDepth: null, quality: "medium", alpha: true },
+      audio: { codec: "pcm", bitDepth: 24, bitrate: null },
+    }),
+    mockPreset(
+      "HEVC 10-bit",
+      "HEVC Main 10 and AAC in MP4",
+      {
+        video: { codec: "hevc", profile: null, bitDepth: 10, quality: "high", alpha: false },
+        audio: { codec: "aac", bitDepth: null, bitrate: null },
+      },
+      "No HEVC encoder on this computer; choose ProRes or H.264.",
+    ),
+    mockPreset("Audio WAV 24-bit", "The mix as 24-bit WAV", { container: "wav", audio: { codec: "pcm", bitDepth: 24, bitrate: null } }),
+    mockPreset("Audio M4A", "The mix as AAC in M4A", { container: "m4a", audio: { codec: "aac", bitDepth: null, bitrate: 256000 } }),
+  ];
+  const advanceQueue = () => {
+    if (control.exportHold) return;
+    let running = exportJobsList.find((j) => j.status === "running");
+    if (!running) {
+      running = exportJobsList.find((j) => j.status === "queued");
+      if (!running) {
+        if (queueTimer) clearInterval(queueTimer);
+        queueTimer = null;
+        return;
+      }
+      running.status = "running";
+    }
+    running.progress = Math.min(1, (running.progress ?? 0) + 0.25);
+    running.totalFrames = 300;
+    running.frame = Math.round(300 * (running.progress ?? 0));
+    if ((running.progress ?? 0) >= 1) {
+      running.status = "done";
+      running.finishedAt = Date.now();
+      running.secondsTaken = 0.4;
+      running.encoder = running.form.video ? "mock encoder" : running.form.audio?.codec === "pcm" ? "PCM" : "AAC";
+      if (running.form.loudness != null) running.loudness = `Loudness ${running.form.loudness.toFixed(1)} LUFS (was -21.0)`;
+    }
+  };
+  const startQueue = () => {
+    if (!queueTimer) queueTimer = setInterval(advanceQueue, 40);
+  };
+  const enqueueJob = (form: ExportForm, out: string): ExportJobView => {
+    const job: ExportJobView = {
+      id: `x_${(++seq).toString(16)}`,
+      projectName: project?.name ?? "",
+      thisProject: true,
+      out,
+      fileName: out.split(/[\\/]/).pop() ?? out,
+      status: "queued",
+      progress: 0,
+      frame: 0,
+      totalFrames: 0,
+      encoder: null,
+      summary: formSummary(form),
+      range: form.range,
+      error: null,
+      warnings: [],
+      requestedBy: "person",
+      createdAt: Date.now() + seq / 1000,
+      finishedAt: null,
+      secondsTaken: null,
+      loudness: null,
+      form,
+    };
+    exportJobsList.push(job);
+    startQueue();
+    return job;
+  };
+  /** A form as the native side receives it, with every field present. */
+  const normForm = (f: ExportForm_Deserialize): ExportForm => ({
+    container: f.container,
+    size: f.size,
+    fps: f.fps,
+    range: f.range ?? null,
+    loudness: f.loudness ?? null,
+    video: f.video
+      ? { codec: f.video.codec, profile: f.video.profile ?? null, bitDepth: f.video.bitDepth ?? null, quality: f.video.quality, alpha: f.video.alpha }
+      : null,
+    audio: f.audio ? { codec: f.audio.codec, bitDepth: f.audio.bitDepth ?? null, bitrate: f.audio.bitrate ?? null } : null,
+  });
+  const copyJob = (j: ExportJobView) => JSON.parse(JSON.stringify(j)) as ExportJobView;
   /** A stand-in for the duck planner: speech is the middle third of each dialogue clip. */
   const mockDuck = (r: DuckRequest): { items: string[]; speech: number[][] } | string => {
     const resolve = (names: string[]) => {
@@ -1839,10 +1991,120 @@ function createMock(): {
       }
       return ok(null);
     },
-    chooseExportPath: (defaultName: string) => (
-      track("chooseExportPath"),
-      ok<string | null>(`/mock/exports/${defaultName}.mp4`)
+    chooseExportPath: (defaultName: string, extension: string | null) => (
+      track(`chooseExportPath:${extension ?? "mp4"}`),
+      ok<string | null>(`/mock/exports/${defaultName}.${extension ?? "mp4"}`)
     ),
+    exportOptions: () => {
+      track("exportOptions");
+      const c = (id: string, label: string, audioOnly: boolean, videoCodecs: string[], audioCodecs: string[]) => ({
+        id,
+        label,
+        audioOnly,
+        available: true,
+        videoCodecs,
+        audioCodecs,
+      });
+      const p = (id: string, label: string) => ({ id, label, available: true });
+      return ok<ExportOptions>({
+        presets: exportPresets(),
+        containers: [
+          c("mp4", "MP4", false, ["h264", "hevc"], ["aac"]),
+          c("mov", "MOV", false, ["h264", "hevc", "prores"], ["aac", "pcm"]),
+          c("wav", "WAV", true, [], ["pcm"]),
+          c("m4a", "M4A", true, [], ["aac"]),
+        ],
+        videoCodecs: [
+          { id: "h264", label: "H.264", available: true, profiles: [p("high", "High")] },
+          { id: "hevc", label: "HEVC", available: false, profiles: [p("main", "Main (8-bit)"), p("main10", "Main 10 (10-bit)")] },
+          {
+            id: "prores",
+            label: "ProRes",
+            available: true,
+            profiles: [p("hq", "422 HQ"), p("proxy", "422 Proxy"), p("lt", "422 LT"), p("standard", "422"), p("4444", "4444")],
+          },
+        ],
+        audioCodecs: [p("aac", "AAC"), p("pcm", "PCM")],
+        loudnessTargets: [-14, -16, -23, -24],
+      });
+    },
+    checkExport: (f: ExportForm_Deserialize) => ok(checkForm(normForm(f))),
+    queueExport: (f: ExportForm_Deserialize, path: string) => {
+      const form = normForm(f);
+      const r = form.range ? `@${form.range[0]}-${form.range[1]}` : "";
+      track(`queueExport:${form.container}:${form.video?.codec ?? "audio"}${form.loudness != null ? `:${form.loudness}LUFS` : ""}${r}`);
+      if (!project) return fail("invalid_argument", "Open a project first.");
+      const c = checkForm(form);
+      if (!c.ok) return fail("invalid_argument", c.message ?? "");
+      return ok(copyJob(enqueueJob(form, path)));
+    },
+    exportJobs: () => ok(exportJobsList.map(copyJob)),
+    cancelExportJob: (id: string) => {
+      track(`cancelExportJob:${id}`);
+      const j = exportJobsList.find((x) => x.id === id);
+      if (!j) return fail("not_found", "That export is no longer in the queue.");
+      if (j.status !== "queued" && j.status !== "running")
+        return fail("invalid_argument", `This export has already ${j.status}; its file is kept.`);
+      j.status = "cancelled";
+      j.finishedAt = Date.now();
+      return ok(copyJob(j));
+    },
+    exportAgain: (id: string) => {
+      track(`exportAgain:${id}`);
+      const j = exportJobsList.find((x) => x.id === id);
+      if (!j) return fail("not_found", "That export is no longer listed.");
+      return ok(copyJob(enqueueJob(j.form, j.out)));
+    },
+    clearFinishedExports: () => {
+      track("clearFinishedExports");
+      const before = exportJobsList.length;
+      for (let i = exportJobsList.length - 1; i >= 0; i--)
+        if (!["queued", "running"].includes(exportJobsList[i].status)) exportJobsList.splice(i, 1);
+      return ok(before - exportJobsList.length);
+    },
+    saveRangeAsMedia: async (s0: number | null, e0: number | null, replace: boolean) => {
+      const start = s0 ?? 0;
+      const end = e0 ?? 0;
+      track(`saveRangeAsMedia:${start}-${end}${replace ? ":replace" : ""}`);
+      if (!project) return fail("invalid_argument", "Open a project first.");
+      if (!(end > start)) return fail("invalid_argument", "The range is empty.");
+      const n = ++seq;
+      const file = `media/rendered/Range ${start}–${end} s.mov`;
+      const r = await editProject(
+        replace ? `render ${start}–${end} s in place` : `save ${start}–${end} s as media`,
+        (p) => {
+          p.media.push({
+            id: `m_r${n}`,
+            name: `Range ${start}–${end} s`,
+            path: `${p.bundle}/${file}`,
+            kind: "video",
+            durationSeconds: end - start,
+            width: 1920,
+            height: 1080,
+            status: "online",
+            thumbnail: null,
+            skim: null,
+          });
+          if (!replace) return;
+          const video = new Set(p.tracks.filter((t) => t.kind === "video").map((t) => t.id));
+          const kept: ItemView_Serialize[] = [];
+          for (const i of p.items) {
+            const s0 = i.start ?? 0;
+            const e0 = i.end ?? 0;
+            if (!video.has(i.trackId) || e0 <= start || s0 >= end) kept.push(i);
+            else if (s0 < start) kept.push({ ...i, end: start, fields: { ...(i as MockItem).fields, endTime: start } } as MockItem);
+            else if (e0 > end) kept.push({ ...i, start: end, fields: { ...(i as MockItem).fields, startTime: end } } as MockItem);
+          }
+          p.items = kept;
+          const top = p.tracks.find((t) => t.kind === "video" && t.id !== "t_text") ?? p.tracks[0];
+          p.items.push(
+            fromDetail({ id: `i_r${n}`, trackId: top.id, type: "video", name: `Range ${start}–${end} s`, startTime: start, endTime: end, mediaItemId: `m_r${n}` }),
+          );
+        },
+      );
+      if (r.status === "error") return r;
+      return ok({ mediaId: `m_r${n}`, file, itemId: replace ? `i_r${n}` : null, replaced: replace, format: "ProRes 422 HQ" });
+    },
     revealPath: (path: string) => (track(`revealPath:${path}`), ok(null)),
     crashReports: () => Promise.resolve(control.crashReports ?? []),
     markCrashReportsSeen: () => {

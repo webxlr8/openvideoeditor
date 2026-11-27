@@ -214,3 +214,30 @@ LGPL FFmpeg 9.0.2 build in `H:/Development/OpenvideoEditor/tools/ffmpeg/out/wind
 - Only the chosen tracks are rendered for render in place; when another visual track has content in the range the
   render is ProRes 4444 with alpha. An offline media file inside the range refused the call before rendering
   (`export.refused`, naming the file): no revision, no media, no file.
+
+### Group 5 (UI)
+
+- The export dialog lists the shared presets (the same table as the CLI and MCP) in two groups, Video and Sound only.
+  A preset this computer cannot write stays visible but disabled, with the reason as its tooltip ("No HEVC encoder on
+  this computer…"). Below the presets: "Sound only", a loudness target (as mixed, -14, -16, -23, -24 LUFS) and the
+  range (whole timeline, or a part; the marked range when the dialog opens from the timeline). "Advanced" holds
+  container, video codec, profile, bit depth, quality, size, frame rate, transparent background, audio codec and sample
+  depth. Every change is checked against the open timeline and this computer's encoders (`check_export`): a refused
+  combination shows its message, outlines the conflicting fields and disables Export; otherwise one summary line
+  ("MOV · ProRes 422 HQ · PCM 24-bit · 1920×1080 · 30 fps") says what will be written.
+- Export queues a job in the same queue files `ove` and MCP use (`ove-tools` `export_queue::enqueue`, recorded as
+  requested by "person"). The app keeps no job state of its own: the dialog and the Exports panel read the queue
+  files every 0.5 s while a job is queued or running, else every 3 s. The app also puts back jobs that a dead worker
+  left and starts the worker when it opens.
+- The Exports panel (rail item "Exports") lists queued and running jobs, then those finished in the last day, with
+  progress, encoder, time taken, loudness result and who asked; Cancel, Show in folder, Export again (same settings and
+  file, the open project as it is now) and Clear finished. `openExportsPanel()` opens it from elsewhere (the
+  background-tasks popover), and `useActiveExportCount()` gives that popover its count.
+- Right-click on the marked range in the ruler: Export range…, Save range as media, Render in place… (asks first).
+  Both run the `save_range_as_media` registry tool on the open project as the person's edit, so one undo restores
+  the covered items.
+- Tests: 5 Rust unit tests in `apps/desktop/src-tauri/src/exports.rs` (every preset round-trips through the form; a
+  refused combination names its fields; summaries; the panel's list and cancel over real queue files; a finished job's
+  encoder and loudness). 9 UI tests in `Export.test.tsx`: preset choice, a refused combination, WAV with a loudness
+  target, a range outside and inside the timeline, cancel from the dialog, two queued jobs in the panel with one
+  cancelled and one finished, save range as media, render in place undone in one step, and export range.

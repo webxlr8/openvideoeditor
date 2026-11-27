@@ -57,10 +57,11 @@
 
 ## 5. UI
 
-- [ ] 5.1 Build the export dialog (presets, Advanced section, validation messages) and the Exports panel (progress,
+- [x] 5.1 Build the export dialog (presets, Advanced section, validation messages) and the Exports panel (progress,
       show file, cancel, export again); verify UI tests for preset choice, a refused combination and cancel.
-- [ ] 5.2 Add "Save range as media" and "Render in place" to the timeline range menu with a confirmation for replace;
+- [x] 5.2 Add "Save range as media" and "Render in place" to the timeline range menu with a confirmation for replace;
       verify a UI test that one undo restores the items.
+      Note: the menu opens with a right-click on the marked range in the ruler, and also offers "Export range…".
 
 ## 6. Integration checks
 

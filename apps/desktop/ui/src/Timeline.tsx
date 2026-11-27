@@ -40,6 +40,8 @@ export interface TimelineProps {
   tool?: Tool;
   /** Marked in and out points, seconds. */
   range?: { in: number | null; out: number | null };
+  /** The marked range's menu (right-click on it in the ruler): export it, save it as media, render it in place. */
+  rangeMenu?: (start: number, end: number) => MenuItem[];
 }
 
 type Drag =
@@ -367,6 +369,16 @@ export function Timeline(props: TimelineProps) {
               <span
                 className="range-mark"
                 data-testid="range"
+                onPointerDown={(e) => {
+                  // The right button opens the range menu instead of scrubbing.
+                  if (e.button === 2) e.stopPropagation();
+                }}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  const list = props.rangeMenu?.(range.in!, range.out!) ?? [];
+                  if (list.length) setMenu({ at: { x: e.clientX, y: e.clientY }, items: list });
+                }}
                 data-in={range.in}
                 data-out={range.out}
                 style={{ left: HEADER_W + x(range.in), width: x(range.out - range.in) }}

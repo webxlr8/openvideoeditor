@@ -134,6 +134,31 @@ export const commands = {
 	 */
 	exportProject: (request: ExportRequest) => typedError<null, AppError>(__TAURI_INVOKE("export_project", { request })),
 	cancelExport: () => typedError<null, AppError>(__TAURI_INVOKE("cancel_export")),
+	/**  The presets, containers and codecs the export dialog offers. */
+	exportOptions: () => typedError<ExportOptions_Serialize, AppError>(__TAURI_INVOKE("export_options")),
+	/**  Checks the dialog's settings against the open timeline (range inside it) and this computer's encoders. */
+	checkExport: (form: ExportForm_Deserialize) => typedError<ExportCheck_Serialize, AppError>(__TAURI_INVOKE("check_export", { form })),
+	/**
+	 *  Queues an export of the open project. Refused at once (nothing queued) for impossible settings, offline media or
+	 *  pending placeholders. The job renders the project as it is now, even if editing goes on.
+	 */
+	queueExport: (form: ExportForm_Deserialize, path: string) => typedError<ExportJobView_Serialize, AppError>(__TAURI_INVOKE("queue_export", { form, path })),
+	/**
+	 *  The export queue: every queued and running job, and the jobs finished in the last day, oldest first. Also puts
+	 *  back jobs whose worker died and starts a worker when jobs wait.
+	 */
+	exportJobs: () => typedError<ExportJobView_Serialize[], AppError>(__TAURI_INVOKE("export_jobs")),
+	/**  Cancels a queued or running export. */
+	cancelExportJob: (id: string) => typedError<ExportJobView_Serialize, AppError>(__TAURI_INVOKE("cancel_export_job", { id })),
+	/**  Queues a finished job again with the same settings and file, rendering the open project as it is now. */
+	exportAgain: (id: string) => typedError<ExportJobView_Serialize, AppError>(__TAURI_INVOKE("export_again", { id })),
+	/**  Removes finished jobs from the list (their files stay). Returns how many. */
+	clearFinishedExports: () => typedError<number, AppError>(__TAURI_INVOKE("clear_finished_exports")),
+	/**
+	 *  Renders the range `start`–`end` (seconds) into a new media file owned by the project. With `replace`, the same
+	 *  revision replaces what the range covers on the video tracks with one clip of it (one undo restores the items).
+	 */
+	saveRangeAsMedia: (start: number | null, end: number | null, replace: boolean) => typedError<SavedRange_Serialize, AppError>(__TAURI_INVOKE("save_range_as_media", { start, end, replace })),
 	/**
 	 *  The pointer is over a media thumbnail whose skim sheet is not built yet: its task moves to interactive priority.
 	 *  Sent once per hover, never per pointer move.
@@ -153,8 +178,11 @@ export const commands = {
 	duckPreview: (request: DuckRequest) => typedError<DuckPreview, AppError>(__TAURI_INVOKE("duck_preview", { request })),
 	/**  Ducks the music under the dialogue as one revision. */
 	duckAudio: (request: DuckRequest) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("duck_audio", { request })),
-	/**  Save dialog for the export destination. `None` when cancelled. */
-	chooseExportPath: (defaultName: string) => typedError<string | null, AppError>(__TAURI_INVOKE("choose_export_path", { defaultName })),
+	/**
+	 *  Save dialog for the export destination; `extension` is the container's (`mp4` when `None`). `None` when
+	 *  cancelled.
+	 */
+	chooseExportPath: (defaultName: string, extension: string | null) => typedError<string | null, AppError>(__TAURI_INVOKE("choose_export_path", { defaultName, extension })),
 	/**  Shows a file in the system file manager. */
 	revealPath: (path: string) => typedError<null, AppError>(__TAURI_INVOKE("reveal_path", { path })),
 	/**  Full JSON of an item (every field, document names) for the inspector. */
@@ -476,6 +504,29 @@ export type AudioAnalysisChanged = {
 	status: string,
 };
 
+/**  Audio settings of an [`ExportForm`]. */
+export type AudioForm = AudioForm_Serialize | AudioForm_Deserialize;
+
+/**  Audio settings of an [`ExportForm`]. */
+export type AudioForm_Deserialize = {
+	/**  `aac`, `pcm`, `flac` or `opus`. */
+	codec: string,
+	/**  PCM and FLAC: 16 or 24. */
+	bitDepth?: number | null,
+	/**  AAC and Opus, bits per second; `None` follows the video quality. */
+	bitrate?: number | null,
+};
+
+/**  Audio settings of an [`ExportForm`]. */
+export type AudioForm_Serialize = {
+	/**  `aac`, `pcm`, `flac` or `opus`. */
+	codec: string,
+	/**  PCM and FLAC: 16 or 24. */
+	bitDepth: number | null,
+	/**  AAC and Opus, bits per second; `None` follows the video quality. */
+	bitrate: number | null,
+};
+
 /**  A batch of meter readings. */
 export type AudioMeter = AudioMeter_Serialize | AudioMeter_Deserialize;
 
@@ -612,6 +663,16 @@ export type ChatSummaryView = {
 /**  A step of the guided first edit. */
 export type ChecklistStep = "import" | "cut" | "title" | "captions" | "export";
 
+/**  A container and what it may hold. */
+export type ContainerChoice = {
+	id: string,
+	label: string,
+	audioOnly: boolean,
+	available: boolean,
+	videoCodecs: string[],
+	audioCodecs: string[],
+};
+
 export type CrashReport = {
 	path: string,
 	/**  Milliseconds since the epoch. */
@@ -716,6 +777,201 @@ export type EditRefusal = {
 
 /**  Machine-readable error category. The UI switches on this; `message` is shown to the user. */
 export type ErrorCode = "not_found" | "unsupported" | "corrupt" | "media_offline" | "no_media" | "invalid_argument" | "worker_panic" | "gpu" | "io" | "internal";
+
+/**  The dialog's check of a form against the open timeline and this computer. */
+export type ExportCheck = ExportCheck_Serialize | ExportCheck_Deserialize;
+
+/**  The dialog's check of a form against the open timeline and this computer. */
+export type ExportCheck_Deserialize = {
+	ok: boolean,
+	/**  Why it cannot be exported, naming the conflicting choices. */
+	message?: string | null,
+	/**  The fields the message is about (`container`, `video.codec`, `alpha`, `range`, …). */
+	fields: string[],
+	/**  The file extension for the container. */
+	extension: string,
+	/**  "MOV · ProRes 422 HQ · PCM 24-bit · 1920×1080 · 30 fps". */
+	summary: string,
+	/**  Output frame size ("1920×1080"); `None` for audio only. */
+	frameSize?: string | null,
+};
+
+/**  The dialog's check of a form against the open timeline and this computer. */
+export type ExportCheck_Serialize = {
+	ok: boolean,
+	/**  Why it cannot be exported, naming the conflicting choices. */
+	message: string | null,
+	/**  The fields the message is about (`container`, `video.codec`, `alpha`, `range`, …). */
+	fields: string[],
+	/**  The file extension for the container. */
+	extension: string,
+	/**  "MOV · ProRes 422 HQ · PCM 24-bit · 1920×1080 · 30 fps". */
+	summary: string,
+	/**  Output frame size ("1920×1080"); `None` for audio only. */
+	frameSize: string | null,
+};
+
+/**  One choice in a list (a profile, a codec). */
+export type ExportChoice = {
+	id: string,
+	label: string,
+	/**  False when this computer has no encoder (or muxer) for it. */
+	available: boolean,
+};
+
+/**  What the export dialog sends: the export settings model in a shape the UI can hold. */
+export type ExportForm = ExportForm_Serialize | ExportForm_Deserialize;
+
+/**  What the export dialog sends: the export settings model in a shape the UI can hold. */
+export type ExportForm_Deserialize = {
+	/**  `mp4`, `mov`, `mkv`, `webm`, `m4a`, `wav` or `flac`. */
+	container: string,
+	/**  `None`: audio only. */
+	video?: VideoForm_Deserialize | null,
+	/**  `None`: no sound. */
+	audio?: AudioForm_Deserialize | null,
+	/**  `match` (the timeline's size) or a height in pixels. */
+	size: string,
+	/**  `match` (the timeline's rate) or frames per second. */
+	fps: string,
+	/**  Start and end in seconds; `None` = the whole timeline. */
+	range?: [number | null, number | null] | null,
+	/**  Integrated loudness target in LUFS; `None` = off. */
+	loudness?: number | null,
+};
+
+/**  What the export dialog sends: the export settings model in a shape the UI can hold. */
+export type ExportForm_Serialize = {
+	/**  `mp4`, `mov`, `mkv`, `webm`, `m4a`, `wav` or `flac`. */
+	container: string,
+	/**  `None`: audio only. */
+	video: VideoForm_Serialize | null,
+	/**  `None`: no sound. */
+	audio: AudioForm_Serialize | null,
+	/**  `match` (the timeline's size) or a height in pixels. */
+	size: string,
+	/**  `match` (the timeline's rate) or frames per second. */
+	fps: string,
+	/**  Start and end in seconds; `None` = the whole timeline. */
+	range: [number | null, number | null] | null,
+	/**  Integrated loudness target in LUFS; `None` = off. */
+	loudness: number | null,
+};
+
+/**  An export job as the Exports panel shows it. */
+export type ExportJobView = ExportJobView_Serialize | ExportJobView_Deserialize;
+
+/**  An export job as the Exports panel shows it. */
+export type ExportJobView_Deserialize = {
+	id: string,
+	projectName: string,
+	/**  True when the job's project is the one open in the editor ("Export again" needs it). */
+	thisProject: boolean,
+	out: string,
+	fileName: string,
+	/**  `queued`, `running`, `done`, `failed` or `cancelled`. */
+	status: string,
+	/**  0–1. */
+	progress: number | null,
+	frame: number,
+	totalFrames: number,
+	/**  The encoder as people read it, once known. */
+	encoder?: string | null,
+	/**  "MOV · ProRes 422 HQ · PCM 24-bit". */
+	summary: string,
+	range?: [number | null, number | null] | null,
+	error?: string | null,
+	warnings: string[],
+	/**  "person", "assistant", "cli" or an MCP client's name. */
+	requestedBy: string,
+	/**  Milliseconds since 1970. */
+	createdAt: number | null,
+	finishedAt?: number | null,
+	secondsTaken?: number | null,
+	/**  "Loudness −14.0 LUFS (was −22.3)" when the export normalised loudness. */
+	loudness?: string | null,
+	form: ExportForm_Deserialize,
+};
+
+/**  An export job as the Exports panel shows it. */
+export type ExportJobView_Serialize = {
+	id: string,
+	projectName: string,
+	/**  True when the job's project is the one open in the editor ("Export again" needs it). */
+	thisProject: boolean,
+	out: string,
+	fileName: string,
+	/**  `queued`, `running`, `done`, `failed` or `cancelled`. */
+	status: string,
+	/**  0–1. */
+	progress: number | null,
+	frame: number,
+	totalFrames: number,
+	/**  The encoder as people read it, once known. */
+	encoder: string | null,
+	/**  "MOV · ProRes 422 HQ · PCM 24-bit". */
+	summary: string,
+	range: [number | null, number | null] | null,
+	error: string | null,
+	warnings: string[],
+	/**  "person", "assistant", "cli" or an MCP client's name. */
+	requestedBy: string,
+	/**  Milliseconds since 1970. */
+	createdAt: number | null,
+	finishedAt: number | null,
+	secondsTaken: number | null,
+	/**  "Loudness −14.0 LUFS (was −22.3)" when the export normalised loudness. */
+	loudness: string | null,
+	form: ExportForm_Serialize,
+};
+
+/**  Everything the export dialog offers. */
+export type ExportOptions = ExportOptions_Serialize | ExportOptions_Deserialize;
+
+/**  Everything the export dialog offers. */
+export type ExportOptions_Deserialize = {
+	presets: ExportPresetView_Deserialize[],
+	containers: ContainerChoice[],
+	videoCodecs: VideoCodecChoice[],
+	audioCodecs: ExportChoice[],
+	/**  Loudness targets in LUFS. */
+	loudnessTargets: (number | null)[],
+};
+
+/**  Everything the export dialog offers. */
+export type ExportOptions_Serialize = {
+	presets: ExportPresetView_Serialize[],
+	containers: ContainerChoice[],
+	videoCodecs: VideoCodecChoice[],
+	audioCodecs: ExportChoice[],
+	/**  Loudness targets in LUFS. */
+	loudnessTargets: (number | null)[],
+};
+
+/**  A named preset as the dialog lists it. */
+export type ExportPresetView = ExportPresetView_Serialize | ExportPresetView_Deserialize;
+
+/**  A named preset as the dialog lists it. */
+export type ExportPresetView_Deserialize = {
+	name: string,
+	about: string,
+	form: ExportForm_Deserialize,
+	/**  "MOV · ProRes 422 HQ · PCM 24-bit". */
+	summary: string,
+	/**  Why this computer cannot write it ("no HEVC encoder on this computer …"); `None` when it can. */
+	unavailable?: string | null,
+};
+
+/**  A named preset as the dialog lists it. */
+export type ExportPresetView_Serialize = {
+	name: string,
+	about: string,
+	form: ExportForm_Serialize,
+	/**  "MOV · ProRes 422 HQ · PCM 24-bit". */
+	summary: string,
+	/**  Why this computer cannot write it ("no HEVC encoder on this computer …"); `None` when it can. */
+	unavailable: string | null,
+};
 
 /**  Export progress (and the end of an export: `done`, with `error` or `path`). */
 export type ExportProgress = ExportProgress_Serialize | ExportProgress_Deserialize;
@@ -1366,6 +1622,33 @@ export type RemoveStatus = "removed" |
 /**  A running job uses the model; it is removed when the job ends (`localModelsChanged` follows). */
 "waiting" | "notInstalled";
 
+/**  What "Save range as media" or "Render in place" made. */
+export type SavedRange = SavedRange_Serialize | SavedRange_Deserialize;
+
+/**  What "Save range as media" or "Render in place" made. */
+export type SavedRange_Deserialize = {
+	mediaId: string,
+	/**  In the project bundle (`media/rendered/…`). */
+	file: string,
+	/**  The clip of the new media when the range was rendered in place. */
+	itemId?: string | null,
+	replaced: boolean,
+	/**  "ProRes 422 HQ", "DNxHR HQ", … */
+	format?: string | null,
+};
+
+/**  What "Save range as media" or "Render in place" made. */
+export type SavedRange_Serialize = {
+	mediaId: string,
+	/**  In the project bundle (`media/rendered/…`). */
+	file: string,
+	/**  The clip of the new media when the range was rendered in place. */
+	itemId: string | null,
+	replaced: boolean,
+	/**  "ProRes 422 HQ", "DNxHR HQ", … */
+	format: string | null,
+};
+
 export type SendResult = {
 	chatId: string,
 };
@@ -1556,6 +1839,45 @@ export type UsageTotals_Serialize = {
 	/**  Every chat of the open project this calendar month (UTC). */
 	month: SpendView,
 	monthCapUsd: number | null,
+};
+
+/**  A video codec with its profiles. */
+export type VideoCodecChoice = {
+	id: string,
+	label: string,
+	available: boolean,
+	profiles: ExportChoice[],
+};
+
+/**  Video settings of an [`ExportForm`]. */
+export type VideoForm = VideoForm_Serialize | VideoForm_Deserialize;
+
+/**  Video settings of an [`ExportForm`]. */
+export type VideoForm_Deserialize = {
+	/**  `h264`, `hevc`, `prores`, `dnxhr`, `vp9` or `av1`. */
+	codec: string,
+	/**  One of the codec's profiles ([`ExportOptions`]); `None` = the codec's default. */
+	profile?: string | null,
+	/**  8, 10 or 12; `None` = the codec's (or profile's) default. */
+	bitDepth?: number | null,
+	/**  `very low`, `low`, `medium`, `high` or `very high`. */
+	quality: string,
+	/**  Keep the timeline's transparency (ProRes 4444, VP9 in WebM). */
+	alpha: boolean,
+};
+
+/**  Video settings of an [`ExportForm`]. */
+export type VideoForm_Serialize = {
+	/**  `h264`, `hevc`, `prores`, `dnxhr`, `vp9` or `av1`. */
+	codec: string,
+	/**  One of the codec's profiles ([`ExportOptions`]); `None` = the codec's default. */
+	profile: string | null,
+	/**  8, 10 or 12; `None` = the codec's (or profile's) default. */
+	bitDepth: number | null,
+	/**  `very low`, `low`, `medium`, `high` or `very high`. */
+	quality: string,
+	/**  Keep the timeline's transparency (ProRes 4444, VP9 in WebM). */
+	alpha: boolean,
 };
 
 /**  Which presentation path is active. */
