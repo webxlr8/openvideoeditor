@@ -5,6 +5,9 @@
 #   ffmpeg -hide_banner -buildconf | tools/ffmpeg/check-license.sh -
 #
 # Allowed: LGPL version 2.1 or later. Exit 0 when clean, 1 with the offending markers otherwise.
+# The export encoders (--enable-libopenh264, --enable-ffnvcodec/--enable-nvenc, --enable-amf, --enable-libvpl) are
+# allowed: their libraries and headers are BSD-2-Clause or MIT. The CUDA compiler, CUDA SDK and NPP options are not
+# (they make the build nonfree), nor are the GPL-only libraries listed below.
 set -euo pipefail
 
 input="${1:--}"
@@ -14,7 +17,7 @@ bad=()
 # configure flags (FFMPEG_CONFIGURATION / -buildconf / buildconf.txt)
 for flag in --enable-gpl --enable-nonfree --enable-version3 --enable-libx264 --enable-libx265 --enable-libxvid \
             --enable-libfdk-aac --enable-postproc --enable-frei0r --enable-librubberband --enable-libvidstab \
-            --enable-openssl --enable-libsmbclient; do
+            --enable-openssl --enable-libsmbclient --enable-libxavs --enable-libxavs2 --enable-libdavs2             --enable-libcdio --enable-libzvbi             --enable-cuda-nvcc --enable-cuda-sdk --enable-libnpp --enable-decklink --enable-libtls; do
   if grep -q -- "$flag\b" <<<"$text"; then bad+=("$flag"); fi
 done
 # config.h defines

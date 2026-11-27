@@ -53,9 +53,10 @@ OUT_DIR="${CARGO_TARGET_DIR:-$ROOT/target}${CROSS:+/$CROSS}/$CLI_PROFILE"
 TARGET_ARGS=(); [ -z "$CROSS" ] || TARGET_ARGS=(--target "$CROSS")
 
 shipped() {
-  # The shipped FFmpeg libraries for this target (real files, not symlinks; never libavfilter or the CLI).
+  # The shipped FFmpeg libraries for this target, with dav1d and OpenH264 (real files, not symlinks; never libavfilter
+  # or the CLI).
   find "$LIB/lib" "$LIB/bin" -maxdepth 1 -type f \( -name '*.dylib' -o -name '*.dll' -o -name '*.so.*' \) 2>/dev/null \
-    | grep -E 'avcodec|avformat|avutil|swscale|swresample|dav1d' | sort
+    | grep -E 'avcodec|avformat|avutil|swscale|swresample|dav1d|openh264' | sort
 }
 
 case "$TARGET" in

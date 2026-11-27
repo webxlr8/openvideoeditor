@@ -1,9 +1,11 @@
 // Processes and files around the app: tauri-driver, the mock Messages API, test media, the app's log, bundles.
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
+import http from "node:http";
 import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import zlib from "node:zlib";
 
 export const WINDOWS = process.platform === "win32";
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -223,4 +225,94 @@ export function bundleItems(bundle) {
   const doc = readJson(path.join(bundle, "project.json"));
   const items = doc.project?.timelineItems ?? doc.project?.items ?? [];
   return Array.isArray(items) ? items : Object.values(items);
+}
+
+/**
+ * Mean SSIM (all planes) of the video of two files over the time window [from, to) seconds of each, measured with
+ * a full FFmpeg CLI (`OVE_FIXTURE_FFMPEG`, else `ffmpeg` on PATH; the app's LGPL build has no filters for it).
+ * Throws when no such CLI is available: a skipped comparison must not pass.
+ */
+export function ssim(a, b, from, to) {
+  const bin = process.env.OVE_FIXTURE_FFMPEG || which("ffmpeg");
+  if (!bin) throw new Error("SSIM needs a full ffmpeg CLI: set OVE_FIXTURE_FFMPEG");
+  const cut = (i, label) => `[${i}:v]trim=start=${from}:end=${to},setpts=PTS-STARTPTS,format=yuv420p[${label}]`;
+  const graph = `${cut(0, "a")};${cut(1, "b")};[a][b]ssim`;
+  const r = spawnSync(bin, ["-hide_banner", "-nostats", "-i", a, "-i", b, "-filter_complex", graph, "-f", "null", "-"], {
+    encoding: "utf8",
+  });
+  const m = /SSIM .* All:([0-9.]+)/.exec(r.stderr ?? "");
+  if (r.status !== 0 || !m) throw new Error(`ffmpeg ssim failed (${r.status}): ${(r.stderr ?? "").slice(-600)}`);
+  return Number(m[1]);
+}
+
+/** A valid RGB PNG of one colour (`w`×`h`), made without an image library. */
+export function solidPng(w, h, [r, g, b]) {
+  const chunk = (type, data) => {
+    const len = Buffer.alloc(4);
+    len.writeUInt32BE(data.length);
+    const body = Buffer.concat([Buffer.from(type, "ascii"), data]);
+    const crc = Buffer.alloc(4);
+    crc.writeUInt32BE(zlib.crc32(body));
+    return Buffer.concat([len, body, crc]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(w, 0);
+  ihdr.writeUInt32BE(h, 4);
+  ihdr.set([8, 2, 0, 0, 0], 8); // 8-bit RGB, no interlace
+  const row = Buffer.concat([Buffer.from([0]), Buffer.from(Array.from({ length: w }, () => [r, g, b]).flat())]);
+  const raw = Buffer.concat(Array.from({ length: h }, () => row));
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk("IHDR", ihdr),
+    chunk("IDAT", zlib.deflateSync(raw)),
+    chunk("IEND", Buffer.alloc(0)),
+  ]);
+}
+
+/**
+ * A local stand-in for the fal.ai queue API (no key leaves the machine, nothing is spent). Every POST is a new
+ * submission; the request stays IN_PROGRESS until `finish()`, then its result is one PNG image.
+ */
+export async function startFalStandIn() {
+  const png = solidPng(64, 36, [40, 120, 200]);
+  let posts = 0;
+  let statusPolls = 0;
+  let finished = false;
+  const server = http.createServer((req, res) => {
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const json = (v) => {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(v));
+    };
+    req.resume();
+    req.on("end", () => {
+      if (req.method === "POST") {
+        posts += 1;
+        json({ request_id: `req${posts}`, status_url: `${base}/q/r/status`, response_url: `${base}/q/r`, cancel_url: `${base}/q/r/cancel` });
+      } else if (req.url === "/q/r/status") {
+        statusPolls += 1;
+        json({ status: finished ? "COMPLETED" : "IN_PROGRESS" });
+      } else if (req.url === "/q/r") {
+        json({ images: [{ url: `${base}/out.png`, width: 64, height: 36, content_type: "image/png" }], seed: 1 });
+      } else if (req.url === "/out.png") {
+        res.writeHead(200, { "Content-Type": "image/png" });
+        res.end(png);
+      } else if (req.method === "PUT") {
+        json({});
+      } else {
+        res.writeHead(404);
+        res.end("{}");
+      }
+    });
+  });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  return {
+    url: `http://127.0.0.1:${server.address().port}`,
+    posts: () => posts,
+    statusPolls: () => statusPolls,
+    finish: () => {
+      finished = true;
+    },
+    close: () => server.close(),
+  };
 }
