@@ -4171,6 +4171,7 @@ dependencies = [
  "ove-projection",
  "ove-store",
  "ove-tools",
+ "ove-transcribe",
  "serde",
  "serde_json",
  "tempfile",

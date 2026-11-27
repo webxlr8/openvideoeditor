@@ -29,6 +29,7 @@ keyring = { version = "3.6", features = ["windows-native"] }
 keyring = { version = "3.6", features = ["linux-native-sync-persistent", "crypto-rust"] }
 
 [dev-dependencies]
+ove-transcribe = { path = "../ove-transcribe", default-features = false }
 tempfile = "3"
 
 [lints]

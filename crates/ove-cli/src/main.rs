@@ -112,22 +112,9 @@ enum Cmd {
     Verify { project: String },
     /// List revisions, oldest first.
     History { project: String },
-    /// The words said on the timeline, with word ids and timeline times, from the cached transcripts.
-    Transcript {
-        project: String,
-        /// Only these clip ids (comma separated).
-        #[arg(long, value_delimiter = ',')]
-        clips: Vec<String>,
-        /// Sentences instead of words.
-        #[arg(long)]
-        segments: bool,
-        /// First word of the page.
-        #[arg(long)]
-        offset: Option<i64>,
-        /// Words per page (at most 10000).
-        #[arg(long)]
-        limit: Option<i64>,
-    },
+    /// The words said on the timeline (with word ids and timeline times), transcript search, fillers and
+    /// transcription. `ove transcript <project>` prints the words.
+    Transcript(TranscriptArgs),
     /// Revert the latest revision, or return to revision REV, as a new revision. With --any and --session (or
     /// --turn), revert only that agent session's (or turn's) changes, keeping everyone else's.
     Undo {
@@ -340,13 +327,7 @@ fn run(cli: &Cli, source: Source) -> Out {
         Cmd::Edit(a) => edit::run(&ctx, a),
         Cmd::Verify { project } => ctx.tool("verify_timeline", json!({"project": project})),
         Cmd::History { project } => ctx.tool("timeline_history", json!({"project": project})),
-        Cmd::Transcript { project, clips, segments, offset, limit } => {
-            let mut a = json!({"project": project, "segments": segments, "offset": offset, "limit": limit});
-            if !clips.is_empty() {
-                a["clips"] = json!(clips);
-            }
-            ctx.tool("get_transcript", a)
-        }
+        Cmd::Transcript(t) => t.run(&ctx),
         Cmd::Undo { project, rev, any, session, turn, kind } => {
             if session.is_some() || turn.is_some() {
                 if !any {
@@ -423,6 +404,80 @@ fn main() -> ExitCode {
                 eprintln!("error: {}", f.message);
             }
             ExitCode::from(exit_code(&f))
+        }
+    }
+}
+
+/// `ove transcript …` (add-transcript-editing).
+#[derive(clap::Args)]
+#[command(args_conflicts_with_subcommands = true)]
+struct TranscriptArgs {
+    #[command(subcommand)]
+    cmd: Option<TranscriptCmd>,
+    /// The project.
+    project: Option<String>,
+    /// Only these clip ids (comma separated).
+    #[arg(long, value_delimiter = ',')]
+    clips: Vec<String>,
+    /// Sentences instead of words.
+    #[arg(long)]
+    segments: bool,
+    /// First word of the page.
+    #[arg(long)]
+    offset: Option<i64>,
+    /// Words per page (at most 10000).
+    #[arg(long)]
+    limit: Option<i64>,
+}
+
+#[derive(clap::Subcommand)]
+enum TranscriptCmd {
+    /// Find a phrase in everything said in the project's transcribed media.
+    Search { project: String, phrase: String },
+    /// Filler candidates for review (nothing is cut).
+    Fillers { project: String },
+    /// Recognise a media file's speech on this computer and cache it in the project.
+    Transcribe {
+        project: String,
+        media: String,
+        /// tiny, base (default) or small.
+        #[arg(long)]
+        model: Option<String>,
+        /// ISO 639-1 code (default: detect).
+        #[arg(long)]
+        language: Option<String>,
+        /// Keep hesitations (um, uh).
+        #[arg(long)]
+        verbatim: bool,
+        /// Transcribe again even when cached.
+        #[arg(long)]
+        force: bool,
+    },
+}
+
+impl TranscriptArgs {
+    fn run(&self, ctx: &common::Ctx) -> common::Out {
+        match &self.cmd {
+            Some(TranscriptCmd::Search { project, phrase }) => {
+                ctx.tool("search_transcript", json!({"project": project, "phrase": phrase}))
+            }
+            Some(TranscriptCmd::Fillers { project }) => ctx.tool("find_fillers", json!({"project": project})),
+            Some(TranscriptCmd::Transcribe { project, media, model, language, verbatim, force }) => ctx.tool(
+                "transcribe_media",
+                json!({"project": project, "media": media, "model": model, "language": language,
+                    "verbatim": verbatim, "force": force}),
+            ),
+            None => {
+                let project = self.project.clone().ok_or_else(|| {
+                    common::Fail::new("argument.missing", "`ove transcript` needs a project (or `search`, `fillers`)")
+                })?;
+                let mut a =
+                    json!({"project": project, "segments": self.segments, "offset": self.offset, "limit": self.limit});
+                if !self.clips.is_empty() {
+                    a["clips"] = json!(self.clips);
+                }
+                ctx.tool("get_transcript", a)
+            }
         }
     }
 }

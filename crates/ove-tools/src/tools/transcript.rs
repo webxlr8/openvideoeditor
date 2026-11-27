@@ -402,3 +402,127 @@ pub fn search_transcript(ctx: &mut dyn ToolCtx, a: &Args) -> Result<Receipt, Fai
     })?;
     out.ok_or_else(|| Fail::new("internal", "no result"))
 }
+
+/// `transcribe_media`: recognises a media file's speech on this computer and caches the transcript in the project
+/// (by content identity, model, language and the verbatim flag). A cached transcript is returned unless `force`.
+/// The speech model must be installed: models over 50 MB need the person's consent, which no agent call gives.
+pub fn transcribe_media(ctx: &mut dyn ToolCtx, a: &Args) -> Result<Receipt, Fail> {
+    let media_q = a.req_str("media")?.to_string();
+    let format = a.str("format").unwrap_or("json");
+    if !matches!(format, "text" | "words" | "json") {
+        return Err(Fail::new(
+            "format.unsupported",
+            format!(
+                "format {format} is not available here; use text, words or json (subtitle files come with caption tools)"
+            ),
+        ));
+    }
+    let model = match a.str("model") {
+        Some(m) => ove_transcribe::Model::parse(m)
+            .ok_or_else(|| Fail::new("argument.invalid", format!("`model` is tiny, base or small, not {m}")))?,
+        None => ove_transcribe::Model::Base,
+    };
+    let (language, verbatim, force) = (a.str("language").map(str::to_string), a.bool("verbatim"), a.bool("force"));
+    let bundle = ctx.bundle(a.project())?;
+    let mut found: Option<(String, std::path::PathBuf, Option<String>)> = None;
+    ctx.read(&bundle, &mut |p| {
+        let doc = p.doc();
+        let id = doc
+            .registry
+            .iter()
+            .find(|(id, e)| {
+                **id == media_q
+                    || Path::new(e.native_path.as_str()).file_name().is_some_and(|f| f.to_string_lossy() == media_q)
+            })
+            .map(|(id, _)| id.clone())
+            .ok_or_else(|| Fail::new("media.notFound", format!("no media {media_q} in the project")))?;
+        let e = doc.registry.get(&id).ok_or_else(|| Fail::new("media.notFound", media_q.clone()))?;
+        found = Some((
+            id.clone(),
+            ove_store::media::resolve_media_path(p.bundle(), e.native_path.as_str()),
+            content_id(doc, &id),
+        ));
+        Ok(())
+    })?;
+    let (media, path, cid) = found.ok_or_else(|| Fail::new("media.notFound", media_q.clone()))?;
+    let cached = if force {
+        None
+    } else {
+        ove_transcribe::cache::lookup(&bundle, &path, cid.as_deref(), model.id(), language.as_deref(), verbatim)
+    };
+    let was_cached = cached.is_some();
+    let t = match cached {
+        Some(t) => t,
+        None => recognise(&bundle, &path, cid.as_deref(), model, language.clone(), verbatim)?,
+    };
+    let mut v = json!({"media": media, "language": t.language, "model": t.model, "verbatim": verbatim,
+        "cached": was_cached, "wordCount": t.words.len(), "durationSeconds": t.duration_us as f64 / 1e6});
+    match format {
+        "text" => v["text"] = json!(t.text()),
+        _ => {
+            v["text"] = json!(t.text());
+            v["words"] = json!(
+                t.words
+                    .iter()
+                    .map(|w| json!({"id": timeline::word_id(&media, w.start_us), "text": w.text,
+                "start": w.start_us as f64 / 1e6, "end": w.end_us as f64 / 1e6}))
+                    .collect::<Vec<_>>()
+            );
+        }
+    }
+    let text =
+        format!("{} words ({}{})\n{}", t.words.len(), t.model, if was_cached { ", cached" } else { "" }, t.text());
+    Ok(Receipt::new(v, text))
+}
+
+#[cfg(feature = "speech")]
+fn recognise(
+    bundle: &Path,
+    path: &Path,
+    cid: Option<&str>,
+    model: ove_transcribe::Model,
+    language: Option<String>,
+    verbatim: bool,
+) -> Result<Transcript, Fail> {
+    let store = crate::tools::models::open_store()?;
+    let cancel = std::sync::atomic::AtomicBool::new(false);
+    let files = match store.ensure_installed(model.store_id(), ove_models::Origin::Agent, &mut |_| {}, &cancel)? {
+        ove_models::Ensure::Ready(p) => p,
+        ove_models::Ensure::NeedsConsent(n) => {
+            return Err(
+                Fail::new("model.consent", n.message.clone()).details(serde_json::to_value(&n).unwrap_or(Value::Null))
+            );
+        }
+    };
+    let model_path = files.first().ok_or_else(|| Fail::new("model.unknown", "the speech model has no file"))?;
+    let _lease = store.lease(model.store_id());
+    let opts = ove_transcribe::Options {
+        language: language.clone(),
+        model_name: model.id().into(),
+        verbatim,
+        ..Default::default()
+    };
+    let t = ove_transcribe::transcribe_file(model_path, path, &opts, |_| {}, std::sync::Arc::new(cancel))
+        .map_err(|e| Fail::new(e.code(), e.to_string()))?;
+    let key = match cid {
+        Some(c) => ove_transcribe::cache::transcript_key(c, model.id(), language.as_deref(), verbatim),
+        None => {
+            let k = ove_transcribe::cache::key(path, model.id(), language.as_deref());
+            if verbatim { format!("{k}-verbatim") } else { k }
+        }
+    };
+    ove_transcribe::cache::store(bundle, &key, &t);
+    Ok(t)
+}
+
+#[cfg(not(feature = "speech"))]
+fn recognise(
+    _: &Path,
+    _: &Path,
+    _: Option<&str>,
+    _: ove_transcribe::Model,
+    _: Option<String>,
+    _: bool,
+) -> Result<Transcript, Fail> {
+    Err(Fail::new("speech.unavailable", "this build of ove cannot recognise speech; build it with `--features speech`"))
+}

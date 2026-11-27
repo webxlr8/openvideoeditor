@@ -22,6 +22,7 @@ const REQUEST: &str = r#"{"type": ["object", "string"]}"#;
 const SCOPE: &str = r#"{"type": "string", "enum": ["session", "turn"]}"#;
 const WORD_RANGES: &str = r#"{"type": "array", "items": {"type": "object", "properties": {"from": {"type": "string"}, "to": {"type": "string"}}, "required": ["from", "to"], "additionalProperties": false}}"#;
 const SILENCE_MODE: &str = r#"{"type": "string", "enum": ["level", "speech"]}"#;
+const TRANSCRIPT_FORMAT: &str = r#"{"type": "string", "enum": ["text", "words", "json"]}"#;
 const PAUSE: &str = r#"{"type": "string", "enum": ["tight", "balanced", "loose"]}"#;
 const OPTIONS: &str = r#"{"type": "array", "items": {"type": "string"}, "maxItems": 4}"#;
 
@@ -604,6 +605,24 @@ pub static TOOLS: &[ToolSpec] = &[
         annotations: READ,
         surfaces: AGENTS,
         run: transcript::search_transcript,
+        model: ModelText::Json,
+    },
+    ToolSpec {
+        name: "transcribe_media",
+        aliases: &[],
+        about: "Recognise a media file's speech on this computer (no upload) and cache the words in the project, so `get_transcript`, `search_transcript` and the cutting tools can use them. A cached transcript is returned unless `force`. Speech models over 50 MB install only with the person's consent (Settings > Storage, or `ove models install whisper-base --yes`); without it the call returns `model.consent` with the size.",
+        args: &[
+            PROJECT,
+            MEDIA,
+            arg("format", Json(TRANSCRIPT_FORMAT), "text, words or json (default json)"),
+            arg("language", Str, "ISO 639-1 code (default: detect)"),
+            arg("model", Str, "tiny, base (default) or small"),
+            arg("verbatim", Bool, "Keep hesitations (um, uh); cached apart"),
+            arg("force", Bool, "Transcribe again even when cached"),
+        ],
+        annotations: WRITE,
+        surfaces: AGENTS,
+        run: transcript::transcribe_media,
         model: ModelText::Json,
     },
 ];

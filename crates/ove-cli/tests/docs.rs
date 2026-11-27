@@ -232,8 +232,6 @@ fn transcript_examples_and_json_shape() {
     };
     ove_transcribe::cache::store(&bundle, &ove_transcribe::cache::transcript_key("c0ffee", "base", None, false), &t);
 
-    assert_eq!(run_examples("transcript.md", &lib, d.path()), 5);
-
     let out = ove(&lib, d.path(), &["transcript", "Interview", "--json"]);
     let v: Value = serde_json::from_slice(&out.stdout).unwrap();
     assert!(v["rev"].as_i64().is_some());
@@ -253,4 +251,6 @@ fn transcript_examples_and_json_shape() {
     let out = ove(&lib, d.path(), &["transcript", "Interview", "--limit", "2", "--json"]);
     let v: Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(v["nextOffset"], 2);
+    // Last: the examples include one cut.
+    assert_eq!(run_examples("transcript.md", &lib, d.path()), 11);
 }

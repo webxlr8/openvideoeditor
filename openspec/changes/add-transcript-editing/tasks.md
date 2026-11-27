@@ -78,10 +78,17 @@
 - [ ] 5.1 CLI commands `ove transcript`, `ove transcript search`, `ove edit remove-words`, `ove edit remove-silence`
       with `--json` and exit codes, documented in `docs/cli/`; verify CLI integration tests for success and refusal
       paths, run with the app closed and with it open.
-- [ ] 5.2 MCP tools `transcribe_media`, `get_transcript`, `search_transcript`, `remove_words`, `remove_silence` and the
+      Done with the app closed: `ove transcript`, `ove transcript search|fillers|transcribe`, `ove edit remove-words`,
+      `ove edit remove-silence`, documented in `docs/cli/transcript.md` with examples run in
+      `crates/ove-cli/tests/docs.rs`. Open: the run with the app open (needs the built app).
+- [x] 5.2 MCP tools `transcribe_media`, `get_transcript`, `search_transcript`, `remove_words`, `remove_silence` and the
       `detect_silence` mode, matching docs/spec/mcp-tools.md where defined; verify an MCP contract test per tool.
-- [ ] 5.3 Assistant tools with the same contracts; verify an assistant test where a scripted model removes words using
+      Done: `crates/ove-cli/tests/mcp_transcript.rs` (plus `find_fillers`). `transcribe_media` needs the `speech`
+      feature (whisper.cpp) in the CLI; other builds answer `speech.unavailable`; `srt`/`vtt` formats are refused
+      (`format.unsupported`) until add-speakers-and-caption-tools.
+- [x] 5.3 Assistant tools with the same contracts; verify an assistant test where a scripted model removes words using
       ids from one transcript read, without re-reading.
+      Done: the registry tools are on the in-app surface; `crates/ove-agent/tests/transcript.rs`.
 - [ ] 5.4 Transcript panel: playback follow, click to seek, strike-through selection and Delete to cut, "Remove pauses"
       and "Remove fillers" with a preview overlay on clip waveforms; verify UI tests for each action.
 - [x] 5.5 Mark add-captions task 1.5 as taken over by this change; verify the add-captions tasks file points here.

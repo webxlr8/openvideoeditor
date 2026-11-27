@@ -146,4 +146,5 @@ ove source print Nope                              # exit 1
 | `remove_silence` |  | in-app, mcp, pinned | write | `project`? `clips`? `minPause`? `padding`? `relativeDb`? `apply`? |
 | `find_fillers` |  | in-app, mcp, pinned | read | `project`? `clips`? |
 | `search_transcript` |  | in-app, mcp, pinned | read | `project`? `phrase` |
+| `transcribe_media` |  | in-app, mcp, pinned | write | `project`? `media` `format`? `language`? `model`? `verbatim`? `force`? |
 <!-- tools:end -->
