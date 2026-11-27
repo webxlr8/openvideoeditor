@@ -2,11 +2,13 @@
 // project the native side holds (through the UI's own bridge), files in the bundle, files written by exports.
 // The first flow is the exception: it starts where a new person does, on the welcome.
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import readline from "node:readline";
 
 import { Key, sleep } from "./lib/session.mjs";
-import { WINDOWS, bundleItems, captureScreen, ffprobe, makeSpeech, revisionFiles } from "./lib/support.mjs";
+import { WINDOWS, bundleItems, captureScreen, ffprobe, makeSpeech, revisionFiles, ssim } from "./lib/support.mjs";
 
 // ---------------------------------------------------------------------------------------------------------------
 // Shared steps
@@ -147,6 +149,39 @@ function shape(view) {
     items: view.items
       .map((i) => ({ id: i.id, track: i.trackId, kind: i.kind, start: i.start, end: i.end, trim: i.trimStart, text: i.text }))
       .sort((a, b) => a.id.localeCompare(b.id)),
+  };
+}
+
+/**
+ * An `ove mcp` session on the app's library, spoken to over stdio (JSON-RPC, one message per line), as an external
+ * agent would. `request` returns the result; `call` runs a tool and returns its result.
+ */
+function startMcp(ctx, args) {
+  assert.ok(fs.existsSync(ctx.ove), `the ove command line is needed: ${ctx.ove} (cargo build -p ove-cli)`);
+  const child = spawn(ctx.ove, ["--library", ctx.library, "mcp", ...args], { env: ctx.env, stdio: ["pipe", "pipe", "ignore"] });
+  const lines = readline.createInterface({ input: child.stdout });
+  const waiting = [];
+  lines.on("line", (l) => waiting.shift()?.(l));
+  let id = 0;
+  const request = (method, params) =>
+    new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`no reply to ${method}`)), 60000);
+      waiting.push((l) => {
+        clearTimeout(timer);
+        const m = JSON.parse(l);
+        if (m.error) reject(new Error(`${method}: ${JSON.stringify(m.error)}`));
+        else resolve(m.result);
+      });
+      id += 1;
+      child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`);
+    });
+  return {
+    request,
+    call: (name, args) => request("tools/call", { name, arguments: args }),
+    close: () => {
+      child.stdin.end();
+      child.kill();
+    },
   };
 }
 
@@ -665,6 +700,78 @@ export const FLOWS = [
   },
 
   {
+    // fix-render-and-edit-correctness task 2.4.
+    name: "split export: a sped-up clip with fades exports the same frames after a split (SSIM >= 0.99)",
+    timeoutMs: 10 * 60 * 1000,
+    async run(ctx) {
+      const { app, media } = ctx;
+      const project = "Split Export E2E";
+      await newProject(app, project);
+      let view = await importWithButton(ctx, [media.video]);
+      const [clip] = mainClips(view);
+
+      // Double speed from the Inspector's speed chips.
+      await clickClip(app, clip.id, 0.5);
+      await app.find("inspector");
+      await app.clickText("2×", "inspector");
+      await app.waitFor(async () => (await detail(app, clip.id)).playbackSpeed === 2, "speed 2×");
+      // A fade at each edge from the Transitions panel (0.5 s). Selecting a clip opens the Inspector, so the panel
+      // is opened after the selection.
+      await app.click("rail-transitions");
+      await app.setRange("transition-duration", 0.5);
+      await app.clickText("In", "transition-fade");
+      await app.waitFor(async () => (await detail(app, clip.id)).transitionIn?.type === "fade", "a fade in");
+      await app.clickText("Out", "transition-fade");
+      await app.waitFor(async () => (await detail(app, clip.id)).transitionOut?.type === "fade", "a fade out");
+      view = await app.project();
+      const sped = mainClips(view)[0];
+      ctx.log(`    clip ${sped.start}–${sped.end} s at 2×, fades in and out`);
+
+      const exportTo = async (name) => {
+        await app.click("open-export");
+        await app.find("export-dialog");
+        await app.clickText("720p", "export-dialog");
+        await app.click("export-start");
+        await app.find("export-done", 6 * 60 * 1000);
+        await app.clickText("Done", "export-dialog");
+        await app.waitGone("export-dialog");
+        const written = path.join(ctx.dialogs, "save", `${project}.mp4`);
+        assert.ok(fs.existsSync(written), `${written} exists`);
+        const to = path.join(ctx.out, name);
+        fs.renameSync(written, to);
+        return to;
+      };
+      const uncut = await exportTo("split-uncut.mp4");
+
+      // Split a quarter of the way in (the click moves the playhead there), where the source still moves on both
+      // sides of the cut.
+      await clickClip(app, sped.id, 0.25);
+      await app.click("split");
+      view = await app.waitFor(async () => {
+        const p = await app.project();
+        return mainClips(p).length === 2 ? p : null;
+      }, "the split");
+      const [left, right] = mainClips(view);
+      const at = left.end;
+      assert.ok(Math.abs(at - right.start) < 1e-6, "the parts meet");
+      const [dl, dr] = [await detail(app, left.id), await detail(app, right.id)];
+      assert.equal(dl.transitionIn?.type, "fade", "the fade in stays on the left part");
+      assert.equal(dl.transitionOut, undefined, "the left part has no fade out");
+      assert.equal(dr.transitionIn, undefined, "the right part has no fade in");
+      assert.equal(dr.transitionOut?.type, "fade", "the fade out moves to the right part");
+      assert.equal(dr.playbackSpeed, 2, "the right part keeps the speed");
+      const cut = await exportTo("split-cut.mp4");
+
+      // The frames either side of the cut, and the whole export, match the uncut export.
+      const near = ssim(uncut, cut, Math.max(0, at - 0.4), at + 0.4);
+      const whole = ssim(uncut, cut, 0, sped.end);
+      ctx.log(`    split at ${at.toFixed(3)} s: SSIM ${near.toFixed(5)} within 0.4 s of the cut, ${whole.toFixed(5)} overall`);
+      assert.ok(near >= 0.99, `SSIM around the cut ${near}`);
+      assert.ok(whole >= 0.99, `SSIM over the export ${whole}`);
+    },
+  },
+
+  {
     name: "export: MP4 via the Export dialog; FCPXML with the 'what won't carry over' step",
     timeoutMs: 8 * 60 * 1000,
     async run(ctx) {
@@ -797,6 +904,115 @@ export const FLOWS = [
       await app.waitFor(async () => (await app.textOf(start)) === "Generate", "back to Generate");
       assert.deepEqual(JSON.parse(await app.invoke("generation_jobs")), [], "no job was started");
       assert.equal(await app.count("gen-job"), 0);
+    },
+  },
+
+  {
+    // fix-render-and-edit-correctness task 4.3, app path.
+    name: "generate resume: the app is killed while a generation runs; reopened, it resumes with one submission",
+    timeoutMs: 8 * 60 * 1000,
+    async run(ctx) {
+      const { fal } = ctx;
+      const project = "Generate Resume E2E";
+      await newProject(ctx.app, project);
+      await ctx.app.click("rail-generate");
+      await ctx.app.find("generate-panel");
+      await ctx.app.type("gen-prompt", "A harbour at night, wide shot");
+      await ctx.app.find("gen-estimate", 20000);
+      const start = await ctx.app.find("gen-start");
+      await ctx.app.click("gen-start");
+      await ctx.app.waitFor(async () => /^Confirm: spend/.test(await ctx.app.textOf(start)), "the confirmation step");
+      await ctx.app.click("gen-start");
+      const postsBefore = fal.posts();
+      const jobs = async () => JSON.parse(await ctx.app.invoke("generation_jobs"));
+      // Running at the provider: submitted once, the handle saved, polling.
+      const job = await ctx.app.waitFor(async () => {
+        const [j] = await jobs();
+        return j && j.status === "running" && j.remote && fal.statusPolls() >= 2 ? j : null;
+      }, "the job to run at the stand-in provider", 60000);
+      assert.equal(fal.posts(), postsBefore + 1, "one submission");
+      assert.ok(job.itemId, "the job has a placeholder");
+      ctx.log(`    job ${job.id} running (placeholder ${job.itemId}); killing the app`);
+
+      await ctx.kill();
+      fal.finish(); // the provider finishes while the app is gone
+      await ctx.relaunch();
+      const view = await openFromHome(ctx.app, project);
+      assert.ok(view.items.some((i) => i.id === job.itemId), "the placeholder survived the kill");
+      // The app gives a worker up after a minute without progress, then resumes its queued request.
+      const t0 = Date.now();
+      const done = await ctx.app.waitFor(async () => {
+        const j = (await jobs()).find((x) => x.id === job.id);
+        return j && (j.status === "succeeded" || j.status === "failed") ? j : null;
+      }, "the job to resume and finish", 4 * 60 * 1000);
+      ctx.log(`    resumed and ${done.status} ${((Date.now() - t0) / 1000).toFixed(0)} s after reopening`);
+      assert.equal(done.status, "succeeded", done.error ?? "");
+      assert.equal(fal.posts(), postsBefore + 1, "resuming did not submit again");
+      const filled = await ctx.app.waitFor(async () => {
+        const d = await detail(ctx.app, job.itemId).catch(() => null);
+        return d && !d.pending && d.mediaItemId ? d : null;
+      }, "the placeholder to be filled");
+      ctx.log(`    placeholder filled with media ${filled.mediaItemId}`);
+    },
+  },
+
+  {
+    // unify-agent-tool-layer task 4.2.
+    name: "mcp not in front: a session edits project P while the window shows Q; P's history gains it, Q is untouched",
+    timeoutMs: 5 * 60 * 1000,
+    async run(ctx) {
+      const { app } = ctx;
+      const [P, Q] = ["Behind P E2E", "Front Q E2E"];
+      const addTitle = async () => {
+        await app.click("rail-text");
+        await app.click("text-preset-headline");
+        return app.waitFor(async () => (await app.project()).items.find((i) => i.kind === "text"), "a title");
+      };
+      await newProject(app, P);
+      const title = await addTitle();
+      await newProject(app, Q);
+      await addTitle();
+      const front = await app.project();
+      assert.equal(front.name, Q);
+
+      const mcp = startMcp(ctx, ["--project", P, "--turn", "e2e-turn"]);
+      try {
+        await mcp.request("initialize", {
+          protocolVersion: "2025-06-18",
+          capabilities: {},
+          clientInfo: { name: "e2e-client", version: "1.0" },
+        });
+        const printed = await mcp.call("print_timeline", {});
+        const text = printed.structuredContent?.text ?? "";
+        // The title's element from its id to its name attribute (one line, or one attribute per line).
+        const lines = text.split("\n");
+        const at = lines.findIndex((l) => l.includes(`id="${title.id}"`));
+        assert.ok(at >= 0, `P's title is printed: ${text}`);
+        const end = lines.findIndex((l, i) => i >= at && /name="[^"]*"/.test(l));
+        assert.ok(end >= at && end - at < 20, `P's title has a name: ${text}`);
+        const line = lines.slice(at, end + 1).join("\n");
+        const renamed = line.replace(/name="[^"]*"/, 'name="Edited by MCP"');
+        const before = (await mcp.call("timeline_history", {})).structuredContent.revisions.length;
+        const r = await mcp.call("apply_timeline", { rev: printed.structuredContent.rev, edits: [{ oldText: line, newText: renamed }] });
+        assert.equal(r.isError, false, JSON.stringify(r));
+        const history = (await mcp.call("timeline_history", {})).structuredContent.revisions;
+        assert.equal(history.length, before + 1, "P's history gains one revision");
+        const last = history[history.length - 1];
+        ctx.log(`    P rev ${last.rev}: ${last.source} ${last.summary} (${last.actor?.client ?? "no client"})`);
+        assert.equal(last.source, "mcp");
+        assert.equal(last.actor?.client, "e2e-client");
+      } finally {
+        mcp.close();
+      }
+
+      // The window still shows Q, unchanged.
+      const after = await app.project();
+      assert.equal(after.name, Q, "Q is still in front");
+      assert.equal(after.rev, front.rev, "Q has no new revision");
+      assert.deepEqual(shape(after), shape(front), "Q's items are unchanged");
+      // P shows the edit when the person opens it.
+      await openFromHome(app, P);
+      await app.waitFor(async () => (await detail(app, title.id)).name === "Edited by MCP", "P's title renamed in the app");
     },
   },
 

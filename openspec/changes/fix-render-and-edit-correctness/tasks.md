@@ -17,19 +17,23 @@
 - [x] 2.2 Use it in the desktop `split_item` (collision-free right id, unset end-edge fields on the left) and
       `trim_item` (rebase keyframes and captions; reverse-aware `trimmed`); verify the `edits` unit tests, including
       `reverse_trim_moves_the_other_source_edge`, pass in `cargo test -p ove-desktop`.
-- [ ] 2.3 Property test: for random items (speed 0.25–4, both directions, random keyframes) the split parts give the
+- [x] 2.3 Property test: for random items (speed 0.25–4, both directions, random keyframes) the split parts give the
       same source time and keyframe value as the original at 200 sampled times; verify it passes 10,000 cases.
-- [ ] 2.4 UI e2e: split a sped-up clip with a fade in the built app; verify the exported frames either side of the cut
-      match an export of the uncut clip (SSIM ≥ 0.99).
+- [x] 2.4 UI e2e: split a sped-up clip with a fade in the built app; verify the exported frames either side of the cut
+      match an export of the uncut clip (SSIM ≥ 0.99). (Windows built app; the app e2e job runs on Windows and
+      Linux, and macOS is covered by 6.1.)
 
 ## 3. Export encoders
 
 - [ ] 3.1 Enable NVENC, AMF and QSV encoders (with their MIT headers / dispatcher) on Windows and OpenH264 on both
       systems in `tools/ffmpeg/build.sh`; extend `check-license.sh`; verify the licence check passes and `ffmpeg
-      -encoders` lists them on each build machine.
-- [ ] 3.2 Record the size change in `sizes.txt` and the README; verify the installer stays within 60 MB.
+      -encoders` lists them on each build machine. (build.sh, check-license.sh and the README are written; build.sh
+      now fails when an encoder is missing from `ffmpeg -encoders`. Open until the rebuild runs on the macOS and
+      Windows build machines: this machine has no MSYS2.)
+- [ ] 3.2 Record the size change in `sizes.txt` and the README; verify the installer stays within 60 MB. (Needs the
+      rebuild from 3.1.)
 - [ ] 3.3 Export with each encoder forced on the Windows test machine and with all hardware encoders disabled; verify
-      H.264 output and no fallback warning while OpenH264 is present.
+      H.264 output and no fallback warning while OpenH264 is present. (Needs the rebuild from 3.1.)
 
 ## 4. Generation resume
 
@@ -39,7 +43,7 @@
 - [x] 4.2 Reaping: dead-worker jobs with a handle become resumable (one claim per dead worker) and are restarted by
       the app and by `ove generate status|list`; others fail as before; verify unit tests in `job.rs` and
       `tests/fal_resume.rs`.
-- [ ] 4.3 Kill the worker mid-job in the built app and in the CLI against a stand-in server; verify the job resumes
+- [x] 4.3 Kill the worker mid-job in the built app and in the CLI against a stand-in server; verify the job resumes
       with one submission and fills its placeholder.
 
 ## 5. Labels and bookkeeping

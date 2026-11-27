@@ -284,9 +284,14 @@ Additive. Old bundles open unchanged. The MCP whole-file `source` mode stays. Th
 - Two pinned `ove mcp` processes on projects P and Q, editing in alternation (3 edits each), each refused when
   naming the other project: each project's history shows the 3 revisions of its own session only, each with its
   `--turn` id (`crates/ove-cli/tests/mcp_pinned.rs`).
-- Task 4.2 is open: the app holds one project at a time (`projects.open`), so "a project open in the app but not in
-  front" needs multi-window support first; through the control link, a write to a project the app does not hold
-  goes to the bundle on disk, and one to the held project goes through the app.
+- Task 4.2: the app holds one project at a time (`projects.open`), so a project that is not in front is a library
+  project that the window does not hold. Through the control link, a write to such a project goes to its bundle on
+  disk as a normal revision; a write to the held project goes through the app. App e2e (`flows.mjs`, "mcp not in
+  front", Windows 11 built app): the window shows project Q. An `ove mcp --project P --turn e2e-turn` session with
+  the client name `e2e-client` renames P's title with a text edit. P's history gains one revision (source `mcp`,
+  client `e2e-client`). Q's revision and items are unchanged and Q stays in front. Opening P in the app shows the new
+  name. Flow time 10.2 s. When the app gets several windows, this test checks that a write to an open but hidden
+  project still lands.
 
 ### Group 5: frames for agents
 
@@ -313,3 +318,8 @@ Additive. Old bundles open unchanged. The MCP whole-file `source` mode stays. Th
   rebases its edits. Stale text edits print the old revision and go through the same path.
 - `edit_timeline` joined the registry (38 tools; in-app 17, MCP 37, pinned 35). A ripple applied through it records
   its time map and the caller's actor (`Project::apply_mapped_as`).
+
+### Gate closing (2026-11-27, Windows 11)
+
+- Task 3.2, app check: the "assistant (mock Messages API)" app e2e flow passes in the built app. A turn edits the
+  timeline, and "Undo this turn" reverts it through `Project::undo_selected` (8.7 s).
