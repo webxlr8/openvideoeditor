@@ -22,7 +22,7 @@
 
 ## 3. Reasoning display
 
-- [ ] 3.1 Buffer reasoning deltas per animation frame and render them in a collapsible block with elapsed time. Verify:
+- [x] 3.1 Buffer reasoning deltas per animation frame and render them in a collapsible block with elapsed time. Verify:
       - a UI test of expand and collapse;
       - a frame-time measurement while streaming at 200 tokens/s, under 16 ms per frame. Record in Results.
 

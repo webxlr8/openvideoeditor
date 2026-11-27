@@ -35,10 +35,11 @@ import {
 } from "./chat/mentions";
 import { type AssistantRequest, onAssistantRequest, takeAssistantRequest } from "./chat/handoff";
 import { TemplateIntake } from "./chat/TemplateIntake";
+import { Reasoning } from "./chat/Reasoning";
 import { PROJECT_TEMPLATES, type ProjectTemplate } from "./templates";
 
 interface Item {
-  role: "user" | "assistant" | "tool" | "question" | "note" | "error" | "changes" | "usage";
+  role: "user" | "assistant" | "tool" | "question" | "note" | "error" | "changes" | "usage" | "reasoning";
   text: string;
   id?: string | null;
   ok?: boolean | null;
@@ -49,6 +50,22 @@ interface Item {
   usage?: TurnUsageView | null;
   /** role `user`: what the message mentioned. */
   mentions?: MentionChip[];
+  /** role `reasoning`: when it started and ended streaming (ms). */
+  started?: number;
+  ended?: number;
+}
+
+/** The id of the reasoning block still streaming. */
+const LIVE_REASONING = "live-reasoning";
+
+/** Calls `f` at the next animation frame (a timer where there are none). */
+function nextFrame(f: () => void): number {
+  return typeof requestAnimationFrame === "function" ? requestAnimationFrame(f) : (setTimeout(f, 16) as unknown as number);
+}
+
+function cancelFrame(h: number) {
+  if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(h);
+  else clearTimeout(h);
 }
 
 const MENTION_ICON = { item: "timeline", range: "scissors", media: "media", skill: "spark", track: "layout" } as const;
@@ -217,6 +234,9 @@ export function ChatPanel({
       () => setSkills([]),
     );
   }, [slash, skills]);
+  // Reasoning deltas wait here and are drawn once per animation frame (design D4).
+  const reasoningBuf = useRef("");
+  const reasoningFrame = useRef<number | null>(null);
   const rangeRef = useRef(range);
   useEffect(() => {
     rangeRef.current = range;
@@ -266,9 +286,38 @@ export function ChatPanel({
     loadChats();
   }, [projectId, loadChats]);
 
+  /** Draws the reasoning that arrived since the last frame. */
+  const flushReasoning = useCallback(() => {
+    reasoningFrame.current = null;
+    const add = reasoningBuf.current;
+    reasoningBuf.current = "";
+    if (!add) return;
+    setItems((xs) => {
+      const last = xs[xs.length - 1];
+      if (last && last.role === "reasoning" && last.id === LIVE_REASONING) {
+        return [...xs.slice(0, -1), { ...last, text: last.text + add }];
+      }
+      return [...xs, { role: "reasoning", text: add, id: LIVE_REASONING, started: Date.now() }];
+    });
+  }, []);
+
+  /** The reasoning block stops streaming (text, a tool call or the end of the turn followed it). */
+  const endReasoning = useCallback(() => {
+    if (reasoningFrame.current !== null) {
+      cancelFrame(reasoningFrame.current);
+      flushReasoning();
+    }
+    setItems((xs) =>
+      xs.some((x) => x.id === LIVE_REASONING)
+        ? xs.map((x) => (x.id === LIVE_REASONING ? { ...x, id: null, ended: Date.now() } : x))
+        : xs,
+    );
+  }, [flushReasoning]);
+
   useEffect(() => {
     const un = events.agentUiEvent.listen((e) => {
       const ev = e.payload;
+      if (ev.kind !== "thinkingDelta" && ev.kind !== "seek" && ev.kind !== "retrying") endReasoning();
       switch (ev.kind) {
         case "turnStarted":
           if (chatRef.current !== ev.chatId) {
@@ -296,6 +345,8 @@ export function ChatPanel({
           break;
         case "thinkingDelta":
           setThinking(true);
+          reasoningBuf.current += ev.text;
+          if (reasoningFrame.current === null) reasoningFrame.current = nextFrame(flushReasoning);
           break;
         case "toolCall":
           setThinking(false);
@@ -331,7 +382,7 @@ export function ChatPanel({
       }
     });
     return () => unlisten(un);
-  }, [loadChat, loadChats, loadTotals, report, onSeek]);
+  }, [loadChat, loadChats, loadTotals, report, onSeek, endReasoning, flushReasoning]);
 
   useEffect(() => {
     scroller.current?.scrollTo?.({ top: scroller.current.scrollHeight });
@@ -576,7 +627,9 @@ export function ChatPanel({
               {n}
             </div>
           ))}
-          {running && thinking && <div className="chat-thinking muted small">Thinking…</div>}
+          {running && thinking && !items.some((x) => x.id === LIVE_REASONING) && (
+            <div className="chat-thinking muted small">Thinking…</div>
+          )}
         </div>
       )}
 
@@ -832,6 +885,8 @@ function ChatLine({
       );
     case "note":
       return <div className="msg-note muted small">{item.text}</div>;
+    case "reasoning":
+      return <Reasoning text={item.text} started={item.started} ended={item.ended} />;
     case "error":
       return (
         <div className="msg-error" role="alert" data-testid="msg-error">

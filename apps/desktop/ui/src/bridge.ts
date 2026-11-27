@@ -112,6 +112,9 @@ export interface MockControl {
     turnCost?: number;
     /** The mentions of the last message sent. */
     sent?: MentionInput[];
+    /** Reasoning each turn streams before it answers (none when unset), and how many tokens per step. */
+    reasoning?: string;
+    reasoningPerStep?: number;
   };
   /** Simulated speech models: which are on disk, and how long each progress step takes. */
   captions: { installed: string[]; stepMs: number };
@@ -1431,7 +1434,17 @@ function createMock(): {
       agentEvent({ kind: "toolResult", id, ok: true, summary });
     };
     agentEvent({ kind: "turnStarted", chatId });
-    agentEvent({ kind: "thinkingDelta", text: "…" });
+    // Streamed reasoning, when a test sets it: one delta per word, kept in the log as the native side does.
+    const reasoning = control.agent.reasoning;
+    if (reasoning) {
+      chat.items.push(item("reasoning", reasoning));
+      const words = reasoning.split(/(?<= )/);
+      const per = Math.max(1, control.agent.reasoningPerStep ?? 1);
+      for (let i = 0; i < words.length; i++) {
+        agentEvent({ kind: "thinkingDelta", text: words[i] });
+        if ((i + 1) % per === 0) await wait();
+      }
+    }
     await wait();
     await say("Let me look at the timeline first. ");
     await tool(

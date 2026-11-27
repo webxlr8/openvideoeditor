@@ -712,7 +712,7 @@ export type ChatItem = ChatItem_Serialize | ChatItem_Deserialize;
 
 /**  One line of the chat as the UI shows it. */
 export type ChatItem_Deserialize = {
-	/**  user, assistant, tool, question or note. */
+	/**  user, assistant, tool, question, note, reasoning (the summarized thinking), changes or usage. */
 	role: string,
 	text: string,
 	/**  Tool call / question id. */
@@ -729,7 +729,7 @@ export type ChatItem_Deserialize = {
 
 /**  One line of the chat as the UI shows it. */
 export type ChatItem_Serialize = {
-	/**  user, assistant, tool, question or note. */
+	/**  user, assistant, tool, question, note, reasoning (the summarized thinking), changes or usage. */
 	role: string,
 	text: string,
 	/**  Tool call / question id. */

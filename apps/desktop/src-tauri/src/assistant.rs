@@ -259,7 +259,7 @@ pub struct ChatSummaryView {
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatItem {
-    /// user, assistant, tool, question or note.
+    /// user, assistant, tool, question, note, reasoning (the summarized thinking), changes or usage.
     pub role: String,
     pub text: String,
     /// Tool call / question id.
@@ -783,6 +783,12 @@ pub fn chat_items(records: &[Record]) -> Vec<ChatItem> {
                                 out.push(item("assistant", t.to_string()));
                             }
                         }
+                        Some("thinking") => {
+                            let t = b["thinking"].as_str().unwrap_or_default();
+                            if !t.trim().is_empty() {
+                                out.push(item("reasoning", t.to_string()));
+                            }
+                        }
                         Some("tool_use") if b["name"] != "ask_user" => {
                             let name = b["name"].as_str().unwrap_or_default();
                             out.push(ChatItem {
@@ -1257,6 +1263,7 @@ mod tests {
                 message_id: "m".into(),
                 model: "x".into(),
                 blocks: vec![
+                    json!({"type": "thinking", "thinking": "", "signature": "s"}),
                     json!({"type": "text", "text": "On it."}),
                     json!({"type": "tool_use", "id": "t1", "name": "apply_timeline", "input": {"edits": [{}]}}),
                 ],
@@ -1380,8 +1387,14 @@ mod tests {
         let items = chat_items(&[
             Record::User { id: "u_1".into(), text: "use this".into(), time: 0 },
             Record::Mentions { turn: "u_1".into(), mentions: vec![m] },
+            Record::Assistant {
+                message_id: "m".into(),
+                model: "x".into(),
+                blocks: vec![json!({"type": "thinking", "thinking": "Compare the posters first.", "signature": "s"})],
+            },
         ]);
-        assert_eq!(items.len(), 1);
+        assert_eq!(items.len(), 2);
+        assert_eq!((items[1].role.as_str(), items[1].text.as_str()), ("reasoning", "Compare the posters first."));
         let chips = &items[0].mentions;
         assert_eq!((chips[0].kind.as_str(), chips[0].label.as_str(), chips[0].image), ("media", "poster.png", true));
     }

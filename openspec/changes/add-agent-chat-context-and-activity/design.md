@@ -154,3 +154,13 @@ Measured on Windows 11 (32-core desktop, debug builds).
   sent the app reads it through the registry's `read_skill` and the turn's first request carries its text
   (agent test `a_skill_chosen_from_the_slash_menu_is_read_at_the_start_of_the_turn`). A template opens its intake
   form, then puts its request in the input. With no match the menu says "No matches" and Enter sends the text.
+
+**Group 3, reasoning:**
+- Reasoning deltas collect in a buffer and are drawn once per animation frame into a block that is collapsed by
+  default (first line and elapsed time; "Thinking 3s" while it streams, "Thought for 5s" after). Expanded, it keeps
+  updating. The open or closed choice is kept per user (local storage). A reopened chat shows the summarized thinking
+  of each reply as a closed block.
+- Frame measurement (`ui/src/chat/Reasoning.test.tsx`, jsdom, React Profiler around the whole app; the display frame
+  stood in for by a 16 ms timer): 600 tokens streamed at 199–215 tokens/s in three runs gave 207–213 reasoning draws
+  (not 600), about 50 commits per second, render p95 2.47–2.70 ms and max 3.7–11.4 ms per commit, all under 16 ms.
+  This measures render work in the test DOM, not paint in the built app's web view; that check is part of task 6.1.
