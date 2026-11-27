@@ -21,7 +21,7 @@ fn list(language: &str) -> &'static [&'static str] {
 
 fn context_list(language: &str) -> &'static [&'static str] {
     match language {
-        "en" => &["like", "so", "well", "basically", "actually", "literally"],
+        "en" => &["like", "so", "well", "basically", "actually", "literally", "you know", "i mean"],
         "de" => &["also", "halt", "quasi", "sozusagen"],
         "fr" => &["genre", "bon", "voilà", "quoi"],
         "es" => &["pues", "bueno", "o sea"],

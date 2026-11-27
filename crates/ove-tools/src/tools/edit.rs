@@ -27,7 +27,7 @@ fn request(a: &Args) -> Result<Request, Fail> {
 }
 
 /// Item ids for new items, unique per process.
-fn new_id() -> String {
+pub fn new_id() -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
     static N: AtomicU64 = AtomicU64::new(0);
     format!("i_{:x}{}", crate::fail::now_ms(), N.fetch_add(1, Ordering::Relaxed))

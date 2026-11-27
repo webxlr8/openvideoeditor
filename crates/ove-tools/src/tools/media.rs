@@ -101,7 +101,12 @@ pub fn probe_json(_: &Path) -> Result<Value, Fail> {
 }
 
 /// Media record + registry entry + clip duration (µs) + kind for a file.
-fn describe(path: &Path, id: &str, now: i64, image_us: i64) -> Result<(Value, Value, i64, &'static str), Fail> {
+pub(crate) fn describe(
+    path: &Path,
+    id: &str,
+    now: i64,
+    image_us: i64,
+) -> Result<(Value, Value, i64, &'static str), Fail> {
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let e = ext(path);
     let mut data = Map::new();

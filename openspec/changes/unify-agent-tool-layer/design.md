@@ -395,7 +395,7 @@ Additive. Old bundles open unchanged. The MCP whole-file `source` mode stays. Th
 - Task 8.2 (both OSes, built apps, real flow) stays open: the timings above are Windows only, with the stand-in
   provider.
 
-- After merging the transcript and audio tools of other changes: 50 tools; in-app 29, MCP 49, pinned 47.
+- After merging the transcript, audio and export tools of other changes: 56 tools; in-app 34, MCP 55, pinned 53.
 
 ### Group 7: local feedback queue (Windows 11 x64)
 

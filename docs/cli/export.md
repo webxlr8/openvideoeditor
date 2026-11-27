@@ -4,13 +4,29 @@ Renders the whole timeline to an MP4 file (H.264 video + AAC audio). Available w
 feature (`cargo build -p ove-cli --features export`; desktop bundles include it).
 
 ```sh
-ove export <project> <out.mp4> [--height <px>] [--fps <n>] [--json]
+ove export <project> <out.mp4> [--height <px>] [--fps <n>] [--loudness off|-14|-16|-23|-24] [--json]
+ove export <project> <out.m4a|.wav|.flac> --audio-only [--format m4a|wav|flac] [--loudness …] [--json]
 ```
 
 - `--height` (default 1080): output height; the width follows the project's aspect ratio (1920×1080 for 16:9 at
   1080, 608×1080 for 9:16, …), always even.
 - `--fps` (default 30).
 - Refused (exit 1, code `export.refused`) while the timeline has pending placeholders, or when it is empty.
+- `--audio-only` writes the mix alone and renders no video: `m4a` (AAC, with an edit list so players skip the
+  encoder's priming and the file has the timeline's duration), `wav` (24-bit PCM, the mixer's samples rounded once)
+  or `flac` (24-bit; needs an FFmpeg build with the FLAC muxer). `--format` picks it; without it the output's
+  extension decides, else `m4a`. The same rules as video export apply: refused while placeholders are pending or
+  media is offline, and nothing is left behind when refused or cancelled.
+- `--loudness` normalises the mix to an integrated loudness target: −14 (streaming), −16 (podcasts), −23 (EBU R128)
+  or −24 LUFS (ATSC A/85). Export first measures the mix (audio only, no video), then applies one static gain before
+  the true-peak limiter, so the file measures within 0.5 LU of the target with its true peak at or under −1 dBTP. A
+  mix that the limiter would make quieter (loud short peaks) is measured again with the gain until it lands on the
+  target. A silent timeline exports without gain. The JSON result gains `"loudness": {"targetLufs", "beforeLufs",
+  "beforeTruePeakDbtp", "afterLufs", "afterTruePeakDbtp", "gainDb", "silent"}` (`beforeLufs`/`afterLufs` are `null`
+  for silence).
+- Every export, with or without a target, keeps the mix's true peak at or under −1 dBTP (look-ahead true-peak
+  limiter; quieter audio passes through unchanged).
+- `ove audio loudness <project> --timeline` measures the timeline mix without exporting.
 
 Video encoder, first that opens: VideoToolbox (macOS); NVENC, Quick Sync, AMF, Media Foundation (Windows); OpenH264;
 libx264 (development FFmpeg builds only — GPL, never shipped); MPEG-4 Part 2. Audio: FFmpeg's AAC, 192 kb/s stereo

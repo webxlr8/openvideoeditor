@@ -208,3 +208,32 @@ fn loudness_matches_ffmpeg_ebur128() {
     assert!((i - ff_i).abs() <= 0.2, "ours {i} vs ffmpeg {ff_i}");
     assert!((ours.loudness_range_lu - ff_lra).abs() <= 0.6, "ours {} vs ffmpeg {ff_lra}", ours.loudness_range_lu);
 }
+
+/// Task 6.1: the BS.1770 core, now in ove-render and re-exported here, still matches FFmpeg's `ebur128` within
+/// 0.1 LU on integrated loudness (ebur128 prints one decimal, so 0.05 of rounding is allowed on top).
+#[test]
+fn shared_loudness_core_matches_ebur128_within_a_tenth() {
+    need_ffmpeg!();
+    let d = tempfile::tempdir().unwrap();
+    let cases = [
+        ("pink.wav", "anoisesrc=color=pink:amplitude=0.2:sample_rate=48000:seed=3:d=10"),
+        ("tone.wav", "aevalsrc=0.05*sin(2*PI*1000*t)|0.05*sin(2*PI*1000*t):s=48000:d=10"),
+        ("steps.wav", r"aevalsrc=(0.3*lt(t\,4)+0.03*gte(t\,4))*sin(2*PI*500*t):s=48000:d=10"),
+    ];
+    for (name, src) in cases {
+        let f = make(d.path(), name, &["-f", "lavfi", "-i", src, "-c:a", "pcm_f32le"]);
+        let out = Command::new(ffmpeg().unwrap())
+            .args(["-hide_banner", "-nostats", "-i"])
+            .arg(&f)
+            .args(["-af", "ebur128", "-f", "null", "-"])
+            .output()
+            .unwrap();
+        let log = String::from_utf8_lossy(&out.stderr);
+        let summary = &log[log.rfind("Summary:").expect("ebur128 summary")..];
+        let line = summary.lines().find(|l| l.trim_start().starts_with("I:")).unwrap();
+        let ff: f64 = line.split_whitespace().nth(1).unwrap().parse().unwrap();
+        let ours = ove_analyze::loudness(&f).unwrap().integrated_lufs.unwrap();
+        eprintln!("{name}: ours {ours:.2} LUFS, ebur128 {ff:.1} LUFS");
+        assert!((ours - ff).abs() <= 0.15, "{name}: ours {ours} vs ebur128 {ff}");
+    }
+}
