@@ -20,6 +20,8 @@ use serde::Serialize;
 use serde_json::{Map, Value, json};
 
 use ove_render::Rgba;
+pub use ove_render::color::{delta_e00, lab_u8};
+use ove_render::color::{lab_of_linear, lin_table};
 
 /// Vectorscope angle of the skin line, degrees from +Cb toward +Cr.
 pub const SKIN_LINE_DEG: f64 = 123.0;
@@ -156,97 +158,6 @@ fn r3(v: f64) -> f64 {
 
 fn r4(v: f64) -> f64 {
     round(v, 4)
-}
-
-/// sRGB code value → linear light, for all 256 values.
-fn lin_table() -> [f64; 256] {
-    let mut t = [0.0; 256];
-    for (i, v) in t.iter_mut().enumerate() {
-        let c = i as f64 / 255.0;
-        *v = if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) };
-    }
-    t
-}
-
-fn lab_f(t: f64) -> f64 {
-    const E: f64 = 216.0 / 24389.0;
-    const K: f64 = 24389.0 / 27.0;
-    if t > E { t.cbrt() } else { (K * t + 16.0) / 116.0 }
-}
-
-/// CIELAB (D65) of a linear-light sRGB colour.
-fn lab_of_linear(r: f64, g: f64, b: f64) -> [f64; 3] {
-    let x = (0.412_456_4 * r + 0.357_576_1 * g + 0.180_437_5 * b) / 0.950_47;
-    let y = 0.212_672_9 * r + 0.715_152_2 * g + 0.072_175 * b;
-    let z = (0.019_333_9 * r + 0.119_192 * g + 0.950_304_1 * b) / 1.088_83;
-    let (fx, fy, fz) = (lab_f(x), lab_f(y), lab_f(z));
-    [116.0 * fy - 16.0, 500.0 * (fx - fy), 200.0 * (fy - fz)]
-}
-
-/// CIELAB (D65) of an 8-bit sRGB colour.
-pub fn lab_u8(c: [u8; 3]) -> [f64; 3] {
-    let t = lin_table();
-    lab_of_linear(t[c[0] as usize], t[c[1] as usize], t[c[2] as usize])
-}
-
-/// CIEDE2000 colour difference (kL = kC = kH = 1).
-pub fn delta_e00(l1: [f64; 3], l2: [f64; 3]) -> f64 {
-    use std::f64::consts::PI;
-    let deg = |r: f64| r * 180.0 / PI;
-    let rad = |d: f64| d * PI / 180.0;
-    let c1 = l1[1].hypot(l1[2]);
-    let c2 = l2[1].hypot(l2[2]);
-    let cbar = (c1 + c2) / 2.0;
-    let c7 = cbar.powi(7);
-    let g = 0.5 * (1.0 - (c7 / (c7 + 25f64.powi(7))).sqrt());
-    let a1 = (1.0 + g) * l1[1];
-    let a2 = (1.0 + g) * l2[1];
-    let c1p = a1.hypot(l1[2]);
-    let c2p = a2.hypot(l2[2]);
-    let hue = |b: f64, a: f64| {
-        if b == 0.0 && a == 0.0 {
-            0.0
-        } else {
-            let h = deg(b.atan2(a));
-            if h < 0.0 { h + 360.0 } else { h }
-        }
-    };
-    let h1p = hue(l1[2], a1);
-    let h2p = hue(l2[2], a2);
-    let dl = l2[0] - l1[0];
-    let dc = c2p - c1p;
-    let dh = if c1p * c2p == 0.0 {
-        0.0
-    } else if (h2p - h1p).abs() <= 180.0 {
-        h2p - h1p
-    } else if h2p - h1p > 180.0 {
-        h2p - h1p - 360.0
-    } else {
-        h2p - h1p + 360.0
-    };
-    let dhh = 2.0 * (c1p * c2p).sqrt() * rad(dh / 2.0).sin();
-    let lbar = (l1[0] + l2[0]) / 2.0;
-    let cbarp = (c1p + c2p) / 2.0;
-    let hbarp = if c1p * c2p == 0.0 {
-        h1p + h2p
-    } else if (h1p - h2p).abs() <= 180.0 {
-        (h1p + h2p) / 2.0
-    } else if h1p + h2p < 360.0 {
-        (h1p + h2p + 360.0) / 2.0
-    } else {
-        (h1p + h2p - 360.0) / 2.0
-    };
-    let t = 1.0 - 0.17 * rad(hbarp - 30.0).cos() + 0.24 * rad(2.0 * hbarp).cos() + 0.32 * rad(3.0 * hbarp + 6.0).cos()
-        - 0.20 * rad(4.0 * hbarp - 63.0).cos();
-    let dtheta = 30.0 * (-((hbarp - 275.0) / 25.0).powi(2)).exp();
-    let cp7 = cbarp.powi(7);
-    let rc = 2.0 * (cp7 / (cp7 + 25f64.powi(7))).sqrt();
-    let sl = 1.0 + 0.015 * (lbar - 50.0).powi(2) / (20.0 + (lbar - 50.0).powi(2)).sqrt();
-    let sc = 1.0 + 0.045 * cbarp;
-    let sh = 1.0 + 0.015 * cbarp * t;
-    let rt = -rad(2.0 * dtheta).sin() * rc;
-    let (x, y, z) = (dl / sl, dc / sc, dhh / sh);
-    (x * x + y * y + z * z + rt * y * z).max(0.0).sqrt()
 }
 
 #[derive(Default)]

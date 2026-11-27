@@ -127,3 +127,24 @@ ones change appearance once, which is the bug fix in fix-render-and-edit-correct
   reference (names it), `--isolate` without `--item`, unknown item.
 - Fixture note: the LGPL FFmpeg build on this machine has no still-image demuxer, so the tests use short H.264 clips
   made by the fixture FFmpeg instead of PNG stills.
+
+### Group 2: backend trait and parity harness
+
+- `ove_render::backend`: the `Backend` trait over image handles (`Tex`) with create, upload, read, release, size,
+  `cpu` (run CPU code on an image), copy, draw, grade, lut, effect, transition mask, mix and opaque. Every operation
+  has a default that uses `cpu` with the reference code, so a backend overrides only what it does natively (D2).
+  `CpuBackend` keeps uploaded frames shared until written (no extra copy). The renderer drives the backend;
+  `Renderer::new` keeps the CPU backend, `Renderer::with_backend` and `set_backend` take another. All 112 ove-render
+  tests (unit, blend, effect and caption goldens, export safety, mixdown, motion, render) pass unchanged; the HDR
+  fixture test was skipped (needs python3, `OVE_ALLOW_MISSING_MEDIA_TOOLS=1`).
+- `ove_render::parity`: max channel difference, mean channel difference and CIEDE2000 p99 (ΔE computed only for
+  pixels whose colour differs); one mosaic frame of 4 charts (75 % bars, grey ramp, hue and saturation sweep, alpha
+  checker) and 3 procedural reference pictures (landscape, portrait stand-in, textured interior). The repository has
+  no real camera frames, so the "real frames" are procedural stand-ins. 113 cases: 3 draws, 16 blend modes aligned
+  and transformed, the basic grade, a grade lattice, 9 LUT presets, 41 effects, 23 visual transitions plus 2
+  outgoing sides, and a half-strength adjustment.
+- The effect goldens were already tolerance-based and shared by all three operating systems (wave 0,
+  `tests/golden/effects-48x27.pam`, 1 step per channel); no Linux-only hashes were left to replace.
+- Tasks 2.2 and 2.3 stay open until a CI run: the harness runs in the workspace test step on Linux, macOS and Windows
+  and the new "GPU parity (software adapter)" step and nightly `gpu-parity` job are written, but no CI run was made
+  from this worker (no push). Local results are under Group 3.

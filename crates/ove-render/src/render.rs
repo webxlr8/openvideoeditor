@@ -9,14 +9,15 @@ use ove_core::model::Document;
 use ove_core::time::Micros;
 use serde_json::{Map, Value};
 
-use crate::canvas::{DrawParams, Place, Rgba, draw, grade};
+use crate::backend::{Backend, CpuBackend, Tex};
+use crate::canvas::{DrawParams, Place, Rgba};
 use crate::captions::{CaptionCache, CaptionPlacement, draw_caption};
-use crate::color::{ColorGrade, Lut, apply_lut};
+use crate::color::{ColorGrade, Lut};
 use crate::eval::{Blend, Layer, LayerKind, Placement, canvas_size, layers_at, reference_size};
 use crate::sources::{Sources, media_path};
 use crate::text::{Align, TextStyle, parse_color, render_words, render_words_partial, words_of};
 use crate::text_anim::{AnimState, TextAnimation, blur, glitch};
-use crate::{effects, layouts, transitions};
+use crate::{effects, layouts};
 
 /// Renders timeline frames. Keeps decoders and rasterised text between frames.
 pub struct Renderer {
@@ -33,6 +34,8 @@ pub struct Renderer {
     frames: u64,
     /// Empty areas stay transparent instead of black (export with alpha).
     transparent: bool,
+    /// Where the pixels are composited (design D1).
+    backend: Box<dyn Backend>,
 }
 
 fn num(f: &Map<String, Value>, k: &str) -> Option<f64> {
@@ -180,7 +183,23 @@ impl Renderer {
             luts: HashMap::new(),
             frames: 0,
             transparent: false,
+            backend: Box::new(CpuBackend::new()),
         }
+    }
+
+    /// A renderer that composites with `backend` instead of the CPU reference.
+    pub fn with_backend(bundle: Option<&Path>, height: u32, backend: Box<dyn Backend>) -> Self {
+        Renderer { backend, ..Renderer::new(bundle, height) }
+    }
+
+    /// The backend's name (`"cpu"` or `"gpu"`).
+    pub fn backend_name(&self) -> &'static str {
+        self.backend.name()
+    }
+
+    /// Replaces the backend (for example after a GPU device loss); cached frames and text stay.
+    pub fn set_backend(&mut self, backend: Box<dyn Backend>) {
+        self.backend = backend;
     }
 
     /// Leaves areas no layer covers transparent (alpha 0) instead of opaque black, and keeps the layers' alpha in
@@ -235,8 +254,8 @@ impl Renderer {
 
     /// Draws one layer into `target` with the given opacity and blend (the caller handles transitions).
     #[allow(clippy::too_many_arguments)]
-    fn draw_layer(&mut self, doc: &Document, target: &mut Rgba, layer: &Layer, k: f64, opacity: f32, blend: Blend) {
-        let (w, h) = (target.w, target.h);
+    fn draw_layer(&mut self, doc: &Document, target: Tex, layer: &Layer, k: f64, opacity: f32, blend: Blend) {
+        let (w, h) = self.backend.size(target);
         let x = &layer.xform;
         let flip = if x.flip_x { -1.0 } else { 1.0 };
         // A layout slot replaces the frame as the area the layer is placed in.
@@ -257,22 +276,16 @@ impl Renderer {
                 let max_h = ((h as f64 * x.scale.abs().clamp(1.0, 2.0)).ceil() as u32).min(2160);
                 let Some(frame) = self.sources.frame(&layer.item_id, &path, src_us, max_h, image) else { return };
                 let cg = self.color_grade(&layer.item_id, &layer.fields);
-                let fx = layer.fields.get("effects").filter(|e| e.as_array().is_some_and(|a| !a.is_empty()));
-                let frame = if layer.grade.is_some() || cg.is_some() || fx.is_some() {
-                    let mut f = (*frame).clone();
-                    if let Some(g) = &layer.grade {
-                        grade(&mut f, g);
-                    }
-                    if let Some(l) = &cg {
-                        apply_lut(&mut f, l, 1.0);
-                    }
-                    if let Some(e) = fx {
-                        effects::apply_stack(&mut f, e, layer.rel_s);
-                    }
-                    Arc::new(f)
-                } else {
-                    frame
-                };
+                let tex = self.backend.upload(&frame);
+                if let Some(g) = &layer.grade {
+                    self.backend.grade(tex, g);
+                }
+                if let Some(l) = &cg {
+                    self.backend.lut(tex, l, 1.0);
+                }
+                if let Some(e) = layer.fields.get("effects") {
+                    effect_stack(&mut *self.backend, tex, e, layer.rel_s);
+                }
                 let (s, crop) = match layer.slot {
                     Some(_) => {
                         let (s, c) = layouts::cover(frame.w as f64, frame.h as f64, area_w, area_h, x.scale);
@@ -293,7 +306,8 @@ impl Renderer {
                     crop,
                     radius: (layer.border_radius as f64 * k / s.abs().max(1e-6)) as f32,
                 };
-                draw(target, &frame, place, &params);
+                self.backend.draw(target, tex, place, &params);
+                self.backend.release(tex);
             }
             LayerKind::Text => {
                 let content = layer.fields.get("textContent").and_then(Value::as_str).unwrap_or("").to_string();
@@ -341,12 +355,10 @@ impl Renderer {
                     sy: s,
                     rotation: x.rotation + anim.rotation,
                 };
-                draw(
-                    target,
-                    &img,
-                    place,
-                    &DrawParams { opacity: opacity * anim.opacity as f32, blend, ..Default::default() },
-                );
+                let tex = self.backend.upload(&img);
+                let params = DrawParams { opacity: opacity * anim.opacity as f32, blend, ..Default::default() };
+                self.backend.draw(target, tex, place, &params);
+                self.backend.release(tex);
             }
             LayerKind::Code => {
                 let Some((img, (cw, ch), real)) = self.code_frame(doc, layer, (w, h), x.scale) else { return };
@@ -359,12 +371,15 @@ impl Renderer {
                     crop: layer.crop,
                     radius: (layer.border_radius as f64 * k / s.abs().max(1e-6)) as f32,
                 };
-                draw(target, &img, place, &params);
+                let tex = self.backend.upload(&Arc::new(img));
+                self.backend.draw(target, tex, place, &params);
+                self.backend.release(tex);
             }
             LayerKind::Caption { words, .. } => {
                 // Caption styles: see `captions` and `captions_presets`.
                 let at = CaptionPlacement { k: k as f32, dx: x.x * k, dy: x.y * k, scale: x.scale, opacity };
-                draw_caption(target, &mut self.captions, &layer.fields, words, layer.rel_us, at);
+                let (captions, fields, rel) = (&mut self.captions, &layer.fields, layer.rel_us);
+                self.backend.cpu(target, &mut |img| draw_caption(img, captions, fields, words, rel, at));
             }
             LayerKind::Adjustment => {
                 let cg = self.color_grade(&layer.item_id, &layer.fields);
@@ -372,18 +387,19 @@ impl Renderer {
                 if layer.grade.is_none() && cg.is_none() && fx.is_none() {
                     return;
                 }
-                let before = (opacity < 1.0).then(|| target.clone());
+                let before = (opacity < 1.0).then(|| self.backend.copy(target));
                 if let Some(g) = &layer.grade {
-                    grade(target, g);
+                    self.backend.grade(target, g);
                 }
                 if let Some(l) = &cg {
-                    apply_lut(target, l, 1.0);
+                    self.backend.lut(target, l, 1.0);
                 }
                 if let Some(e) = fx {
-                    effects::apply_stack(target, e, layer.rel_s);
+                    effect_stack(&mut *self.backend, target, e, layer.rel_s);
                 }
                 if let Some(b) = before {
-                    mix_back(target, &b, opacity);
+                    self.backend.mix(target, b, opacity);
+                    self.backend.release(b);
                 }
             }
             LayerKind::Shader => {
@@ -392,7 +408,7 @@ impl Renderer {
                 let empty = Map::new();
                 let params = comp.get("params").and_then(Value::as_object).unwrap_or(&empty);
                 let amount = effects::shader_strength(comp, layer.rel_s, layer.dur_s) * opacity;
-                effects::apply(target, id, params, amount, layer.rel_s);
+                self.backend.effect(target, id, params, amount, layer.rel_s);
             }
         }
     }
@@ -402,36 +418,25 @@ impl Renderer {
         let (w, h) = self.size(doc);
         let (_, ref_h) = reference_size(&doc.project.aspect_ratio);
         let k = h as f64 / ref_h as f64;
-        let mut canvas = Rgba::filled(w, h, if self.transparent { [0, 0, 0, 0] } else { [0, 0, 0, 255] });
+        let canvas = self.backend.create(w, h, if self.transparent { [0, 0, 0, 0] } else { [0, 0, 0, 255] });
         for layer in layers_at(doc, t_us) {
             let Some(st) = layer.trans.clone() else {
-                self.draw_layer(doc, &mut canvas, &layer, k, layer.opacity, layer.blend);
+                self.draw_layer(doc, canvas, &layer, k, layer.opacity, layer.blend);
                 continue;
             };
             let m = st.motion();
             if matches!(layer.kind, LayerKind::Adjustment | LayerKind::Shader) {
-                self.draw_layer(doc, &mut canvas, &layer, k, layer.opacity * m.opacity, layer.blend);
+                self.draw_layer(doc, canvas, &layer, k, layer.opacity * m.opacity, layer.blend);
             } else {
                 // Draw the layer on its own, then mask, move and blur it as the transition says.
-                let mut off = Rgba::new(w, h);
-                self.draw_layer(doc, &mut off, &layer, k, 1.0, Blend::Normal);
-                st.apply_mask(&mut off);
-                if m.blur > 0.5 {
-                    let p = serde_json::json!({ "intensity": m.blur });
-                    effects::apply(&mut off, "zoom-blur", p.as_object().unwrap_or(&Map::new()), 1.0, 0.0);
-                }
-                let place = Place {
-                    cx: w as f64 * (0.5 + m.dx as f64),
-                    cy: h as f64 * (0.5 + m.dy as f64),
-                    sx: m.scale as f64,
-                    sy: m.scale as f64,
-                    rotation: 0.0,
-                };
-                let params =
-                    DrawParams { opacity: layer.opacity * m.opacity, blend: layer.blend, ..Default::default() };
-                draw(&mut canvas, &off, place, &params);
+                let off = self.backend.create(w, h, [0, 0, 0, 0]);
+                self.draw_layer(doc, off, &layer, k, 1.0, Blend::Normal);
+                transition_layer(&mut *self.backend, canvas, off, &st, layer.opacity, layer.blend);
+                self.backend.release(off);
             }
-            transitions::apply_post(&mut canvas, &st, layer.rel_s);
+            if let Some((id, params, amount)) = st.post_effect() {
+                self.backend.effect(canvas, id, &params, amount, layer.rel_s);
+            }
         }
         self.frames += 1;
         if self.frames.is_multiple_of(120) {
@@ -441,18 +446,45 @@ impl Renderer {
             }
         }
         if !self.transparent {
-            for p in canvas.data.chunks_exact_mut(4) {
-                p[3] = 255;
-            }
+            self.backend.opaque(canvas);
         }
-        canvas
+        let out = self.backend.read(canvas);
+        self.backend.release(canvas);
+        out
     }
 }
 
-/// `dst = before + (dst − before)·k` (partial-strength adjustment layers).
-fn mix_back(dst: &mut Rgba, before: &Rgba, k: f32) {
-    use rayon::prelude::*;
-    dst.data.par_iter_mut().zip(before.data.par_iter()).for_each(|(d, b)| {
-        *d = (*b as f32 + (*d as f32 - *b as f32) * k).round().clamp(0.0, 255.0) as u8;
-    });
+/// Composites a transitioning layer drawn alone on `off` (canvas-sized) onto `canvas`: its reveal mask, then the
+/// transition's motion (offset, scale, opacity, zoom blur). The post effect is the caller's.
+pub fn transition_layer(
+    backend: &mut dyn Backend,
+    canvas: Tex,
+    off: Tex,
+    st: &crate::transitions::TransState,
+    opacity: f32,
+    blend: Blend,
+) {
+    let (w, h) = backend.size(canvas);
+    let m = st.motion();
+    backend.transition_mask(off, st);
+    if m.blur > 0.5 {
+        let p = serde_json::json!({ "intensity": m.blur });
+        backend.effect(off, "zoom-blur", p.as_object().unwrap_or(&Map::new()), 1.0, 0.0);
+    }
+    let place = Place {
+        cx: w as f64 * (0.5 + m.dx as f64),
+        cy: h as f64 * (0.5 + m.dy as f64),
+        sx: m.scale as f64,
+        sy: m.scale as f64,
+        rotation: 0.0,
+    };
+    let params = DrawParams { opacity: opacity * m.opacity, blend, ..Default::default() };
+    backend.draw(canvas, off, place, &params);
+}
+
+/// Runs an item's effect stack (`effects` field) on the backend, in order; disabled entries are skipped.
+pub fn effect_stack(backend: &mut dyn Backend, t: Tex, effects: &Value, time: f32) {
+    for (id, values, amount) in effects::stack_entries(effects) {
+        backend.effect(t, id, values, amount, time);
+    }
 }

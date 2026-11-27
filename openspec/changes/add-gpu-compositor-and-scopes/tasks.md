@@ -13,7 +13,7 @@
 
 ## 2. Backend trait and parity harness
 
-- [ ] 2.1 Introduce the backend trait in `ove-render` and wrap the current CPU code as the CPU backend; verify all
+- [x] 2.1 Introduce the backend trait in `ove-render` and wrap the current CPU code as the CPU backend; verify all
       existing renderer tests and the export golden test pass unchanged.
 - [ ] 2.2 Build the tolerance parity harness (charts plus 3 reference frames, max, mean and CIEDE2000 p99) and replace
       the Linux-only effect golden hashes; verify the harness runs on Linux, macOS and Windows CI.

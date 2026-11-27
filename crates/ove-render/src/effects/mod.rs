@@ -140,15 +140,24 @@ fn entry_values(e: &Map<String, Value>) -> &Map<String, Value> {
     }
 }
 
+/// The runnable entries of an effect stack (`effects` field), in order: (effect id, parameter values, amount).
+/// Disabled entries (`enabled: false`) and entries without a type are left out.
+pub fn stack_entries(effects: &Value) -> Vec<(&str, &Map<String, Value>, f32)> {
+    let Value::Array(list) = effects else { return Vec::new() };
+    list.iter()
+        .filter_map(Value::as_object)
+        .filter(|e| e.get("enabled").and_then(Value::as_bool) != Some(false))
+        .filter_map(|e| {
+            let id = e.get("type").or_else(|| e.get("template")).and_then(Value::as_str)?;
+            Some((id, entry_values(e), unit_amount(e.get("amount"))))
+        })
+        .collect()
+}
+
 /// Apply an item's effect stack (`effects` field) in order. Disabled entries (`enabled: false`) are skipped.
 pub fn apply_stack(img: &mut Rgba, effects: &Value, t: f32) {
-    let Value::Array(list) = effects else { return };
-    for e in list.iter().filter_map(Value::as_object) {
-        if e.get("enabled").and_then(Value::as_bool) == Some(false) {
-            continue;
-        }
-        let Some(id) = e.get("type").or_else(|| e.get("template")).and_then(Value::as_str) else { continue };
-        apply(img, id, entry_values(e), unit_amount(e.get("amount")), t);
+    for (id, values, amount) in stack_entries(effects) {
+        apply(img, id, values, amount, t);
     }
 }
 
