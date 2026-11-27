@@ -74,8 +74,11 @@ hands-on work is needed after that.
 - A host and signing key for the remote model catalog. It stays off until decided.
 - A self-hosted mirror for the ONNX Runtime library. The official PyPI wheels are used meanwhile.
 - Licence sign-off for the semantic search model (add-semantic-media-search task 1.1): SigLIP 2 weights and the
-  tokenizer files. Release of semantic search is blocked on it. The model is a 0.63 GB opt-in download.
+  tokenizer files. Release of semantic search is blocked on it. The model is a 0.76 GB opt-in download.
 - extend-ai-generation-actions: the remote model catalog's daily fetch, and creating and storing its ed25519 release
   signing key (task 1.4), before that change starts. Also real provider keys for its live checks (5.1, 5.3).
+- Semantic search option (b): host our own smaller SigLIP 2 export (0.56 GB instead of 0.76 GB, passes the 0.99
+  parity gate) as an immutable, versioned asset, with NOTICE text for the modified Apache-2.0 weights. Hosting means
+  publishing files, so it needs your approval and a location. Until then the conversion's fp16 files are used.
 - Creating a public community skills repository.
 - Any place agent feedback reports could be sent. Today they are copied by hand only.
