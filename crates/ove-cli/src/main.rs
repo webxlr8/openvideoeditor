@@ -141,6 +141,11 @@ enum Cmd {
         #[command(subcommand)]
         cmd: TimelineCmd,
     },
+    /// Background tasks of the running app (thumbnails, skim sheets, proxies, captions, export): list, wait, cancel.
+    Tasks {
+        #[command(subcommand)]
+        cmd: TasksCmd,
+    },
     /// Built-in documentation (`ove docs agents` is the guide for agents).
     Docs { topic: Option<String> },
     /// Check the library, media support, encoders, the running app and agent setup.
@@ -176,6 +181,29 @@ enum Cmd {
         #[arg(long)]
         turn: Option<String>,
     },
+}
+
+#[derive(Subcommand)]
+enum TasksCmd {
+    /// Unfinished background tasks, running first (none when the app is not running).
+    List {
+        /// Only this project's tasks.
+        project: Option<String>,
+        /// Only this kind (thumbnail, skim, proxy, captions, export, audio-analysis, …).
+        #[arg(long)]
+        kind: Option<String>,
+    },
+    /// Wait until the matching tasks are done, or the time-out; prints whether they are done and how many remain.
+    Wait {
+        project: Option<String>,
+        #[arg(long)]
+        kind: Option<String>,
+        /// Seconds to wait at most (at most 600).
+        #[arg(long, default_value_t = 30.0)]
+        timeout: f64,
+    },
+    /// Cancel a task by id (from `ove tasks list`).
+    Cancel { id: i64 },
 }
 
 #[derive(Subcommand)]
@@ -332,6 +360,13 @@ fn run(cli: &Cli, source: Source) -> Out {
             }
         }
         Cmd::Export(a) => export::run(&ctx, a),
+        Cmd::Tasks { cmd: TasksCmd::List { project, kind } } => {
+            ctx.tool("list_tasks", json!({"project": project, "kind": kind}))
+        }
+        Cmd::Tasks { cmd: TasksCmd::Wait { project, kind, timeout } } => {
+            ctx.tool("wait_tasks", json!({"project": project, "kind": kind, "timeoutSeconds": timeout}))
+        }
+        Cmd::Tasks { cmd: TasksCmd::Cancel { id } } => ctx.tool("cancel_task", json!({"id": id})),
         Cmd::Timeline { cmd: TimelineCmd::Export { project, file, format, fps } } => {
             ctx.tool("export_timeline_file", json!({"project": project, "file": file, "format": format, "fps": fps}))
         }

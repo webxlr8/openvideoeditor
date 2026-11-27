@@ -1243,6 +1243,68 @@
     "eager_input_streaming": true
   },
   {
+    "name": "list_tasks",
+    "description": "List the app's unfinished background tasks (thumbnails, skim sheets, proxies, captions, export, analysis): id, kind, label, project, priority, state (queued, running, paused with its reason) and progress. Background work runs only in the app: without it the list is empty.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "project": {
+          "type": "string",
+          "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+        },
+        "kind": {
+          "type": "string",
+          "description": "Only this kind (thumbnail, skim, proxy, captions, export, audio-analysis, …)"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "eager_input_streaming": true
+  },
+  {
+    "name": "wait_tasks",
+    "description": "Wait until the matching background tasks are done (for example the proxies of a project), or until the time-out: the result says whether they are done and how many remain. Paused tasks (playback, battery) do not finish while paused.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "project": {
+          "type": "string",
+          "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+        },
+        "kind": {
+          "type": "string",
+          "description": "Only this kind (thumbnail, skim, proxy, captions, export, audio-analysis, …)"
+        },
+        "timeoutSeconds": {
+          "type": "number",
+          "description": "Seconds to wait at most (default 30, at most 600)"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "eager_input_streaming": true
+  },
+  {
+    "name": "cancel_task",
+    "description": "Cancel one background task by id (from list_tasks). It stops within a second and leaves no partial output; the result reports it cancelled. Derived data (thumbnails, skim sheets, proxies) is queued again the next time it is needed.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "integer",
+          "description": "The task id"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "eager_input_streaming": true
+  },
+  {
     "name": "list_skills",
     "description": "List the installed skills: playbooks for kinds of edits (id, name, description, source). Read one with `read_skill` before following it.",
     "input_schema": {

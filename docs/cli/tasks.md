@@ -100,17 +100,48 @@ Progress events go out at most 4 times per second per task, whatever rate the ta
 
 ## Seeing and cancelling tasks
 
-Not built yet (task group 6 of `add-background-tasks-and-media-derivatives`): the surfaces below are the planned
-contract.
+The app's status bar shows a Background Tasks button while tasks exist. Its popover lists running, waiting and
+paused tasks with their progress, the reason work is paused, a Cancel button for each task, "Run anyway" for each
+pause reason, and a button that pauses or resumes all background work. When no task exists, the button is not
+shown.
 
-The status bar's Background Tasks popover lists running, waiting and paused tasks with their progress and pause
-reason. The CLI and MCP list, cancel and wait for tasks:
+Background work runs only in the app. The command line and MCP ask the running app over the control link (method
+`tasks`). When the app is not running, no background work exists: `list` finds none, `wait` is done at once, and
+`cancel` is refused with `task.notFound`.
 
 ```sh
-ove tasks list --json
-ove tasks wait --kind thumbnail --timeout 30
-ove tasks cancel 12
+ove tasks list --json                              # exit 0
+ove tasks list Demo --kind proxy                   # exit 0
+ove tasks wait Demo --kind thumbnail --timeout 30  # exit 0
+ove tasks cancel 12                                # exit 1
 ```
 
-MCP tools: `list_tasks`, `wait_tasks` (with a time-out; it returns the remaining count when time runs out) and
-`cancel_task`.
+- `ove tasks list [PROJECT] [--kind KIND]` prints the unfinished tasks, running first, one line each:
+  `#12 running 45% · Proxy: interview.mov (proxy, derivative)`. A paused task shows its reason (`#13 paused
+  (battery) …`). With `--json` it prints `{"tasks": [...], "pauseReasons": [...], "app": true}`. Each task has `id`,
+  `kind`, `label`, `project`, `priority`, `class`, `state`, `pauseReason`, `progress`, `runningAlone`, `bypassed`
+  and `estMem`.
+- `ove tasks wait [PROJECT] [--kind KIND] [--timeout SECONDS]` waits until the matching tasks are done, or until the
+  time-out (default 30 s, at most 600 s). It prints `{"done", "remaining", "timedOut", "tasks"}`. A time-out is not
+  an error (exit 0): `timedOut` is true and `remaining` counts the unfinished tasks.
+- `ove tasks cancel ID` cancels one task. The task stops within a second and leaves no partial output. The result
+  shows its final state (`cancelled`). An unknown or finished id is refused with `task.notFound` (exit 1).
+
+MCP tools: `list_tasks` (`project`?, `kind`?), `wait_tasks` (`project`?, `kind`?, `timeoutSeconds`?) and
+`cancel_task` (`id`). They return the same results as the commands. In a session pinned to a project
+(`ove mcp --project`), they cover that project only.
+
+## Proxies
+
+A video that is 4K or larger, 10-bit long-GOP, or slower than real time to decode can get a proxy. A proxy is a 1080p
+H.264 copy with a keyframe every 12 frames, at `proxies/<contentId>_1080.mp4`. It is made by a `proxy` task (P2,
+`decode` class) when the project's "Use proxies" setting is on. The setting is the project field `useProxies`,
+changed with `updateProject`. Timeline playback and skim sheets read the proxy when it exists. Export and agent frames
+(`look`, `grab_frame`) always read the original.
+
+## Stored data
+
+Settings → Storage shows the size of each kind of derived data, for the open project and across the library:
+thumbnails (`cache/thumbs`), skim sheets (`cache/skim`), proxies (`proxies`), transcripts (`cache/transcripts`) and
+the audio peak cache (`cache/waveforms`). Clear cancels that kind's tasks first and then removes its files. It never
+removes media files or the project document. The data is rebuilt when it is needed again.

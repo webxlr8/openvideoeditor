@@ -179,11 +179,36 @@ jobs:
           source tools/ffmpeg/env.sh
           cargo clippy --workspace --all-targets --all-features -- -D warnings
       # Every test runs even when one fails, so one run shows everything that is wrong on a platform.
+      # The timing-sensitive tests listed in docs/flaky-tests.md are skipped here and run in the serial step below.
       - name: test (whole workspace, every crate)
         if: ${{ !cancelled() }}
         run: |
           source tools/ffmpeg/env.sh
-          cargo test --workspace --all-features --no-fail-fast
+          cargo test --workspace --all-features --no-fail-fast -- \
+            --skip two_sessions_are_told_apart_and_each_undoes_only_its_own_change \
+            --skip stop_cancels_mid_stream_and_keeps_history_valid \
+            --skip wait_times_out_with_the_remaining_count \
+            --skip scrub_latency_and_edits
+      # Serial lane: the timing-sensitive tests (docs/flaky-tests.md), one at a time, after the parallel run, so other
+      # tests do not load the machine while they measure. They still gate the build. Keep this list and the skips
+      # above in step with that note.
+      - name: test (timing-sensitive, serial)
+        if: ${{ !cancelled() }}
+        run: |
+          source tools/ffmpeg/env.sh
+          # Each test runs even when an earlier one fails. The step fails if any fails, or if a name no longer
+          # matches exactly one test (a renamed test must not drop out of CI without notice).
+          status=0
+          serial() { # package, target (--test <file> or --lib), full test name
+            out="$(cargo test -p "$1" --all-features $2 -- --test-threads=1 --exact "$3" 2>&1)" || status=1
+            echo "$out"
+            grep -q "test result: ok. 1 passed" <<< "$out" || { echo "::error::$1 $2 $3 did not pass exactly once"; status=1; }
+          }
+          serial ove-cli "--test mcp_edits" two_sessions_are_told_apart_and_each_undoes_only_its_own_change
+          serial ove-agent "--test agent" stop_cancels_mid_stream_and_keeps_history_valid
+          serial ove-tasks "--test scheduler" wait_times_out_with_the_remaining_count
+          serial ove-desktop "--lib" scrub::tests::scrub_latency_and_edits
+          exit "$status"
       - name: bindings drift
         if: ${{ !cancelled() }}
         run: |

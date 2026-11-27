@@ -13,6 +13,7 @@ pub mod fonts;
 pub mod layouts;
 pub mod loudness;
 pub mod meter;
+pub mod proxy;
 pub mod queue;
 pub mod render;
 pub mod sources;

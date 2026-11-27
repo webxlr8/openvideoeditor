@@ -315,7 +315,8 @@ Additive. Old bundles open unchanged. The MCP whole-file `source` mode stays. Th
 - Lock behaviour: right after a call the session holds the lock (another writer gets `project.locked` naming
   `ove`); after the hold time the app opens the project (released within 3 s in the test); while the app holds it,
   the session's edit is refused with `project.locked` and the session carries on. A writer that finds the lock held
-  by another `ove` process waits up to 3 s for it, so two sessions on one project still alternate
+  by another `ove` process waits up to 3 s for it (raised to 7 s at gate 2: the 2 s hold plus 5 s of margin, see
+  docs/flaky-tests.md), so two sessions on one project still alternate
   (`two_sessions_are_told_apart_and_each_undoes_only_its_own_change`). Trade-off: the person cannot open a project
   in the app for up to 2 s after an agent's last headless call.
 

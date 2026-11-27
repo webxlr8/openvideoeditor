@@ -162,3 +162,61 @@ Skim sheets as built (task 4.1):
 | Same clip: render time | 57 ms |
 | Same clip: tile times | exactly 0, 1, …, 59 s (golden) |
 | Sheet size for this (flat title) clip | 16 KB; camera footage will be larger, to be measured in 7.3 |
+
+Proxies as built (group 5):
+
+- Eligibility (`ove_media::proxy::check`): 4K means a long side of at least 3840 and a short side of at least 2160.
+  10-bit long-GOP means a bit depth of 10 or more and a codec that FFmpeg does not describe as intra-only (ProRes and
+  DNxHR are intra-only). Every other file gets the real-time check: two seconds of frames (12 to 60) decoded the way
+  timeline playback decodes (software, RGBA at 540 lines). It fails below 1.25× real time. The answer is kept in
+  `cache/proxy-check/<contentId>.json`, so the check runs once per file.
+- Encode (`ove_render::proxy::make`): it goes through the export pipeline, so it uses the encoders export chooses
+  (hardware first) and the same partial-file write. Output: H.264 8-bit 4:2:0 that fits 1920 × 1080 (aspect kept,
+  never upscaled, even sizes). The frame rate is the source's, rounded. There is a keyframe every 12 frames and no
+  B-frames, at 0.15 bit per pixel (export's "high"). HDR sources are tone-mapped by `ove-media`'s RGBA output, the
+  same path the compositor uses.
+- Change from D7: the proxy has no sound. Playback reads sound from the original, which is cheap to decode, so
+  copying the audio would only use disk. Export never reads proxies.
+- Playback switch: `Renderer::set_use_proxies`, which only timeline playback calls, reads
+  `proxies/<contentId>_1080.mp4` for video layers when it exists. Export, `look`, `grab_frame` and the other renderers
+  keep reading originals. Skim sheets read the proxy when the setting is on and the proxy exists. Audio analysis
+  keeps reading originals, because proxies have no sound.
+- The proxy task runs its encode on a helper thread and polls it every 20 ms. A cancel therefore ends the task at
+  once, even while the hardware decoder or encoder is still opening (300–500 ms that cannot be interrupted). The
+  helper stops at its next frame and removes its partial file.
+
+| Measure (Windows dev machine, `h264_mf`, test build with optimisation) | Result |
+|---|---|
+| 4K 24 fps H.264, 48 frames → 1920 × 1080 proxy | 1.39 s (34.5 fps, 1.44× real time) |
+| 10-bit 720p HEVC, 48 frames → 1280 × 720 | 0.62 s |
+| HDR10 1080p HEVC, 48 frames → 1920 × 1080 | 1.13 s |
+| SSIM against the original at 1080p, mean / worst sampled frame | 4K 0.986 / 0.984; 10-bit 0.994 / 0.992; HDR 0.994 / 0.993 |
+| Proxy size (moving test pattern, 2 s, 1080p24) | 1.3 MB (≈ 7.5 Mbit/s) |
+| Real-time check on files that need no proxy | ProRes 422 LT 10-bit 720p: 9.5×; H.264 640 × 360: 45× |
+| Cancel of a running proxy task to its cancelled state | 3–29 ms (0.5–0.8 s before the helper thread) |
+| Export with proxies on and off | identical frames (test) |
+
+Surfaces as built (group 6):
+
+- Popover: a button in the project bar that shows only while tasks exist (or while the person paused all work, or
+  while the export queue has jobs, through its `exports` entry). The app sends `tasksChanged` at most every 250 ms
+  after a change, and the last change always gets out. Export tasks have no Cancel in the popover, because the
+  export dialog cancels them.
+- CLI and MCP: background work runs only in the app, so `ove tasks` and `list_tasks` / `wait_tasks` / `cancel_task`
+  ask the running app over the control link (method `tasks`, `ove_tasks::remote`). "Headless on bundles" therefore
+  means: without the app there is no queue (D4), so `list` is empty with `"app": false`, `wait` is done at once, and
+  `cancel` is refused with `task.notFound`. One control-link `wait` blocks at most 10 s. Longer waits (up to 600 s)
+  call again, so the link's 20 s call time-out never cuts a wait short. A time-out is a result (`timedOut: true`,
+  `remaining`), not an error.
+- Storage: rows for thumbnails (`cache/thumbs`), skim sheets (`cache/skim`), proxies (`proxies`), transcripts
+  (`cache/transcripts`) and the audio peak cache (`cache/waveforms`). Each row shows the open project's size and
+  the total across the library. Clear cancels the kind's tasks, waits up to 2 s for them, makes playback let go of
+  proxy files, and then removes only regular files in that folder. It skips any registered media file and never
+  follows links. The app then forgets what it had derived, so the next media check rebuilds what is missing.
+  Proxies are rebuilt only while "Use proxies" is on.
+
+| Measure (Windows dev machine, tests) | Result |
+|---|---|
+| Cancel through the control link to the cancelled state | < 200 ms (asserted) |
+| `ove tasks wait --timeout 0.5` with a task still running | returns `timedOut: true, remaining: 1` after the time-out |
+| Popover updates while a task reports progress every 5 ms | at most 4 per second (250 ms coalescing) |

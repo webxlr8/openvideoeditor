@@ -17,5 +17,6 @@ pub mod media;
 pub mod models;
 pub mod project;
 pub mod skills;
+pub mod tasks;
 pub mod timeline;
 pub mod transcript;

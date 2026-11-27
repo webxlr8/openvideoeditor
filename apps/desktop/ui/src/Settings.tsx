@@ -15,6 +15,7 @@ import { AgentsSection } from "./agents/AgentsSection";
 import { ConnectorsSection } from "./agents/ConnectorsSection";
 import { ModelsSection } from "./storage/ModelsSection";
 import { SkillsSection } from "./skills/SkillsSection";
+import { CachesSection } from "./storage/CachesSection";
 import { SpendCapField } from "./spend/SpendCard";
 import { commands } from "./bridge";
 import { AssistantDataList } from "./ChatPanel";
@@ -540,6 +541,8 @@ export function Settings({
             <h3>Storage</h3>
             <h4>Models</h4>
             <ModelsSection onError={onError} />
+            <h4>Derived data</h4>
+            <CachesSection onError={onError} />
           </section>
         )}
         {section === "privacy" && (
