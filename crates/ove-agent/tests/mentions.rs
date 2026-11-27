@@ -176,3 +176,36 @@ fn an_edit_to_a_mentioned_item_deleted_meanwhile_is_a_conflict_and_does_not_brin
     assert!(result.contains("conflict"), "the model is told: {result}");
     assert!(!events.is_empty());
 }
+
+#[test]
+fn a_skill_chosen_from_the_slash_menu_is_read_at_the_start_of_the_turn() {
+    // The app reads the skill (registry `read_skill`) when the message is sent; the turn's first request carries
+    // its text ahead of any tool call, with the person's words.
+    let server = MockServer::start(|_, _| Reply::Stream { chunks: sse_reply("Matched.", &[]), delay: Duration::ZERO });
+    let d = tempfile::tempdir().unwrap();
+    let mut host = Host { project: project(d.path()), meanwhile: Meanwhile::Nothing };
+    let store = ChatStore::for_bundle(host.project.bundle());
+    let chat = store.create("match these two shots", "claude-sonnet-5-5").unwrap();
+    let skill =
+        ove_agent::mention::skill("color-match", "Colour matching", "1. Look at both shots.\n2. Grade the target.");
+    let mut client = Client::with_base_url("sk-test-key-0123456789abcdef", &server.url);
+    client.backoff = vec![Duration::from_millis(10); 2];
+    run_turn_with(
+        &client,
+        &store,
+        &chat.id,
+        "match these two shots",
+        &[skill],
+        &mut host,
+        &TurnConfig::default(),
+        &AtomicBool::new(false),
+        &mut |_| {},
+    )
+    .unwrap();
+    let reqs = server.requests.lock().unwrap();
+    let first = reqs[0]["messages"][0]["content"].as_array().unwrap();
+    assert_eq!(first[0]["text"], "match these two shots");
+    let text = first[1]["text"].as_str().unwrap();
+    assert!(text.contains("<skill id=\"color-match\">\n1. Look at both shots."), "{text}");
+    assert!(text.contains("Follow it"), "{text}");
+}

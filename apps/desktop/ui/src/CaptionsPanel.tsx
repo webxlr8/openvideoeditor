@@ -23,6 +23,7 @@ import { Icon } from "./icons";
 import { fire, runCommand, unlisten } from "./notify";
 import { PanelHint } from "./onboarding/PanelHint";
 import "./CaptionsPanel.css";
+import { AskAssistant } from "./chat/AskAssistant";
 
 type Job = { stage: string; fraction: number; message: string } | null;
 
@@ -103,6 +104,7 @@ export function CaptionsPanel({ project, playhead, selection, onEdit, onSelect, 
   const track = firstTrack(project, "caption", "t_captions");
   return (
     <div className="captions-panel">
+      {captions.length > 0 && <AskAssistant panel="captions" project={project} selection={selection} />}
       {captions.length === 0 && !busy && (
         <PanelHint
           panel="captions"

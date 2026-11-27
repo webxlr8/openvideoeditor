@@ -4,7 +4,7 @@
 
 import type { ProjectView_Serialize } from "../bindings";
 
-export type MentionKind = "item" | "range" | "media" | "skill";
+export type MentionKind = "item" | "range" | "media" | "skill" | "track";
 
 /** A mention in the composer (and the shape panels hand to `askAssistant`). */
 export interface MentionDraft {
@@ -18,6 +18,8 @@ export interface MentionDraft {
   label: string;
   /** For media and items: video, image, audio, text or caption (the popover's tabs use it). */
   media?: string;
+  /** A range that stands for the marked in and out points, filled in by the chat (dropped when none is marked). */
+  marked?: boolean;
 }
 
 export type MentionTab = "all" | "video" | "image" | "audio";
@@ -45,6 +47,23 @@ export function mentionKey(m: MentionDraft): string {
 export function rangeMention(start: number, end: number): MentionDraft {
   const [a, b] = start <= end ? [start, end] : [end, start];
   return { kind: "range", start: a, end: b, label: `${secs(a)}–${secs(b)}` };
+}
+
+/** A track mention (all its items). */
+export function trackMention(id: string, name: string): MentionDraft {
+  return { kind: "track", id, label: `${name} track` };
+}
+
+/** The marked range, as the chat fills it in from the in and out points. */
+export const MARKED_RANGE: MentionDraft = { kind: "range", label: "Marked range", marked: true };
+
+/** Resolves a hand-off's marked-range placeholder against the in and out points (none marked: dropped). */
+export function fillMarked(ms: MentionDraft[], range?: { in: number | null; out: number | null } | null): MentionDraft[] {
+  return ms.flatMap((m) => {
+    if (!m.marked) return [m];
+    if (!range || range.in === null || range.out === null || range.out <= range.in) return [];
+    return [{ ...rangeMention(range.in, range.out), label: `Marked range ${secs(range.in)}–${secs(range.out)}` }];
+  });
 }
 
 /** What @ offers for a project: the marked range first, then the media, then the timeline items. */

@@ -141,3 +141,16 @@ Measured on Windows 11 (32-core desktop, debug builds).
   revision is now refused with `edit.conflict` (nothing applied) unless the caller passes `prefer: "file"`. Before,
   the default (`prefer: file`) re-created the item, which the "Mentioned item deleted" scenario forbids. The 3-way
   merge itself is unchanged; the check sits in `apply_timeline`.
+
+**Group 2, hand-off and the `/` menu:**
+- `askAssistant({prompt, mentions, newChat})` (`ui/src/chat/handoff.ts`) opens the chat and fills the input; it never
+  sends. The prepared requests live in one table (`ui/src/chat/prompts.ts`): Captions (filler words, names and
+  jargon, translation), Audio (score this range, duck under dialogue), Media (organise), Effects (match a shot to a
+  reference) and Transcript (tighten). UI tests per panel check the request and its mentions appear and nothing is
+  sent.
+- A new mention kind, `track`, quotes a track's items (capped at 40 lines like a range); "Remove filler words"
+  mentions the caption track with it. A marked-range placeholder is filled from the in and out points.
+- The `/` menu lists valid installed skills and the project templates. A skill becomes a chip; when the message is
+  sent the app reads it through the registry's `read_skill` and the turn's first request carries its text
+  (agent test `a_skill_chosen_from_the_slash_menu_is_read_at_the_start_of_the_turn`). A template opens its intake
+  form, then puts its request in the input. With no match the menu says "No matches" and Enter sends the text.

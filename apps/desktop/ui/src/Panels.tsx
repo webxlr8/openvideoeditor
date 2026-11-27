@@ -45,6 +45,7 @@ import {
   useExportJobs,
 } from "./ExportDialog";
 import "./export.css";
+import { AskAssistant } from "./chat/AskAssistant";
 
 export interface PanelProps {
   project: ProjectView_Serialize;
@@ -492,6 +493,7 @@ export function EffectsPanel({
   );
   return (
     <>
+      {selection.length > 0 && <AskAssistant panel="effects" project={project} selection={selection} />}
       {selection.length === 0 && (
         <PanelHint
           panel="effects"
@@ -682,6 +684,7 @@ export function AudioPanel({
     );
   return (
     <>
+      {all.length > 0 && <AskAssistant panel="audio" project={project} selection={sound} />}
       <h5 className="panel-sub">
         Selected {sound.length ? `(${sound.length})` : ""}
       </h5>

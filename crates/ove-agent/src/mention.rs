@@ -137,18 +137,7 @@ pub fn resolve(p: &Project, refs: &[MentionRef]) -> Resolved {
                 let (start, end) = (a.min(b).max(0.0), a.max(b).max(0.0));
                 let overlaps =
                     |id: &str| doc.project.items.get(id).is_some_and(|i| secs(i.start) < end && secs(i.end) > start);
-                let mut lines = 0;
-                let (mut ids, mut shown, mut more) = (Vec::new(), Vec::new(), 0);
-                for s in spans.iter().filter(|s| overlaps(&s.id)) {
-                    let n = s.last - s.first + 1;
-                    if lines + n > MAX_RANGE_LINES {
-                        more += 1;
-                        continue;
-                    }
-                    lines += n;
-                    ids.push(s.id.clone());
-                    shown.push(s.text.clone());
-                }
+                let (ids, shown, more) = capped(&spans, overlaps);
                 out.mentions.push(Mention {
                     kind: "range".into(),
                     ids,
@@ -156,6 +145,24 @@ pub fn resolve(p: &Project, refs: &[MentionRef]) -> Resolved {
                     label: format!("{start:.2}\u{2013}{end:.2} s"),
                     excerpt: shown.join("\n"),
                     range: Some([start, end]),
+                    more,
+                    image: None,
+                });
+            }
+            ("track", Some(id)) => {
+                let Some(t) = doc.project.tracks.iter().find(|t| t.id == id) else {
+                    out.notices.push(format!("{id} is no longer a track, so it was not mentioned."));
+                    continue;
+                };
+                let on = |item: &str| doc.project.items.get(item).is_some_and(|i| i.track_id == id);
+                let (ids, shown, more) = capped(&spans, on);
+                out.mentions.push(Mention {
+                    kind: "track".into(),
+                    ids,
+                    rev: Some(rev),
+                    label: t.name.clone(),
+                    excerpt: shown.join("\n"),
+                    range: None,
                     more,
                     image: None,
                 });
@@ -201,6 +208,23 @@ pub fn resolve(p: &Project, refs: &[MentionRef]) -> Resolved {
         out.notices.push(too_many_images(&left_out));
     }
     out
+}
+
+/// The elements for which `keep` holds, in print order, up to [`MAX_RANGE_LINES`] lines: their ids, their text, and
+/// how many more were left out.
+fn capped(spans: &[ove_tools::edits::ElementSpan], keep: impl Fn(&str) -> bool) -> (Vec<String>, Vec<String>, usize) {
+    let (mut ids, mut shown, mut more, mut lines) = (Vec::new(), Vec::new(), 0, 0);
+    for s in spans.iter().filter(|s| keep(&s.id)) {
+        let n = s.last - s.first + 1;
+        if lines + n > MAX_RANGE_LINES {
+            more += 1;
+            continue;
+        }
+        lines += n;
+        ids.push(s.id.clone());
+        shown.push(s.text.clone());
+    }
+    (ids, shown, more)
 }
 
 /// The notice for images over the limit.
@@ -265,16 +289,19 @@ pub fn blocks(mentions: &[Mention]) -> Vec<Value> {
         for m in rest {
             match m.kind.as_str() {
                 "item" => t.push_str(&format!("\n@{} (item {}):\n{}\n", quoted(&m.label), m.ids.join(", "), m.excerpt)),
-                "range" => {
-                    let [a, b] = m.range.unwrap_or_default();
-                    t.push_str(&format!("\n@range {a:.2}\u{2013}{b:.2} s ({} item(s)):\n", m.ids.len() + m.more));
+                "range" | "track" => {
+                    let n = m.ids.len() + m.more;
+                    match m.range {
+                        Some([a, b]) => t.push_str(&format!("\n@range {a:.2}\u{2013}{b:.2} s ({n} item(s)):\n")),
+                        None => t.push_str(&format!("\n@track {} ({n} item(s)):\n", quoted(&m.label))),
+                    }
                     if !m.excerpt.is_empty() {
                         t.push_str(&m.excerpt);
                         t.push('\n');
                     }
                     if m.more > 0 {
                         t.push_str(&format!(
-                            "[{} more item(s) in this range are not shown; print the timeline to see them]\n",
+                            "[{} more item(s) are not shown; print the timeline to see them]\n",
                             m.more
                         ));
                     }
@@ -368,6 +395,11 @@ mod tests {
         assert_eq!((m.ids.len(), m.more), (40, 10));
         let b = blocks(&r.mentions);
         assert!(b[0]["text"].as_str().unwrap().contains("10 more item(s)"));
+        // A track mention (a panel's hand-off of "the caption track") is capped the same way.
+        let t = resolve(&p, &[MentionRef { kind: "track".into(), id: Some("t_main".into()), start: None, end: None }]);
+        let m = &t.mentions[0];
+        assert_eq!((m.kind.as_str(), m.label.as_str(), m.ids.len(), m.more), ("track", "Main", 40, 10));
+        assert!(blocks(&t.mentions)[0]["text"].as_str().unwrap().contains("@track \u{201c}Main\u{201d} (50 item(s))"));
     }
 
     #[test]

@@ -17,6 +17,8 @@ import type {
 } from "./bindings";
 import { commands } from "./bridge";
 import { ChatPanel } from "./ChatPanel";
+import { AskAssistant } from "./chat/AskAssistant";
+import { onAssistantRequest } from "./chat/handoff";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { Icon, type IconName } from "./icons";
 import { Dropdown } from "./Menu";
@@ -163,6 +165,14 @@ export function Editor({
   const [clipboard, setClipboard] = useState<Record<string, unknown>[]>([]);
   const toggle = (key: keyof Layout) =>
     setLayout({ ...layout, [key]: !layout[key] });
+  // A panel handed the assistant a prepared request: the chat opens to take it.
+  useEffect(
+    () =>
+      onAssistantRequest(() => {
+        if (!layout.chatOpen) setLayout({ ...layout, chatOpen: true });
+      }),
+    [layout, setLayout],
+  );
   const selected = selection[selection.length - 1] ?? null;
   const item = project?.items.find((i) => i.id === selected);
   const selectedItems = (project?.items ?? []).filter((i) =>
@@ -691,6 +701,7 @@ function SidePanel({
               </button>
             )}
           </div>
+          {project && project.media.length > 0 && <AskAssistant panel="media" project={project} selection={[]} />}
           <div className="media-grid">
             {media.map((m) => (
               <button

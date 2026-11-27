@@ -14,9 +14,9 @@
 
 ## 2. Panel hand-off and `/` menu
 
-- [ ] 2.1 Add `askAssistant` and the prepared requests in Captions, Audio, Media and Effects, with our own strings.
+- [x] 2.1 Add `askAssistant` and the prepared requests in Captions, Audio, Media and Effects, with our own strings.
       Verify with a UI test per panel: the draft and mention appear, and nothing is sent.
-- [ ] 2.2 Add the `/` menu over skills and templates, with a skill chip and template intake. Verify:
+- [x] 2.2 Add the `/` menu over skills and templates, with a skill chip and template intake. Verify:
       - a UI test of filtering and the no-match path;
       - an agent test that the turn reads the chosen skill first.
 

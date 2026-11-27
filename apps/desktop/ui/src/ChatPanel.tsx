@@ -23,12 +23,19 @@ import {
   MENTION_TABS,
   type MentionDraft,
   type MentionTab,
+  type SlashEntry,
+  fillMarked,
   filterMentions,
+  filterSlash,
   mentionCandidates,
   mentionInputs,
   mentionKey,
   mentionQuery,
+  slashQuery,
 } from "./chat/mentions";
+import { type AssistantRequest, onAssistantRequest, takeAssistantRequest } from "./chat/handoff";
+import { TemplateIntake } from "./chat/TemplateIntake";
+import { PROJECT_TEMPLATES, type ProjectTemplate } from "./templates";
 
 interface Item {
   role: "user" | "assistant" | "tool" | "question" | "note" | "error" | "changes" | "usage";
@@ -44,7 +51,7 @@ interface Item {
   mentions?: MentionChip[];
 }
 
-const MENTION_ICON = { item: "timeline", range: "scissors", media: "media", skill: "spark" } as const;
+const MENTION_ICON = { item: "timeline", range: "scissors", media: "media", skill: "spark", track: "layout" } as const;
 
 function chipOf(m: MentionDraft): MentionChip {
   return { kind: m.kind, label: m.label, ids: m.id ? [m.id] : [], image: m.media === "image" };
@@ -64,6 +71,9 @@ function fromChat(items: ChatItem_Serialize[]): Item[] {
     mentions: i.mentions,
   }));
 }
+
+/** The / menu's templates. */
+const TEMPLATE_ENTRIES: SlashEntry[] = PROJECT_TEMPLATES.map((t) => ({ kind: "template", id: t.id, label: t.name, hint: "Template" }));
 
 /** Dollars: four decimals under a cent, two above. */
 export function usd(v: number | null | undefined): string {
@@ -188,6 +198,29 @@ export function ChatPanel({
   const [tab, setTab] = useState<MentionTab>("all");
   const [active, setActive] = useState(0);
   const rows = menu ? filterMentions(mentionCandidates(project, range), menu.query, tab) : [];
+  // The / menu: installed skills (loaded when it first opens) and project templates.
+  const [skills, setSkills] = useState<SlashEntry[] | null>(null);
+  const [slashClosed, setSlashClosed] = useState(false);
+  const [intake, setIntake] = useState<ProjectTemplate | null>(null);
+  const slash = slashClosed ? null : slashQuery(text);
+  const slashRows = slash === null ? [] : filterSlash([...(skills ?? []), ...TEMPLATE_ENTRIES], slash);
+  useEffect(() => {
+    if (slash === null || skills !== null) return;
+    runCommand(
+      commands.skillsView(),
+      (v) =>
+        setSkills(
+          v.skills
+            .filter((x) => !x.invalid)
+            .map((x) => ({ kind: "skill" as const, id: x.id, label: x.name, hint: "Skill" })),
+        ),
+      () => setSkills([]),
+    );
+  }, [slash, skills]);
+  const rangeRef = useRef(range);
+  useEffect(() => {
+    rangeRef.current = range;
+  }, [range]);
 
   const report = useCallback((e: AppError) => (onError ? onError(e) : reportError(e)), [onError]);
 
@@ -327,9 +360,45 @@ export function ChatPanel({
     setNotices(r.data.notices ?? []);
   };
 
+  /** A panel handed over a prepared request: it goes into the input, never sent from here. */
+  const take = useCallback((r: AssistantRequest | null) => {
+    if (!r) return;
+    if (r.newChat) {
+      chatRef.current = null;
+      setChatId(null);
+      setItems([]);
+    }
+    setText(r.prompt);
+    setMentions(fillMarked(r.mentions ?? [], rangeRef.current));
+    setMenu(null);
+    setSlashClosed(true);
+    queueMicrotask(() => input.current?.focus());
+  }, []);
+  useEffect(() => {
+    // A request made before this chat mounted (the panel opened it) waits for it.
+    queueMicrotask(() => take(takeAssistantRequest()));
+    return onAssistantRequest(() => take(takeAssistantRequest()));
+  }, [take]);
+
+  /** Picks from the / menu: a skill becomes a chip (the assistant reads it first); a template asks for its details. */
+  const pickSlash = (e: SlashEntry | undefined) => {
+    if (!e) return;
+    setActive(0);
+    if (e.kind === "skill") {
+      setText("");
+      setMentions((ms) => (ms.some((m) => m.kind === "skill" && m.id === e.id) ? ms : [...ms, { kind: "skill", id: e.id, label: e.label }]));
+      input.current?.focus();
+      return;
+    }
+    const t = PROJECT_TEMPLATES.find((x) => x.id === e.id);
+    setSlashClosed(true);
+    if (t) setIntake(t);
+  };
+
   /** The text was edited: open, follow or close the @ popover. */
   const edited = (value: string, caret: number | null) => {
     setText(value);
+    setSlashClosed(false);
     const q = mentionQuery(value.slice(0, caret ?? value.length));
     setMenu(q);
     if (!q || q.query !== menu?.query) setActive(0);
@@ -348,6 +417,25 @@ export function ChatPanel({
   };
 
   const onComposerKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (slash !== null && !menu) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        const n = slashRows.length;
+        if (n) setActive((a) => (a + (e.key === "ArrowDown" ? 1 : n - 1)) % n);
+        return;
+      }
+      if ((e.key === "Enter" || e.key === "Tab") && slashRows.length) {
+        e.preventDefault();
+        pickSlash(slashRows[Math.min(active, slashRows.length - 1)]);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setSlashClosed(true);
+        return;
+      }
+      // No match: Enter sends the text as typed.
+    }
     if (menu) {
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         e.preventDefault();
@@ -494,6 +582,27 @@ export function ChatPanel({
 
       {footer && <div className="chat-footer muted small" data-testid="chat-footer">{footer}</div>}
       <div className="composer">
+        {slash !== null && !menu && (
+          <ComposerMenu
+            testId="slash-menu"
+            title="Skills and templates"
+            rows={slashRows.map((x) => ({ key: `${x.kind}:${x.id}`, label: x.label, hint: x.hint, icon: x.kind === "skill" ? "spark" : "templates" }))}
+            active={active}
+            onHover={setActive}
+            onPick={(i) => pickSlash(slashRows[i])}
+          />
+        )}
+        {intake && (
+          <TemplateIntake
+            template={intake}
+            onClose={() => setIntake(null)}
+            onDone={(request) => {
+              setIntake(null);
+              setText(request);
+              input.current?.focus();
+            }}
+          />
+        )}
         {menu && (
           <ComposerMenu
             testId="mention-menu"
@@ -535,7 +644,10 @@ export function ChatPanel({
           data-testid="composer"
           onChange={(e) => edited(e.target.value, e.target.selectionStart)}
           onKeyDown={onComposerKey}
-          onBlur={() => setMenu(null)}
+          onBlur={() => {
+            setMenu(null);
+            setSlashClosed(true);
+          }}
         />
         <div className="composer-row">
           <button className="icon-btn" title={COMING_LATER} aria-label="Attach files" data-testid="attach" disabled>
