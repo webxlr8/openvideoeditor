@@ -231,6 +231,28 @@ describe("export queue: Exports panel", () => {
   });
 });
 
+describe("export queue: background-tasks popover", () => {
+  afterEach(() => {
+    window.__oveMock!.exportHold = false;
+  });
+
+  it("counts queued exports and opens the Exports panel", async () => {
+    window.__oveMock!.exportHold = true;
+    await openEditor();
+    await openDialog();
+    await settled();
+    fireEvent.click(screen.getByTestId("export-start"));
+    await screen.findByTestId("export-progress");
+    fireEvent.click(screen.getByText("Close"));
+    fireEvent.click(await screen.findByTestId("tasks-button", undefined, { timeout: 5000 }));
+    const row = await screen.findByTestId("tasks-exports", undefined, { timeout: 5000 });
+    expect(row.textContent).toMatch(/Exports/);
+    fireEvent.click(screen.getByTestId("tasks-open-exports"));
+    expect(await screen.findByTestId("exports-panel")).toBeTruthy();
+    await waitFor(() => expect(screen.getAllByTestId("export-job").some((j) => j.getAttribute("data-status") === "queued")).toBe(true));
+  });
+});
+
 describe("timeline range menu", () => {
   it("saves a marked range as media, and renders in place as one undo step", async () => {
     await openEditor();

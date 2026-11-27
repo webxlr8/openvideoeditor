@@ -31,17 +31,17 @@ too `["linux","macos","windows"]`.
 
 ## Labels
 
-CI, Release and Nightly run on the project's **self-hosted** GitHub Actions runners. By default a job asks for the
-labels GitHub gives every self-hosted runner:
+By default a job runs on a GitHub-hosted runner (see the `runs-on` expressions in `.github/workflows/*.yml`). A
+repository variable switches one OS to self-hosted runners:
 
-| Job OS | Default labels | Override (repository variable, JSON array) |
+| Job OS | Default (GitHub-hosted) | Override (repository variable, JSON array) |
 | --- | --- | --- |
-| macOS | `["self-hosted","macOS","ARM64"]` | `OVE_RUNNER_MACOS` |
-| Windows | `["self-hosted","Windows","X64"]` | `OVE_RUNNER_WINDOWS` |
-| Linux | `["self-hosted","Linux","X64"]` | `OVE_RUNNER_LINUX` |
+| macOS | `macos-15` | `OVE_RUNNER_MACOS`, e.g. `["self-hosted","macOS","ARM64"]` |
+| Windows | `windows-2025` | `OVE_RUNNER_WINDOWS`, e.g. `["self-hosted","Windows","X64"]` |
+| Linux | `ubuntu-24.04` | `OVE_RUNNER_LINUX`, e.g. `["self-hosted","Linux","X64"]` |
 
-To use custom labels, set the variable in Settings → Secrets and variables → Actions → Variables, for example
-`OVE_RUNNER_MACOS = ["self-hosted","mac-studio"]`. A job whose labels match no online runner waits in the queue.
+Set the variable in Settings → Secrets and variables → Actions → Variables. A job whose labels match no online runner
+waits in the queue. Self-hosted runners are for private use only (see Security above).
 
 ## What each runner needs
 

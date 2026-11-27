@@ -6,7 +6,7 @@
 //! keeps other users and web pages out; the token changes every launch.
 //!
 //! Methods the app answers (see `docs/cli/app.md`): `context`, `open`, `seek`, `play`, `pause`, `apply`, `restore`,
-//! `undo`, and `confirm_spend` (a price card the person answers).
+//! `undo`, `confirm_spend` (a price card the person answers) and `tasks` (background tasks: list, wait, cancel).
 #![forbid(unsafe_code)]
 
 use std::io::{BufRead, BufReader, Read, Write};

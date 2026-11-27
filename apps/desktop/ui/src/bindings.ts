@@ -165,6 +165,21 @@ export const commands = {
 	 */
 	requestSkim: (mediaId: string) => typedError<null, AppError>(__TAURI_INVOKE("request_skim", { mediaId })),
 	/**
+	 *  Turns the project's "Use proxies" setting on or off (one revision, through the document pipeline). Turning it
+	 *  off cancels queued proxy tasks; finished proxies stay on disk (Settings → Storage clears them).
+	 */
+	setUseProxies: (on: boolean) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("set_use_proxies", { on })),
+	listTasks: () => typedError<TasksView_Serialize, AppError>(__TAURI_INVOKE("list_tasks")),
+	/**  Cancels one task; false when it already finished. */
+	cancelTask: (id: number) => typedError<boolean, AppError>(__TAURI_INVOKE("cancel_task", { id })),
+	/**  Pauses or resumes all background work (except export). */
+	pauseTasks: (paused: boolean) => typedError<null, AppError>(__TAURI_INVOKE("pause_tasks", { paused })),
+	/**  "Run anyway" for one pause reason (`battery`, `lowPower`, `thermal`, `playback`, `export`), or undoes it. */
+	runAnyway: (reason: string, on: boolean) => typedError<null, AppError>(__TAURI_INVOKE("run_anyway", { reason, on })),
+	storageUsage: () => typedError<StorageView_Serialize, AppError>(__TAURI_INVOKE("storage_usage")),
+	/**  Clears one kind of derived data of the open project: cancels its tasks, then removes its files. */
+	clearCache: (kind: string) => typedError<ClearResult_Serialize, AppError>(__TAURI_INVOKE("clear_cache", { kind })),
+	/**
 	 *  Peaks of a media file's source range (seconds) in `bins` columns, from the analysis cache. Never decodes: while
 	 *  the analysis is not ready the status is `pending`, and its task is moved to interactive priority.
 	 */
@@ -338,6 +353,7 @@ export const events = {
 	remoteOpened: makeEvent<RemoteOpened_Serialize, RemoteOpened_Deserialize>("remote-opened"),
 	spendRequested: makeEvent<SpendRequested, SpendRequested>("spend-requested"),
 	spendSettled: makeEvent<SpendSettled, SpendSettled>("spend-settled"),
+	tasksChanged: makeEvent<TasksChanged_Serialize, TasksChanged_Deserialize>("tasks-changed"),
 	viewerBackendChanged: makeEvent<ViewerBackendChanged, ViewerBackendChanged>("viewer-backend-changed"),
 	viewerFrameReady: makeEvent<ViewerFrameReady, ViewerFrameReady>("viewer-frame-ready"),
 };
@@ -579,6 +595,16 @@ export type AutoCaptionRequest_Serialize = {
 	replace: boolean,
 };
 
+/**  One Storage row. */
+export type CacheRow = {
+	kind: string,
+	label: string,
+	/**  Bytes in the open project (0 without one). */
+	projectBytes: number | null,
+	/**  Bytes across every project in the library. */
+	totalBytes: number | null,
+};
+
 /**  Progress of a captions job (model download, transcription, applying); `done` ends it. */
 export type CaptionJobProgress = CaptionJobProgress_Serialize | CaptionJobProgress_Deserialize;
 
@@ -662,6 +688,27 @@ export type ChatSummaryView = {
 
 /**  A step of the guided first edit. */
 export type ChecklistStep = "import" | "cut" | "title" | "captions" | "export";
+
+/**  What a clear did. */
+export type ClearResult = ClearResult_Serialize | ClearResult_Deserialize;
+
+/**  What a clear did. */
+export type ClearResult_Deserialize = {
+	freedBytes: number | null,
+	cancelledTasks: number,
+	/**  Files that could not be removed (in use); they go on the next clear. */
+	left: number,
+	view: StorageView_Deserialize,
+};
+
+/**  What a clear did. */
+export type ClearResult_Serialize = {
+	freedBytes: number | null,
+	cancelledTasks: number,
+	/**  Files that could not be removed (in use); they go on the next clear. */
+	left: number,
+	view: StorageView_Serialize,
+};
 
 /**  A container and what it may hold. */
 export type ContainerChoice = {
@@ -1474,6 +1521,12 @@ export type OpenPathsRequested = {
 	paths: string[],
 };
 
+/**  An active reason background work is paused, with the words the popover shows after "Paused: ". */
+export type PauseView = {
+	reason: string,
+	label: string,
+};
+
 /**  Peaks of a source range, or why there are none yet. */
 export type PeakRangeView = PeakRangeView_Serialize | PeakRangeView_Deserialize;
 
@@ -1589,6 +1642,8 @@ export type ProjectView_Deserialize = {
 	tracks: TrackView[],
 	items: ItemView_Deserialize[],
 	media: MediaView_Deserialize[],
+	/**  The project's "Use proxies" setting (absent: off). */
+	useProxies?: boolean | null,
 };
 
 /**  Everything the editor shows about the open project. */
@@ -1607,6 +1662,8 @@ export type ProjectView_Serialize = {
 	tracks: TrackView[],
 	items: ItemView_Serialize[],
 	media: MediaView_Serialize[],
+	/**  The project's "Use proxies" setting (absent: off). */
+	useProxies?: boolean,
 };
 
 /**  A project was opened from the command line: the UI switches to the editor. */
@@ -1688,6 +1745,96 @@ export type SpendView = {
 	cacheReadTokens: number | null,
 	costUsd: number | null,
 	turns: number | null,
+};
+
+/**  The Storage rows, and the open project's "Use proxies" setting. */
+export type StorageView = StorageView_Serialize | StorageView_Deserialize;
+
+/**  The Storage rows, and the open project's "Use proxies" setting. */
+export type StorageView_Deserialize = {
+	/**  The open project's name, if one is open. */
+	project?: string | null,
+	rows: CacheRow[],
+	useProxies: boolean,
+};
+
+/**  The Storage rows, and the open project's "Use proxies" setting. */
+export type StorageView_Serialize = {
+	/**  The open project's name, if one is open. */
+	project: string | null,
+	rows: CacheRow[],
+	useProxies: boolean,
+};
+
+/**  One task as the popover shows it. */
+export type TaskView = TaskView_Serialize | TaskView_Deserialize;
+
+/**  One task as the popover shows it. */
+export type TaskView_Deserialize = {
+	id: number,
+	kind: string,
+	label: string,
+	/**  The project's bundle path, when the task belongs to one. */
+	project?: string | null,
+	/**  export, interactive, derivative or analysis. */
+	priority: string,
+	/**  queued, running or paused. */
+	state: string,
+	/**  Why it is paused (`battery`, `playback`, …), when it is. */
+	pauseReason?: string | null,
+	progress?: number | null,
+	/**  Larger than the whole memory budget: it runs with nothing beside it. */
+	runningAlone: boolean,
+};
+
+/**  One task as the popover shows it. */
+export type TaskView_Serialize = {
+	id: number,
+	kind: string,
+	label: string,
+	/**  The project's bundle path, when the task belongs to one. */
+	project: string | null,
+	/**  export, interactive, derivative or analysis. */
+	priority: string,
+	/**  queued, running or paused. */
+	state: string,
+	/**  Why it is paused (`battery`, `playback`, …), when it is. */
+	pauseReason: string | null,
+	progress: number | null,
+	/**  Larger than the whole memory budget: it runs with nothing beside it. */
+	runningAlone: boolean,
+};
+
+/**  The background tasks changed (sent at most four times a second). */
+export type TasksChanged = TasksChanged_Serialize | TasksChanged_Deserialize;
+
+/**  The background tasks changed (sent at most four times a second). */
+export type TasksChanged_Deserialize = TasksView_Deserialize;
+
+/**  The background tasks changed (sent at most four times a second). */
+export type TasksChanged_Serialize = TasksView_Serialize;
+
+/**  Everything the popover shows. */
+export type TasksView = TasksView_Serialize | TasksView_Deserialize;
+
+/**  Everything the popover shows. */
+export type TasksView_Deserialize = {
+	/**  Unfinished tasks, running first, most urgent first. */
+	tasks: TaskView_Deserialize[],
+	/**  Active pause reasons (after "run anyway"). */
+	paused: PauseView[],
+	/**  Reasons the person chose to run anyway. */
+	runAnyway: string[],
+};
+
+/**  Everything the popover shows. */
+export type TasksView_Serialize = {
+	/**  Unfinished tasks, running first, most urgent first. */
+	tasks: TaskView_Serialize[],
+	/**  Active pause reasons (after "run anyway"). */
+	paused: PauseView[],
+	/**  Reasons the person chose to run anyway. */
+	runAnyway: string[],
 };
 
 /**  The written file (`None` when the dialog was cancelled or for a preview) and what it doesn't carry over. */

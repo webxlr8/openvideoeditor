@@ -75,6 +75,14 @@ revision through the existing restore path and renders it. Edits after queuing n
 revision has been pruned before the job starts, the job fails with a clear message. Retention already keeps at least
 2,000 revisions, and a queued job holds a pin that pruning respects.
 
+### D6a. Quality bar per profile (gate 2, 2026-11-27)
+The quality check compares luma SSIM against the H.264 golden export: at least 0.99 for every profile except ProRes
+Proxy, which is at least 0.98. Proxy is an offline editing format with a fixed, low data rate, so more bits are not an
+option; measured 0.9839 on Windows (`prores_ks`). The bar is luma-only; all-plane values are recorded in Results for
+information (ProRes 4444 all-plane 0.9898). Alternatives: one 0.99 bar for all (fails a format working as designed);
+all-plane SSIM (penalises 4:2:2 chroma against a 4:2:0 reference). The macOS `prores_videotoolbox` re-measure is in
+docs/owner-checklist.md.
+
 ### D7. Restart recovery
 On start, the app and the CLI scan job files. A job in `running` whose `worker_pid` is not alive and whose file has
 not changed for 30 seconds goes back to `queued` with `attempt += 1` and its partial output deleted. After 3 attempts

@@ -17,6 +17,8 @@ import { ErrorBoundary } from "./ErrorBoundary";
 import {
   ExportDialog,
   onOpenExport,
+  openExportsPanel,
+  useActiveExportCount,
   type PreviewMode,
   PreviewModeToggle,
   referenceSize,
@@ -29,6 +31,7 @@ import { useOnboarding } from "./onboarding/useOnboarding";
 import { Welcome } from "./onboarding/Welcome";
 import { SpendCards } from "./spend/SpendCard";
 import { FeedbackQueue } from "./feedback/FeedbackQueue";
+import { TasksButton } from "./tasks/TasksPopover";
 import { EDIT_ACTIONS, keyToAction } from "./keys";
 import {
   templateAspect,
@@ -120,6 +123,8 @@ export function App() {
   );
   const [mode, setMode] = useState<PreviewMode>("timeline");
   const [exporting, setExporting] = useState(false);
+  /** Queued and running exports, for the background-tasks button. */
+  const activeExports = useActiveExportCount();
   /** The range the export dialog was opened for (the timeline's range menu). */
   const [exportRange, setExportRange] = useState<[number, number] | null>(null);
   useEffect(
@@ -606,6 +611,7 @@ export function App() {
           timelineMode={mode === "timeline"}
           barExtras={
             <>
+              <TasksButton onError={showError} exports={{ count: activeExports, onOpen: openExportsPanel }} />
               <PreviewModeToggle mode={mode} onChange={switchMode} />
               <button
                 className="btn primary xp-open"
