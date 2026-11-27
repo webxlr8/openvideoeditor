@@ -145,4 +145,5 @@ ove source print Nope                              # exit 1
 | `remove_words` |  | in-app, mcp, pinned | write | `project`? `ids`? `ranges`? `match`? `pause`? `apply`? `rev`? |
 | `remove_silence` |  | in-app, mcp, pinned | write | `project`? `clips`? `minPause`? `padding`? `relativeDb`? `apply`? |
 | `find_fillers` |  | in-app, mcp, pinned | read | `project`? `clips`? |
+| `search_transcript` |  | in-app, mcp, pinned | read | `project`? `phrase` |
 <!-- tools:end -->

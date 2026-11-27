@@ -596,4 +596,14 @@ pub static TOOLS: &[ToolSpec] = &[
         run: deadair::find_fillers,
         model: ModelText::Json,
     },
+    ToolSpec {
+        name: "search_transcript",
+        aliases: &[],
+        about: "Find a phrase in everything said in the project's transcribed media, ignoring case, accents and punctuation. Each hit gives the media, word-accurate source start and end in seconds, the word ids, and every place on the timeline that plays it. `untranscribed` counts media with no transcript yet.",
+        args: &[PROJECT, req("phrase", Str, "Words to find, in order")],
+        annotations: READ,
+        surfaces: AGENTS,
+        run: transcript::search_transcript,
+        model: ModelText::Json,
+    },
 ];

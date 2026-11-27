@@ -177,3 +177,22 @@ fn filler_candidates_select_hesitations_and_flag_context_words() {
     assert_eq!((like["selected"].clone(), like["context"].clone()), (json!(false), json!(true)));
     assert!(f.iter().all(|x| x["text"] != "editing." && x["text"] != "Hello"), "no content word");
 }
+
+#[test]
+fn search_finds_a_phrase_with_word_times_and_timeline_uses() {
+    let (_d, lib, _bundle) = fixture();
+    let mut ctx = mcp(&lib);
+    let r = call(&mut ctx, "search_transcript", json!({"project": "Talk", "phrase": "LIKE editing"})).unwrap();
+    let hits = r.json["hits"].as_array().unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!((hits[0]["sourceStart"].clone(), hits[0]["sourceEnd"].clone()), (json!(4.7), json!(5.8)));
+    assert_eq!(hits[0]["wordIds"], json!(["m@4700", "m@5200"]));
+    assert_eq!(hits[0]["uses"][0]["clipId"], "v");
+    assert_eq!(r.json["untranscribed"], 0);
+    assert!(
+        call(&mut ctx, "search_transcript", json!({"project": "Talk", "phrase": "nothing here"})).unwrap().json["hits"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+}

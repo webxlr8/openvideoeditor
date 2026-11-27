@@ -1245,6 +1245,32 @@
         "destructiveHint": false,
         "openWorldHint": false
       }
+    },
+    {
+      "name": "search_transcript",
+      "description": "Find a phrase in everything said in the project's transcribed media, ignoring case, accents and punctuation. Each hit gives the media, word-accurate source start and end in seconds, the word ids, and every place on the timeline that plays it. `untranscribed` counts media with no transcript yet.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "phrase": {
+            "type": "string",
+            "description": "Words to find, in order"
+          }
+        },
+        "required": [
+          "phrase"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
     }
   ]
 }

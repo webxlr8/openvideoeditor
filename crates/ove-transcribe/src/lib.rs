@@ -12,6 +12,7 @@ pub mod levels;
 pub mod models;
 #[cfg(feature = "recognize")]
 pub mod recognize;
+pub mod search;
 pub mod segment;
 pub mod timeline;
 pub mod transcript;

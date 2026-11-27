@@ -340,3 +340,65 @@ pub fn cut_ids(rev: i64) -> impl FnMut() -> String {
         format!("i_cut{rev:x}_{n}")
     }
 }
+
+/// The cached transcript of one media file (any model; the newest), with the legacy path key as a fallback.
+fn any_transcript(bundle: &Path, doc: &Document, media: &str) -> Option<Transcript> {
+    if let Some(t) = content_id(doc, media).and_then(|c| ove_transcribe::cache::any_for(bundle, &c).into_iter().next())
+    {
+        return Some(t);
+    }
+    let path = doc.registry.get(media).map(|e| ove_store::media::resolve_media_path(bundle, e.native_path.as_str()))?;
+    ove_transcribe::models::Model::ALL
+        .iter()
+        .find_map(|m| ove_transcribe::cache::lookup(bundle, &path, None, m.id(), None, false))
+}
+
+/// `search_transcript`: a phrase across every transcribed media of the project, ignoring case, accents and
+/// punctuation; word-accurate hits with their timeline uses, and how many media have no transcript yet.
+pub fn search_transcript(ctx: &mut dyn ToolCtx, a: &Args) -> Result<Receipt, Fail> {
+    let phrase = a.req_str("phrase")?.to_string();
+    let bundle = ctx.bundle(a.project())?;
+    let mut out = None;
+    ctx.read(&bundle, &mut |p| {
+        let (bundle, doc) = (p.bundle(), p.doc());
+        let mut have = Vec::new();
+        let mut untranscribed = Vec::new();
+        for (id, m) in doc.project.media.iter() {
+            let data = m.data();
+            let kind = data.and_then(|d| d.get("type")).and_then(Value::as_str).unwrap_or("");
+            if kind == "image" || data.and_then(|d| d.get("hasAudio")).and_then(Value::as_bool) == Some(false) {
+                continue;
+            }
+            match any_transcript(bundle, doc, id) {
+                Some(t) => have.push((id.clone(), t)),
+                None => untranscribed.push(id.clone()),
+            }
+        }
+        let resolve =
+            |m: &str| doc.registry.get(m).map(|e| ove_store::media::resolve_media_path(bundle, e.native_path.as_str()));
+        let clips = timeline::all_clips(doc, &resolve);
+        let index = ove_transcribe::search::Index::new(have);
+        let hits = index.find(&phrase, &clips);
+        let mut text = format!("{} hits for \"{phrase}\" in {} words", hits.len(), index.words());
+        for h in &hits {
+            let uses: Vec<String> = h.uses.iter().map(|u| format!("{} at {:.2}", u.clip_id, u.start)).collect();
+            text.push_str(&format!(
+                "\n{} {:.2}–{:.2} \"{}\"{}",
+                h.media_id,
+                h.source_start,
+                h.source_end,
+                h.text,
+                if uses.is_empty() { " (not on the timeline)".to_string() } else { format!(" · {}", uses.join(", ")) }
+            ));
+        }
+        if !untranscribed.is_empty() {
+            text.push_str(&format!("\nnot transcribed yet: {}", untranscribed.len()));
+        }
+        out = Some(Receipt::new(
+            json!({"rev": p.rev(), "phrase": phrase, "hits": hits, "searchedWords": index.words(), "untranscribed": untranscribed.len(), "untranscribedMedia": untranscribed}),
+            text,
+        ));
+        Ok(())
+    })?;
+    out.ok_or_else(|| Fail::new("internal", "no result"))
+}

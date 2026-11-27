@@ -62,11 +62,16 @@
 
 ## 4. Search and dry run
 
-- [ ] 4.1 Implement phrase search with Unicode folding, word-accurate hits, timeline uses and the untranscribed count;
+- [x] 4.1 Implement phrase search with Unicode folding, word-accurate hits, timeline uses and the untranscribed count;
       verify unit tests for accents, punctuation and phrases across caption boundaries, and a 100,000-word search under
       10 ms.
-- [ ] 4.2 Implement dry run for every cutting command, returning the plan summary and the `timeline.tsx` diff; verify
+      Done: `ove_transcribe::search` (tests for accents, punctuation, a phrase across a caption boundary, timeline
+      uses; 100,000 words in 1.1 ms), tool `search_transcript` (`crates/ove-tools/tests/transcript.rs`).
+- [x] 4.2 Implement dry run for every cutting command, returning the plan summary and the `timeline.tsx` diff; verify
       the preview-then-apply scenario.
+      Done: `apply: false` on `remove_words` and `remove_silence` returns the plan and the unified diff of
+      `timeline.tsx`; new pieces get ids derived from the revision, so the preview and the apply match
+      (`dead_air_removal_is_one_revision_and_the_preview_is_what_applies`).
 
 ## 5. Surfaces
 
