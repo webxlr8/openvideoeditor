@@ -48,6 +48,11 @@
       project's history shows only its own session.
 - [ ] 4.2 Allow writes to an open project that is not in front. Verify: an e2e test where the person's window shows
       project Q and the MCP session edits project P; P's history gains the revision, and Q is untouched.
+- [ ] 4.3 Keep the bundle open for the whole `ove mcp` session, closing it when idle and keeping the existing lock
+      (gate 1, D3: the headless stale-apply case measured 207 ms against a 150 ms budget; the extra 95 ms is opening
+      the bundle and writing the snapshot on close, not printing). Verify: the `stale-apply` bench case, headless with
+      the revision cached, at 150 ms or less; the lock-contention test in `mcp_edits.rs` still passes while the app
+      opens the same project.
 
 ## 5. Frames for agents
 

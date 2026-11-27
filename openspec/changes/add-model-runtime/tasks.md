@@ -44,6 +44,24 @@
       release page could not be reached at its old address during apply; the plan is to mirror the exact library
       files as versioned release assets of this project (`add-distribution`) and pin those. The worker already
       takes the library path (`OVE_ONNXRUNTIME_LIB`) and reports a missing runtime per job.
+      Decided at gate 1 (2026-11-27, CTO and CEO approved, owner said "go with recommendations"): ONNX Runtime 1.32.0
+      from the official PyPI wheels, pinned by wheel and member SHA-256:
+      - Windows: `onnxruntime-1.32.0-cp312-cp312-win_amd64.whl` (16,698,767 bytes), member
+        `onnxruntime/capi/onnxruntime.dll` (22,668,640 bytes, sha256
+        `443c0065fcdba17618ddef05050308f4b471893c5c7da0337d6957c9073ad8a7`).
+      - macOS: `onnxruntime-1.32.0-cp312-cp312-macosx_14_0_arm64.whl` (22,519,308 bytes), member
+        `libonnxruntime.1.32.0.dylib` (35,272,344 bytes, sha256
+        `fa585fabbea65b823b9a8f7e27d46aee3989d1be7e36b528203d3a1fd613aae7`).
+      Conditions:
+      - Add a manifest `archive_member` field: verify the wheel hash, extract the one member, verify the member hash.
+      - Use the `zip` crate with the deflate feature only; it must pass `cargo deny`.
+      - Install the wheel's `LICENSE` and `ThirdPartyNotices.txt` next to the library and list them in the app
+        notices.
+      - Record macOS 14 as the minimum.
+      - Show the download host and progress at the first download, and document an offline manual install.
+      - Keep `tract` buildable behind a feature flag until the macOS spike row exists.
+      - A self-hosted mirror stays a later fallback (needs the owner's hosting).
+- [ ] 3.4 Daily CI check: a HEAD request on every pinned model and runtime URL; verify it fails on a 404.
 
 ## 4. Consent and surfaces
 
