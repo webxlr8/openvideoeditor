@@ -42,7 +42,7 @@ ove-render = { path = "../../../crates/ove-render" }
 ove-store = { path = "../../../crates/ove-store" }
 ove-models = { path = "../../../crates/ove-models" }
 ove-tasks = { path = "../../../crates/ove-tasks" }
-ove-tools = { path = "../../../crates/ove-tools", features = ["media"] }
+ove-tools = { path = "../../../crates/ove-tools", features = ["speech"] }
 ove-transcribe = { path = "../../../crates/ove-transcribe" }
 png = "0.18"
 base64 = "0.22"

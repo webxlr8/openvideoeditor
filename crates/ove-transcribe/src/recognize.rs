@@ -234,7 +234,13 @@ pub struct Options {
     pub language: Option<String>,
     pub threads: usize,
     pub model_name: String,
+    /// Keep disfluencies ("um", "uh"): the recogniser is seeded with disfluent example text. Verbatim transcripts are
+    /// cached apart from normal ones (`cache::transcript_key`).
+    pub verbatim: bool,
 }
+
+/// The example text that makes the recogniser keep hesitations (English; other languages benefit less).
+pub const VERBATIM_PROMPT: &str = "Um, so, uh, I was, like, thinking that, hmm, we could, uh, try it. Erm, yeah.";
 
 impl Default for Options {
     fn default() -> Self {
@@ -243,6 +249,7 @@ impl Default for Options {
             // One core stays free so the editor keeps responding while it transcribes.
             threads: std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).saturating_sub(1).clamp(1, 8),
             model_name: "base".into(),
+            verbatim: false,
         }
     }
 }
@@ -312,7 +319,7 @@ fn transcribe_windows(
         let n = expected_windows.max(index) as i32;
         let p = progress.clone();
         let report = move |pct: i32| (*p.borrow_mut())((k as i32 * 100 + pct.clamp(0, 100)) / n);
-        let (words, lang_id) = recognise_window(&ctx, &w.samples, language.as_deref(), opts.threads, report, &cancel)?;
+        let (words, lang_id) = recognise_window(&ctx, &w.samples, language.as_deref(), opts, report, &cancel)?;
         // Later windows keep the language detected in the first one.
         if language.is_none() {
             detected = Some(lang_id);
@@ -340,14 +347,17 @@ fn recognise_window(
     ctx: &WhisperContext,
     audio: &[f32],
     language: Option<&str>,
-    threads: usize,
+    opts: &Options,
     progress: impl FnMut(i32) + 'static,
     cancel: &Arc<AtomicBool>,
 ) -> Result<(Vec<Word>, i32)> {
     let mut state = ctx.create_state().map_err(|e| TranscribeError::Model(e.to_string()))?;
     let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-    params.set_n_threads(threads as i32);
+    params.set_n_threads(opts.threads as i32);
     params.set_language(Some(language.unwrap_or("auto")));
+    if opts.verbatim {
+        params.set_initial_prompt(VERBATIM_PROMPT);
+    }
     params.set_translate(false);
     params.set_print_progress(false);
     params.set_print_realtime(false);

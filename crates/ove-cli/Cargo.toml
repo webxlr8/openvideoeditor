@@ -37,6 +37,8 @@ ove-transcribe = { path = "../ove-transcribe", default-features = false }
 [features]
 # Reading media, analysis and `ove export` (links FFmpeg). Desktop bundles build the CLI with it.
 media = ["dep:ove-analyze", "dep:ove-media", "dep:ove-render", "ove-tools/media"]
+# `transcribe_media` (links whisper.cpp). Includes `media`.
+speech = ["media", "ove-tools/speech"]
 # Former name of `media`.
 export = ["media"]
 

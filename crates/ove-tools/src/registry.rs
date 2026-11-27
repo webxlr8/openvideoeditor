@@ -6,7 +6,9 @@ use crate::spec::{
     AGENTS, APP_READ, APP_WRITE, Arg, DESTRUCTIVE, IN_APP, MCP, ModelText, READ, SERVERS, ToolSpec, WRITE, arg, cli,
     req,
 };
-use crate::tools::{analyze, app, audio, code, docs, edit, exchange, media, models, project, timeline, transcript};
+use crate::tools::{
+    analyze, app, audio, code, deadair, docs, edit, exchange, media, models, project, timeline, transcript,
+};
 
 const PROJECT: Arg = arg(
     "project",
@@ -20,6 +22,10 @@ const PREFER: &str = r#"{"type": "string", "enum": ["file", "editor"]}"#;
 const OBJECT: &str = r#"{"type": "object"}"#;
 const REQUEST: &str = r#"{"type": ["object", "string"]}"#;
 const SCOPE: &str = r#"{"type": "string", "enum": ["session", "turn"]}"#;
+const WORD_RANGES: &str = r#"{"type": "array", "items": {"type": "object", "properties": {"from": {"type": "string"}, "to": {"type": "string"}}, "required": ["from", "to"], "additionalProperties": false}}"#;
+const SILENCE_MODE: &str = r#"{"type": "string", "enum": ["level", "speech"]}"#;
+const TRANSCRIPT_FORMAT: &str = r#"{"type": "string", "enum": ["text", "words", "json"]}"#;
+const PAUSE: &str = r#"{"type": "string", "enum": ["tight", "balanced", "loose"]}"#;
 const OPTIONS: &str = r#"{"type": "array", "items": {"type": "string"}, "maxItems": 4}"#;
 const NAMES: &str = r#"{"type": ["array", "string"], "items": {"type": "string"}}"#;
 
@@ -285,16 +291,20 @@ pub static TOOLS: &[ToolSpec] = &[
     ToolSpec {
         name: "detect_silence",
         aliases: &[],
-        about: "Ranges quieter than a threshold for at least a minimum length — candidates for cuts.",
+        about: "Ranges quieter than a threshold for at least a minimum length — candidates for cuts. `mode: \"speech\"` finds dead air instead: pauses that voice activity finds and that are `relativeDb` below the speaker's own level (music beds stay), per media in source seconds; the document is not changed.",
         args: &[
             PROJECT,
             MEDIA,
-            arg("thresholdDb", Num, "dBFS, default -40"),
-            arg("minDuration", Num, "Seconds, default 0.5"),
+            arg("thresholdDb", Num, "dBFS, default -40 (level mode)"),
+            arg("minDuration", Num, "Seconds, default 0.5 (level mode)"),
+            arg("mode", Json(SILENCE_MODE), "level (default) or speech"),
+            arg("minPause", Num, "Seconds, default 0.5, 0.25–3 (speech mode)"),
+            arg("padding", Num, "Seconds kept each side, default 0.15, 0–0.5 (speech mode)"),
+            arg("relativeDb", Num, "dB below the speech level, default 12 (speech mode)"),
         ],
         annotations: READ,
         surfaces: AGENTS,
-        run: analyze::detect_silence,
+        run: deadair::detect_silence,
         model: ModelText::Json,
     },
     ToolSpec {
@@ -557,6 +567,79 @@ pub static TOOLS: &[ToolSpec] = &[
         annotations: READ,
         surfaces: AGENTS,
         run: transcript::get_transcript,
+        model: ModelText::Json,
+    },
+    ToolSpec {
+        name: "remove_words",
+        aliases: &[],
+        about: "Cut words from the timeline as one revision: word ids from `get_transcript`, `ranges` of ids (`from` to `to` in timeline order) or exact phrases (`match`). Each cut keeps part of the natural pause (`pause`: tight 60 ms, balanced 150 ms, loose 320 ms), snaps its edges to the quietest point near the word, fades the seam, and later items close the gap; captions drop the cut words. Ids read at an older `rev` stay valid. `apply: false` returns the plan and the `timeline.tsx` diff without changing anything.",
+        args: &[
+            PROJECT,
+            arg("ids", List, "Word ids (`<mediaId>@<sourceMs>`)"),
+            arg("ranges", Json(WORD_RANGES), "Inclusive word-id ranges"),
+            arg("match", List, "Exact phrases; every occurrence is cut"),
+            arg("pause", Json(PAUSE), "Pause kept at each seam (default balanced)"),
+            arg("apply", Bool, "false: dry run (default true)"),
+            arg("rev", Int, "Revision the ids were read at"),
+        ],
+        annotations: WRITE,
+        surfaces: AGENTS,
+        run: transcript::remove_words,
+        model: ModelText::Json,
+    },
+    ToolSpec {
+        name: "remove_silence",
+        aliases: &[],
+        about: "Cut dead air from the timeline as one revision: pauses found with on-device voice activity that are at least `relativeDb` (default 12) below the speaker's own level and at least `minPause` long (default 0.5 s), keeping `padding` (default 0.15 s) on each side except at clip edges. Music beds and loud ambience stay. Needs the inference runtime (the person installs it in Settings > Storage). `apply: false` returns the plan and the `timeline.tsx` diff.",
+        args: &[
+            PROJECT,
+            arg("clips", List, "Only these clip ids (default: every clip with sound)"),
+            arg("minPause", Num, "Seconds, 0.25–3"),
+            arg("padding", Num, "Seconds, 0–0.5"),
+            arg("relativeDb", Num, "dB below the speech level"),
+            arg("apply", Bool, "false: dry run (default true)"),
+        ],
+        annotations: WRITE,
+        surfaces: AGENTS,
+        run: deadair::remove_silence,
+        model: ModelText::Json,
+    },
+    ToolSpec {
+        name: "find_fillers",
+        aliases: &[],
+        about: "Filler candidates on the timeline for review: listed filler words (`um`, `uh`, …) selected by default, context-dependent words (`like`, `you know`) flagged but not selected, and voiced sounds no word covers (after dead-air detection). Word candidates carry ids for `remove_words`. Nothing is cut.",
+        args: &[PROJECT, arg("clips", List, "Only these clip ids")],
+        annotations: READ,
+        surfaces: AGENTS,
+        run: deadair::find_fillers,
+        model: ModelText::Json,
+    },
+    ToolSpec {
+        name: "search_transcript",
+        aliases: &[],
+        about: "Find a phrase in everything said in the project's transcribed media, ignoring case, accents and punctuation. Each hit gives the media, word-accurate source start and end in seconds, the word ids, and every place on the timeline that plays it. `untranscribed` counts media with no transcript yet.",
+        args: &[PROJECT, req("phrase", Str, "Words to find, in order")],
+        annotations: READ,
+        surfaces: AGENTS,
+        run: transcript::search_transcript,
+        model: ModelText::Json,
+    },
+    ToolSpec {
+        name: "transcribe_media",
+        aliases: &[],
+        about: "Recognise a media file's speech on this computer (no upload) and cache the words in the project, so `get_transcript`, `search_transcript` and the cutting tools can use them. A cached transcript is returned unless `force`. Speech models over 50 MB install only with the person's consent (Settings > Storage, or `ove models install whisper-base --yes`); without it the call returns `model.consent` with the size.",
+        args: &[
+            PROJECT,
+            MEDIA,
+            arg("format", Json(TRANSCRIPT_FORMAT), "text, words or json (default json)"),
+            arg("language", Str, "ISO 639-1 code (default: detect)"),
+            arg("model", Str, "tiny, base (default) or small"),
+            arg("verbatim", Bool, "Keep hesitations (um, uh); cached apart"),
+            arg("force", Bool, "Transcribe again even when cached"),
+        ],
+        annotations: WRITE,
+        surfaces: AGENTS,
+        run: transcript::transcribe_media,
         model: ModelText::Json,
     },
     ToolSpec {

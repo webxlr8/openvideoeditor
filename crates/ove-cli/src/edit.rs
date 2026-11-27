@@ -29,6 +29,10 @@ pub enum Verb {
     Move,
     /// The whole request as JSON in `--request` (what MCP's `edit_timeline` sends).
     Request,
+    /// Cut words: `--words` ids, `--word-range FROM..TO`, `--match` phrases (see `ove docs transcript`).
+    RemoveWords,
+    /// Cut dead air found with voice activity (`--min-pause`, `--padding`, `--relative-db`).
+    RemoveSilence,
 }
 
 #[derive(Args)]
@@ -88,6 +92,27 @@ pub struct EditArgs {
     /// Print the plan without applying it.
     #[arg(long = "dry-run")]
     pub dry_run: bool,
+    /// remove-words: word ids (`<mediaId>@<sourceMs>`), comma separated.
+    #[arg(long, value_delimiter = ',')]
+    pub words: Vec<String>,
+    /// remove-words: an inclusive range of word ids, `FROM..TO` (repeatable).
+    #[arg(long = "word-range")]
+    pub word_range: Vec<String>,
+    /// remove-words: an exact phrase; every occurrence is cut (repeatable).
+    #[arg(long = "match")]
+    pub matches: Vec<String>,
+    /// remove-words: pause kept at each seam: tight, balanced (default) or loose.
+    #[arg(long)]
+    pub pause: Option<String>,
+    /// remove-silence: shortest pause cut, seconds (0.25–3, default 0.5).
+    #[arg(long = "min-pause")]
+    pub min_pause: Option<f64>,
+    /// remove-silence: kept on each side of a cut, seconds (0–0.5, default 0.15).
+    #[arg(long)]
+    pub padding: Option<f64>,
+    /// remove-silence: dB below the speaker's level that counts as dead air (default 12).
+    #[arg(long = "relative-db")]
+    pub relative_db: Option<f64>,
 }
 
 fn need<T: Clone>(v: &Option<T>, flag: &str, verb: &str) -> Result<T, Fail> {
@@ -196,6 +221,9 @@ pub fn request(a: &EditArgs) -> Result<Request, Fail> {
             linked,
             crossfade: a.crossfade,
         },
+        Verb::RemoveWords | Verb::RemoveSilence => {
+            return Err(Fail::new("argument.invalid", format!("{} is not an edit request", v)));
+        }
         Verb::Request => {
             let text = need(&a.request, "request", v)?;
             serde_json::from_str(&text)
@@ -206,7 +234,39 @@ pub fn request(a: &EditArgs) -> Result<Request, Fail> {
 
 /// Runs the request through the registry's `edit_timeline`, the handler MCP and the in-app assistant use.
 pub fn run(ctx: &Ctx, a: &EditArgs) -> Out {
+    match a.verb {
+        Verb::RemoveWords => return remove_words(ctx, a),
+        Verb::RemoveSilence => {
+            return ctx.tool(
+                "remove_silence",
+                json!({"project": a.project, "minPause": a.min_pause, "padding": a.padding,
+                    "relativeDb": a.relative_db, "apply": !a.dry_run}),
+            );
+        }
+        _ => {}
+    }
     let req = request(a)?;
     let request = serde_json::to_value(&req).map_err(|e| Fail::new("argument.invalid", e.to_string()))?;
     ctx.tool("edit_timeline", json!({"project": a.project, "request": request, "rev": a.rev, "preview": a.dry_run}))
+}
+
+fn remove_words(ctx: &Ctx, a: &EditArgs) -> Out {
+    let mut ranges = Vec::new();
+    for r in &a.word_range {
+        let (from, to) = r
+            .split_once("..")
+            .ok_or_else(|| Fail::new("argument.invalid", format!("--word-range is FROM..TO, not {r}")))?;
+        ranges.push(json!({"from": from, "to": to}));
+    }
+    let mut args = json!({"project": a.project, "pause": a.pause, "rev": a.rev, "apply": !a.dry_run});
+    if !a.words.is_empty() {
+        args["ids"] = json!(a.words);
+    }
+    if !ranges.is_empty() {
+        args["ranges"] = json!(ranges);
+    }
+    if !a.matches.is_empty() {
+        args["match"] = json!(a.matches);
+    }
+    ctx.tool("remove_words", args)
 }

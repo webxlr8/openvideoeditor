@@ -31,7 +31,9 @@ tracing = "0.1"
 # `check_code`: the motion-graphics checker (no FFmpeg).
 graphics = ["dep:ove-graphics"]
 # Media reading, analysis frames and export (links FFmpeg). Includes `graphics`.
-media = ["graphics", "dep:ove-analyze", "dep:ove-media", "dep:ove-render"]
+media = ["graphics", "dep:ove-analyze", "dep:ove-media", "dep:ove-render", "ove-transcribe/audio", "ove-models/onnx"]
+# Speech recognition (whisper.cpp) for `transcribe_media`. Includes `media`.
+speech = ["media", "ove-transcribe/recognize"]
 
 [dev-dependencies]
 proptest = "1.12"

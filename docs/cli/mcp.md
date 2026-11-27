@@ -52,3 +52,5 @@ Tools:
 | check_code | (none; checks a motion-graphics code item) |
 | list_models_local | `models list` (read-only; installing a model over 50 MB needs the person's consent) |
 | get_transcript | `transcript` (the words on the timeline with stable word ids; read-only) |
+| search_transcript, find_fillers, transcribe_media | `transcript search / fillers / transcribe` |
+| remove_words, remove_silence | `edit remove-words / remove-silence` (`apply: false` is a dry run with the `timeline.tsx` diff) |
