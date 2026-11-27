@@ -72,6 +72,34 @@
           "items": {
             "$ref": "#/$defs/item"
           }
+        },
+        "folders": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string",
+                "description": "Folder path, `/`-separated."
+              },
+              "query": {
+                "type": "string",
+                "description": "Saved search query: the folder lists its current matches (a smart folder)."
+              },
+              "scope": {
+                "enum": [
+                  "all",
+                  "moments",
+                  "spoken",
+                  "timelines",
+                  "files"
+                ],
+                "description": "What the saved query searches.",
+                "default": "all"
+              }
+            }
+          },
+          "description": "Media panel folders that hold no media yet, and smart folders (saved queries)."
         }
       }
     },
@@ -156,6 +184,48 @@
         },
         "data": {
           "description": "type, fileName, format, size, duration, width, height, frameRate, hasAudio, statuses, …"
+        },
+        "name": {
+          "type": "string",
+          "description": "Display name set by a rename; absent means the file name without its extension."
+        },
+        "folder": {
+          "type": "string",
+          "description": "Media panel folder, `/`-separated (`Interviews/Day 1`); absent means the top level."
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Tags, in the order they were added."
+        },
+        "subclips": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Unique within the media item."
+              },
+              "name": {
+                "type": "string",
+                "description": "Display name."
+              },
+              "in": {
+                "type": "number",
+                "minimum": 0,
+                "description": "Source start, seconds."
+              },
+              "out": {
+                "type": "number",
+                "minimum": 0,
+                "description": "Source end, seconds (after `in`)."
+              }
+            }
+          },
+          "description": "Saved source ranges of this media, shown under it and dragged like media."
         }
       }
     },

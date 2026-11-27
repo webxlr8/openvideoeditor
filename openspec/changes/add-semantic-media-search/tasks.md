@@ -40,9 +40,9 @@
 
 ## 4. Organisation
 
-- [ ] 4.1 Add `folder`, `tags`, `subclips` on media and `folders` (including smart folders) on the project to the schema
+- [x] 4.1 Add `folder`, `tags`, `subclips` on media and `folders` (including smart folders) on the project to the schema
       with migration tests; print folder paths in the projection header; verify round-trip and merge property tests.
-- [ ] 4.2 Implement the organise batch as one revision; verify one undo restores the previous state and concurrent
+- [x] 4.2 Implement the organise batch as one revision; verify one undo restores the previous state and concurrent
       folder rename plus tagging keeps both changes.
 
 ## 5. Tools

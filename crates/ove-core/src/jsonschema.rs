@@ -115,6 +115,7 @@ pub fn project_schema() -> Value {
                     "media": {"type": "array", "items": {"$ref": "#/$defs/mediaItem"}},
                     "tracks": {"type": "array", "items": {"$ref": "#/$defs/track"}},
                     "timelineItems": {"type": "array", "items": {"$ref": "#/$defs/item"}},
+                    "folders": schema::project_field("folders").map(field_schema).unwrap_or(Value::Null),
                 },
             },
             "media": {"type": "array", "items": {"$ref": "#/$defs/registryEntry"}},

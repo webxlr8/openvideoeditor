@@ -33,6 +33,7 @@ Conventions:
 | `media` | any |  |  | Media items. |
 | `timelineItems` | any |  |  | Items. |
 | `tracks` | any |  |  | Tracks. |
+| `folders` | array of object {path, query, scope} |  |  | Media panel folders that hold no media yet, and smart folders (saved queries). |
 
 Other project fields (`cast`, `temp`, `mediaBaseDirectory`, …) are preserved and changed with `updateProject`.
 
@@ -57,6 +58,10 @@ Other project fields (`cast`, `temp`, `mediaBaseDirectory`, …) are preserved a
 | `createdAt` | integer |  |  | ms since the epoch. |
 | `addedAt` | integer |  |  | ms since the epoch. |
 | `data` | any |  |  | type, fileName, format, size, duration, width, height, frameRate, hasAudio, statuses, … |
+| `name` | string |  |  | Display name set by a rename; absent means the file name without its extension. |
+| `folder` | string |  |  | Media panel folder, `/`-separated (`Interviews/Day 1`); absent means the top level. |
+| `tags` | array of string |  |  | Tags, in the order they were added. |
+| `subclips` | array of object {id, name, in, out} |  |  | Saved source ranges of this media, shown under it and dragged like media. |
 
 ## Registry entry (`media[]`)
 

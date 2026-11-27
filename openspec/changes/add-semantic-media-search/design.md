@@ -71,6 +71,11 @@ out}`); the project gains `folders` (empty folders and smart folders `{path, que
 fields changed through the existing update-media and update-project ops, so no new op kinds and normal 3-way merge.
 Folder paths print in the projection header's media table. Schema validation and migration tests cover the new fields.
 Alternative: a separate media-manifest file outside the document (would not merge or undo with other edits).
+**Amended during apply (2026-11-27):** the fields sit on the media item itself (`folder`, `tags`, `subclips`, plus a
+display `name` for renames), not inside `data`. `updateMedia` sets whole top-level fields, so a change inside `data`
+would replace the probe results too and would clash with any concurrent edit of them; top-level fields let a folder
+rename and a tagging run concurrently and both stay. A rename changes the projection's media name, so `src` names
+follow it. Folders get a header column only when some media is in a folder, so existing projections print unchanged.
 
 ### D7. Tools
 `search_media {project, query, scope, media?, limit ≤ 50, similarTo?}` returns hits with `clip` fragments such as
@@ -207,3 +212,15 @@ Spoken search: golden tests for accents, case, punctuation, a quoted phrase acro
 150 ms padding kept inside the media, and BM25 order (repeated and rarer terms first). 100,000 words: index 94 ms,
 query 2 ms. The search reuses the transcript-search folding from `ove-transcribe`; it lives in `ove-vision` because
 it ranks segments and pads ranges, which the existing word-match search does not.
+
+### Organisation (tasks.md 4.1, 4.2)
+
+`cargo test -p ove-tools --test organize` and `cargo test -p ove-core --test organisation`:
+
+- A batch moving 20 files into two new folders and renaming 3 is one revision; one undo restores the document
+  (content-equal). Folder paths print in the header's media table; renamed media print under their new names.
+- Folder rename (person) and tagging (agent), planned on the same base, keep both changes in either apply order.
+- Property tests (256 cases per check run, 1,000 by default): any organise batch that plans is valid, invertible and
+  survives save and load byte for byte; random folder batches and random tag/subclip batches commute.
+- Older documents without the fields load and save unchanged (the existing fixtures and round-trip properties pass);
+  wrong types report `value.type`, and subclips report `subclip.range` and `subclip.id.unique`.
