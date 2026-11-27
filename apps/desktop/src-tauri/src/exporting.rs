@@ -168,7 +168,7 @@ pub async fn export_project(app: AppHandle, request: ExportRequest) -> AppResult
             return Err(AppError::new(ErrorCode::InvalidArgument, "Choose where to save the video."));
         }
         let (doc, bundle) = open_doc(&app.state::<AppState>())?;
-        let settings = ove_render::ExportSettings { height: request.height, fps: request.fps, ..Default::default() };
+        let settings = ove_render::ExportSettings::h264(request.height, request.fps);
         // Checks every media file: done here, off the main thread.
         check_export(&doc, &bundle, &settings)?;
         let out = PathBuf::from(&request.path);
@@ -239,9 +239,9 @@ pub(crate) fn submit_export(
         };
         finish.end = Some(match res {
             Ok(r) => {
-                tracing::info!(path = r.path, encoder = r.video_encoder, seconds = r.seconds_taken, "export finished");
+                tracing::info!(path = r.path, encoder = ?r.video_encoder, seconds = r.seconds_taken, "export finished");
                 if r.encoder_warning.is_some() {
-                    tracing::warn!(encoder = r.video_encoder, "exported with a fallback encoder");
+                    tracing::warn!(encoder = ?r.video_encoder, "exported with a fallback encoder");
                 }
                 ExportProgress {
                     fraction: 1.0,
@@ -250,7 +250,7 @@ pub(crate) fn submit_export(
                     done: true,
                     error: None,
                     path: Some(r.path),
-                    encoder: Some(r.video_encoder),
+                    encoder: r.video_encoder,
                     warning: r.encoder_warning,
                     seconds_taken: Some(r.seconds_taken),
                 }

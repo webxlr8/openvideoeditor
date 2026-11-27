@@ -255,7 +255,7 @@ pub(crate) mod testing {
     }
 
     pub fn small() -> ove_render::ExportSettings {
-        ove_render::ExportSettings { height: 90, fps: 10, ..Default::default() }
+        ove_render::ExportSettings::h264(90, 10)
     }
 
     /// Exports a 0.6 s 160×90 clip to `dir/name`.

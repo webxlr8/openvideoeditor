@@ -73,8 +73,7 @@ pub fn import_timeline_file(ctx: &mut dyn ToolCtx, a: &Args) -> Result<Receipt, 
 #[cfg(feature = "media")]
 pub fn export_video(ctx: &mut dyn ToolCtx, a: &Args) -> Result<Receipt, Fail> {
     let out = PathBuf::from(a.req_str("out")?);
-    let settings =
-        ove_render::ExportSettings { height: a.u32_or("height", 1080), fps: a.u32_or("fps", 30), ..Default::default() };
+    let settings = ove_render::ExportSettings::h264(a.u32_or("height", 1080), a.u32_or("fps", 30));
     let bundle = ctx.bundle(a.project())?;
     let (doc, bundle, _) = crate::ctx::snapshot(ctx, &bundle)?;
     let cancel = std::sync::atomic::AtomicBool::new(false);
@@ -90,6 +89,7 @@ pub fn export_video(ctx: &mut dyn ToolCtx, a: &Args) -> Result<Receipt, Fail> {
         Fail::new(
             match e {
                 ove_render::ExportError::Refused(_) => "export.refused",
+                ove_render::ExportError::Invalid(_) => "export.invalid",
                 ove_render::ExportError::Cancelled => "export.cancelled",
                 ove_render::ExportError::Ffmpeg(_) => "export.failed",
             },
@@ -99,7 +99,12 @@ pub fn export_video(ctx: &mut dyn ToolCtx, a: &Args) -> Result<Receipt, Fail> {
     ctx.progress_done();
     let mut text = format!(
         "exported {} ({}x{}, {:.1} s, {}) in {:.1} s",
-        res.path, res.width, res.height, res.duration_seconds, res.video_encoder, res.seconds_taken
+        res.path,
+        res.width,
+        res.height,
+        res.duration_seconds,
+        res.video_encoder.as_deref().unwrap_or("audio only"),
+        res.seconds_taken
     );
     if let Some(w) = &res.encoder_warning {
         text.push_str(&format!("\nwarning: {w}"));

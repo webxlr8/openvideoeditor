@@ -31,6 +31,8 @@ pub struct Renderer {
     grades: HashMap<String, (String, Option<Arc<Lut>>)>,
     luts: HashMap<PathBuf, Option<Arc<Lut>>>,
     frames: u64,
+    /// Empty areas stay transparent instead of black (export with alpha).
+    transparent: bool,
 }
 
 fn num(f: &Map<String, Value>, k: &str) -> Option<f64> {
@@ -177,7 +179,14 @@ impl Renderer {
             grades: HashMap::new(),
             luts: HashMap::new(),
             frames: 0,
+            transparent: false,
         }
+    }
+
+    /// Leaves areas no layer covers transparent (alpha 0) instead of opaque black, and keeps the layers' alpha in
+    /// the result: for exports with an alpha channel.
+    pub fn set_transparent(&mut self, on: bool) {
+        self.transparent = on;
     }
 
     pub fn size(&self, doc: &Document) -> (u32, u32) {
@@ -393,7 +402,7 @@ impl Renderer {
         let (w, h) = self.size(doc);
         let (_, ref_h) = reference_size(&doc.project.aspect_ratio);
         let k = h as f64 / ref_h as f64;
-        let mut canvas = Rgba::filled(w, h, [0, 0, 0, 255]);
+        let mut canvas = Rgba::filled(w, h, if self.transparent { [0, 0, 0, 0] } else { [0, 0, 0, 255] });
         for layer in layers_at(doc, t_us) {
             let Some(st) = layer.trans.clone() else {
                 self.draw_layer(doc, &mut canvas, &layer, k, layer.opacity, layer.blend);
@@ -431,8 +440,10 @@ impl Renderer {
                 self.grades.clear();
             }
         }
-        for p in canvas.data.chunks_exact_mut(4) {
-            p[3] = 255;
+        if !self.transparent {
+            for p in canvas.data.chunks_exact_mut(4) {
+                p[3] = 255;
+            }
         }
         canvas
     }
