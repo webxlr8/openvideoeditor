@@ -34,7 +34,7 @@ Tools:
 | verify_timeline, timeline_history, undo_timeline | `verify`, `history`, `undo` |
 | list_media, add_media, remove_media, relink_media, probe_media | `media list / add / remove / relink / probe` |
 | grab_frame, filmstrip, detect_scenes | `media grab / filmstrip / scenes` |
-| audio_levels, waveform_image, detect_silence, measure_loudness | `audio levels / waveform / silence / loudness` |
+| audio_levels, waveform_image, detect_silence, measure_loudness, duck_audio | `audio levels / waveform / silence / loudness / duck` |
 | look, screenshot | `look`, `screenshot` |
 | export_video, export_timeline_file, import_timeline_file | `export`, `timeline export / import` |
 | app_context, open_in_app, seek, play, pause | `app context / open / seek / play / pause` |

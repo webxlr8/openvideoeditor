@@ -43,13 +43,13 @@
 
 ## 5. Ducking
 
-- [ ] 5.1 Implement speech spans from transcript word timings and from the level gate with hysteresis; verify unit
+- [x] 5.1 Implement speech spans from transcript word timings and from the level gate with hysteresis; verify unit
       tests on a synthetic dialogue fixture for both sources.
-- [ ] 5.2 Implement keyframe generation (attack, release, hold, curve simplification to at most 2 keyframes per
+- [x] 5.2 Implement keyframe generation (attack, release, hold, curve simplification to at most 2 keyframes per
       second, merge and replace modes) as one revision with dry run; verify the music level is −12 dB within 0.5 dB
       during speech and unchanged within 0.2 dB elsewhere, ramp timing within 10 ms, the no-speech and unknown-id
       refusals, and that undo restores the previous keyframes.
-- [ ] 5.3 Expose `ove audio duck`, MCP `duck_audio` and the Duck popover in the Audio panel; verify a CLI test with
+- [x] 5.3 Expose `ove audio duck`, MCP `duck_audio` and the Duck popover in the Audio panel; verify a CLI test with
       `--dry-run --json`, an MCP contract test, and a UI test of the popover; update `docs/cli`.
 
 ## 6. Loudness and audio-only export

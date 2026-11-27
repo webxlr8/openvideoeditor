@@ -20,6 +20,7 @@ import type {
   ChatItem_Serialize,
   AppInfo_Serialize,
   AudioMeter,
+  DuckRequest,
   Diagnostics_Serialize,
   MediaInfo_Serialize,
   PlaybackState,
@@ -964,6 +965,31 @@ function createMock(): {
     ...i.fields,
   });
   const mock = (id: string) => findItem(id) as MockItem | undefined;
+  /** A stand-in for the duck planner: speech is the middle third of each dialogue clip. */
+  const mockDuck = (r: DuckRequest): { items: string[]; speech: number[][] } | string => {
+    const resolve = (names: string[]) => {
+      const out: ItemView_Serialize[] = [];
+      for (const n of names) {
+        const item = project?.items.find((i) => i.id === n);
+        const track = project?.tracks.find((t) => t.id === n || t.name.toLowerCase() === n.toLowerCase());
+        if (item) out.push(item);
+        else if (track) out.push(...(project?.items.filter((i) => i.trackId === track.id) ?? []));
+        else return `Cannot duck: no item or track "${n}" in this project.`;
+      }
+      return out.filter((i) => i.kind === "audio" || i.kind === "video");
+    };
+    const music = resolve(r.music);
+    const under = resolve(r.under);
+    if (typeof music === "string") return music;
+    if (typeof under === "string") return under;
+    const speech = under.filter((i) => !i.muted).map((i) => {
+      const s = i.start ?? 0;
+      const len = (i.end ?? 0) - s;
+      return [s + len / 3, s + (2 * len) / 3];
+    });
+    if (!speech.length || !music.length) return "No speech was found in the dialogue, so nothing was changed.";
+    return { items: music.map((i) => i.id), speech };
+  };
   const applyEdit = (id: string, set: Fields, unset: string[]) => {
     const i = mock(id);
     if (!i) return;
@@ -1694,6 +1720,34 @@ function createMock(): {
     scrubAudio: async (t: number | null) => {
       track(`scrubAudio:${t}`);
       return ok(null);
+    },
+    duckPreview: async (request: DuckRequest) => {
+      track("duckPreview");
+      const plan = mockDuck(request);
+      if (typeof plan === "string") return fail("invalid_argument", plan);
+      return ok({ source: "level", lines: plan.speech.length, speech: plan.speech, musicItems: plan.items.length, keyframes: plan.items.length * plan.speech.length * 4 });
+    },
+    duckAudio: (request: DuckRequest) => {
+      track("duckAudio");
+      const plan = mockDuck(request);
+      if (typeof plan === "string") return fail("invalid_argument", plan);
+      return editProject(`duck music ${request.depth} dB under dialogue`, () => {
+        const ducked = Math.round(100 * Math.pow(10, (request.depth ?? -12) / 20) * 100) / 100;
+        for (const id of plan.items) {
+          const i = mock(id);
+          if (!i) continue;
+          const s0 = i.start ?? 0;
+          const keyframes = plan.speech.flatMap(([a, b]) => [
+            { time: a - (request.attack ?? 0) - s0, value: 100 },
+            { time: a - s0, value: ducked },
+            { time: b - s0, value: ducked },
+            { time: b + (request.release ?? 0) - s0, value: 100 },
+          ]);
+          const others = ((i.fields.keyframeTracks as Fields[] | undefined) ?? []).filter((t) => t.property !== "volume");
+          i.fields.keyframeTracks = [...others, { property: "volume", keyframes }];
+          refresh(i);
+        }
+      });
     },
     requestSkim: async (_mediaId: string) => {
       track("requestSkim");

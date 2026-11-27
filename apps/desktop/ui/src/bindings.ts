@@ -134,6 +134,10 @@ export const commands = {
 	 *  head is dragged; it returns at once (the worker plays only the latest).
 	 */
 	scrubAudio: (t: number | null) => typedError<null, AppError>(__TAURI_INVOKE("scrub_audio", { t })),
+	/**  What a duck would change, without changing anything. */
+	duckPreview: (request: DuckRequest) => typedError<DuckPreview, AppError>(__TAURI_INVOKE("duck_preview", { request })),
+	/**  Ducks the music under the dialogue as one revision. */
+	duckAudio: (request: DuckRequest) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("duck_audio", { request })),
 	/**  Save dialog for the export destination. `None` when cancelled. */
 	chooseExportPath: (defaultName: string) => typedError<string | null, AppError>(__TAURI_INVOKE("choose_export_path", { defaultName })),
 	/**  Shows a file in the system file manager. */
@@ -611,6 +615,36 @@ export type Diagnostics_Serialize = {
 	avOffsetMs: number | null,
 	processMemoryBytes: number | null,
 	audioAvailable: boolean,
+};
+
+/**  What a duck would change. */
+export type DuckPreview = {
+	/**  transcript | level */
+	source: string,
+	/**  Lines of speech found. */
+	lines: number,
+	/**  Speech, seconds, as [start, end] pairs. */
+	speech: ((number | null)[])[],
+	musicItems: number,
+	keyframes: number,
+};
+
+/**  What to duck, under what, and how. */
+export type DuckRequest = {
+	/**  Music item ids or track ids/names. */
+	music: string[],
+	/**  Dialogue item ids or track ids/names. */
+	under: string[],
+	/**  dB during speech (-60 to 0). */
+	depth: number | null,
+	/**  Seconds. */
+	attack: number | null,
+	release: number | null,
+	hold: number | null,
+	/**  transcript | level | auto */
+	source: string,
+	/**  replace | merge */
+	mode: string,
 };
 
 /**

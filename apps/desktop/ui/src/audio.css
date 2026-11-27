@@ -136,3 +136,44 @@
   color: var(--text-dim, #a0a0a8);
   white-space: nowrap;
 }
+
+.duck-popover {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 6px 0 10px;
+  padding: 10px;
+  border-radius: 6px;
+  background: var(--bg-3, #23232a);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 12px;
+}
+.duck-popover .duck-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.duck-popover .duck-row > span {
+  width: 52px;
+  color: var(--text-dim, #a0a0a8);
+}
+.duck-popover select,
+.duck-popover input[type="range"] {
+  flex: 1;
+  min-width: 0;
+}
+.duck-popover .duck-times {
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.duck-popover .duck-times input {
+  width: 52px;
+}
+.duck-popover .duck-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.duck-popover .error-text {
+  color: #ff8a80;
+}

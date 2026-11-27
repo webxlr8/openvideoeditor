@@ -61,7 +61,7 @@ change; `undo_my_changes` undoes all of this session's changes. `ove docs tools`
 - Inspect footage before cutting: `ove media grab <project> <media> --at 3 --out f.png`,
   `ove media filmstrip <project> <media> --out strip.png`, `ove media scenes <project> <media>` (cut times).
 - Audio: `ove audio silence` (quiet ranges to cut), `ove audio loudness` (LUFS, true peak), `ove audio levels`,
-  `ove audio waveform`.
+  `ove audio waveform`, `ove audio duck` (lower music under dialogue with volume keyframes).
 - Volume over time: add a keyframe track to a `clip` or `audio` element, for example
   `keyframeTracks={[{property: "volume", keyframes: [{time: 0, value: 100}, {time: 2, value: 0}]}]}` fades out over
   2 s. Values are percent (0–200, like `volume`), times are seconds from the item's start, and the level changes

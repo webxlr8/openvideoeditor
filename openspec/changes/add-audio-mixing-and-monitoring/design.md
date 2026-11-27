@@ -185,3 +185,13 @@ and the built app (group 7) are not measured yet.
   built app is part of task 7.1. At the cut and at the join of a spliced grain the step is within the signal's own
   step plus 1e-3 (raised-cosine 2 ms fade of the queued audio). Scrub plays through its own output stream, so the
   playback clock is untouched.
+- Ducking (group 5): on a synthetic fixture (steady music, dialogue lines at 2–4 s and 6–7.5 s), the level gate
+  finds both lines within 10 ms, the keyframes sit at the ramp corners within 10 ms, and the mixed music is
+  −12.00 dB during speech (checked within 0.5 dB at six points) and 0.00 dB away from it (within 0.2 dB at six
+  points). Transcript word timings map through trim and speed. Running again at −6 dB in replace mode gives −6 dB,
+  not −18 dB; merge mode gives −18 dB. Forty short lines in 20 s simplify to at most 2 keyframes per second.
+  The panel shows "No speech was found" and changes nothing when the dialogue is silent.
+- The gate thresholds are fixed for now: opens above −32 dBFS, closes after 150 ms below −42 dBFS, spans shorter
+  than 120 ms are not speech. They suit dialogue at normal levels; very quiet dialogue needs the transcript source.
+- The design's "dialogue changed since last duck" note (Risks) is not built in this group: it needs a record of
+  which revision a duck was made from, and no task covers it. Listed for the follow-up.

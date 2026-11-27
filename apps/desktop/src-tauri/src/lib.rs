@@ -6,6 +6,7 @@ pub mod assistant;
 pub mod captions;
 pub mod commands;
 pub mod control;
+pub mod ducking;
 pub mod edits;
 pub mod engine;
 pub mod error;
@@ -171,6 +172,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             tasks::request_skim,
             waveforms::peak_range,
             scrub::scrub_audio,
+            ducking::duck_preview,
+            ducking::duck_audio,
             exporting::choose_export_path,
             exporting::reveal_path,
             edits::item_detail,

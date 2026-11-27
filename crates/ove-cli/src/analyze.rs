@@ -1,4 +1,4 @@
-//! `ove audio …`: levels, waveform, silence, loudness (the registry's analysis tools; they need the `media` feature).
+//! `ove audio …`: levels, waveform, silence, loudness and duck (registry tools; they need the `media` feature).
 
 use std::path::PathBuf;
 
@@ -38,6 +38,40 @@ pub enum AudioCmd {
     },
     /// Integrated loudness (LUFS), loudness range, sample and true peak.
     Loudness { project: String, media: String },
+    /// Lower music under dialogue: volume keyframes on the music items, as one revision.
+    Duck {
+        project: String,
+        /// Music item ids or track ids/names, comma-separated.
+        #[arg(long)]
+        music: String,
+        /// Dialogue item ids or track ids/names, comma-separated.
+        #[arg(long)]
+        under: String,
+        /// dB during speech (-60 to 0).
+        #[arg(long, default_value_t = -12.0, allow_negative_numbers = true)]
+        depth: f64,
+        /// Seconds of ramp down before speech.
+        #[arg(long, default_value_t = 0.2)]
+        attack: f64,
+        /// Seconds of ramp up after speech.
+        #[arg(long, default_value_t = 0.4)]
+        release: f64,
+        /// Lines of speech closer than this many seconds merge.
+        #[arg(long, default_value_t = 0.5)]
+        hold: f64,
+        /// Where speech comes from: transcript, level, or auto (transcript when cached).
+        #[arg(long, default_value = "auto")]
+        source: String,
+        /// Multiply with existing volume keyframes instead of replacing them in the affected range.
+        #[arg(long, conflicts_with = "replace")]
+        merge: bool,
+        /// Replace volume keyframes in the affected range (the default).
+        #[arg(long)]
+        replace: bool,
+        /// Show the planned keyframes without changing anything.
+        #[arg(long)]
+        dry_run: bool,
+    },
 }
 
 pub fn audio(ctx: &Ctx, cmd: &AudioCmd) -> Out {
@@ -55,6 +89,14 @@ pub fn audio(ctx: &Ctx, cmd: &AudioCmd) -> Out {
         ),
         AudioCmd::Loudness { project, media } => {
             ctx.tool("measure_loudness", json!({"project": project, "media": media}))
+        }
+        AudioCmd::Duck { project, music, under, depth, attack, release, hold, source, merge, replace: _, dry_run } => {
+            ctx.tool(
+                "duck_audio",
+                json!({"project": project, "music": music, "under": under, "depth": depth, "attack": attack,
+                    "release": release, "hold": hold, "source": source,
+                    "mode": if *merge { "merge" } else { "replace" }, "dryRun": dry_run}),
+            )
         }
     }
 }
