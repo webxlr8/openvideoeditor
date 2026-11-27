@@ -79,6 +79,12 @@ export const commands = {
 	openUrl: (url: string) => typedError<null, AppError>(__TAURI_INVOKE("open_url", { url })),
 	/**  The environment block for a feedback report, and where to send it. */
 	feedbackInfo: () => typedError<FeedbackInfo_Serialize, AppError>(__TAURI_INVOKE("feedback_info")),
+	/**  The drafted reports, newest first. */
+	feedbackDrafts: () => typedError<FeedbackDraft_Serialize[], AppError>(__TAURI_INVOKE("feedback_drafts")),
+	/**  Saves the person's edit of a report's summary. */
+	saveFeedbackDraft: (id: string, summary: string) => typedError<FeedbackDraft_Serialize, AppError>(__TAURI_INVOKE("save_feedback_draft", { id, summary })),
+	/**  Deletes a report. */
+	deleteFeedbackDraft: (id: string) => typedError<null, AppError>(__TAURI_INVOKE("delete_feedback_draft", { id })),
 	/**  Models and key status, as JSON `{models, keys}`. */
 	generationCatalog: () => __TAURI_INVOKE<string>("generation_catalog"),
 	setProviderKey: (provider: string, key: string) => typedError<string, AppError>(__TAURI_INVOKE("set_provider_key", { provider, key })),
@@ -100,6 +106,15 @@ export const commands = {
 	cancelGeneration: (id: string) => typedError<null, AppError>(__TAURI_INVOKE("cancel_generation", { id })),
 	/**  Voices in the ElevenLabs account (JSON array). */
 	listVoices: () => typedError<string, AppError>(__TAURI_INVOKE("list_voices")),
+	/**  The person's answer to a price card. */
+	answerSpend: (quoteId: string, approved: boolean) => typedError<null, AppError>(__TAURI_INVOKE("answer_spend", { quoteId, approved })),
+	/**  The most an agent session may spend on generation (USD). */
+	spendCap: () => __TAURI_INVOKE<number | null>("spend_cap"),
+	/**
+	 *  Sets the per-session spend cap; returns it as saved (rounded to cents). Running sessions use it from their next
+	 *  request.
+	 */
+	setSpendCap: (usd: number | null) => typedError<number | null, AppError>(__TAURI_INVOKE("set_spend_cap", { usd })),
 	timelineFormats: () => __TAURI_INVOKE<TimelineFormat[]>("timeline_formats"),
 	/**
 	 *  Writes the open project's timeline. `path: None` asks with a save dialog. `preview: true` writes nothing and only
@@ -331,6 +346,8 @@ export const events = {
 	playbackChanged: makeEvent<PlaybackChanged, PlaybackChanged>("playback-changed"),
 	projectChanged: makeEvent<ProjectChanged_Serialize, ProjectChanged_Deserialize>("project-changed"),
 	remoteOpened: makeEvent<RemoteOpened_Serialize, RemoteOpened_Deserialize>("remote-opened"),
+	spendRequested: makeEvent<SpendRequested, SpendRequested>("spend-requested"),
+	spendSettled: makeEvent<SpendSettled, SpendSettled>("spend-settled"),
 	viewerBackendChanged: makeEvent<ViewerBackendChanged, ViewerBackendChanged>("viewer-backend-changed"),
 	viewerFrameReady: makeEvent<ViewerFrameReady, ViewerFrameReady>("viewer-frame-ready"),
 };
@@ -830,6 +847,43 @@ export type ExportRequest = {
 	/**  Output height in pixels (720, 1080, 2160, …). */
 	height: number,
 	fps: number,
+};
+
+/**  One drafted report. */
+export type FeedbackDraft = FeedbackDraft_Serialize | FeedbackDraft_Deserialize;
+
+/**  One drafted report. */
+export type FeedbackDraft_Deserialize = {
+	id: string,
+	/**  Milliseconds since the epoch. */
+	createdAt: number | null,
+	category: string,
+	severity: string,
+	summary: string,
+	/**  Who drafted it: the agent's client name, or where it ran. */
+	from: string,
+	recentTools: string[],
+	lastError?: string | null,
+	edited: boolean,
+	/**  The text "Copy report" puts on the clipboard. */
+	report: string,
+};
+
+/**  One drafted report. */
+export type FeedbackDraft_Serialize = {
+	id: string,
+	/**  Milliseconds since the epoch. */
+	createdAt: number | null,
+	category: string,
+	severity: string,
+	summary: string,
+	/**  Who drafted it: the agent's client name, or where it ran. */
+	from: string,
+	recentTools: string[],
+	lastError: string | null,
+	edited: boolean,
+	/**  The text "Copy report" puts on the clipboard. */
+	report: string,
 };
 
 /**  What "Send feedback" puts in a report. Nothing is sent from here: the person copies it. */
@@ -1568,6 +1622,23 @@ export type SkimView = {
 	tileHeight: number,
 	count: number,
 };
+
+/**  A price card to show: an agent asks to spend. */
+export type SpendRequested = {
+	quoteId: string,
+	/**  The question and the details, one per line. */
+	text: string,
+	estimateUsd: number | null,
+	/**  Who asks (the agent's client name, or its kind). */
+	client: string,
+	prompt: string,
+	project: string,
+	/**  Milliseconds since the epoch. */
+	expiresAt: number | null,
+};
+
+/**  A price card was answered or ran out of time: the UI removes it. */
+export type SpendSettled = string;
 
 /**  Tokens and estimated cost of some turns. */
 export type SpendView = {

@@ -3,14 +3,15 @@
 
 use crate::spec::Kind::{Bool, Int, Json, List, Num, Str};
 use crate::spec::{
-    AGENTS, APP_READ, APP_WRITE, Arg, DESTRUCTIVE, IN_APP, MCP, ModelText, READ, SERVERS, ToolSpec, WRITE, arg, cli,
-    req,
+    AGENTS, APP_READ, APP_WRITE, Arg, DESTRUCTIVE, IN_APP, MCP, ModelText, READ, SERVERS, SPENDS, ToolSpec, WRITE, arg,
+    cli, req,
 };
 use crate::tools::{
-    analyze, app, audio, code, deadair, docs, edit, exchange, media, models, project, skills, timeline, transcript,
+    analyze, app, audio, code, deadair, docs, edit, exchange, export, export_queue, export_range, feedback, generate,
+    media, models, project, skills, timeline, transcript,
 };
 
-const PROJECT: Arg = arg(
+pub(crate) const PROJECT: Arg = arg(
     "project",
     Str,
     "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)",
@@ -29,6 +30,37 @@ const PAUSE: &str = r#"{"type": "string", "enum": ["tight", "balanced", "loose"]
 const OPTIONS: &str = r#"{"type": "array", "items": {"type": "string"}, "maxItems": 4}"#;
 const NAMES: &str = r#"{"type": ["array", "string"], "items": {"type": "string"}}"#;
 const SKILL_ACTION: &str = r#"{"type": "string", "enum": ["create", "update", "remove"]}"#;
+
+// Generation (change unify-agent-tool-layer, D7).
+const GEN_KIND: &str = r#"{"type": "string", "enum": ["image", "video", "voice", "music", "sfx"]}"#;
+const IMAGE_ASPECT: &str = r#"{"type": "string", "enum": ["16:9", "9:16", "1:1", "4:3", "3:4"]}"#;
+const VIDEO_ASPECT: &str = r#"{"type": "string", "enum": ["16:9", "9:16", "1:1"]}"#;
+const GEN_MODEL: Arg = arg("model", Str, "Model id from list_models (default: the kind's default model)");
+const GEN_START: Arg = arg("start", Num, "Timeline start in seconds (default: after the track's last clip)");
+const GEN_TRACK: Arg = arg("track", Str, "Track name or id (default: Overlay for pictures, Audio for sound)");
+const GEN_NAME: Arg = arg("name", Str, "Clip name");
+const CONFIRM: Arg = arg(
+    "confirm",
+    Str,
+    "The quoteId from the first call. Spending still needs a person to approve the price; this argument alone never spends.",
+);
+
+/// How spending works, the same for every generate tool.
+macro_rules! spend_steps {
+    () => {
+        " Spends the person's money in two steps: call without `confirm` to get the plan, the estimate and a quoteId (nothing is spent); then call again with the same arguments and `confirm: <quoteId>`, and a person approves the price in the app or their client. The quote lasts 10 minutes and is valid only for that exact request; a session cannot spend above the person's cap (spend.cap). Approved, a pending placeholder goes on the timeline (one revision you can undo) and the receipt gives its item id, its printed line and the jobId for generation_status."
+    };
+}
+const GENERATE_IMAGE: &str = concat!("Generate a still image and place it as a clip.", spend_steps!());
+const GENERATE_VIDEO: &str =
+    concat!("Generate a video clip from a prompt, or from a first frame (`image`).", spend_steps!());
+const GENERATE_VOICE: &str = concat!("Generate speech from text and place it on an audio track.", spend_steps!());
+const GENERATE_MUSIC: &str = concat!("Generate music from a description.", spend_steps!());
+const GENERATE_SFX: &str = concat!("Generate a sound effect from a description.", spend_steps!());
+
+// Feedback (change unify-agent-tool-layer, D8).
+const FEEDBACK_CATEGORY: &str = r#"{"type": "string", "enum": ["bug", "confusing", "missing", "idea"]}"#;
+const FEEDBACK_SEVERITY: &str = r#"{"type": "string", "enum": ["low", "medium", "high"]}"#;
 
 pub static TOOLS: &[ToolSpec] = &[
     ToolSpec {
@@ -365,26 +397,11 @@ pub static TOOLS: &[ToolSpec] = &[
     ToolSpec {
         name: "export_video",
         aliases: &[],
-        about: "Render the timeline to an MP4 (H.264 + AAC), or the mix alone (audioOnly: m4a, wav or flac) without rendering video. `loudness` normalises the mix to a target with a true-peak limit and reports loudness before and after. Refused while placeholders are pending or media is offline. Takes about real time or less.",
-        args: &[
-            PROJECT,
-            req("out", Str, "Output .mp4 path"),
-            arg("height", Int, "720, 1080 (default) or 2160"),
-            arg("fps", Int, "Frame rate (default 30)"),
-            arg(
-                "audioOnly",
-                Str,
-                "Write the mix alone, no video: m4a (AAC), wav (24-bit) or flac (empty: from the out extension)",
-            ),
-            arg(
-                "loudness",
-                Num,
-                "Loudness target, integrated LUFS: -14, -16, -23 or -24 (default off); the result reports before and after",
-            ),
-        ],
+        about: export::EXPORT_VIDEO_ABOUT,
+        args: export::EXPORT_VIDEO_ARGS,
         annotations: WRITE,
         surfaces: SERVERS,
-        run: exchange::export_video,
+        run: export_queue::export_video,
         model: ModelText::Json,
     },
     ToolSpec {
@@ -672,6 +689,200 @@ pub static TOOLS: &[ToolSpec] = &[
         annotations: WRITE,
         surfaces: SERVERS,
         run: audio::extract_audio,
+        model: ModelText::Json,
+    },
+    ToolSpec {
+        name: "list_models",
+        aliases: &[],
+        about: "List the AI generation models (id, kind, provider, durations, aspect ratios, list price, whether the person has added the provider's key), with this session's confirmed spend and its cap. Prices are estimates; the provider bills the person.",
+        args: &[arg("kind", Json(GEN_KIND), "Only models of this kind")],
+        annotations: READ,
+        surfaces: AGENTS,
+        run: generate::list_models,
+        model: ModelText::Json,
+    },
+    ToolSpec {
+        name: "generate_image",
+        aliases: &[],
+        about: GENERATE_IMAGE,
+        args: &[
+            PROJECT,
+            req("prompt", Str, "What to make"),
+            GEN_MODEL,
+            arg("aspect", Json(IMAGE_ASPECT), "Default: the project's"),
+            arg("image", Str, "Reference image (file path)"),
+            arg("durationSeconds", Num, "Clip length on the timeline (default 5)"),
+            GEN_START,
+            GEN_TRACK,
+            GEN_NAME,
+            CONFIRM,
+        ],
+        annotations: SPENDS,
+        surfaces: AGENTS,
+        run: generate::generate_image,
+        model: ModelText::Json,
+    },
+    ToolSpec {
+        name: "generate_video",
+        aliases: &[],
+        about: GENERATE_VIDEO,
+        args: &[
+            PROJECT,
+            req("prompt", Str, "What to make"),
+            GEN_MODEL,
+            arg("durationSeconds", Num, "Seconds (the model's lengths; list_models)"),
+            arg("aspect", Json(VIDEO_ASPECT), "Default: the project's"),
+            arg("image", Str, "First frame (file path)"),
+            arg("negativePrompt", Str, "What to avoid"),
+            arg("seed", Int, ""),
+            GEN_START,
+            GEN_TRACK,
+            GEN_NAME,
+            CONFIRM,
+        ],
+        annotations: SPENDS,
+        surfaces: AGENTS,
+        run: generate::generate_video,
+        model: ModelText::Json,
+    },
+    ToolSpec {
+        name: "generate_voice",
+        aliases: &[],
+        about: GENERATE_VOICE,
+        args: &[
+            PROJECT,
+            req("text", Str, "What the voice says"),
+            GEN_MODEL,
+            arg("voice", Str, "Voice name or id"),
+            arg("speed", Num, ""),
+            arg("stability", Num, ""),
+            arg("style", Num, ""),
+            GEN_START,
+            GEN_TRACK,
+            GEN_NAME,
+            CONFIRM,
+        ],
+        annotations: SPENDS,
+        surfaces: AGENTS,
+        run: generate::generate_voice,
+        model: ModelText::Json,
+    },
+    ToolSpec {
+        name: "generate_music",
+        aliases: &[],
+        about: GENERATE_MUSIC,
+        args: &[
+            PROJECT,
+            req("prompt", Str, "Style, mood, instruments"),
+            GEN_MODEL,
+            arg("durationSeconds", Num, "Seconds (default 30)"),
+            arg("instrumental", Bool, "No vocals"),
+            GEN_START,
+            GEN_TRACK,
+            GEN_NAME,
+            CONFIRM,
+        ],
+        annotations: SPENDS,
+        surfaces: AGENTS,
+        run: generate::generate_music,
+        model: ModelText::Json,
+    },
+    ToolSpec {
+        name: "generate_sfx",
+        aliases: &[],
+        about: GENERATE_SFX,
+        args: &[
+            PROJECT,
+            req("prompt", Str, "The sound"),
+            GEN_MODEL,
+            arg("durationSeconds", Num, "Seconds (default 5)"),
+            GEN_START,
+            GEN_TRACK,
+            GEN_NAME,
+            CONFIRM,
+        ],
+        annotations: SPENDS,
+        surfaces: AGENTS,
+        run: generate::generate_sfx,
+        model: ModelText::Json,
+    },
+    ToolSpec {
+        name: "generation_status",
+        aliases: &[],
+        about: "A generation job's state (queued, running, done, failed, cancelled), progress, output and error. `wait` waits until it finishes (at most two minutes per call); `cancel` asks it to stop.",
+        args: &[
+            req("id", Str, "The job id (jobId from the generate call)"),
+            PROJECT,
+            arg("wait", Bool, "Wait until it finishes (at most 2 minutes)"),
+            arg("cancel", Bool, "Ask it to stop"),
+        ],
+        annotations: WRITE,
+        surfaces: AGENTS,
+        run: generate::generation_status,
+        model: ModelText::Json,
+    },
+    ToolSpec {
+        name: "cancel_generation",
+        aliases: &[],
+        about: "Ask a running generation job to stop. Its pending placeholder is removed when it stops; a finished job is left as it is.",
+        args: &[req("id", Str, "The job id"), PROJECT],
+        annotations: DESTRUCTIVE,
+        surfaces: AGENTS,
+        run: generate::cancel_generation,
+        model: ModelText::Json,
+    },
+    ToolSpec {
+        name: "send_feedback",
+        aliases: &[],
+        about: "Draft a report about OpenVideoEditor itself (a bug, something confusing or missing, an idea) for the person to review. It is stored on this computer only and never sent: the person reads it in Help > Feedback, edits or deletes it, and sends it themselves if they want. Write the summary in your own words: what you tried, what happened, what you expected. Leave out names, file paths, prompts and anything else the person typed or showed. The app and OS versions and this session's last tool names are added. At most 8 reports per session; an exact duplicate is not stored again.",
+        args: &[
+            req("category", Json(FEEDBACK_CATEGORY), ""),
+            req("severity", Json(FEEDBACK_SEVERITY), ""),
+            req("summary", Str, "The report, paraphrased (at most 2000 characters)"),
+        ],
+        annotations: WRITE,
+        surfaces: AGENTS,
+        run: feedback::send_feedback,
+        model: ModelText::Json,
+    },
+    ToolSpec {
+        name: "job_status",
+        aliases: &[],
+        about: export_queue::JOB_STATUS_ABOUT,
+        args: export_queue::JOB_STATUS_ARGS,
+        annotations: READ,
+        surfaces: SERVERS,
+        run: export_queue::job_status,
+        model: ModelText::Json,
+    },
+    ToolSpec {
+        name: "cancel_job",
+        aliases: &[],
+        about: export_queue::CANCEL_JOB_ABOUT,
+        args: export_queue::CANCEL_JOB_ARGS,
+        annotations: WRITE,
+        surfaces: SERVERS,
+        run: export_queue::cancel_job,
+        model: ModelText::Json,
+    },
+    ToolSpec {
+        name: "list_export_jobs",
+        aliases: &[],
+        about: export_queue::LIST_EXPORT_JOBS_ABOUT,
+        args: export_queue::LIST_EXPORT_JOBS_ARGS,
+        annotations: READ,
+        surfaces: SERVERS,
+        run: export_queue::list_export_jobs,
+        model: ModelText::Json,
+    },
+    ToolSpec {
+        name: "save_range_as_media",
+        aliases: &[],
+        about: export_range::SAVE_RANGE_ABOUT,
+        args: export_range::SAVE_RANGE_ARGS,
+        annotations: WRITE,
+        surfaces: SERVERS,
+        run: export_range::save_range_as_media,
         model: ModelText::Json,
     },
     ToolSpec {

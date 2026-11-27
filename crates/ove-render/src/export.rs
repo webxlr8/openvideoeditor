@@ -787,6 +787,69 @@ fn choose_pix_fmt(codec: *const ffi::AVCodec, name: &str, v: &VideoPlan) -> Opti
     prefs.into_iter().map(pix_fmt).find(|f| list.as_ref().is_none_or(|l| l.contains(f)))
 }
 
+/// FFmpeg's text for an error code.
+fn ffmpeg_reason(code: i32) -> String {
+    match err("", code) {
+        ExportError::Ffmpeg(s) => s.trim_start_matches(": ").to_string(),
+        e => e.to_string(),
+    }
+}
+
+/// Encodes one blank picture with an opened encoder context and flushes it; the context is used up afterwards.
+///
+/// # Safety
+/// `ctx` is an opened video encoder context.
+unsafe fn trial_encode(ctx: *mut ffi::AVCodecContext) -> Result<(), String> {
+    // SAFETY: `ctx` is open (caller); the frame and packet are allocated, checked and freed here, and the frame is
+    // given buffers of the encoder's size and format before it is sent.
+    unsafe {
+        let mut f = ffi::av_frame_alloc();
+        let mut pkt = ffi::av_packet_alloc();
+        let result = (|| {
+            if f.is_null() || pkt.is_null() {
+                return Err("out of memory".to_string());
+            }
+            (*f).format = (*ctx).pix_fmt.0;
+            (*f).width = (*ctx).width;
+            (*f).height = (*ctx).height;
+            let r = ffi::av_frame_get_buffer(f, 0);
+            if r < 0 {
+                return Err(ffmpeg_reason(r));
+            }
+            for i in 0..4 {
+                let (d, l) = ((*f).data[i], (*f).linesize[i]);
+                if !d.is_null() && l > 0 {
+                    // Luma rows in full; other planes have at least half as many rows (4:2:0 has exactly half).
+                    let bytes = (l * (*f).height) as usize / if i == 0 { 1 } else { 2 };
+                    ptr::write_bytes(d, if i == 0 { 16 } else { 128 }, bytes);
+                }
+            }
+            (*f).pts = 0;
+            let r = ffi::avcodec_send_frame(ctx, f);
+            if r < 0 {
+                return Err(ffmpeg_reason(r));
+            }
+            ffi::avcodec_send_frame(ctx, ptr::null());
+            loop {
+                let r = ffi::avcodec_receive_packet(ctx, pkt);
+                if r == ffi::AVERROR_EOF {
+                    return Ok(());
+                }
+                if r < 0 && r != ffi::AVERROR(libc::EAGAIN) {
+                    return Err(ffmpeg_reason(r));
+                }
+                ffi::av_packet_unref(pkt);
+                if r == ffi::AVERROR(libc::EAGAIN) {
+                    return Ok(());
+                }
+            }
+        })();
+        ffi::av_frame_free(&mut f);
+        ffi::av_packet_free(&mut pkt);
+        result
+    }
+}
+
 /// Sets an encoder option (ignored by encoders that do not have it).
 fn set_opt(opts: &mut *mut ffi::AVDictionary, k: &str, v: &str) {
     let (Ok(k), Ok(v)) = (CString::new(k), CString::new(v)) else { return };
@@ -866,81 +929,109 @@ impl Muxer {
                     continue;
                 }
                 let Some(fmt) = choose_pix_fmt(codec, name, v) else {
-                    self.fallbacks.push(format!("{name}: cannot take {}-bit {:?} pictures", v.bit_depth, v.chroma));
+                    self.fallbacks.push(format!(
+                        "{name}: cannot take {}-bit {} pictures",
+                        v.bit_depth,
+                        v.chroma.label()
+                    ));
                     continue;
                 };
-                let mut c = ffi::avcodec_alloc_context3(codec);
-                if c.is_null() {
-                    return Err(ExportError::Ffmpeg("out of memory".into()));
-                }
-                (*c).width = w as i32;
-                (*c).height = h as i32;
-                (*c).time_base = ffi::AVRational { num: 1, den: fps as i32 };
-                (*c).framerate = ffi::AVRational { num: fps as i32, den: 1 };
-                (*c).sample_aspect_ratio = ffi::AVRational { num: 1, den: 1 };
-                (*c).pix_fmt = fmt;
-                match hdr {
-                    Some(t) => {
-                        (*c).colorspace = ffi::AVColorSpace::BT2020_NCL;
-                        (*c).color_primaries = ffi::AVColorPrimaries::BT2020;
-                        (*c).color_trc = match t {
-                            HdrTransfer::Pq => ffi::AVColorTransferCharacteristic::SMPTE2084,
-                            HdrTransfer::Hlg => ffi::AVColorTransferCharacteristic::ARIB_STD_B67,
-                        };
+                // A configured, opened encoder context, or why it could not be opened.
+                let configure = || -> Result<*mut ffi::AVCodecContext, String> {
+                    let mut c = ffi::avcodec_alloc_context3(codec);
+                    if c.is_null() {
+                        return Err("out of memory".into());
                     }
-                    None => {
-                        (*c).colorspace = ffi::AVColorSpace::BT709;
-                        (*c).color_primaries = ffi::AVColorPrimaries::BT709;
-                        (*c).color_trc = ffi::AVColorTransferCharacteristic::BT709;
-                    }
-                }
-                (*c).color_range = ffi::AVColorRange::MPEG;
-                if global {
-                    (*c).flags |= ffi::AV_CODEC_FLAG_GLOBAL_HEADER as i32;
-                }
-                let mut opts: *mut ffi::AVDictionary = ptr::null_mut();
-                match (v.codec, v.profile) {
-                    (_, Profile::Prores(pr)) => {
-                        (*c).profile = pr.number();
-                        set_opt(&mut opts, "profile", pr.option());
-                        set_opt(&mut opts, "vendor", "apl0");
-                    }
-                    (_, Profile::Dnxhr(d)) => set_opt(&mut opts, "profile", d.option()),
-                    (VideoCodec::Vp9, _) => {
-                        (*c).bit_rate = 0;
-                        (*c).gop_size = (fps * 5) as i32;
-                        set_opt(&mut opts, "crf", &v.quality.vp9_crf().to_string());
-                        set_opt(&mut opts, "deadline", "good");
-                        set_opt(&mut opts, "cpu-used", "4");
-                        set_opt(&mut opts, "row-mt", "1");
-                        if v.alpha {
-                            set_opt(&mut opts, "auto-alt-ref", "0");
+                    (*c).width = w as i32;
+                    (*c).height = h as i32;
+                    (*c).time_base = ffi::AVRational { num: 1, den: fps as i32 };
+                    (*c).framerate = ffi::AVRational { num: fps as i32, den: 1 };
+                    (*c).sample_aspect_ratio = ffi::AVRational { num: 1, den: 1 };
+                    (*c).pix_fmt = fmt;
+                    match hdr {
+                        Some(t) => {
+                            (*c).colorspace = ffi::AVColorSpace::BT2020_NCL;
+                            (*c).color_primaries = ffi::AVColorPrimaries::BT2020;
+                            (*c).color_trc = match t {
+                                HdrTransfer::Pq => ffi::AVColorTransferCharacteristic::SMPTE2084,
+                                HdrTransfer::Hlg => ffi::AVColorTransferCharacteristic::ARIB_STD_B67,
+                            };
+                        }
+                        None => {
+                            (*c).colorspace = ffi::AVColorSpace::BT709;
+                            (*c).color_primaries = ffi::AVColorPrimaries::BT709;
+                            (*c).color_trc = ffi::AVColorTransferCharacteristic::BT709;
                         }
                     }
-                    _ => {
-                        (*c).gop_size = (fps * 2) as i32;
-                        (*c).max_b_frames = 0;
-                        (*c).bit_rate = bitrate as i64;
-                        if v.codec == VideoCodec::Hevc && v.bit_depth == 10 {
-                            (*c).profile = ffi::AV_PROFILE_HEVC_MAIN_10;
-                            set_opt(&mut opts, "profile", "main10");
+                    (*c).color_range = ffi::AVColorRange::MPEG;
+                    if global {
+                        (*c).flags |= ffi::AV_CODEC_FLAG_GLOBAL_HEADER as i32;
+                    }
+                    let mut opts: *mut ffi::AVDictionary = ptr::null_mut();
+                    match (v.codec, v.profile) {
+                        (_, Profile::Prores(pr)) => {
+                            (*c).profile = pr.number();
+                            set_opt(&mut opts, "profile", pr.option());
+                            set_opt(&mut opts, "vendor", "apl0");
                         }
-                        if name == "libx264" {
-                            set_opt(&mut opts, "preset", "veryfast");
+                        (_, Profile::Dnxhr(d)) => set_opt(&mut opts, "profile", d.option()),
+                        (VideoCodec::Vp9, _) => {
+                            (*c).bit_rate = 0;
+                            (*c).gop_size = (fps * 5) as i32;
+                            set_opt(&mut opts, "crf", &v.quality.vp9_crf().to_string());
+                            set_opt(&mut opts, "deadline", "good");
+                            set_opt(&mut opts, "cpu-used", "4");
+                            set_opt(&mut opts, "row-mt", "1");
+                            if v.alpha {
+                                set_opt(&mut opts, "auto-alt-ref", "0");
+                            }
+                        }
+                        _ => {
+                            (*c).gop_size = (fps * 2) as i32;
+                            (*c).max_b_frames = 0;
+                            (*c).bit_rate = bitrate as i64;
+                            if v.codec == VideoCodec::Hevc && v.bit_depth == 10 {
+                                (*c).profile = ffi::AV_PROFILE_HEVC_MAIN_10;
+                                set_opt(&mut opts, "profile", "main10");
+                            }
+                            if name == "libx264" {
+                                set_opt(&mut opts, "preset", "veryfast");
+                            }
                         }
                     }
-                }
-                let r = ffi::avcodec_open2(c, codec, &mut opts);
-                ffi::av_dict_free(&mut opts);
-                if r < 0 {
-                    let reason = match err("open", r) {
-                        ExportError::Ffmpeg(s) => s,
-                        e => e.to_string(),
-                    };
-                    tracing::info!(encoder = %name, %reason, "encoder unavailable, trying the next");
-                    self.fallbacks.push(format!("{name}: could not be opened ({reason})"));
+                    let r = ffi::avcodec_open2(c, codec, &mut opts);
+                    ffi::av_dict_free(&mut opts);
+                    if r < 0 {
+                        ffi::avcodec_free_context(&mut c);
+                        return Err(ffmpeg_reason(r));
+                    }
+                    Ok(c)
+                };
+                let mut c = match configure() {
+                    Ok(c) => c,
+                    Err(reason) => {
+                        tracing::info!(encoder = %name, %reason, "encoder unavailable, trying the next");
+                        self.fallbacks.push(format!("{name}: could not be opened ({reason})"));
+                        continue;
+                    }
+                };
+                // A hardware encoder can open and still refuse every picture (no device behind the API, a driver
+                // without this format): encode a test picture first, on a context of its own.
+                if is_hardware_encoder(name) {
+                    let trial = trial_encode(c);
                     ffi::avcodec_free_context(&mut c);
-                    continue;
+                    if let Err(reason) = trial {
+                        tracing::info!(encoder = %name, %reason, "encoder failed a test picture, trying the next");
+                        self.fallbacks.push(format!("{name}: could not encode a test picture ({reason})"));
+                        continue;
+                    }
+                    c = match configure() {
+                        Ok(c) => c,
+                        Err(reason) => {
+                            self.fallbacks.push(format!("{name}: could not be opened ({reason})"));
+                            continue;
+                        }
+                    };
                 }
                 opened = Some((c, name.clone()));
                 break;
@@ -1344,4 +1435,74 @@ impl Muxer {
             Ok(())
         }
     }
+}
+
+/// What `ove doctor` reports about one encoder.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EncoderCheck {
+    pub codec: VideoCodec,
+    pub encoder: String,
+    pub label: String,
+    /// Wrote a test file.
+    pub works: bool,
+    /// "not in this build", or why it failed.
+    pub detail: Option<String>,
+}
+
+/// The run-time encoder inventory: every video encoder candidate of this platform, whether this build has it, and
+/// whether it writes a one-frame test file on this computer.
+pub fn encoder_report() -> Vec<EncoderCheck> {
+    ove_media::init();
+    let inv = Inventory::current();
+    let dir = std::env::temp_dir().join(format!("ove-encoder-check-{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&dir);
+    let mut out = Vec::new();
+    for codec in VideoCodec::ALL {
+        let container = match codec {
+            VideoCodec::Prores | VideoCodec::Dnxhr => Container::Mov,
+            VideoCodec::Vp9 => Container::Webm,
+            _ => Container::Mp4,
+        };
+        for name in encoders::video_candidates(codec, false) {
+            let mut check = EncoderCheck {
+                codec,
+                encoder: name.to_string(),
+                label: encoder_label(name),
+                works: false,
+                detail: None,
+            };
+            if !inv.has_encoder(name) {
+                check.detail = Some("not in this build".into());
+                out.push(check);
+                continue;
+            }
+            let settings = ExportSettings {
+                container,
+                video: Some(VideoSettings { codec, ..VideoSettings::default() }),
+                audio: None,
+                encoder: Some(name.to_string()),
+                ..ExportSettings::default()
+            };
+            let spec = SourceSpec { width: 320, height: 180, fps: 30, duration: 34_000, hdr: false };
+            let file = dir.join(format!("{name}.{}", container.extension()));
+            let r = export_frames(
+                spec,
+                &settings,
+                &file,
+                |_| Picture::Rgba8(crate::Rgba::filled(320, 180, [40, 90, 160, 255])),
+                |_, n| vec![0.0; n * CHANNELS],
+                &AtomicBool::new(false),
+                |_| {},
+            );
+            match r {
+                Ok(_) => check.works = true,
+                Err(e) => check.detail = Some(e.to_string()),
+            }
+            let _ = std::fs::remove_file(&file);
+            out.push(check);
+        }
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+    out
 }

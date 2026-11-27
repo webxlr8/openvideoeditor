@@ -13,6 +13,8 @@ export interface HelpActions {
   welcome: () => void;
   /** Makes a new copy of the sample project and opens it. */
   sample: () => void;
+  /** Reports agents drafted about the app, kept on this computer (Help → Feedback). */
+  feedback?: () => void;
 }
 
 export function HelpMenu({
@@ -46,6 +48,7 @@ export function HelpMenu({
     { id: "welcome", label: "Show the welcome again", run: actions?.welcome },
     { id: "sample", label: "Try the sample project", run: actions?.sample },
     { id: "shortcuts", label: "Keyboard shortcuts", run: onShortcuts },
+    { id: "feedback", label: "Feedback", run: actions?.feedback },
   ];
   return (
     <div className={`dropdown help-menu help-${variant}`} ref={root}>

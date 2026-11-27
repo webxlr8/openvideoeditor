@@ -81,6 +81,8 @@ pub struct Assistant {
     running: Mutex<Option<Running>>,
     answers: Mutex<HashMap<String, Sender<String>>>,
     settings_path: Option<PathBuf>,
+    /// Each chat's agent session: generation quotes and confirmed spend (the tool context is rebuilt per call).
+    sessions: Mutex<HashMap<String, ove_tools::Session>>,
 }
 
 impl Assistant {
@@ -117,6 +119,7 @@ impl Assistant {
             running: Mutex::new(None),
             answers: Mutex::new(HashMap::new()),
             settings_path,
+            sessions: Mutex::new(HashMap::new()),
         }
     }
 
@@ -417,6 +420,31 @@ impl ove_tools::AppHost for DesktopApp<'_> {
             }
         }
     }
+    /// The chat's session (quotes and the spend the person confirmed in it).
+    fn session(&self) -> Option<ove_tools::Session> {
+        let chat = self.host.turn.as_ref().map(|(c, _)| c.clone()).unwrap_or_default();
+        let keys = self.host.app.state::<crate::generation::Generation>().keys();
+        let state = self.host.app.state::<AppState>();
+        let mut sessions = relock(&state.assistant.sessions);
+        let s = sessions.entry(chat).or_insert_with(|| {
+            ove_tools::Session::with(ove_tools::session::config_dir(), Arc::new(ove_core::SystemClock), keys)
+        });
+        Some(s.clone())
+    }
+    /// The price goes to the person as a question card in the chat; only their "Approve" approves.
+    fn ask_spend(&mut self, card: &serde_json::Value) -> Result<bool, ove_tools::Fail> {
+        let id = format!("spend-{}", card["quoteId"].as_str().unwrap_or_default());
+        let question = ove_tools::tools::generate::card_text(card);
+        let options = vec![SPEND_APPROVE.to_string(), "Decline".to_string()];
+        let _ = AgentUiEvent::Question { id: id.clone(), question: question.clone(), options: options.clone() }
+            .emit(&self.host.app);
+        Ok(self.host.ask_user(&id, &question, &options).is_ok_and(|a| a == SPEND_APPROVE))
+    }
+    /// The app's own generation worker runs the job (as for jobs started from the Generate panel).
+    fn start_generation(&mut self, bundle: &std::path::Path, job: &str) -> Result<(), ove_tools::Fail> {
+        crate::generation::start_saved_job(&self.host.app, bundle, job)
+            .map_err(|e| ove_tools::Fail::new("worker.failed", e))
+    }
     fn skills(&mut self) -> Option<ove_tools::skills::SkillStore> {
         skill_store(&self.host.app)
     }
@@ -427,6 +455,9 @@ pub(crate) fn skill_store(app: &AppHandle) -> Option<ove_tools::skills::SkillSto
     let state = app.state::<AppState>();
     crate::projects::with_library(&state.projects, |l| Ok(ove_tools::skills::SkillStore::of_library(&l.root))).ok()
 }
+
+/// The question card's answer that approves a spend.
+const SPEND_APPROVE: &str = "Approve";
 
 impl ToolHost for DesktopHost {
     fn begin_turn(&mut self, chat_id: &str, turn_id: &str) {
@@ -919,6 +950,19 @@ pub async fn agent_undo_turn(
         }
         let mut g = crate::projects::lock(&state.projects.open)?;
         let p = g.as_mut().ok_or_else(|| AppError::new(ErrorCode::InvalidArgument, "No project is open."))?;
+        // Media the turn generated is filled in later by the generation worker, as the turn's own revision.
+        let mut revs = revs;
+        let first = revs.iter().min().copied().unwrap_or_default();
+        for r in p.records()?.into_iter().filter(|r| r.rev > first && r.source != Source::Undo) {
+            let ours = r.actor.as_ref().is_some_and(|a| {
+                a.kind == ove_core::revision::ActorKind::Assistant
+                    && a.session.as_deref() == Some(chat_id.as_str())
+                    && a.turn.as_deref() == Some(turn_id.as_str())
+            });
+            if ours && !revs.contains(&r.rev) {
+                revs.push(r.rev);
+            }
+        }
         let rev = undo_turn(p, &revs)?;
         if let Err(e) = store.append(&chat_id, &Record::TurnUndone { turn: turn_id, rev }) {
             tracing::warn!(error = %e, "could not note the undone turn in the chat log");

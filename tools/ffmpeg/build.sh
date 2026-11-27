@@ -6,8 +6,9 @@
 # Output: tools/ffmpeg/out/<target>/{include,lib,bin} plus buildconf.txt, license.txt, sizes.txt and encoders.txt.
 # Targets: macOS arm64 (VideoToolbox), Windows x64 (D3D11VA; run from an MSYS2 shell with MSVC on PATH), and Linux
 # x64 for development (no hardware decoder). Prerequisites: a C toolchain, make, nasm, pkg-config, cmake, meson,
-# ninja, and dav1d (BSD-2-Clause; the only software AV1 decoder) — `brew install dav1d nasm pkg-config cmake meson
-# ninja`, `vcpkg install dav1d`, or `apt install libdav1d-dev nasm cmake meson ninja-build`.
+# ninja, dav1d (BSD-2-Clause; the only software AV1 decoder), and libvpx and opus (BSD-3; VP9 and Opus export) —
+# `brew install dav1d libvpx opus nasm pkg-config cmake meson ninja`, `vcpkg install dav1d libvpx opus`, or
+# `apt install libdav1d-dev libvpx-dev libopus-dev nasm cmake meson ninja-build`.
 # Export encoders built from pinned, checksummed sources (fix-render-and-edit-correctness D5): OpenH264 (BSD-2-Clause,
 # shared library, all targets) and, on Windows, the NVIDIA (NVENC), AMD (AMF) and Intel (QSV through the oneVPL
 # dispatcher) hardware encoders. Their headers and the dispatcher are MIT; the drivers ship with the GPU.
@@ -160,10 +161,12 @@ fi
 # pinned source as the cross build and linked statically, so FFmpeg's DLLs need no zlib DLL.
 if [ "$TARGET" = windows-x64 ]; then
   VCPKG_DEPS="${OVE_VCPKG_INSTALLED:-$(cygpath -u "${VCPKG_INSTALLATION_ROOT:-${VCPKG_ROOT:-C:/vcpkg}}")/installed/x64-windows}"
-  if [ ! -f "$VCPKG_DEPS/lib/pkgconfig/dav1d.pc" ]; then
-    echo "dav1d is needed in $VCPKG_DEPS: vcpkg install dav1d:x64-windows" >&2
-    exit 2
-  fi
+  for pc in dav1d vpx opus; do
+    if [ ! -f "$VCPKG_DEPS/lib/pkgconfig/$pc.pc" ]; then
+      echo "$pc is needed in $VCPKG_DEPS: vcpkg install dav1d libvpx opus --triplet x64-windows" >&2
+      exit 2
+    fi
+  done
   export PKG_CONFIG_PATH="$VCPKG_DEPS/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
   command -v nmake >/dev/null || { echo "nmake is needed (run inside the MSVC developer environment)" >&2; exit 2; }
   rm -rf "$DEPS" "$WORK/zlib-${ZLIB_VERSION}" && mkdir -p "$DEPS/include" "$DEPS/lib"
@@ -258,10 +261,21 @@ DECODERS="h264,hevc,prores,dnxhd,libdav1d,vp9,vp8,mjpeg,png"
 DECODERS+=",aac,aac_fixed,alac,opus,mp3float,mp3,flac,vorbis"
 DECODERS+=",pcm_s16le,pcm_s16be,pcm_s24le,pcm_s24be,pcm_s32le,pcm_s32be,pcm_f32le,pcm_f32be,pcm_f64le,pcm_u8"
 PARSERS="h264,hevc,av1,vp9,vp8,aac,opus,flac,mpegaudio,dnxhd,prores,mjpeg,png,vorbis"
-# Export (change 6): MP4/MOV out; AAC audio; platform H.264/HEVC encoders (below); ProRes and MPEG-4 Part 2 as
-# software fallbacks that stay LGPL (no x264/x265).
-EXPORT_MUXERS="mp4,mov"
-EXPORT_ENCODERS="aac,prores_ks,mpeg4,png,mjpeg,libopenh264"
+# Export (change 6, extend-export-formats-and-queue): MP4, MOV, Matroska, WebM, M4A (ipod), WAV and FLAC out; AAC,
+# FLAC, PCM and Opus (libopus, BSD-3) audio; ProRes (prores_ks), DNxHR (dnxhd) and VP9 (libvpx, BSD-3) in software;
+# H.264 from OpenH264 and the platform and GPU vendors' encoders, HEVC and AV1 only from the latter (below). MPEG-4
+# Part 2 is the last H.264 fallback. No x264, x265, SVT-AV1 or libaom: GPL, or not yet cleared by the licence review.
+EXPORT_MUXERS="mp4,mov,ipod,matroska,webm,wav,flac"
+EXPORT_ENCODERS="aac,prores_ks,dnxhd,libvpx_vp9,libopus,flac,pcm_s24le,mpeg4,png,mjpeg,libopenh264"
+# VP9 and Opus encoders for WebM export (BSD-3; found through pkg-config like dav1d). Required for the shipped
+# targets; the Linux development and cross builds go without them when the libraries are missing (VP9, Opus and
+# WebM export then report that this build cannot write them).
+EXPORT_LIBS=(--enable-libvpx --enable-libopus)
+if [ "$TARGET" != macos-arm64 ] && [ "$TARGET" != windows-x64 ] && ! pkg-config --exists vpx opus 2>/dev/null; then
+  echo "warning: libvpx or opus not found; this build will not export VP9, Opus or WebM" >&2
+  EXPORT_ENCODERS="${EXPORT_ENCODERS/,libvpx_vp9,libopus/}"
+  EXPORT_LIBS=()
+fi
 
 FLAGS=(
   --prefix="$OUT"
@@ -279,6 +293,7 @@ FLAGS=(
   --enable-zlib
   --enable-libdav1d
   --enable-libopenh264
+  ${EXPORT_LIBS[@]+"${EXPORT_LIBS[@]}"}
   # Reference CLI for the decode tests (framemd5 / PCM output from the same libraries the app links). Packaging copies
   # only libavcodec, libavformat, libavutil, libswscale and libswresample; the CLI and libavfilter are test-only.
   --enable-ffmpeg --enable-avfilter
@@ -308,9 +323,10 @@ case "$TARGET" in
     # Media Foundation encoders use the GPU vendor's hardware encoder MFT when present, else Microsoft's software one.
     FLAGS+=(--enable-mediafoundation --enable-encoder=h264_mf,hevc_mf)
     # Vendor encoders, tried by export before Media Foundation; each fails to open on a machine without that GPU.
-    FLAGS+=(--enable-ffnvcodec --enable-nvenc --enable-encoder=h264_nvenc,hevc_nvenc)
-    FLAGS+=(--enable-amf --enable-encoder=h264_amf,hevc_amf)
-    FLAGS+=(--enable-libvpl --enable-encoder=h264_qsv,hevc_qsv)
+    # AV1 export uses only these hardware encoders (no SVT-AV1 or libaom).
+    FLAGS+=(--enable-ffnvcodec --enable-nvenc --enable-encoder=h264_nvenc,hevc_nvenc,av1_nvenc)
+    FLAGS+=(--enable-amf --enable-encoder=h264_amf,hevc_amf,av1_amf)
+    FLAGS+=(--enable-libvpl --enable-encoder=h264_qsv,hevc_qsv,av1_qsv)
     ;;
   linux-x64) ;;
 esac
@@ -326,7 +342,9 @@ make -j"$JOBS" > "$OUT/make.log" 2>&1 || { tail -40 "$OUT/make.log"; exit 1; }
 make install > /dev/null
 if [ "$TARGET" = windows-x64 ]; then
   # FFmpeg's DLLs import dav1d's.
-  cp "$VCPKG_DEPS/bin/dav1d.dll" "$OUT/bin/"
+  for dll in dav1d vpx opus; do
+    if [ -f "$VCPKG_DEPS/bin/$dll.dll" ]; then cp "$VCPKG_DEPS/bin/$dll.dll" "$OUT/bin/"; fi
+  done
   # The MSVC toolchain installs the import libraries (avutil.lib, ...) next to the DLLs; the Rust bindings link
   # from lib/.
   cp "$OUT"/bin/*.lib "$OUT/lib/"

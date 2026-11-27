@@ -9,8 +9,9 @@ use ove_store::project::Project;
 use serde_json::Value;
 
 use crate::bundle::same_bundle;
-use crate::ctx::{Editor, LocalEditor, Surface, ToolCtx};
+use crate::ctx::{Editor, LocalEditor, Surface, ToolCtx, confirm_required};
 use crate::fail::Fail;
+use crate::session::Session;
 
 /// What the app provides to tools.
 pub trait AppHost {
@@ -28,6 +29,18 @@ pub trait AppHost {
     /// The skill store, when the host keeps it somewhere other than its library (or has no library open yet).
     fn skills(&mut self) -> Option<crate::skills::SkillStore> {
         None
+    }
+    /// The session (the chat) the call belongs to; see [`ToolCtx::session`].
+    fn session(&self) -> Option<Session> {
+        None
+    }
+    /// Asks the person to approve a priced request; see [`ToolCtx::ask_spend`].
+    fn ask_spend(&mut self, _card: &Value) -> Result<bool, Fail> {
+        Err(confirm_required())
+    }
+    /// Starts the app's generation worker for a saved job; see [`ToolCtx::start_generation`].
+    fn start_generation(&mut self, _bundle: &Path, _job: &str) -> Result<(), Fail> {
+        Err(Fail::new("generate.unavailable", "generation jobs cannot be started here"))
     }
 }
 
@@ -125,6 +138,15 @@ impl ToolCtx for AppCtx<'_> {
     }
     fn library(&mut self) -> Result<&Library, Fail> {
         self.host.library().ok_or_else(|| Fail::new("library.unavailable", "the project library is not available here"))
+    }
+    fn session(&self) -> Option<Session> {
+        self.host.session()
+    }
+    fn ask_spend(&mut self, card: &Value) -> Result<bool, Fail> {
+        self.host.ask_spend(card)
+    }
+    fn start_generation(&mut self, bundle: &Path, job: &str) -> Result<(), Fail> {
+        self.host.start_generation(bundle, job)
     }
     fn skills(&mut self) -> Result<crate::skills::SkillStore, Fail> {
         match self.host.skills() {

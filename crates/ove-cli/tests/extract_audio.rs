@@ -33,6 +33,8 @@ fn ove(lib: &Path, args: &[&str]) -> Output {
         .arg(lib)
         .args(args)
         .env_remove("OVE_LIBRARY")
+        // Exports go through the export queue: a queue of its own next to the library, not the app data folder's.
+        .env("OVE_EXPORT_QUEUE_DIR", lib.with_file_name("export-queue"))
         .output()
         .unwrap()
 }

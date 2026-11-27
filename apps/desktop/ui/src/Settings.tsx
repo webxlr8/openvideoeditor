@@ -15,6 +15,7 @@ import { AgentsSection } from "./agents/AgentsSection";
 import { ConnectorsSection } from "./agents/ConnectorsSection";
 import { ModelsSection } from "./storage/ModelsSection";
 import { SkillsSection } from "./skills/SkillsSection";
+import { SpendCapField } from "./spend/SpendCard";
 import { commands } from "./bridge";
 import { AssistantDataList } from "./ChatPanel";
 import { copyText } from "./clipboard";
@@ -401,6 +402,7 @@ export function Settings({
                 onError={onError}
               />
             ))}
+            <SpendCapField onError={onError} />
           </section>
         )}
         {section === "assistant" && (

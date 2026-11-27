@@ -7,6 +7,7 @@ pub mod fsio;
 pub mod library;
 pub mod lock;
 pub mod media;
+pub mod pins;
 pub mod project;
 pub mod undo;
 

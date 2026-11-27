@@ -5,7 +5,8 @@
 //! line back: `{"ok": true, "result": …}` or `{"ok": false, "error": {"code", "message"}}`. Loopback plus the token
 //! keeps other users and web pages out; the token changes every launch.
 //!
-//! Methods the app answers (see `docs/cli/app.md`): `context`, `open`, `seek`, `play`, `pause`, `apply`, `restore`.
+//! Methods the app answers (see `docs/cli/app.md`): `context`, `open`, `seek`, `play`, `pause`, `apply`, `restore`,
+//! `undo`, and `confirm_spend` (a price card the person answers).
 #![forbid(unsafe_code)]
 
 use std::io::{BufRead, BufReader, Read, Write};

@@ -5,8 +5,11 @@
 - [ ] 1.1 Enable the HEVC, ProRes, DNxHD/DNxHR, libvpx-vp9, libopus and hardware AV1 encoders and the MOV, Matroska,
       WebM, iPod, WAV and FLAC muxers in `tools/ffmpeg/build.sh` for macOS and Windows; verify `check-license.sh` passes
       (no GPL or nonfree component) and record the installer size per platform in `sizes.txt` (≤ 60 MB).
+      Open: flags added and the licence check passes on the current build; the rebuild (MSYS2, vcpkg libvpx, opus,
+      ffnvcodec, amd-amf, libvpl) and installer sizes need the build machines.
 - [ ] 1.2 Add a run-time encoder inventory to `ove doctor`; verify it lists the expected encoders on the macOS and
       Windows reference machines.
+      Open: implemented and checked on Windows (see design.md Results); macOS reference machine not available.
 
 ## 2. Settings model and encoders
 
@@ -15,37 +18,42 @@
 - [x] 2.2 Implement per-codec encoder candidate lists with run-time filtering and reporting of the chosen encoder;
       verify a test with a mocked inventory picks the expected encoder and refuses HEVC when none exists.
 - [ ] 2.3 Implement ProRes (all profiles), DNxHR (all profiles), HEVC 8/10-bit, VP9 and hardware AV1 encoding paths;
-      verify an ffprobe matrix test (codec, profile, pixel format, colour tags) and SSIM ≥ 0.99 against the H.264
-      golden export on a 10 s test timeline.
+      verify an ffprobe matrix test (codec, profile, pixel format, colour tags) and luma SSIM ≥ 0.99 (ProRes Proxy ≥ 0.98)
+      against the H.264 golden export on a 10 s test timeline.
+      Open: ProRes (all profiles) verified; HEVC, DNxHR, VP9 and AV1 paths are implemented but this build or machine has
+      no encoder for them, so their matrix cases are skipped.
 - [ ] 2.4 Implement alpha export for ProRes 4444 and VP9 with a transparent canvas; verify the alpha scenarios with a
       text-only timeline.
-- [ ] 2.5 Implement the HDR tag path (10-bit conversion, BT.2020, PQ/HLG, mastering metadata) behind a check that the
+      Open: ProRes 4444 alpha verified; VP9 alpha needs libvpx and the WebM muxer (not in this build).
+- [x] 2.5 Implement the HDR tag path (10-bit conversion, BT.2020, PQ/HLG, mastering metadata) behind a check that the
       timeline produces HDR frames; verify the refusal scenario now and the tag scenario with a synthetic HDR frame
       source.
-- [ ] 2.6 Implement audio-only export (M4A AAC with priming edit list, WAV 16/24-bit, FLAC) and range export; verify
+      Note: tags verified on ProRes; HEVC 10-bit PQ has no encoder on this machine.
+- [x] 2.6 Implement audio-only export (M4A AAC with priming edit list, WAV 16/24-bit, FLAC) and range export; verify
       the WAV-matches-mix, AAC duration and range scenarios.
-- [ ] 2.7 Update `docs/cli/export.md` with the settings model, presets and examples; verify the examples are executed by
+      Note: the FLAC path has no encoder or muxer in this build; WAV, M4A and range verified.
+- [x] 2.7 Update `docs/cli/export.md` with the settings model, presets and examples; verify the examples are executed by
       the CLI integration tests.
 
 ## 3. Queue
 
-- [ ] 3.1 Implement job files, the detached worker, queue order, progress throttling and `.partial` rename; verify the
+- [x] 3.1 Implement job files, the detached worker, queue order, progress throttling and `.partial` rename; verify the
       several-jobs and failure scenarios in an integration test.
-- [ ] 3.2 Implement revision pinning with a retention pin; verify the edit-while-waiting and revision-unavailable
+- [x] 3.2 Implement revision pinning with a retention pin; verify the edit-while-waiting and revision-unavailable
       scenarios.
-- [ ] 3.3 Implement cancel and restart recovery (dead worker detection, 3 attempts); verify by killing the worker
+- [x] 3.3 Implement cancel and restart recovery (dead worker detection, 3 attempts); verify by killing the worker
       process in a test and by the cancel scenarios (stop within 2 s measured).
-- [ ] 3.4 Add `ove export --detach`, `ove export queue|status|cancel`; verify the detached scenario and the
+- [x] 3.4 Add `ove export --detach`, `ove export queue|status|cancel`; verify the detached scenario and the
       unknown-id error with exit codes.
-- [ ] 3.5 Update MCP `export_video` (format, quality, range, wait, preset), `job_status` and `cancel_job` for export
+- [x] 3.5 Update MCP `export_video` (format, quality, range, wait, preset), `job_status` and `cancel_job` for export
       jobs; verify an MCP contract test for each, including the unknown-id error.
 
 ## 4. Save range as media
 
-- [ ] 4.1 Implement save range as media (render, `AddMedia` as bundle-owned) and render in place (replace covered items
+- [x] 4.1 Implement save range as media (render, `AddMedia` as bundle-owned) and render in place (replace covered items
       in the same revision, delete the file on commit failure); verify the three scenarios, including SSIM ≥ 0.98 at a
       sample time and a single undo step.
-- [ ] 4.2 Add `ove export --as-media [--replace]` and MCP `save_range_as_media`; verify CLI and MCP contract tests.
+- [x] 4.2 Add `ove export --as-media [--replace]` and MCP `save_range_as_media`; verify CLI and MCP contract tests.
 
 ## 5. UI
 

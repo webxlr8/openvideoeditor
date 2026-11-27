@@ -14,6 +14,7 @@ pub mod edits;
 pub mod fail;
 pub mod receipt;
 pub mod registry;
+pub mod session;
 pub mod skills;
 pub mod spec;
 pub mod tools;
@@ -26,6 +27,7 @@ pub use ctx::{Editor, Surface, ToolCtx};
 pub use fail::Fail;
 pub use receipt::{Png, Receipt};
 pub use registry::TOOLS;
+pub use session::Session;
 pub use spec::{Args, ToolSpec};
 
 /// A tool by name or former name.
@@ -77,8 +79,12 @@ pub fn unknown(name: &str, surface: Surface) -> Fail {
 pub fn call(ctx: &mut dyn ToolCtx, name: &str, args: &Map<String, Value>) -> Result<Receipt, Fail> {
     let surface = ctx.surface();
     let t = find(name).filter(|t| t.on(surface)).ok_or_else(|| unknown(name, surface))?;
-    spec::validate(t, args, surface)?;
-    (t.run)(ctx, &Args(args))
+    let r = spec::validate(t, args, surface).and_then(|()| (t.run)(ctx, &Args(args)));
+    // The session remembers what ran (feedback reports list it).
+    if let Some(s) = ctx.session() {
+        s.note_call(t.name, r.as_ref().err().map(|f| f.code.as_str()));
+    }
+    r
 }
 
 /// The MCP `tools/list` entries for a surface.

@@ -23,4 +23,8 @@ app with the revision it was computed from; the app applies it as one revision (
 updates and the change can be undone there. If the user edited in between, the command recomputes and retries (up to
 three times). Text output ends with "(in the app)" and JSON has `"viaApp": true`.
 
+**Spending.** An agent's generation request (`generate_*` with `confirm`) asks the app over the control method
+`confirm_spend`: the app shows a price card and answers with the person's choice, to that request only. Without the
+app, `ove mcp` uses the MCP client's confirmation prompt, or refuses with `confirm.required`.
+
 Exit code 3 means the app is not running.

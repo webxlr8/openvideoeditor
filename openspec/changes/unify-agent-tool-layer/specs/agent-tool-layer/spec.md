@@ -170,8 +170,8 @@ request it priced. A session SHALL be refused once its total confirmed spend wou
 ### Requirement: Local feedback queue
 `send_feedback` SHALL store a report on this computer only. The report SHALL contain the category, severity, a
 paraphrased summary, the app and OS versions and the recent tool names. The tool SHALL drop exact duplicates and accept
-at most 8 reports per session. Help → Feedback SHALL list the queued reports so that the person can edit, delete or send
-each one.
+at most 8 reports per session. Help → Feedback SHALL list the queued reports so that the person can edit, delete or copy
+each one. No report SHALL be sent from the app.
 
 #### Scenario: No network
 - **WHEN** an agent calls `send_feedback`

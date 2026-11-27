@@ -2,7 +2,10 @@
 
 The app links FFmpeg 9.0.2 built by `build.sh`: LGPL 2.1+ only, shared libraries, only the demuxers, decoders,
 parsers and hardware accelerators the preview needs (VideoToolbox on macOS, D3D11VA on Windows). Software AV1 uses
-dav1d (BSD-2-Clause). The build fails if GPL, version-3 or nonfree components are enabled (`check-license.sh`, run on
+dav1d (BSD-2-Clause). Export adds ProRes, DNxHR, FLAC, AAC and PCM encoders, VP9 and Opus through libvpx and
+libopus (BSD-3), the MP4, MOV, Matroska, WebM, M4A, WAV and FLAC muxers, and the platform and GPU vendors' H.264,
+HEVC and AV1 encoders (VideoToolbox; Media Foundation, NVENC, AMF, Quick Sync); never x264, x265 or SVT-AV1. The
+build fails if GPL, version-3 or nonfree components are enabled (`check-license.sh`, run on
 the configured `config.h` before compiling and on the final build configuration).
 
 ```
