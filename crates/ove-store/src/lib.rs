@@ -8,6 +8,7 @@ pub mod library;
 pub mod lock;
 pub mod media;
 pub mod project;
+pub mod undo;
 
 pub use error::{Result, StoreError};
 pub use library::{Library, Listing};

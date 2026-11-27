@@ -190,3 +190,9 @@ fn verify_reports_pending_and_exits_1() {
     let e: Value = serde_json::from_slice(&out.stderr).unwrap();
     assert_eq!(e["error"]["details"]["findings"][0]["lint"], "pending");
 }
+
+#[test]
+fn tool_examples() {
+    let (d, lib) = setup();
+    assert_eq!(run_examples("tools.md", &lib, d.path()), 5);
+}

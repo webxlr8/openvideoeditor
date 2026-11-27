@@ -31,6 +31,7 @@ ove-agent = { path = "../../../crates/ove-agent" }
 ove-agents = { path = "../../../crates/ove-agents" }
 ove-control = { path = "../../../crates/ove-control" }
 ove-core = { path = "../../../crates/ove-core" }
+ove-edit = { path = "../../../crates/ove-edit" }
 ove-generate = { path = "../../../crates/ove-generate" }
 ove-interchange = { path = "../../../crates/ove-interchange" }
 ove-graphics = { path = "../../../crates/ove-graphics" }
@@ -39,6 +40,7 @@ ove-media = { path = "../../../crates/ove-media" }
 ove-render = { path = "../../../crates/ove-render" }
 ove-store = { path = "../../../crates/ove-store" }
 ove-models = { path = "../../../crates/ove-models" }
+ove-tools = { path = "../../../crates/ove-tools", features = ["media"] }
 ove-transcribe = { path = "../../../crates/ove-transcribe" }
 png = "0.18"
 base64 = "0.22"

@@ -13,7 +13,7 @@ import type {
   AgentLimits_Serialize,
   AgentStatus_Serialize,
   AgentUiEvent_Serialize,
-  HistoryRow,
+  HistoryRow_Serialize,
   SpendView,
   AppError,
   AutoCaptionRequest_Deserialize,
@@ -66,6 +66,8 @@ export interface MockControl {
   crashReports?: { path: string; at: number; summary: string; seen: boolean }[];
   /** The feedback page a build may set (`OVE_FEEDBACK_URL`); none by default. */
   feedbackUrl?: string | null;
+  /** Frame rate of projects the mock creates (30 unless a test sets one). */
+  fps?: number;
   /** How long a simulated generation job takes (ms). */
   generationMs?: number;
   rects: ViewerRect[];
@@ -696,7 +698,7 @@ function createMock(): {
   let project: ProjectView_Serialize | null = null;
   let undoStack: ProjectView_Serialize[] = [];
   let redoStack: ProjectView_Serialize[] = [];
-  let history: { row: HistoryRow; before: ProjectView_Serialize | null }[] =
+  let history: { row: HistoryRow_Serialize; before: ProjectView_Serialize | null }[] =
     [];
   let seq = 0;
   const WHO: Record<string, string> = {
@@ -725,6 +727,7 @@ function createMock(): {
             : (WHO[source] ?? "You"),
         summary,
         canRestore: before !== null,
+        client: null,
       },
       before,
     });
@@ -738,8 +741,9 @@ function createMock(): {
   });
   // The timeline viewer follows edits, as the engine's timeline session does.
   let timelineOpen = false;
+  const projectFps = () => project?.fps ?? 30;
   const timelineFrames = () =>
-    Math.max(1, Math.ceil((project?.durationSeconds ?? 0) * 30));
+    Math.max(1, Math.ceil((project?.durationSeconds ?? 0) * projectFps()));
   const publish = () => {
     if (!project)
       return ok<ProjectView_Serialize>(
@@ -777,6 +781,7 @@ function createMock(): {
     bundle: `/mock/library/${name}.ove`,
     rev: Date.now(),
     aspectRatio: "16:9",
+    fps: control.fps ?? 30,
     durationSeconds: 0,
     canUndo: false,
     canRedo: false,
@@ -794,6 +799,7 @@ function createMock(): {
       locked: false,
       visible: true,
       muted: false,
+      syncLock: true,
     })),
     items: [],
     media: [],
@@ -911,6 +917,7 @@ function createMock(): {
       transitionIn: 0,
       transitionOut: 0,
       speed: 1,
+      link: typeof d.link === "string" ? d.link : null,
       fields,
     });
   }
@@ -1399,14 +1406,21 @@ function createMock(): {
     projectView: () => ok(project ? clone(project) : null),
     importMedia: (paths: string[]) => importPaths(paths),
     importMediaDialog: () => importPaths(["/mock/Sample clip.mov"]),
-    moveItem: (id: string, start: number | null, trackId: string | null) =>
-      editProject("move clip", () => {
+    moveItem: (id: string, start: number | null, trackId: string | null, linked: boolean | null) =>
+      editProject("move clip", (p) => {
         const i = findItem(id);
         if (!i) return;
         const d = (i.end ?? 0) - (i.start ?? 0);
+        const delta = Math.max(0, start ?? 0) - (i.start ?? 0);
+        // Like the planner: link partners move by the same amount unless the move is for this item alone.
+        const partners = linked !== false && i.link ? p.items.filter((o) => o.link === i.link && o.id !== i.id) : [];
         i.start = Math.max(0, start ?? 0);
         i.end = i.start + d;
         if (trackId) i.trackId = trackId;
+        for (const o of partners) {
+          o.start = (o.start ?? 0) + delta;
+          o.end = (o.end ?? 0) + delta;
+        }
       }),
     removeItems: (ids: string[]) =>
       editProject(
@@ -1511,7 +1525,30 @@ function createMock(): {
             }),
           );
       }),
-    trimItem: (id: string, edge: string, time: number | null) =>
+    editPreview: (request: string) => {
+      track("editPreview");
+      // The mock plans moves only: the item and (unless `linked` is false) its link partners shift together.
+      const r = JSON.parse(request) as { op: string; item?: string; start?: number; linked?: boolean };
+      const i = r.op === "move" && r.item ? findItem(r.item) : undefined;
+      if (!i || !project) return ok({ summary: "", ghosts: [], removed: [], limited: [], refusal: null });
+      const delta = Math.max(0, r.start ?? 0) - (i.start ?? 0);
+      const moved = project.items.filter((o) => o.id === i.id || (r.linked !== false && i.link && o.link === i.link));
+      return ok({
+        summary: `move ${i.id}`,
+        ghosts: moved.map((o) => ({ id: o.id, trackId: o.trackId, start: (o.start ?? 0) + delta, end: (o.end ?? 0) + delta })),
+        removed: [],
+        limited: [],
+        refusal: null,
+      });
+    },
+    editPlan: (request: string) => {
+      const r = JSON.parse(request) as { op: string; item?: string; start?: number; track?: string; linked?: boolean };
+      track(`editPlan:${r.op}`);
+      if (r.op === "move" && r.item) return commands.moveItem(r.item, r.start ?? 0, r.track ?? null, r.linked ?? null);
+      // Other verbs are planned by the native side; the mock records the request and changes nothing.
+      return publish();
+    },
+    trimItem: (id: string, edge: string, time: number | null, _linked: boolean | null) =>
       editProject("trim", () => {
         const i = mock(id);
         if (!i || time === null) return;
@@ -1531,6 +1568,7 @@ function createMock(): {
           locked: false,
           visible: true,
           muted: false,
+          syncLock: true,
         };
         if (kind === "audio") p.tracks.push(t);
         else p.tracks.unshift(t);
@@ -1561,16 +1599,16 @@ function createMock(): {
         hasMedia: true,
         frame: 0,
         totalFrames: timelineFrames(),
-        frameRate: 30,
+        frameRate: projectFps(),
       });
       changed();
       return ok<MediaInfo_Serialize>({
         path: project.bundle,
         name: project.name,
-        durationSeconds: state.totalFrames / 30,
+        durationSeconds: state.totalFrames / projectFps(),
         width,
         height,
-        frameRate: 30,
+        frameRate: projectFps(),
         totalFrames: state.totalFrames,
         videoCodec: "timeline",
         audioLayout: "stereo mix",
@@ -1873,6 +1911,7 @@ function createMock(): {
             locked: false,
             visible: true,
             muted: false,
+            syncLock: true,
           });
           p.items.push({
             id: `i_imp_${seq}`,
@@ -1890,6 +1929,7 @@ function createMock(): {
             transitionIn: 0,
             transitionOut: 0,
             speed: 1,
+            link: null,
           });
         }),
       );

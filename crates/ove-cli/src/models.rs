@@ -5,10 +5,11 @@ use std::sync::atomic::AtomicBool;
 
 use clap::Subcommand;
 use ove_core::revision::Source;
-use ove_models::{Ensure, ModelError, ModelStatus, Origin, Store};
+use ove_models::{Ensure, Origin, Store};
+use ove_tools::tools::models::open_store;
 use serde_json::{Value, json};
 
-use crate::common::{Fail, Out, progress_enabled};
+use crate::common::{Fail, Out};
 
 #[derive(Subcommand)]
 pub enum ModelsCmd {
@@ -23,21 +24,6 @@ pub enum ModelsCmd {
     },
     /// Delete an installed model's files.
     Remove { id: String },
-}
-
-impl From<ModelError> for Fail {
-    fn from(e: ModelError) -> Self {
-        Fail::new(e.code(), e.to_string())
-    }
-}
-
-fn open_store() -> Result<Store, Fail> {
-    let root = ove_models::default_root()
-        .ok_or_else(|| Fail::new("model.store", "could not find the app data folder (set OVE_MODELS_DIR)"))?;
-    let store = Store::open(root);
-    // Speech models saved by earlier versions are recorded where they are, the first time they are seen.
-    store.adopt_root_files();
-    Ok(store)
 }
 
 pub fn run(cmd: &ModelsCmd, source: Source) -> Out {
@@ -60,39 +46,18 @@ fn mb(bytes: u64) -> String {
     format!("{:.1} MB", bytes as f64 / 1e6)
 }
 
-fn status_json(s: &ModelStatus) -> Value {
-    serde_json::to_value(s).unwrap_or(Value::Null)
-}
-
 fn list(store: &Store) -> Out {
-    let models = store.list();
-    let mut text = String::new();
-    for m in &models {
-        let state = if m.installed { "installed" } else { "not installed" };
-        text.push_str(&format!("{:<16} {:>9}  {:<13}  {}\n", m.id, mb(m.bytes), state, m.purpose));
-        if let Some(loc) = &m.location {
-            text.push_str(&format!("{:<16} {}\n", "", loc.display()));
-        }
-    }
-    text.push_str(&format!("store: {}", store.root().display()));
-    let installed_bytes: u64 = models.iter().filter(|m| m.installed).map(|m| m.bytes).sum();
-    Ok((
-        json!({
-            "root": store.root(),
-            "installedBytes": installed_bytes,
-            "models": models.iter().map(status_json).collect::<Vec<_>>(),
-        }),
-        text,
-    ))
+    let r = ove_tools::tools::models::list(store);
+    Ok((r.json, r.text))
 }
 
 fn install(store: &Store, id: &str, origin: Origin) -> Out {
     let already = store.manifest(id).map(|_| store.is_installed(id))?;
-    let show = progress_enabled();
     let mut last_pct = u64::MAX;
     let mut on_progress = |p: &ove_models::Progress| {
         let pct = p.done * 100 / p.total.max(1);
-        if show && !already && pct != last_pct && (pct.is_multiple_of(5) || pct == 100) {
+        // Progress goes to stderr; stdout keeps the one result (JSON with --json).
+        if !already && pct != last_pct && (pct.is_multiple_of(5) || pct == 100) {
             last_pct = pct;
             eprintln!("downloading {}: {pct}% ({} of {})", p.model, mb(p.done), mb(p.total));
         }

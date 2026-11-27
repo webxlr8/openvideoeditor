@@ -50,7 +50,11 @@ pub fn typings() -> String {
         ts(&Kind::Enum(schema::ASPECT_RATIOS)),
         ts(&Kind::Enum(schema::TRACK_TYPES))
     ));
-    s.push_str("interface TimelineProps {\n  aspect?: Aspect;\n  children?: unknown;\n}\n\n");
+    s.push_str("interface TimelineProps {\n  aspect?: Aspect;\n");
+    if let Some(f) = schema::project_field("fps") {
+        prop(&mut s, f, "fps");
+    }
+    s.push_str("  children?: unknown;\n}\n\n");
     s.push_str("interface TrackProps {\n  /** Track id; omit for a new track. */\n  id?: string;\n  name?: string;\n  kind: TrackKind;\n");
     for f in schema::TRACK_FIELDS {
         prop(&mut s, f, f.name);

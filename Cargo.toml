@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
     "crates/ove-core",
+    "crates/ove-edit",
     "crates/ove-store",
     "crates/ove-projection",
     "crates/ove-cli",
@@ -20,10 +21,12 @@ members = [
     "crates/ove-graphics",
     "crates/ove-guard",
     "crates/ove-models",
+    "crates/ove-tools",
     "apps/desktop/src-tauri",
 ]
 default-members = [
     "crates/ove-core",
+    "crates/ove-edit",
     "crates/ove-control",
     "crates/ove-generate",
     "crates/ove-interchange",
@@ -35,6 +38,7 @@ default-members = [
     "crates/ove-guard",
     "crates/ove-models",
     "crates/ove-playback",
+    "crates/ove-tools",
 ]
 
 [workspace.package]

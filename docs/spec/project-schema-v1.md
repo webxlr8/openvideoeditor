@@ -29,6 +29,7 @@ Conventions:
 | `updatedAt` | integer |  |  | ms since the epoch. |
 | `stateUpdatedAt` | integer ≥ 0 |  | yes | Current revision (rev), ms-based. |
 | `aspectRatio` | `16:9` \| `4:3` \| `3:4` \| `9:16` \| `1:1` \| `4:5` |  | yes | Frame aspect ratio. |
+| `fps` | number [1..240] | `30` |  | Timeline frame rate; edits snap to its frame grid. |
 | `media` | any |  |  | Media items. |
 | `timelineItems` | any |  |  | Items. |
 | `tracks` | any |  |  | Tracks. |
@@ -46,6 +47,7 @@ Other project fields (`cast`, `temp`, `mediaBaseDirectory`, …) are preserved a
 | `locked` | boolean | `false` |  | Locked tracks cannot be edited in the GUI. |
 | `visible` | boolean | `true` |  | Hidden tracks render nothing. |
 | `muted` | boolean | `false` |  | Muted tracks play no audio. |
+| `syncLock` | boolean | `true` |  | Ripple edits on other tracks shift this track's items too. |
 
 ## Media item (`project.media[]`)
 
@@ -91,6 +93,7 @@ Fields in projection attribute order:
 | `mediaItemId` | string |  |  | Id of the media item the item plays. |
 | `pending` | boolean | `false` |  | Placeholder awaiting generated or supplied media. |
 | `pendingDescription` | string |  |  | What the pending placeholder should become. |
+| `link` | string |  |  | Link group: items with the same value move, trim, slip and delete together. |
 | `transform` | object {x, y, scale, rotation, flipX} |  |  | Position, scale, rotation, flip. |
 | `crop` | object {top, right, bottom, left} |  |  | Crop in percent per edge. |
 | `opacity` | number [0..1] | `1` |  | Opacity. |
@@ -127,6 +130,7 @@ Fields in projection attribute order:
 | `mediaItemId` | string |  |  | Id of the media item the item plays. |
 | `pending` | boolean | `false` |  | Placeholder awaiting generated or supplied media. |
 | `pendingDescription` | string |  |  | What the pending placeholder should become. |
+| `link` | string |  |  | Link group: items with the same value move, trim, slip and delete together. |
 | `transform` | object {x, y, scale, rotation, flipX} |  |  | Position, scale, rotation, flip. |
 | `crop` | object {top, right, bottom, left} |  |  | Crop in percent per edge. |
 | `opacity` | number [0..1] | `1` |  | Opacity. |
@@ -157,6 +161,7 @@ Fields in projection attribute order:
 | `mediaItemId` | string |  |  | Id of the media item the item plays. |
 | `pending` | boolean | `false` |  | Placeholder awaiting generated or supplied media. |
 | `pendingDescription` | string |  |  | What the pending placeholder should become. |
+| `link` | string |  |  | Link group: items with the same value move, trim, slip and delete together. |
 | `transform` | object {x, y, scale, rotation, flipX} |  |  | Position, scale, rotation, flip. |
 | `crop` | object {top, right, bottom, left} |  |  | Crop in percent per edge. |
 | `opacity` | number [0..1] | `1` |  | Opacity. |
@@ -191,6 +196,7 @@ Fields in projection attribute order:
 | `mediaItemId` | string |  |  | Id of the media item the item plays. |
 | `pending` | boolean | `false` |  | Placeholder awaiting generated or supplied media. |
 | `pendingDescription` | string |  |  | What the pending placeholder should become. |
+| `link` | string |  |  | Link group: items with the same value move, trim, slip and delete together. |
 | `textContent` | string |  |  | The text. |
 | `fontFamily` | string |  |  | Font family. |
 | `fontSize` | number [0..] |  |  | Font size in pixels. |
@@ -238,6 +244,7 @@ Fields in projection attribute order:
 | `mediaItemId` | string |  |  | Id of the media item the item plays. |
 | `pending` | boolean | `false` |  | Placeholder awaiting generated or supplied media. |
 | `pendingDescription` | string |  |  | What the pending placeholder should become. |
+| `link` | string |  |  | Link group: items with the same value move, trim, slip and delete together. |
 | `captionText` | string |  |  | Full caption text. |
 | `captionSegments` | array of object {id, text, startTime, endTime, wordTimings} |  |  | Timed segments with word timings. |
 | `captionPresetId` | string |  |  | Caption style preset. |
@@ -274,6 +281,7 @@ Fields in projection attribute order:
 | `mediaItemId` | string |  |  | Id of the media item the item plays. |
 | `pending` | boolean | `false` |  | Placeholder awaiting generated or supplied media. |
 | `pendingDescription` | string |  |  | What the pending placeholder should become. |
+| `link` | string |  |  | Link group: items with the same value move, trim, slip and delete together. |
 | `codeComposition` | object {source, template, props, width, height, assets} |  |  | Motion-graphics composition (pure JSX of {time, width, height, assets}). |
 | `transform` | object {x, y, scale, rotation, flipX} |  |  | Position, scale, rotation, flip. |
 | `crop` | object {top, right, bottom, left} |  |  | Crop in percent per edge. |
@@ -303,6 +311,7 @@ Fields in projection attribute order:
 | `mediaItemId` | string |  |  | Id of the media item the item plays. |
 | `pending` | boolean | `false` |  | Placeholder awaiting generated or supplied media. |
 | `pendingDescription` | string |  |  | What the pending placeholder should become. |
+| `link` | string |  |  | Link group: items with the same value move, trim, slip and delete together. |
 | `adjustmentKind` | string |  |  | Kind of adjustment layer. |
 | `lutPresetId` | string |  |  | LUT preset id. |
 | `lutIntensity` | number [0..1] | `1` |  | LUT blend amount. |
@@ -336,6 +345,7 @@ Fields in projection attribute order:
 | `mediaItemId` | string |  |  | Id of the media item the item plays. |
 | `pending` | boolean | `false` |  | Placeholder awaiting generated or supplied media. |
 | `pendingDescription` | string |  |  | What the pending placeholder should become. |
+| `link` | string |  |  | Link group: items with the same value move, trim, slip and delete together. |
 | `shaderComposition` | object {source, template, params, controls, amount, fadeIn, fadeOut, region, defaults} |  |  | Shader layer definition. |
 | `transform` | object {x, y, scale, rotation, flipX} |  |  | Position, scale, rotation, flip. |
 | `crop` | object {top, right, bottom, left} |  |  | Crop in percent per edge. |

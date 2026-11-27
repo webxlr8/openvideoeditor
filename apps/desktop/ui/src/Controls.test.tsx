@@ -152,13 +152,13 @@ describe("menus", () => {
 
 describe("shortcut list", () => {
   it("shows the keys as they are bound now", () => {
-    setBinding("split", "x");
+    setBinding("split", "g");
     setBinding("zoomIn", "]");
     render(<Shortcuts onClose={() => {}} />);
     const row = (what: string) =>
       screen.getByText(what).closest(".shortcut-row")?.querySelector("kbd")
         ?.textContent;
-    expect(row("Split the selected clip at the playhead")).toBe("X");
+    expect(row("Split the selected clip at the playhead")).toBe("G");
     expect(row("Zoom in / out")).toBe("] / −");
     expect(row("Duplicate selection")).toBe("D");
     expect(row("Reverse, pause, forward (repeat for 2×)")).toBe("J / K / L");
@@ -175,7 +175,7 @@ describe("settings shortcuts", () => {
     const reset = screen.getByTestId<HTMLButtonElement>("bind-reset-all");
     expect(reset.disabled).toBe(true);
     fireEvent.click(screen.getByTestId("bind-split"));
-    fireEvent.keyDown(window, { key: "x" });
+    fireEvent.keyDown(window, { key: "g" });
     await waitFor(() => expect(reset.disabled).toBe(false));
     fireEvent.click(reset);
     expect(reset.disabled).toBe(true);

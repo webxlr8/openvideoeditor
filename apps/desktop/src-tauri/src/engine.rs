@@ -19,7 +19,7 @@ use tauri_specta::Event;
 
 use crate::error::{AppError, AppResult, ErrorCode};
 use crate::media::{self, MediaInfo};
-use crate::timeline::{TIMELINE_FPS, TimelineFrame, TimelineSource};
+use crate::timeline::{TimelineFrame, TimelineSource};
 use crate::transport::{PlaybackState, TransportCommand};
 use crate::viewer::ViewerMsg;
 use crate::worker::relock;
@@ -345,7 +345,7 @@ impl Session {
         reuse: Option<AudioOutput>,
         audio_ok: &mut bool,
     ) -> Session {
-        let fps = TIMELINE_FPS;
+        let fps = doc.fps();
         let interval = (1_000_000.0 / fps).round() as i64;
         let duration_us = doc.duration().max(interval);
         let out = match reuse {

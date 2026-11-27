@@ -73,6 +73,11 @@ export function HistoryPanel({
                   data-testid="history-row"
                 >
                   <span className={`who who-${r.source}`}>{r.who}</span>
+                  {r.client ? (
+                    <span className="muted small" data-testid="history-client">
+                      {r.client}
+                    </span>
+                  ) : null}
                   <span className="history-summary">{shortSummary(r)}</span>
                   <span className="muted small">
                     {formatWhen(r.time ?? 0)}
