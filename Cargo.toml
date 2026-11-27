@@ -23,6 +23,7 @@ members = [
     "crates/ove-models",
     "crates/ove-tasks",
     "crates/ove-tools",
+    "crates/ove-vision",
     "apps/desktop/src-tauri",
 ]
 default-members = [
@@ -41,6 +42,7 @@ default-members = [
     "crates/ove-playback",
     "crates/ove-tasks",
     "crates/ove-tools",
+    "crates/ove-vision",
 ]
 
 [workspace.package]

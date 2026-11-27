@@ -4563,6 +4563,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "ove-vision"
+version = "0.1.0"
+dependencies = [
+ "crc32fast",
+ "half",
+ "memmap2",
+ "ove-analyze",
+ "ove-media",
+ "ove-models",
+ "ove-transcribe",
+ "proptest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "owned_ttf_parser"
 version = "0.25.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
