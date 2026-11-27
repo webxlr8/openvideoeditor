@@ -26,6 +26,10 @@ pub struct LocalModel {
     pub location: Option<String>,
     /// A running job uses it (removal waits for the job).
     pub in_use: bool,
+    /// Where it downloads from (shown before the first download).
+    pub host: Option<String>,
+    /// Bytes to download (an archive counts once).
+    pub download_bytes: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Type)]
@@ -96,6 +100,8 @@ pub async fn local_models(app: AppHandle) -> AppResult<LocalModels> {
                 bytes: m.bytes as f64,
                 installed: m.installed,
                 location: m.location.map(|p| p.display().to_string()),
+                host: m.host,
+                download_bytes: m.download_bytes as f64,
             })
             .collect();
         Ok(LocalModels { root: store.root().display().to_string(), free_bytes: free_bytes(&store), models })
@@ -145,6 +151,99 @@ pub async fn remove_local_model(app: AppHandle, id: String) -> AppResult<LocalMo
         })
         .map_err(|e| AppError::new(ErrorCode::Internal, e.to_string()))?;
         Ok(LocalModelsChanged { id, status: RemoveStatus::Waiting, freed_bytes: 0.0, free_bytes: free_bytes(&store) })
+    })
+    .await
+}
+
+/// Progress of a download the person started in Settings → Storage. The first event names the host the files come
+/// from; the last has `finished` set, with `error` when it failed or was cancelled.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalModelInstallProgress {
+    pub id: String,
+    pub host: String,
+    pub done_bytes: f64,
+    pub total_bytes: f64,
+    pub finished: bool,
+    pub error: Option<String>,
+}
+
+type CancelFlags = std::sync::Mutex<Vec<(String, std::sync::Arc<std::sync::atomic::AtomicBool>)>>;
+
+fn installs() -> std::sync::MutexGuard<'static, Vec<(String, std::sync::Arc<std::sync::atomic::AtomicBool>)>> {
+    static INSTALLS: CancelFlags = std::sync::Mutex::new(Vec::new());
+    INSTALLS.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Downloads a model or the inference runtime after the person asked for it in Settings → Storage (this is their
+/// consent). Returns at once; `localModelInstallProgress` reports the host and progress, and the end.
+#[tauri::command]
+#[specta::specta]
+pub async fn install_local_model(app: AppHandle, id: String) -> AppResult<()> {
+    worker::blocking("install_local_model", move || start_install(app, id)).await
+}
+
+fn start_install(app: AppHandle, id: String) -> AppResult<()> {
+    let store = store(&app);
+    let m = store.manifest(&id).map_err(model_error)?.clone();
+    let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    {
+        let mut g = installs();
+        if g.iter().any(|(k, _)| *k == id) {
+            return Err(AppError::new(ErrorCode::InvalidArgument, format!("{id} is already downloading")));
+        }
+        g.push((id.clone(), cancel.clone()));
+    }
+    let host = m.host().unwrap_or_default().to_string();
+    let total = m.download_bytes() as f64;
+    let event = move |done: f64, finished: bool, error: Option<String>| LocalModelInstallProgress {
+        id: m.id.clone(),
+        host: host.clone(),
+        done_bytes: done,
+        total_bytes: total,
+        finished,
+        error,
+    };
+    let _ = event(0.0, false, None).emit(&app);
+    let id2 = id.clone();
+    worker::spawn_contained("install model", move || {
+        let mut last = std::time::Instant::now();
+        let result = store.ensure_installed(
+            &id2,
+            ove_models::Origin::Person,
+            &mut |p| {
+                if last.elapsed() >= std::time::Duration::from_millis(100) {
+                    last = std::time::Instant::now();
+                    let _ = event(p.done as f64, false, None).emit(&app);
+                }
+            },
+            &cancel,
+        );
+        installs().retain(|(k, _)| *k != id2);
+        let end = match result {
+            Ok(_) => event(total, true, None),
+            Err(e) => event(0.0, true, Some(e.to_string())),
+        };
+        let _ = end.emit(&app);
+    })
+    .map_err(|e| {
+        installs().retain(|(k, _)| *k != id);
+        AppError::new(ErrorCode::Internal, e.to_string())
+    })?;
+    Ok(())
+}
+
+/// Cancels a download started with `install_local_model`. Returns false when none was running.
+#[tauri::command]
+#[specta::specta]
+pub async fn cancel_local_model_install(id: String) -> AppResult<bool> {
+    worker::blocking("cancel_local_model_install", move || {
+        let g = installs();
+        let found = g.iter().find(|(k, _)| *k == id);
+        if let Some((_, flag)) = found {
+            flag.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        Ok(found.is_some())
     })
     .await
 }

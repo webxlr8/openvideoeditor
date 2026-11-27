@@ -15,6 +15,8 @@
 // Environment
 //   OVE_E2E_APP            the app binary (default: $CARGO_TARGET_DIR or <repo>/target, debug/ove-desktop)
 //   OVE_E2E_MOCK_SERVER    the mock_server example binary (default next to the app, debug/examples/mock_server)
+//   OVE_E2E_OVE            the `ove` command line (default next to the app, debug/ove; `cargo build -p ove-cli`), for
+//                          the flows that drive the app from an MCP session
 //   OVE_E2E_TAURI_DRIVER   tauri-driver (default: on PATH, else ~/.cargo/bin)
 //   OVE_E2E_NATIVE_DRIVER  WebKitWebDriver / msedgedriver path, passed to tauri-driver --native-driver
 //   OVE_E2E_MEDIA          test media folder (default <repo>/tests/media/files)
@@ -42,6 +44,7 @@ import {
   killApp,
   logRecords,
   sleep,
+  startFalStandIn,
   startMockMessages,
   startTauriDriver,
   stop,
@@ -54,6 +57,7 @@ const exe = (n) => (WINDOWS ? `${n}.exe` : n);
 const targetDir = process.env.CARGO_TARGET_DIR ? path.resolve(process.env.CARGO_TARGET_DIR) : path.join(repo, "target");
 const APP = path.resolve(process.env.OVE_E2E_APP ?? path.join(targetDir, "debug", exe("ove-desktop")));
 const APP_EXE = path.basename(APP);
+const OVE = path.resolve(process.env.OVE_E2E_OVE ?? path.join(targetDir, "debug", exe("ove")));
 const MOCK = path.resolve(process.env.OVE_E2E_MOCK_SERVER ?? path.join(targetDir, "debug", "examples", exe("mock_server")));
 const TAURI_DRIVER =
   process.env.OVE_E2E_TAURI_DRIVER ?? which("tauri-driver") ?? path.join(os.homedir(), ".cargo", "bin", exe("tauri-driver"));
@@ -90,6 +94,8 @@ const models = process.env.OVE_WHISPER_MODEL_DIR ?? path.join(os.tmpdir(), "ove-
 fs.mkdirSync(models, { recursive: true });
 
 const mock = await startMockMessages({ bin: MOCK, logFile: path.join(OUT, "mock-messages.log") });
+// Generation goes to a local stand-in for fal.ai: nothing leaves the machine and nothing is spent.
+const fal = await startFalStandIn();
 
 // What the app sees. A fresh library and, on Linux, a fresh home (config, web storage, logs). Windows keeps the
 // profile folders (they are not read from the environment there); CI runners start clean.
@@ -99,6 +105,8 @@ const env = {
   OVE_E2E_DIALOGS: dialogs,
   OVE_WHISPER_MODEL_DIR: models,
   OVE_ANTHROPIC_BASE_URL: mock.url,
+  OVE_FAL_QUEUE_URL: fal.url,
+  OVE_GENERATE_POLL_MS: "200",
   // The assistant and the generation panel read keys from the environment when the credential store has none.
   ANTHROPIC_API_KEY: "e2e-demo-key-not-real-0123456789",
   FAL_KEY: "e2e-fal-key-not-real-0123456789",
@@ -150,6 +158,10 @@ const ctx = {
   dialogs,
   media,
   out: OUT,
+  /** The `ove` command line and the environment the app runs with (same library). */
+  ove: OVE,
+  env,
+  fal,
   /** Closes the app as the person would (window closed, normal shutdown), then starts it again. */
   async restart() {
     await closeApp();
@@ -275,6 +287,7 @@ try {
   if (ctx.app?.alive) await ctx.app.quit();
   stop(driver);
   stop(mock.child);
+  fal.close();
   if (appRunning(APP_EXE)) killApp(APP_EXE);
   copyAppLog(OUT);
   fs.writeFileSync(path.join(OUT, "summary.json"), JSON.stringify({ app: APP, results, allowedLogErrors: ALLOWED_ERRORS.map((a) => a.why) }, null, 2));

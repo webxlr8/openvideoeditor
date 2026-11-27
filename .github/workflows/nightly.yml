@@ -49,3 +49,18 @@ jobs:
           OVE_PERF_ENFORCE=1 cargo test --release -p ove-store --test perf -- --ignored --nocapture
           cargo test --release -p ove-projection --test perf -- --ignored --nocapture
           OVE_SOAK_SECS=1800 cargo test --release -p ove-store --test projection concurrency_soak -- --nocapture
+
+  # add-model-runtime 3.4: every pinned model and runtime URL still answers (a HEAD request each; fails on a 404).
+  # Also keeps the pure-Rust inference backend buildable until the runtime spike has its macOS row.
+  model-urls:
+    runs-on: ${{ fromJSON(vars.OVE_RUNNER_LINUX || '"ubuntu-24.04"') }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.97.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: v1-rust
+      - name: pinned model and runtime URLs answer
+        run: cargo test -p ove-models --test pinned_urls -- --include-ignored --nocapture
+      - name: pure-Rust backend still builds
+        run: cargo check -p ove-models --features tract

@@ -2,18 +2,26 @@
 
 ## 1. Recognition and timeline transcript
 
-- [ ] 1.1 Decide the voice-activity runtime (design.md D6): run the built-in recognition-library path and the shared
+- [x] 1.1 Decide the voice-activity runtime (design.md D6): run the built-in recognition-library path and the shared
       runtime path on the same fixture; verify both give the same speech mask within one 32 ms cell and record the
       decision and timings in design.md Results.
+      Done (design.md R1): the shared runtime wins (37 times faster). Every speech run of the runtime path matches a
+      built-in run within one cell at both ends; the built-in path also reports one 96 ms run inside the tone bed that
+      the runtime path does not (`crates/ove-transcribe/tests/vad.rs`, `--ignored`, passed). Silero weights: MIT.
 - [ ] 1.2 Enable GPU recognition builds (Metal on macOS, Vulkan on Windows) with a runtime probe and CPU fallback, and
       add the "accurate" model option behind download consent; verify realtime factor per model on both reference
       machines is recorded in Results and the CPU fallback test passes with the GPU probe forced off.
-- [ ] 1.3 Move the clip-to-timeline word mapping into a headless `ove-transcribe` module with source-anchored word ids,
+- [x] 1.3 Move the clip-to-timeline word mapping into a headless `ove-transcribe` module with source-anchored word ids,
       de-duplication of overlapping windows, a segments mode and paging; verify the existing trim/speed test moves into
       the crate and passes, and a property test shows ids are unchanged after random edits elsewhere.
-- [ ] 1.4 Key transcript caches by content identity plus model, language and verbatim flag, re-using old entries when
+      Done: `ove_transcribe::timeline` (captions use it); tests in that module and `tests/timeline_ids.rs` (500 cases).
+- [x] 1.4 Key transcript caches by content identity plus model, language and verbatim flag, re-using old entries when
       the identity matches; verify a renamed media file keeps its transcript and a changed file does not.
-- [ ] 1.5 Document the transcript JSON shape in `docs/cli/`; verify the documented examples run in the CLI tests.
+      Done: `cache::transcript_key` (verbatim suffix; normal keys unchanged), `cache::lookup`;
+      `tests/cache_identity.rs`.
+- [x] 1.5 Document the transcript JSON shape in `docs/cli/`; verify the documented examples run in the CLI tests.
+      Done: `docs/cli/transcript.md` (`ove transcript`, registry tool `get_transcript`);
+      `transcript_examples_and_json_shape` in `crates/ove-cli/tests/docs.rs`.
 
 ## 2. Remove words
 
@@ -57,7 +65,8 @@
       ids from one transcript read, without re-reading.
 - [ ] 5.4 Transcript panel: playback follow, click to seek, strike-through selection and Delete to cut, "Remove pauses"
       and "Remove fillers" with a preview overlay on clip waveforms; verify UI tests for each action.
-- [ ] 5.5 Mark add-captions task 1.5 as taken over by this change; verify the add-captions tasks file points here.
+- [x] 5.5 Mark add-captions task 1.5 as taken over by this change; verify the add-captions tasks file points here.
+      Done: `openspec/changes/add-captions/tasks.md` 1.5 names this change and its tasks.
 
 ## 6. Integration checks
 

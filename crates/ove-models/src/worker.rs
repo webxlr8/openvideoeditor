@@ -175,7 +175,11 @@ fn run_job(
         let session = match builtin(model) {
             Some(s) => s,
             None => backend
-                .ok_or_else(|| ModelError::RuntimeMissing("no inference runtime is available in the worker".into()))?
+                .ok_or_else(|| {
+                    ModelError::RuntimeMissing(
+                        "runtime not installed: no inference runtime is available in the model worker".into(),
+                    )
+                })?
                 .load(Path::new(model))?,
         };
         sessions.insert(model.to_string(), session);

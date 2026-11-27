@@ -31,6 +31,9 @@ ove-tools = { path = "../ove-tools" }
 serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
 tempfile = "3"
 
+[dev-dependencies]
+ove-transcribe = { path = "../ove-transcribe", default-features = false }
+
 [features]
 # Reading media, analysis and `ove export` (links FFmpeg). Desktop bundles build the CLI with it.
 media = ["dep:ove-analyze", "dep:ove-media", "dep:ove-render", "ove-tools/media"]

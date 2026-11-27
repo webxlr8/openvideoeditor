@@ -41,6 +41,19 @@ verify_timeline. Times are seconds. When the app has the project open, edits app
 
 const PROTOCOLS: [&str; 3] = ["2025-06-18", "2025-03-26", "2024-11-05"];
 
+/// How long the session keeps a project open after its last call (unify-agent-tool-layer task 4.3): calls in a
+/// burst skip opening the bundle and writing its snapshot, and the project is free again for the app and other
+/// writers soon after the agent stops. `OVE_MCP_HOLD_MS` overrides it (0 closes after every call).
+pub const HOLD: std::time::Duration = std::time::Duration::from_secs(2);
+
+fn hold() -> std::time::Duration {
+    std::env::var("OVE_MCP_HOLD_MS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .map(std::time::Duration::from_millis)
+        .unwrap_or(HOLD)
+}
+
 /// Serves MCP on stdin/stdout until stdin closes.
 pub fn serve(library: Option<&Path>, project: Option<&str>, turn: Option<&str>) -> std::io::Result<()> {
     let surface = if project.is_some() { Surface::Pinned } else { Surface::Mcp };
@@ -54,10 +67,31 @@ pub fn serve(library: Option<&Path>, project: Option<&str>, turn: Option<&str>) 
     let session = format!("mcp-{:x}-{:x}", ove_tools::fail::now_ms(), std::process::id());
     ctx.inner.actor =
         Some(Actor { kind: ActorKind::Mcp, session: Some(session), turn: turn.map(str::to_string), client: None });
-    let stdin = std::io::stdin();
+    let hold = hold();
+    ctx.inner.hold = (!hold.is_zero()).then_some(hold);
+    // Lines arrive on a reader thread, so the held project can be closed while the client is quiet.
+    let (tx, rx) = std::sync::mpsc::channel::<std::io::Result<String>>();
+    std::thread::spawn(move || {
+        for line in std::io::stdin().lock().lines() {
+            let end = line.is_err();
+            if tx.send(line).is_err() || end {
+                break;
+            }
+        }
+    });
     let mut stdout = std::io::stdout().lock();
-    for line in stdin.lock().lines() {
-        let line = line?;
+    loop {
+        let wait = ctx.inner.idle_in().unwrap_or(std::time::Duration::from_secs(3600));
+        let line = match rx.recv_timeout(wait) {
+            Ok(line) => line?,
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                if let Err(f) = ctx.inner.release_if_idle() {
+                    eprintln!("ove mcp: closing the project failed: {}", f.message);
+                }
+                continue;
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+        };
         if line.trim().is_empty() {
             continue;
         }
@@ -72,7 +106,7 @@ pub fn serve(library: Option<&Path>, project: Option<&str>, turn: Option<&str>) 
             stdout.flush()?;
         }
     }
-    Ok(())
+    ctx.inner.release().map_err(|f| std::io::Error::other(f.message))
 }
 
 pub fn handle(msg: &Value, ctx: &mut dyn ToolCtx) -> Option<Value> {

@@ -4,7 +4,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use ove_core::ops::Op;
 use ove_core::revision::{Actor, Source};
@@ -43,6 +43,54 @@ pub struct BundleCtx {
     pub binding: Binding,
     /// Recorded on every revision made here.
     pub actor: Option<Actor>,
+    /// When set, a project opened for an edit stays open (with its write lock) between calls, and is closed once no
+    /// call used it for this long ([`BundleCtx::release_if_idle`]). `ove mcp` sets it; one-shot commands do not.
+    pub hold: Option<Duration>,
+    held: Option<Held>,
+    /// Project names and ids this session resolved, used only for the held project (it cannot change underneath
+    /// while held) so calls in a burst skip the library scan. Forgotten when the project is released.
+    resolved: Vec<(String, PathBuf)>,
+}
+
+/// How long a writer waits for another `ove` process (an MCP session keeping the project open between its calls)
+/// to let go of a project; such a session releases it after [`BundleCtx::hold`] without calls.
+pub const WAIT_FOR_SESSION: Duration = Duration::from_secs(3);
+
+/// Opens `bundle` for writing. When another `ove` process holds it (a session between calls), waits up to
+/// [`WAIT_FOR_SESSION`] for it to be released; any other holder (the app) is reported at once.
+pub fn open_write_waiting(bundle: &Path) -> Result<Project, Fail> {
+    let t0 = Instant::now();
+    loop {
+        match Project::open(bundle, Mode::Write, clock()) {
+            Ok(p) => return Ok(p),
+            Err(e) if e.code() == "project.locked" && held_by_ove(bundle) && t0.elapsed() < WAIT_FOR_SESSION => {
+                std::thread::sleep(Duration::from_millis(25));
+            }
+            Err(e) => return Err(e.into()),
+        }
+    }
+}
+
+/// True when the project's lock holder is another `ove` command-line process.
+fn held_by_ove(bundle: &Path) -> bool {
+    let holder: Option<ove_store::lock::Holder> =
+        std::fs::read(bundle.join(".lock.holder")).ok().and_then(|b| serde_json::from_slice(&b).ok());
+    holder.is_some_and(|h| h.process == "ove" && h.pid != std::process::id())
+}
+
+/// A project the session keeps open for writing between calls.
+struct Held {
+    bundle: PathBuf,
+    project: Project,
+    last: Instant,
+}
+
+impl Drop for BundleCtx {
+    fn drop(&mut self) {
+        if let Err(e) = self.release() {
+            tracing::warn!("closing the held project failed: {}", e.message);
+        }
+    }
 }
 
 impl BundleCtx {
@@ -62,7 +110,73 @@ impl BundleCtx {
             source,
             binding: Binding::default(),
             actor: None,
+            hold: None,
+            held: None,
+            resolved: Vec::new(),
         })
+    }
+
+    /// The bundle this session holds open, if any.
+    pub fn held_bundle(&self) -> Option<&Path> {
+        self.held.as_ref().map(|h| h.bundle.as_path())
+    }
+
+    /// Closes the held project (its projection and snapshot are written and its lock released).
+    pub fn release(&mut self) -> Result<(), Fail> {
+        match self.held.take() {
+            Some(h) => {
+                self.resolved.clear();
+                h.project.flush_projection();
+                h.project.close()?;
+                Ok(())
+            }
+            None => Ok(()),
+        }
+    }
+
+    /// Releases the held project when no call used it for the hold time. Returns true when it was released.
+    pub fn release_if_idle(&mut self) -> Result<bool, Fail> {
+        let idle = match (&self.held, self.hold) {
+            (Some(h), Some(hold)) => h.last.elapsed() >= hold,
+            _ => false,
+        };
+        if idle {
+            self.release()?;
+        }
+        Ok(idle)
+    }
+
+    /// The time until the held project goes idle (`None` when nothing is held).
+    pub fn idle_in(&self) -> Option<Duration> {
+        let (h, hold) = (self.held.as_ref()?, self.hold?);
+        Some(hold.saturating_sub(h.last.elapsed()))
+    }
+
+    fn holds(&self, bundle: &Path) -> bool {
+        self.held.as_ref().is_some_and(|h| h.bundle == bundle || same_bundle(&h.bundle, bundle))
+    }
+
+    /// The project open for writing: the held one when it is `bundle`, else a newly opened one (another held
+    /// project is closed first).
+    fn take_writable(&mut self, bundle: &Path) -> Result<Project, Fail> {
+        if self.holds(bundle)
+            && let Some(h) = self.held.take()
+        {
+            return Ok(h.project);
+        }
+        self.release()?;
+        open_write_waiting(bundle)
+    }
+
+    /// After a call: keeps the project open when the session holds projects, else writes it and closes it.
+    fn put_back(&mut self, bundle: &Path, p: Project, ok: bool) -> Result<(), Fail> {
+        if self.hold.is_some() {
+            self.held = Some(Held { bundle: bundle.to_path_buf(), project: p, last: Instant::now() });
+        } else if ok {
+            p.flush_projection();
+            p.close()?;
+        }
+        Ok(())
     }
 
     /// The bundle of a project by name, id or path.
@@ -75,7 +189,7 @@ impl BundleCtx {
         Ok(Project::open(bundle, Mode::ReadOnly, clock())?)
     }
 
-    fn resolve(&self, project: Option<&str>) -> Result<PathBuf, Fail> {
+    fn resolve(&mut self, project: Option<&str>) -> Result<PathBuf, Fail> {
         match (project, &self.binding.project) {
             (None, Some(b)) => Ok(b.clone()),
             (None, None) => Err(Fail::new(
@@ -83,7 +197,20 @@ impl BundleCtx {
                 "this call needs `project` (a project name, id or bundle path; `use_project` sets a default)",
             )),
             (Some(q), bound) => {
-                let b = self.find(q)?;
+                let memo = self
+                    .held
+                    .as_ref()
+                    .and_then(|h| self.resolved.iter().find(|(k, b)| k == q && *b == h.bundle).map(|(_, b)| b.clone()));
+                let b = match memo {
+                    Some(b) => b,
+                    None => {
+                        let b = self.find(q)?;
+                        if self.hold.is_some() && !self.resolved.iter().any(|(k, _)| k == q) {
+                            self.resolved.push((q.to_string(), b.clone()));
+                        }
+                        b
+                    }
+                };
                 if self.binding.pinned
                     && let Some(bound) = bound
                     && !same_bundle(bound, &b)
@@ -106,11 +233,21 @@ impl BundleCtx {
         bundle: &Path,
         f: &mut dyn FnMut(&mut dyn Editor) -> Result<(), Fail>,
     ) -> Result<(), Fail> {
-        let mut p = Project::open(bundle, Mode::Write, clock())?;
-        f(&mut LocalEditor { project: &mut p, source: self.source, actor: self.actor.clone() })?;
-        p.flush_projection();
-        p.close()?;
-        Ok(())
+        let mut p = self.take_writable(bundle)?;
+        let r = f(&mut LocalEditor { project: &mut p, source: self.source, actor: self.actor.clone() });
+        self.put_back(bundle, p, r.is_ok())?;
+        r
+    }
+
+    /// Reads the held project when it is `bundle`, else opens it read-only.
+    fn read_local(&mut self, bundle: &Path, f: &mut dyn FnMut(&Project) -> Result<(), Fail>) -> Result<(), Fail> {
+        if self.holds(bundle)
+            && let Some(h) = self.held.as_mut()
+        {
+            h.last = Instant::now();
+            return f(&h.project);
+        }
+        f(&self.open_read(bundle)?)
     }
 }
 
@@ -137,7 +274,7 @@ impl ToolCtx for BundleCtx {
         Ok(())
     }
     fn read(&mut self, bundle: &Path, f: &mut dyn FnMut(&Project) -> Result<(), Fail>) -> Result<(), Fail> {
-        f(&self.open_read(bundle)?)
+        self.read_local(bundle, f)
     }
     fn edit(&mut self, bundle: &Path, f: &mut dyn FnMut(&mut dyn Editor) -> Result<(), Fail>) -> Result<(), Fail> {
         self.edit_local(bundle, f)
@@ -262,20 +399,17 @@ impl ToolCtx for LinkCtx {
     fn edit(&mut self, bundle: &Path, f: &mut dyn FnMut(&mut dyn Editor) -> Result<(), Fail>) -> Result<(), Fail> {
         let mut attempt = 0;
         loop {
-            let r = match Project::open(bundle, Mode::Write, clock()) {
+            let r = match self.inner.take_writable(bundle) {
                 Ok(mut p) => {
                     let r = f(&mut LocalEditor {
                         project: &mut p,
                         source: self.inner.source,
                         actor: self.inner.actor.clone(),
                     });
-                    if r.is_ok() {
-                        p.flush_projection();
-                        p.close()?;
-                    }
+                    self.inner.put_back(bundle, p, r.is_ok())?;
                     r
                 }
-                Err(e) if e.code() == "project.locked" && self.app_holds(bundle) => {
+                Err(e) if e.code == "project.locked" && self.app_holds(bundle) => {
                     let mut w = AppEditor {
                         view: Project::open(bundle, Mode::ReadOnly, clock())?,
                         root: self.inner.root.clone(),
@@ -284,7 +418,7 @@ impl ToolCtx for LinkCtx {
                     };
                     f(&mut w)
                 }
-                Err(e) => return Err(e.into()),
+                Err(e) => return Err(e),
             };
             match r {
                 Err(e) if e.code == "rev.changed" && attempt < 3 => attempt += 1,

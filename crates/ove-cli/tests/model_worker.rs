@@ -16,7 +16,39 @@ use ove_models::worker::WorkerClient;
 
 fn client(idle_secs: u64) -> WorkerClient {
     let idle = idle_secs.to_string();
-    WorkerClient::new(env!("CARGO_BIN_EXE_ove"), &["model-worker", "--idle-secs", &idle]).env("OVE_ONNXRUNTIME_LIB", "")
+    WorkerClient::new(env!("CARGO_BIN_EXE_ove"), &["model-worker", "--idle-secs", &idle])
+        .env("OVE_ONNXRUNTIME_LIB", "")
+        .env("OVE_MODELS_DIR", &empty_store())
+}
+
+/// A model store with nothing in it (so the worker never finds a runtime installed on this computer).
+fn empty_store() -> String {
+    std::env::temp_dir().join(format!("ove-empty-models-{}", std::process::id())).display().to_string()
+}
+
+#[test]
+fn a_clean_profile_worker_reports_runtime_not_installed() {
+    let w = client(30);
+    let model = std::env::temp_dir().join("no-such-model.onnx");
+    let e = w.run(&model.display().to_string(), &[Tensor::f32("x", &[1], vec![0.0])]).unwrap_err();
+    assert_eq!(e.code(), "model.jobFailed");
+    assert!(e.to_string().contains("runtime not installed"), "{e}");
+    // Built-in models still run, and the worker survived.
+    assert!(w.run("builtin:echo", &[Tensor::f32("x", &[1], vec![1.0])]).is_ok());
+}
+
+/// The worker finds the runtime the store installed (no `OVE_ONNXRUNTIME_LIB`): with the runtime loaded, a missing
+/// model is a model error, not "runtime not installed". Needs `OVE_TEST_RUNTIME_STORE`, a store with `onnxruntime`.
+#[test]
+#[ignore = "needs a model store with the runtime installed (OVE_TEST_RUNTIME_STORE)"]
+fn the_worker_loads_the_runtime_from_the_store() {
+    let store = std::env::var("OVE_TEST_RUNTIME_STORE").expect("set OVE_TEST_RUNTIME_STORE");
+    let w = WorkerClient::new(env!("CARGO_BIN_EXE_ove"), &["model-worker"])
+        .env("OVE_ONNXRUNTIME_LIB", "")
+        .env("OVE_MODELS_DIR", &store);
+    let model = std::env::temp_dir().join("no-such-model.onnx");
+    let e = w.run(&model.display().to_string(), &[Tensor::f32("x", &[1], vec![0.0])]).unwrap_err();
+    assert!(e.to_string().contains("could not load the model"), "{e}");
 }
 
 fn kill(pid: u32) {

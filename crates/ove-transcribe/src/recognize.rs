@@ -11,45 +11,18 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
-use serde::{Deserialize, Serialize};
 use whisper_rs::{
     DtwMode, DtwModelPreset, DtwParameters, FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters,
 };
 
 use crate::error::{Result, TranscribeError};
 
-pub const SAMPLE_RATE: u32 = 16_000;
 /// Length of one recognition window (whisper's own context is 30 s).
 pub const WINDOW_SECONDS: u32 = 30;
 /// Overlap between consecutive windows; words are split between them at its midpoint.
 pub const OVERLAP_SECONDS: u32 = 2;
 
-/// One recognised word, times in microseconds from the start of the audio.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Word {
-    pub text: String,
-    pub start_us: i64,
-    pub end_us: i64,
-    /// Mean token probability (0–1).
-    pub confidence: f32,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Transcript {
-    /// ISO 639-1 code detected (or requested).
-    pub language: String,
-    pub model: String,
-    pub words: Vec<Word>,
-    pub duration_us: i64,
-}
-
-impl Transcript {
-    pub fn text(&self) -> String {
-        self.words.iter().map(|w| w.text.as_str()).collect::<Vec<_>>().join(" ")
-    }
-}
+pub use crate::transcript::{SAMPLE_RATE, Transcript, Word};
 
 fn open_audio(path: &Path) -> Result<ove_media::AudioDecoder> {
     use ove_media::{AudioDecoder, AudioOutputSpec, SampleFormat};

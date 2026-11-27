@@ -220,93 +220,20 @@ fn finished_with(e: ove_transcribe::TranscribeError) -> CaptionJobProgress {
     }
 }
 
-/// A clip whose sound is captioned: the timeline range it occupies and the part of its media it plays.
-#[derive(Debug, Clone, PartialEq)]
-pub struct SourceClip {
-    pub item_id: String,
-    pub media_id: String,
-    pub path: PathBuf,
-    pub start: Micros,
-    pub end: Micros,
-    pub trim: Micros,
-    pub speed: f64,
-    pub reverse: bool,
-}
+/// A clip whose sound is captioned (the shared timeline-transcript mapping, add-transcript-editing 1.3).
+pub use ove_transcribe::timeline::{SourceClip, timeline_words};
 
 /// The clips to caption: the given ids, else everything on the Main track, else every clip with sound.
 pub fn source_clips(doc: &Document, bundle: &Path, ids: &[String]) -> AppResult<Vec<SourceClip>> {
-    let to_clip = |i: &ove_core::Item| -> Option<SourceClip> {
-        if !matches!(i.kind.as_str(), "video" | "audio")
-            || i.fields.get("pending").and_then(Value::as_bool) == Some(true)
-        {
-            return None;
-        }
-        let media_id = i.media_id()?.to_string();
-        let data = doc.project.media.get(&media_id).and_then(|m| m.data());
-        if data.and_then(|d| d.get("type")).and_then(Value::as_str) == Some("image") {
-            return None;
-        }
-        if data.and_then(|d| d.get("hasAudio")).and_then(Value::as_bool) == Some(false) {
-            return None;
-        }
-        Some(SourceClip {
-            item_id: i.id.clone(),
-            path: ove_render::sources::media_path(doc, Some(bundle), &media_id)?,
-            media_id,
-            start: i.start,
-            end: i.end,
-            trim: i.time_field("trimStart"),
-            speed: i.fields.get("playbackSpeed").and_then(Value::as_f64).unwrap_or(1.0).max(0.01),
-            reverse: i.fields.get("playbackDirection").and_then(Value::as_str) == Some("reverse"),
+    ove_transcribe::timeline::source_clips(doc, ids, &|m| ove_render::sources::media_path(doc, Some(bundle), m))
+        .map_err(|e| {
+            bad(match e {
+                ove_transcribe::timeline::NoClips::Timeline => {
+                    "There is no clip with sound to caption. Add a video or audio clip first."
+                }
+                ove_transcribe::timeline::NoClips::Selection => "The selected clips have no sound to caption.",
+            })
         })
-    };
-    let mut clips: Vec<SourceClip> = if ids.is_empty() {
-        let main: Vec<SourceClip> = doc.items_on_track("t_main").into_iter().filter_map(to_clip).collect();
-        if main.is_empty() { doc.project.items.values().filter_map(|i| to_clip(i)).collect() } else { main }
-    } else {
-        ids.iter().filter_map(|id| doc.item(id)).filter_map(to_clip).collect()
-    };
-    clips.sort_by_key(|c| (c.start, c.item_id.clone()));
-    if clips.is_empty() {
-        return Err(bad(if ids.is_empty() {
-            "There is no clip with sound to caption. Add a video or audio clip first."
-        } else {
-            "The selected clips have no sound to caption."
-        }));
-    }
-    Ok(clips)
-}
-
-/// The transcript's words that play in a clip, moved to timeline time (trim, speed and direction applied).
-pub fn timeline_words(clip: &SourceClip, transcript: &Transcript) -> Vec<Word> {
-    let used = ((clip.end - clip.start) as f64 * clip.speed) as Micros;
-    let (lo, hi) = (clip.trim, clip.trim + used);
-    let to_tl = |src: Micros| -> Micros {
-        let rel = if clip.reverse { hi - src } else { src - lo };
-        clip.start + (rel as f64 / clip.speed) as Micros
-    };
-    let mut out: Vec<Word> = transcript
-        .words
-        .iter()
-        // Keep words mostly inside the used range.
-        .filter(|w| {
-            let mid = (w.start_us + w.end_us) / 2;
-            mid >= lo && mid < hi
-        })
-        .map(|w| {
-            let (a, b) = (to_tl(w.start_us.clamp(lo, hi)), to_tl(w.end_us.clamp(lo, hi)));
-            Word {
-                text: w.text.clone(),
-                start_us: a.min(b),
-                end_us: a.max(b).max(a.min(b) + 20_000),
-                confidence: w.confidence,
-            }
-        })
-        .collect();
-    if clip.reverse {
-        out.reverse();
-    }
-    out
 }
 
 /// Ops that put one caption item per caption segment on the Captions track. Returns the ops and the item count.
@@ -629,23 +556,7 @@ mod tests {
         }
     }
 
-    #[test]
-    fn words_follow_trim_and_speed() {
-        let d = doc();
-        let clips = source_clips(&d, Path::new("/bundle"), &[]).unwrap();
-        assert_eq!(clips.len(), 1);
-        assert_eq!((clips[0].trim, clips[0].speed), (2_000_000, 2.0));
-        let words = timeline_words(&clips[0], &transcript());
-        let texts: Vec<_> = words.iter().map(|w| w.text.as_str()).collect();
-        assert_eq!(texts, ["Hello", "there.", "Second", "line"]);
-        // Source 2.5 s → 10 s + 0.5 s / 2.
-        assert_eq!(words[0].start_us, 10_250_000);
-        assert_eq!(words[3].end_us, 12_500_000);
-        let rev = SourceClip { reverse: true, ..clips[0].clone() };
-        let r = timeline_words(&rev, &transcript());
-        assert_eq!(r[0].text, "line");
-        assert!(r.windows(2).all(|p| p[0].start_us <= p[1].start_us));
-    }
+    // `words_follow_trim_and_speed` moved to `ove_transcribe::timeline` with the mapping (add-transcript-editing 1.3).
 
     #[test]
     fn captions_are_one_revision_on_the_captions_track() {
