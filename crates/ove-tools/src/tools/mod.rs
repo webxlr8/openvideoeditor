@@ -21,3 +21,4 @@ pub mod project;
 pub mod tasks;
 pub mod timeline;
 pub mod transcript;
+pub mod versions;

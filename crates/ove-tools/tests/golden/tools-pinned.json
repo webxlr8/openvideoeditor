@@ -2406,6 +2406,146 @@
         "destructiveHint": false,
         "openWorldHint": false
       }
+    },
+    {
+      "name": "save_version",
+      "description": "Save the current revision as a named version (\"client v2\") with an optional note. Versions survive history pruning and can be printed, compared and restored later. A name already in use is refused with `version.exists`.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "name": {
+            "type": "string",
+            "description": "Version name"
+          },
+          "note": {
+            "type": "string",
+            "description": "What this version is"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "list_versions",
+      "description": "List the project's named versions, oldest first: name, revision, time, who saved it, note and the bytes it added.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "print_version",
+      "description": "Print a named version's timeline as its TSX projection (read-only: apply edits to the current timeline, not to a version).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "name": {
+            "type": "string",
+            "description": "Version name"
+          },
+          "from": {
+            "type": "integer",
+            "description": "First line (1-based)"
+          },
+          "lines": {
+            "type": "integer",
+            "description": "Number of lines"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "diff_versions",
+      "description": "Compare two named versions, or a version and the current timeline (omit `to`): the items and markers added, removed, moved, trimmed or otherwise changed, with their old and new times.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "from": {
+            "type": "string",
+            "description": "The older version's name"
+          },
+          "to": {
+            "type": "string",
+            "description": "The newer version's name (default: the current timeline)"
+          }
+        },
+        "required": [
+          "from"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "restore_version",
+      "description": "Make the timeline equal to a named version again, as one new revision (one undo step brings back what was there).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "name": {
+            "type": "string",
+            "description": "Version name"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
     }
   ]
 }

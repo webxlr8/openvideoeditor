@@ -240,6 +240,14 @@ export const commands = {
 	 *  item's start; an empty list removes the property's keyframes) as one revision.
 	 */
 	keyframesSet: (item: string, property: string, keysJson: string, summary: string | null) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("keyframes_set", { item, property, keysJson, summary })),
+	/**  The open project's versions, newest first. */
+	versionList: () => typedError<VersionView_Serialize[], AppError>(__TAURI_INVOKE("version_list")),
+	/**  Saves the current revision as a named version and returns the list, newest first. */
+	versionSave: (name: string, note: string | null) => typedError<VersionView_Serialize[], AppError>(__TAURI_INVOKE("version_save", { name, note })),
+	/**  The changes from version `from` to version `to`, or to the current timeline when `to` is absent. */
+	versionDiff: (from: string, to: string | null) => typedError<VersionChange[], AppError>(__TAURI_INVOKE("version_diff", { from, to })),
+	/**  Makes the timeline equal to a version again, as one new revision that Undo reverts. */
+	versionRestore: (name: string) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("version_restore", { name })),
 	/**  Plans an edit verb without applying it (no revision): what a drag would do while it is held. */
 	editPreview: (request: string) => typedError<EditPreview_Serialize, AppError>(__TAURI_INVOKE("edit_preview", { request })),
 	/**  Adds a track. Video/caption/adjustment/layout tracks go on top, audio tracks at the bottom. */
@@ -2081,6 +2089,46 @@ export type UsageTotals_Serialize = {
 	/**  Every chat of the open project this calendar month (UTC). */
 	month: SpendView,
 	monthCapUsd: number | null,
+};
+
+/**  One classified change between two versions. */
+export type VersionChange = {
+	/**  `item` or `marker`. */
+	entity: string,
+	id: string,
+	/**  added, removed, moved, trimmed or changed. */
+	class: string,
+	/**  The change in words, with old and new times. */
+	line: string,
+};
+
+/**  A version as the History panel shows it. */
+export type VersionView = VersionView_Serialize | VersionView_Deserialize;
+
+/**  A version as the History panel shows it. */
+export type VersionView_Deserialize = {
+	name: string,
+	rev: number | null,
+	/**  ms since the epoch. */
+	createdAt: number | null,
+	note?: string | null,
+	/**  Who saved it, in words. */
+	who: string,
+	/**  Bytes it added to the bundle. */
+	bytes: number | null,
+};
+
+/**  A version as the History panel shows it. */
+export type VersionView_Serialize = {
+	name: string,
+	rev: number | null,
+	/**  ms since the epoch. */
+	createdAt: number | null,
+	note: string | null,
+	/**  Who saved it, in words. */
+	who: string,
+	/**  Bytes it added to the bundle. */
+	bytes: number | null,
 };
 
 /**  A video codec with its profiles. */

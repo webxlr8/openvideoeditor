@@ -19,6 +19,7 @@ mod media;
 mod model_worker;
 mod models;
 mod project;
+mod versions;
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -116,6 +117,11 @@ enum Cmd {
     Markers {
         #[command(subcommand)]
         cmd: markers::MarkersCmd,
+    },
+    /// Named versions: save, list, print, diff, restore.
+    Version {
+        #[command(subcommand)]
+        cmd: versions::VersionCmd,
     },
     /// List revisions, oldest first.
     History { project: String },
@@ -355,6 +361,7 @@ fn run(cli: &Cli, source: Source) -> Out {
         }
         Cmd::Edit(a) => edit::run(&ctx, a),
         Cmd::Markers { cmd } => markers::run(&ctx, cmd),
+        Cmd::Version { cmd } => versions::run(&ctx, cmd),
         Cmd::Verify { project } => ctx.tool("verify_timeline", json!({"project": project})),
         Cmd::History { project } => ctx.tool("timeline_history", json!({"project": project})),
         Cmd::Transcript(t) => t.run(&ctx),

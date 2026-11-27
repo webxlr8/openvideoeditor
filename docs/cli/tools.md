@@ -201,4 +201,9 @@ ove source print Nope                              # exit 1
 | `update_marker` |  | in-app, mcp, pinned | write | `project`? `id` `at`? `dur`? `name`? `color`? `note`? `status`? `assignee`? `unset`? |
 | `remove_markers` |  | in-app, mcp, pinned | destructive | `project`? `ids` |
 | `edit_keyframes` |  | in-app, mcp, pinned | write | `project`? `item` `property` `set`? `add`? `remove`? `easing`? `preview`? |
+| `save_version` |  | in-app, mcp, pinned | write | `project`? `name` `note`? |
+| `list_versions` |  | in-app, mcp, pinned | read | `project`? |
+| `print_version` |  | in-app, mcp, pinned | read | `project`? `name` `from`? `lines`? |
+| `diff_versions` |  | in-app, mcp, pinned | read | `project`? `from` `to`? |
+| `restore_version` |  | in-app, mcp, pinned | write | `project`? `name` |
 <!-- tools:end -->

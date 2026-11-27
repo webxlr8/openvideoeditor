@@ -265,14 +265,18 @@ fn own_revisions(
     source: Source,
     turn: Option<&str>,
 ) -> Result<Vec<RevisionRecord>, Fail> {
+    // Scoped selection lives in the store (add-markers-keyframe-lanes-and-versions D9).
+    use ove_store::undo::{UndoScope, in_scope};
+    let scope = match (actor, turn) {
+        (Some(a), Some(t)) if a.session.is_some() => Some(UndoScope::Turn(a.clone(), t.to_string())),
+        (Some(a), None) if a.session.is_some() => Some(UndoScope::Session(a.clone())),
+        _ => None,
+    };
     Ok(p.records()?
         .into_iter()
-        .filter(|r| r.source != Source::Undo)
-        .filter(|r| match actor {
-            Some(a) if a.session.is_some() => {
-                r.actor.as_ref().is_some_and(|x| x.same_session(a) && turn.is_none_or(|t| x.turn.as_deref() == Some(t)))
-            }
-            _ => r.source == source,
+        .filter(|r| match &scope {
+            Some(s) => in_scope(r, s),
+            None => r.source != Source::Undo && r.source == source,
         })
         .collect())
 }

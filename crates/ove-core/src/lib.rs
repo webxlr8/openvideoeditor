@@ -11,6 +11,7 @@ pub mod ops;
 pub mod retime;
 pub mod revision;
 pub mod schema;
+pub mod semdiff;
 #[cfg(feature = "testgen")]
 pub mod testgen;
 pub mod time;

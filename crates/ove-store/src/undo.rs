@@ -121,6 +121,61 @@ pub fn conflicts(chosen: &[RevisionRecord], later: &[RevisionRecord]) -> Vec<Und
     found.into_values().collect()
 }
 
+/// Whose revisions a scoped undo reverts (add-markers-keyframe-lanes-and-versions D9). A project has one timeline
+/// today, so a timeline scope is the whole project; when timelines arrive, a scope narrows to one of them here.
+#[derive(Debug, Clone, PartialEq)]
+pub enum UndoScope {
+    /// The person in the editor: revisions by the user actor, or (older bundles without actors) from the GUI.
+    User,
+    /// One agent session (the actor's kind and session).
+    Session(Actor),
+    /// One turn of an agent session.
+    Turn(Actor, String),
+}
+
+/// True when revision `r` belongs to `scope`. Undo revisions never do, and revisions without an actor (older
+/// bundles) never match an agent scope.
+pub fn in_scope(r: &RevisionRecord, scope: &UndoScope) -> bool {
+    if r.source == Source::Undo {
+        return false;
+    }
+    match scope {
+        UndoScope::User => match &r.actor {
+            Some(a) => a.kind == ove_core::revision::ActorKind::User,
+            None => r.source == Source::Gui,
+        },
+        UndoScope::Session(a) => r.actor.as_ref().is_some_and(|x| a.session.is_some() && x.same_session(a)),
+        UndoScope::Turn(a, t) => {
+            r.actor.as_ref().is_some_and(|x| a.session.is_some() && x.same_session(a) && x.turn.as_deref() == Some(t))
+        }
+    }
+}
+
+impl Project {
+    /// The retained revisions of `scope` that still change something (reverting them would change the document),
+    /// oldest first.
+    pub fn revisions_in_scope(&self, scope: &UndoScope) -> Result<Vec<RevisionRecord>, StoreError> {
+        Ok(self
+            .records()?
+            .into_iter()
+            .filter(|r| in_scope(r, scope))
+            .filter(|r| ove_core::apply_batch(self.doc(), &r.inverse).is_ok_and(|a| !a.doc.content_eq(self.doc())))
+            .collect())
+    }
+
+    /// Reverts every revision of `scope` as one new revision, keeping every other actor's changes. Refused with the
+    /// conflicting objects when a later revision outside the scope changed the same fields.
+    pub fn undo_scope(
+        &mut self,
+        scope: &UndoScope,
+        summary: String,
+        actor: Option<Actor>,
+    ) -> Result<Committed, UndoError> {
+        let revs: Vec<i64> = self.revisions_in_scope(scope)?.iter().map(|r| r.rev).collect();
+        self.undo_selected(&revs, Source::Undo, summary, actor)
+    }
+}
+
 impl Project {
     /// Reverts the revisions `revs` as one new revision (recorded with `source`, `summary` and `actor`), keeping
     /// every other change. Refused, changing nothing, when a later revision outside `revs` changed the same fields.

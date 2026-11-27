@@ -32,14 +32,14 @@
 
 ## 4. Versions and scoped undo
 
-- [ ] 4.1 `versions.json`, pinned snapshots with shared structure, and pruning that skips pinned revisions; verify a
+- [x] 4.1 `versions.json`, pinned snapshots with shared structure, and pruning that skips pinned revisions; verify a
       fault-injection test: a version survives pruning and a crash during save.
-- [ ] 4.2 Semantic diff classification (added, removed, moved, trimmed, changed) for items and markers; verify unit
+- [x] 4.2 Semantic diff classification (added, removed, moved, trimmed, changed) for items and markers; verify unit
       tests per class.
-- [ ] 4.3 `ove version save|list|print|diff|restore`; verify CLI integration tests and docs examples.
-- [ ] 4.4 Scoped undo by actor and by timeline in `ove-store`, replacing `undo_turn` internals; verify property: undo by
+- [x] 4.3 `ove version save|list|print|diff|restore`; verify CLI integration tests and docs examples.
+- [x] 4.4 Scoped undo by actor and by timeline in `ove-store`, replacing `undo_turn` internals; verify property: undo by
       actor never reverts another actor's revision, and a conflicting later edit refuses.
-- [ ] 4.5 History panel versions section with compare and restore, and actor filter; verify UI tests.
+- [x] 4.5 History panel versions section with compare and restore, and actor filter; verify UI tests.
 
 ## 5. Integration checks
 

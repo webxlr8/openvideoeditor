@@ -73,6 +73,11 @@ Command paths with their arguments and flags (descriptions omitted):
 - `<cli> markers add [options] <project>` — flags: `--at <seconds>`, `--dur <seconds>`, `--name <text>`, `--color <name|#rrggbb>`, `--note <text>`, `--status <status>`, `--assignee <name>`
 - `<cli> markers update [options] <project> <id>` — flags: as `add`, plus `--unset <fields>`
 - `<cli> markers rm|remove [options] <project> <id...>`
+- `<cli> version save [options] <project> <name>` — flags: `--note <text>`. (This app's addition, as are the next four; see docs/cli/versions.md.)
+- `<cli> version ls|list [options] <project>`
+- `<cli> version print [options] <project> <name>` — flags: `--from <line>`, `--lines <n>`
+- `<cli> version diff [options] <project> <from> [to]`
+- `<cli> version restore [options] <project> <name>`
 - `<cli> app [options] [command]`
 - `<cli> app context [options] [project]`
 - `<cli> app open [options] <project>` — flags: `--focus`

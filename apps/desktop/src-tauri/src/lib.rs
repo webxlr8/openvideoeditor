@@ -37,6 +37,7 @@ pub mod tasks;
 pub mod timeline;
 pub mod transcript;
 pub mod transport;
+pub mod versions;
 pub mod viewer;
 pub mod waveforms;
 pub mod window_state;
@@ -221,6 +222,10 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             markers::marker_update,
             markers::marker_remove,
             keyframes::keyframes_set,
+            versions::version_list,
+            versions::version_save,
+            versions::version_diff,
+            versions::version_restore,
             edits::edit_preview,
             edits::add_track,
             edits::rename_track,

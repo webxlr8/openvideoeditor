@@ -165,3 +165,31 @@ Measured on the Windows 11 build machine (debug build, `cargo test`).
 - Commands: `ove edit keyframes <project> --item … --property … --set|--add|--remove`, and the MCP tool
   `edit_keyframes`, both through `ove_edit::keyframes::plan_keyframes`. A keyframe outside the item is refused with
   `keyframe.outOfRange` (exit 1). The documented examples in `docs/cli/edit.md` run in the CLI doc test.
+
+### Group 4: versions and scoped undo
+
+- Storage (`crates/ove-store/src/versions.rs`): `.revs/versions.json` lists `{name, rev, createdAt, actor, note,
+  bytes}`; each version has a snapshot `.revs/versions/<rev>.json` holding the document without its items plus the
+  ids of its item objects, and items live content-addressed (SHA-256) in `.revs/versions/objects/`, so items that did
+  not change between versions are stored once. A save writes objects, then the snapshot, then the list, each
+  atomically; pruning only touches revision records and periodic snapshots. In the two-version test the second
+  version stores one new object out of three and adds fewer bytes than the first.
+- Fault injection (`tests/versions.rs`): a disk-full failure injected at each write, flush and rename point of the
+  objects, the snapshot and the list leaves no version listed, no temp files, and the project usable; a retry then
+  succeeds. Pruning: a version saved after 20 revisions survives 3,000 more revisions and a prune 31 days later (its
+  own revision is gone from history, the version still prints and restores); 46 s for the 3,000 durable commits, so
+  the test is `#[ignore]`d like the existing 2,300-commit retention test and was run with `--ignored`.
+- Semantic diff (`crates/ove-core/src/semdiff.rs`): added, removed, moved (same length, new start or track), trimmed
+  (new length) and changed (other fields, listed) for items and markers; unit tests per class.
+- Restore is one revision through the document pipeline (source `restore`), and `undo` returns to the state before
+  it. Commands: `ove version save|list|print|diff|restore`, registry tools `save_version`, `list_versions`,
+  `print_version`, `diff_versions`, `restore_version`; `docs/cli/versions.md` examples run in a CLI test.
+- Scoped undo: `ove_store::undo::{UndoScope, in_scope, Project::undo_scope}` select the user's, one agent session's
+  or one turn's revisions; the agent tool `undo_my_changes` now selects through `in_scope`. Revisions without an
+  actor never match an agent scope. A project has one timeline today, so the timeline scope is the whole project
+  until timelines arrive. Property (`tests/scoped_undo.rs`, durable revisions, 500 cases by default): undoing agent
+  A either equals replaying everyone else's edits alone, or is refused with a conflict and changes nothing; it is
+  refused only when someone else later changed a field A changed.
+- History panel: a Versions section (save with a name, compare with now, restore) and a filter by who made each
+  change (view state). Vitest: `ui/src/Versions.test.tsx` (save, compare, restore + undo, duplicate refusal) and the
+  filter test in `ui/src/HistoryPanel.test.tsx`.

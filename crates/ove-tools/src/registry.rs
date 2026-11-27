@@ -8,7 +8,7 @@ use crate::spec::{
 };
 use crate::tools::{
     analyze, app, audio, code, deadair, docs, edit, exchange, export, export_queue, export_range, feedback, generate,
-    keyframes, markers, media, models, project, tasks, timeline, transcript,
+    keyframes, markers, media, models, project, tasks, timeline, transcript, versions,
 };
 
 pub(crate) const PROJECT: Arg = arg(
@@ -977,6 +977,57 @@ pub static TOOLS: &[ToolSpec] = &[
         annotations: WRITE,
         surfaces: AGENTS,
         run: keyframes::edit_keyframes,
+        model: ModelText::Text,
+    },
+    // Named versions (change add-markers-keyframe-lanes-and-versions, task 4.3).
+    ToolSpec {
+        name: "save_version",
+        aliases: &[],
+        about: versions::SAVE_VERSION_ABOUT,
+        args: versions::SAVE_VERSION_ARGS,
+        annotations: WRITE,
+        surfaces: AGENTS,
+        run: versions::save_version,
+        model: ModelText::Text,
+    },
+    ToolSpec {
+        name: "list_versions",
+        aliases: &[],
+        about: versions::LIST_VERSIONS_ABOUT,
+        args: versions::LIST_VERSIONS_ARGS,
+        annotations: READ,
+        surfaces: AGENTS,
+        run: versions::list_versions,
+        model: ModelText::Text,
+    },
+    ToolSpec {
+        name: "print_version",
+        aliases: &[],
+        about: versions::PRINT_VERSION_ABOUT,
+        args: versions::PRINT_VERSION_ARGS,
+        annotations: READ,
+        surfaces: AGENTS,
+        run: versions::print_version,
+        model: ModelText::Text,
+    },
+    ToolSpec {
+        name: "diff_versions",
+        aliases: &[],
+        about: versions::DIFF_VERSIONS_ABOUT,
+        args: versions::DIFF_VERSIONS_ARGS,
+        annotations: READ,
+        surfaces: AGENTS,
+        run: versions::diff_versions,
+        model: ModelText::Text,
+    },
+    ToolSpec {
+        name: "restore_version",
+        aliases: &[],
+        about: versions::RESTORE_VERSION_ABOUT,
+        args: versions::RESTORE_VERSION_ARGS,
+        annotations: WRITE,
+        surfaces: AGENTS,
+        run: versions::restore_version,
         model: ModelText::Text,
     },
 ];

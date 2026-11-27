@@ -8,6 +8,8 @@ import fxCatalogJson from "./fx-catalog.json?raw";
 import { fire } from "./notify";
 import type {
   AgentConnect,
+  VersionChange,
+  VersionView_Serialize,
   AgentInfo_Serialize,
   AgentLimits_Deserialize,
   AgentLimits_Serialize,
@@ -800,6 +802,10 @@ function createMock(): {
   let redoStack: ProjectView_Serialize[] = [];
   let history: { row: HistoryRow_Serialize; before: ProjectView_Serialize | null }[] =
     [];
+  // Named versions per project bundle, with the project as it was when saved.
+  const versionStore: Record<string, (VersionView_Serialize & { snapshot: ProjectView_Serialize })[]> = {};
+  const versionViews = (): VersionView_Serialize[] =>
+    (project ? (versionStore[project.bundle] ?? []) : []).map(({ snapshot: _s, ...v }) => v).reverse();
   let seq = 0;
   const WHO: Record<string, string> = {
     gui: "You",
@@ -1866,6 +1872,55 @@ function createMock(): {
         if (next.length) i.fields.keyframeTracks = next;
         else delete i.fields.keyframeTracks;
         refresh(i);
+      });
+    },
+    // Named versions (add-markers-keyframe-lanes-and-versions 4.5), kept per project in memory.
+    versionList: () => ok(versionViews()),
+    versionSave: (name: string, note: string | null) => {
+      if (!project) return fail("invalid_argument", "No project is open.");
+      const n = name.trim();
+      const list = (versionStore[project.bundle] ??= []);
+      if (!n) return fail("invalid_argument", "A version needs a name.");
+      if (list.some((v) => v.name === n)) return fail("invalid_argument", `A version named "${n}" already exists.`);
+      list.push({ name: n, rev: project.rev, createdAt: Date.now(), note, who: "You", bytes: 0, snapshot: clone(project) });
+      return ok(versionViews());
+    },
+    versionDiff: (from: string, to: string | null) => {
+      const list = project ? (versionStore[project.bundle] ?? []) : [];
+      const a = list.find((v) => v.name === from)?.snapshot;
+      const b = to === null ? project : list.find((v) => v.name === to)?.snapshot;
+      if (!a || !b) return fail("not_found", "There is no version with that name.");
+      const out: VersionChange[] = [];
+      const ids = [...new Set([...a.items.map((i) => i.id), ...b.items.map((i) => i.id)])].sort();
+      for (const id of ids) {
+        const x = a.items.find((i) => i.id === id);
+        const y = b.items.find((i) => i.id === id);
+        const t = (i: ItemView_Serialize) => `${i.start ?? 0}–${i.end ?? 0} s`;
+        let cls: string | null = null;
+        if (x && !y) cls = "removed";
+        else if (!x && y) cls = "added";
+        else if (x && y) {
+          const lx = (x.end ?? 0) - (x.start ?? 0);
+          const ly = (y.end ?? 0) - (y.start ?? 0);
+          if (lx !== ly) cls = "trimmed";
+          else if (x.start !== y.start || x.trackId !== y.trackId) cls = "moved";
+          else if (JSON.stringify(x) !== JSON.stringify(y)) cls = "changed";
+        }
+        if (!cls) continue;
+        const span = x && y ? `${t(x)} → ${t(y)}` : t((x ?? y)!);
+        out.push({ entity: "item", id, class: cls, line: `${cls} item ${id}: ${span}` });
+      }
+      return ok(out);
+    },
+    versionRestore: (name: string) => {
+      const v = project ? (versionStore[project.bundle] ?? []).find((x) => x.name === name) : undefined;
+      if (!v) return fail("not_found", "There is no version with that name.");
+      return editProject(`restore version “${name}”`, (p) => {
+        const s = clone(v.snapshot);
+        p.items = s.items;
+        p.tracks = s.tracks;
+        if (s.markers) p.markers = s.markers;
+        else delete p.markers;
       });
     },
     duplicateItems: (ids: string[]) =>

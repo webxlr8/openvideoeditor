@@ -9,6 +9,7 @@ import type { EditResult } from "./edit";
 import { Icon } from "./icons";
 import { runCommand } from "./notify";
 import { formatWhen } from "./timecode";
+import { VersionsSection } from "./VersionsSection";
 
 /** Revision summaries the assistant writes start with this; the "who" column already says so. */
 function shortSummary(row: HistoryRow): string {
@@ -30,12 +31,16 @@ export function HistoryPanel({
 }) {
   const [rows, setRows] = useState<HistoryRow[] | null>(null);
   const [picked, setPicked] = useState<number | null>(null);
+  // Show only one actor's changes (view state).
+  const [actor, setActor] = useState("all");
 
   useEffect(() => {
     runCommand(commands.projectHistory(), setRows, onError);
   }, [rev, onError]);
 
   const chosen = rows?.find((r) => r.rev === picked) ?? null;
+  const actors = [...new Set((rows ?? []).map((r) => r.who))];
+  const shown = (rows ?? []).filter((r) => actor === "all" || r.who === actor);
 
   return (
     <div
@@ -55,6 +60,20 @@ export function HistoryPanel({
             <Icon name="close" size={16} />
           </button>
         </header>
+        <VersionsSection rev={rev} onEdit={onEdit} onError={onError} />
+        {actors.length > 1 && (
+          <label className="history-filter small">
+            Show changes by{" "}
+            <select value={actor} onChange={(e) => setActor(e.target.value)} data-testid="history-actor">
+              <option value="all">Everyone</option>
+              {actors.map((a) => (
+                <option key={a} value={a}>
+                  {a}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <p className="muted small">
           Every change to this project, newest first. Pick one to go back to
           how the project was before it; that is one more change you can undo.
@@ -65,7 +84,7 @@ export function HistoryPanel({
           <p className="muted">No changes yet.</p>
         ) : (
           <ul className="history-list" data-testid="history-list">
-            {rows.map((r) => (
+            {shown.map((r) => (
               <li key={r.rev ?? 0}>
                 <button
                   className={`history-row${r.rev === picked ? " on" : ""}`}

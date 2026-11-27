@@ -10,6 +10,7 @@ pub mod media;
 pub mod pins;
 pub mod project;
 pub mod undo;
+pub mod versions;
 
 pub use error::{Result, StoreError};
 pub use library::{Library, Listing};

@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { HistoryRow } from "./bindings";
 
@@ -27,6 +27,7 @@ vi.mock("./bridge", () => ({
   commands: {
     projectHistory: () => Promise.resolve({ status: "ok", data: ROWS }),
     restoreBefore: () => Promise.resolve({ status: "ok", data: null }),
+    versionList: () => Promise.resolve({ status: "ok", data: [] }),
   },
 }));
 
@@ -41,5 +42,16 @@ describe("HistoryPanel", () => {
     expect(rows[0].textContent).toMatch(/^MCPclaude-code/);
     expect(rows[1].textContent).toMatch(/^YouMove clip/);
     expect(screen.getAllByTestId("history-client")).toHaveLength(1);
+  });
+
+  it("filters the rows by who made them (view state only)", async () => {
+    render(<HistoryPanel rev={3} onClose={() => {}} onEdit={() => {}} onError={() => {}} />);
+    expect(await screen.findAllByTestId("history-row")).toHaveLength(2);
+    fireEvent.change(screen.getByTestId("history-actor"), { target: { value: "MCP" } });
+    const rows = screen.getAllByTestId("history-row");
+    expect(rows).toHaveLength(1);
+    expect(rows[0].textContent).toMatch(/^MCP/);
+    fireEvent.change(screen.getByTestId("history-actor"), { target: { value: "all" } });
+    expect(screen.getAllByTestId("history-row")).toHaveLength(2);
   });
 });
