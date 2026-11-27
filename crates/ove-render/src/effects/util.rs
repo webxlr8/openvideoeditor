@@ -7,6 +7,7 @@ use crate::canvas::Rgba;
 use crate::text::parse_color;
 
 pub type V3 = [f32; 3];
+pub type V4 = [f32; 4];
 
 /// Parameter values resolved against the contract: defaults filled, numbers clamped to their ranges.
 #[derive(Debug, Clone, Default)]

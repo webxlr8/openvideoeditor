@@ -68,6 +68,7 @@ pub fn check_item(doc: &Document, item: &Item, out: &mut Vec<Issue>) {
             schema::validate(&field.kind, v, &format!("{p}.{k}"), out);
         }
     }
+    effect_keyframes(item, &p, out);
     if let Some(mid) = item.fields.get("mediaItemId").and_then(|v| v.as_str())
         && !doc.project.media.contains_key(mid)
     {
@@ -76,6 +77,46 @@ pub fn check_item(doc: &Document, item: &Item, out: &mut Vec<Issue>) {
             format!("{p}.mediaItemId"),
             format!("item {} references media \"{mid}\", which does not exist", item.id),
         ));
+    }
+}
+
+/// Keyframe tracks on effect parameters (`effects.<entry id>.<parameter>`) must name an effect entry of the item and
+/// one of that effect's numeric parameters.
+fn effect_keyframes(item: &Item, p: &str, out: &mut Vec<Issue>) {
+    let Some(tracks) = item.fields.get("keyframeTracks").and_then(|v| v.as_array()) else { return };
+    let effects = item.fields.get("effects").and_then(|v| v.as_array());
+    for (i, t) in tracks.iter().enumerate() {
+        let Some(prop) = t.get("property").and_then(|v| v.as_str()) else { continue };
+        let Some((id, param)) = crate::effect_params::split_property(prop) else { continue };
+        let path = format!("{p}.keyframeTracks[{i}].property");
+        let entry = effects.and_then(|e| e.iter().find(|e| e.get("id").and_then(|v| v.as_str()) == Some(id)));
+        let Some(entry) = entry else {
+            out.push(err(
+                "keyframe.effect.exists",
+                path,
+                format!("item {} has no effect with id \"{id}\" to animate (keyframes on {prop})", item.id),
+            ));
+            continue;
+        };
+        let kind = entry.get("type").or_else(|| entry.get("template")).and_then(|v| v.as_str()).unwrap_or("");
+        match crate::effect_params::params(kind) {
+            Some(params) if params.contains(&param) => {}
+            Some(params) => out.push(err(
+                "keyframe.effect.param",
+                path,
+                format!(
+                    "effect {kind} (\"{id}\") has no numeric parameter \"{param}\" to animate; it has {}",
+                    params.join(", ")
+                ),
+            )),
+            None => out.push(err(
+                "keyframe.effect.param",
+                path,
+                format!(
+                    "effect \"{id}\" has the unknown type \"{kind}\", so its parameter \"{param}\" cannot be animated"
+                ),
+            )),
+        }
     }
 }
 

@@ -1,5 +1,9 @@
 //! Effects: the 41 catalogue effects as CPU per-pixel passes (rayon over rows).
 //!
+//! Pixel contract (design D5): an effect's per-pixel function returns RGBA. Colour effects are written as RGB
+//! functions and keep their input alpha; keys and mattes return alpha and so change the layer's transparency.
+//! Background generators fill their area and make it opaque by `amount`.
+//!
 //! An effect runs either on an item's decoded frame (`effects: [{id, type, ...params}]` on video and image items)
 //! or as a full-canvas pass for a shader item (`shaderComposition {template, params, amount, fadeIn, fadeOut,
 //! region}`). Parameters are resolved against the contract in [`spec`]: missing values take their defaults and
@@ -19,13 +23,29 @@ use serde_json::{Map, Value};
 
 pub use spec::{EFFECTS, EffectSpec, Group, find};
 pub use util::Params;
-use util::{Ctx, V3};
+use util::{Ctx, V3, V4};
 
 use crate::canvas::Rgba;
 
-type PixelFn = fn(&Ctx, f32, f32) -> V3;
+/// An effect's per-pixel function.
+#[derive(Clone, Copy)]
+enum PixelFn {
+    /// Colour only: the output keeps the input alpha.
+    Rgb(fn(&Ctx, f32, f32) -> V3),
+    /// Colour and alpha (keys, mattes).
+    Rgba(fn(&Ctx, f32, f32) -> V4),
+}
 
 fn pixel_fn(id: &str) -> Option<PixelFn> {
+    rgb_fn(id).map(PixelFn::Rgb).or_else(|| rgba_fn(id).map(PixelFn::Rgba))
+}
+
+/// Effects that write alpha.
+fn rgba_fn(_id: &str) -> Option<fn(&Ctx, f32, f32) -> V4> {
+    None
+}
+
+fn rgb_fn(id: &str) -> Option<fn(&Ctx, f32, f32) -> V3> {
     Some(match id {
         "duotone" => stylize::duotone,
         "tritone" => stylize::tritone,
@@ -117,14 +137,24 @@ pub fn apply(img: &mut Rgba, id: &str, values: &Map<String, Value>, amount: f32,
         let v = (y as f32 + 0.5) / h;
         for x in 0..w {
             let u = (x as f32 + 0.5) / ctx.w;
-            let o = f(&ctx, u, v);
             let px = &mut row[x * 4..x * 4 + 4];
+            let (o, alpha) = match f {
+                PixelFn::Rgb(f) => (f(&ctx, u, v), None),
+                PixelFn::Rgba(f) => {
+                    let o = f(&ctx, u, v);
+                    ([o[0], o[1], o[2]], Some(o[3]))
+                }
+            };
             for k in 0..3 {
                 let s = px[k] as f32 / 255.0;
                 let val = if o[k].is_finite() { o[k] } else { s };
                 px[k] = ((s + (val - s) * amount).clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
             }
-            if generator {
+            if let Some(a) = alpha {
+                let s = px[3] as f32 / 255.0;
+                let val = if a.is_finite() { a } else { s };
+                px[3] = ((s + (val - s) * amount).clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
+            } else if generator {
                 px[3] = (px[3] as f32 + (255.0 - px[3] as f32) * amount + 0.5) as u8;
             }
         }
@@ -150,6 +180,49 @@ pub fn stack_entries(effects: &Value) -> Vec<(&str, &Map<String, Value>, f32)> {
         .filter_map(|e| {
             let id = e.get("type").or_else(|| e.get("template")).and_then(Value::as_str)?;
             Some((id, entry_values(e), unit_amount(e.get("amount"))))
+        })
+        .collect()
+}
+
+/// One runnable effect: (effect id, parameter values, amount).
+pub type Entry<'a> = (&'a str, std::borrow::Cow<'a, Map<String, Value>>, f32);
+
+/// [`stack_entries`] at item-relative time `rel_us`: parameters animated by keyframe tracks
+/// (`effects.<entry id>.<parameter>` in the item's `keyframeTracks`) take their value at that time, evaluated as
+/// transform keyframes are (design D5). Without such tracks the values are the entries' own.
+pub fn stack_entries_at<'a>(
+    effects: &'a Value,
+    keyframe_tracks: Option<&Value>,
+    rel_us: ove_core::time::Micros,
+) -> Vec<Entry<'a>> {
+    let Value::Array(list) = effects else { return Vec::new() };
+    let tracks: Vec<(&str, &str, &Value)> = keyframe_tracks
+        .and_then(Value::as_array)
+        .map(|t| {
+            t.iter()
+                .filter_map(|t| {
+                    let prop = t.get("property")?.as_str()?;
+                    let (id, param) = ove_core::effect_params::split_property(prop)?;
+                    Some((id, param, t))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    list.iter()
+        .filter_map(Value::as_object)
+        .filter(|e| e.get("enabled").and_then(Value::as_bool) != Some(false))
+        .filter_map(|e| {
+            let kind = e.get("type").or_else(|| e.get("template")).and_then(Value::as_str)?;
+            let entry_id = e.get("id").and_then(Value::as_str);
+            let mut values = std::borrow::Cow::Borrowed(entry_values(e));
+            for (id, param, track) in &tracks {
+                if Some(*id) == entry_id
+                    && let Some(v) = crate::eval::track_value(track, rel_us)
+                {
+                    values.to_mut().insert((*param).to_string(), serde_json::json!(v));
+                }
+            }
+            Some((kind, values, unit_amount(e.get("amount"))))
         })
         .collect()
 }
@@ -251,6 +324,25 @@ mod tests {
         m
     }
 
+    /// Design D5: colour effects keep the input alpha of a semi-transparent layer; only generators fill it.
+    #[test]
+    fn existing_effects_keep_input_alpha() {
+        let mut base = sample_image(64, 36);
+        for (i, p) in base.data.chunks_exact_mut(4).enumerate() {
+            p[3] = ((i * 7) % 256) as u8;
+        }
+        for spec in EFFECTS {
+            let mut img = base.clone();
+            apply(&mut img, spec.id, &Map::new(), 1.0, 1.0);
+            let same = img.data.chunks_exact(4).zip(base.data.chunks_exact(4)).all(|(a, b)| a[3] == b[3]);
+            if spec.group == Group::Background {
+                assert!(img.data.chunks_exact(4).all(|p| p[3] == 255), "{} fills its area", spec.id);
+            } else {
+                assert!(same, "{} changed the layer's alpha", spec.id);
+            }
+        }
+    }
+
     #[test]
     fn every_effect_is_implemented_and_survives_extreme_params() {
         for spec in EFFECTS {
@@ -297,6 +389,46 @@ mod tests {
         assert_eq!(c.data, base.data);
         // posterize to 2 levels leaves only 0 or 255 per channel
         assert!(a.data.chunks(4).all(|p| p[..3].iter().all(|&x| x == 0 || x == 255)));
+    }
+
+    /// The animated blur scenario: zoom blur intensity keyframed from 0 to 20 over one second is 10 at 0.5 s
+    /// (linear), and the frame equals the effect at 10.
+    #[test]
+    fn keyframed_parameters_follow_their_tracks() {
+        let fx = json!([{"id": "b", "type": "zoom-blur", "intensity": 50}]);
+        let tracks = json!([{"property": "effects.b.intensity", "keyframes": [{"time": 0, "value": 0}, {"time": 1, "value": 20}]}]);
+        let at = |us: i64| stack_entries_at(&fx, Some(&tracks), us)[0].1.get("intensity").and_then(Value::as_f64);
+        assert_eq!(at(0), Some(0.0));
+        assert_eq!(at(500_000), Some(10.0));
+        assert_eq!(at(2_000_000), Some(20.0));
+        let base = sample_image(48, 27);
+        let mut animated = base.clone();
+        for (id, values, amount) in stack_entries_at(&fx, Some(&tracks), 500_000) {
+            apply(&mut animated, id, &values, amount, 0.5);
+        }
+        let mut fixed = base.clone();
+        apply(&mut fixed, "zoom-blur", json!({"intensity": 10}).as_object().unwrap(), 1.0, 0.5);
+        assert_eq!(animated.data, fixed.data);
+        // Without tracks the entry's own value stays; tracks for other entries do not touch it.
+        assert_eq!(stack_entries_at(&fx, None, 500_000)[0].1.get("intensity"), Some(&json!(50)));
+        let other = json!([{"property": "effects.x.intensity", "keyframes": [{"time": 0, "value": 1}]}]);
+        assert_eq!(stack_entries_at(&fx, Some(&other), 0)[0].1.get("intensity"), Some(&json!(50)));
+    }
+
+    /// ove-core keeps a copy of the numeric parameter names to check keyframe tracks: it must equal the contract.
+    #[test]
+    fn core_parameter_table_matches_the_contract() {
+        use ove_core::effect_params::NUMERIC_PARAMS;
+        assert_eq!(NUMERIC_PARAMS.len(), EFFECTS.len());
+        for spec in EFFECTS {
+            let want: Vec<&str> = spec
+                .params
+                .iter()
+                .filter(|p| matches!(p.kind, ParamKind::Number { .. } | ParamKind::Percent { .. }))
+                .map(|p| p.name)
+                .collect();
+            assert_eq!(ove_core::effect_params::params(spec.id), Some(&want[..]), "{}", spec.id);
+        }
     }
 
     #[test]

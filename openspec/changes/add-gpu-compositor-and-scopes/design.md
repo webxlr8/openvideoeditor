@@ -184,3 +184,16 @@ ones change appearance once, which is the bug fix in fix-render-and-edit-correct
   "timeline compositor (GPU, <adapter>; N ms/frame)" or "(CPU — <reason>; …)". UI test: the toggle switches the
   status between "Active: GPU (…)" and "Active: CPU — the GPU is turned off in Settings."
 - Not measured here: the built app on macOS and Windows (task 7.1).
+
+### Group 4: effects, transitions and alpha
+
+- 4.1: the per-pixel effect function returns RGBA (`PixelFn::Rgba`) or RGB (`PixelFn::Rgb`, input alpha kept). All
+  28 colour and distortion effects keep the alpha of a semi-transparent layer exactly; the 13 background generators
+  fill their area as before (unit test `existing_effects_keep_input_alpha`). The effect goldens are unchanged.
+- 4.2: keyframe tracks with the property `effects.<effect id>.<parameter>` animate a numeric effect parameter with the
+  shared evaluator (`eval::track_value`, the one transform keyframes use). Zoom blur intensity keyframed 0 → 20 over
+  1 s gives 10 at 0.5 s and the same pixels as a static 10. `ove source apply` refuses a track on a parameter the
+  effect does not have (`keyframe.effect.param`, "effect zoom-blur ("b") has no numeric parameter "radius" …") or on
+  an effect id the item does not have (`keyframe.effect.exists`). ove-core keeps the table of numeric parameters
+  (`effect_params.rs`), and an ove-render test keeps it equal to the effect contract. The JSON schema and
+  `timeline.d.ts` accept the new property form (`effects.${string}.${string}`).

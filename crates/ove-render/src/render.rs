@@ -309,7 +309,7 @@ impl Renderer {
                     self.backend.lut(tex, l, 1.0);
                 }
                 if let Some(e) = layer.fields.get("effects") {
-                    effect_stack(&mut *self.backend, tex, e, layer.rel_s);
+                    effect_stack(&mut *self.backend, tex, e, layer);
                 }
                 let (s, crop) = match layer.slot {
                     Some(_) => {
@@ -420,7 +420,7 @@ impl Renderer {
                     self.backend.lut(target, l, 1.0);
                 }
                 if let Some(e) = fx {
-                    effect_stack(&mut *self.backend, target, e, layer.rel_s);
+                    effect_stack(&mut *self.backend, target, e, layer);
                 }
                 if let Some(b) = before {
                     self.backend.mix(target, b, opacity);
@@ -514,9 +514,10 @@ pub fn transition_layer(
     backend.draw(canvas, off, place, &params);
 }
 
-/// Runs an item's effect stack (`effects` field) on the backend, in order; disabled entries are skipped.
-pub fn effect_stack(backend: &mut dyn Backend, t: Tex, effects: &Value, time: f32) {
-    for (id, values, amount) in effects::stack_entries(effects) {
-        backend.effect(t, id, values, amount, time);
+/// Runs a layer's effect stack (`effects` field) on the backend, in order, with keyframed parameters at the layer's
+/// time; disabled entries are skipped.
+pub fn effect_stack(backend: &mut dyn Backend, t: Tex, effects: &Value, layer: &Layer) {
+    for (id, values, amount) in effects::stack_entries_at(effects, layer.fields.get("keyframeTracks"), layer.rel_us) {
+        backend.effect(t, id, &values, amount, layer.rel_s);
     }
 }

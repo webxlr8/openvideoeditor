@@ -31,9 +31,9 @@
 
 ## 4. Effects, transitions and alpha
 
-- [ ] 4.1 Change the per-pixel effect contract to RGBA; verify every existing effect keeps input alpha (test on a
+- [x] 4.1 Change the per-pixel effect contract to RGBA; verify every existing effect keeps input alpha (test on a
       semi-transparent layer).
-- [ ] 4.2 Keyframable effect parameters using the shared keyframe evaluator, with an apply diagnostic for unknown
+- [x] 4.2 Keyframable effect parameters using the shared keyframe evaluator, with an apply diagnostic for unknown
       parameters; verify the animated blur scenario and the refusal scenario.
 - [ ] 4.3 Port separable blurs, then the 24 transitions, then the remaining per-pixel effects, then distortion effects
       to WGSL with the shared integer noise hash; verify parity for each one as it lands.
