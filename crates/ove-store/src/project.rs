@@ -583,7 +583,9 @@ impl Project {
         let by_count = revs[revs.len() - KEEP_REVISIONS];
         // Record times: rev is ms-based, so it is a lower bound of the commit time.
         let by_age = revs.iter().copied().find(|r| self.records[r].max(*r) >= now - KEEP_MS).unwrap_or(i64::MAX);
-        let oldest_kept = by_count.min(by_age);
+        // Revisions pinned by queued exports stay reconstructable too.
+        let pinned = crate::pins::pinned(&self.bundle).into_iter().min().unwrap_or(i64::MAX);
+        let oldest_kept = by_count.min(by_age).min(pinned);
         // Cut at the newest full snapshot at or before the oldest revision that must stay reconstructable; records
         // after it are kept (so retention may keep slightly more than the minimum, never less).
         let Some(keep_snap) = self.snaps.iter().rev().find(|s| **s <= oldest_kept).copied() else {

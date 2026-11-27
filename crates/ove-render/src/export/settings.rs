@@ -612,6 +612,16 @@ pub enum Chroma {
     C444,
 }
 
+impl Chroma {
+    pub fn label(self) -> &'static str {
+        match self {
+            Chroma::C420 => "4:2:0",
+            Chroma::C422 => "4:2:2",
+            Chroma::C444 => "4:4:4",
+        }
+    }
+}
+
 /// Validated video settings.
 #[derive(Debug, Clone, PartialEq)]
 pub struct VideoPlan {

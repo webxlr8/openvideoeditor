@@ -16,7 +16,7 @@ use serde::Serialize;
 
 use crate::canvas::Rgba;
 use crate::export::{
-    ExportError, ExportSettings, Picture, Quality, SourceSpec, VideoCodec, VideoSettings, export_frames,
+    ExportError, ExportSettings, Picture, Quality, SourceSpec, VideoCodec, VideoSettings, export_frames_keyed,
 };
 
 /// The project field of the "Use proxies" setting (set with `updateProject`; absent means off).
@@ -130,14 +130,7 @@ pub fn make(source: &Path, out: &Path, mut keep_going: impl FnMut(f64) -> bool) 
         return Err(ExportError::Cancelled);
     }
     let start_pts = frames.current_pts;
-    let spec = SourceSpec {
-        width: frames.width,
-        height: frames.height,
-        fps,
-        duration,
-        hdr: false,
-        keyframe_interval: Some(ove_media::proxy::GOP),
-    };
+    let spec = SourceSpec { width: frames.width, height: frames.height, fps, duration, hdr: false };
     let settings = ExportSettings {
         video: Some(VideoSettings { codec: VideoCodec::H264, quality: Quality::High, ..VideoSettings::default() }),
         audio: None,
@@ -154,8 +147,9 @@ pub fn make(source: &Path, out: &Path, mut keep_going: impl FnMut(f64) -> bool) 
             Picture::Rgba8(Rgba { w, h, data: vec![0; (w * h * 4) as usize] })
         }
     };
-    let result = export_frames(
+    let result = export_frames_keyed(
         spec,
+        Some(ove_media::proxy::GOP),
         &settings,
         out,
         frame,
