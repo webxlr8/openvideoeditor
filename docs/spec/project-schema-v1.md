@@ -118,6 +118,7 @@ Fields in projection attribute order:
 | `audioFadeOut` | object {duration, easing} |  |  | Audio fade at the end. |
 | `playbackSpeed` | number [0.01..100] | `1` |  | Playback speed factor. |
 | `playbackDirection` | `forward` \| `reverse` | `"forward"` |  | Playback direction. |
+| `denoise` | number [0..100] | `0` |  | Speech clean-up amount in percent: the sound is this blend of a cleaned copy and the original. |
 
 ### `image`
 
@@ -184,6 +185,7 @@ Fields in projection attribute order:
 | `audioFadeOut` | object {duration, easing} |  |  | Audio fade at the end. |
 | `playbackSpeed` | number [0.01..100] | `1` |  | Playback speed factor. |
 | `playbackDirection` | `forward` \| `reverse` | `"forward"` |  | Playback direction. |
+| `denoise` | number [0..100] | `0` |  | Speech clean-up amount in percent: the sound is this blend of a cleaned copy and the original. |
 
 ### `text`
 

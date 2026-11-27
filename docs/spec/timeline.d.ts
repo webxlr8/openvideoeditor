@@ -102,6 +102,8 @@ interface ClipProps extends ItemBase {
   playbackSpeed?: number;
   /** Playback direction. */
   playbackDirection?: "forward" | "reverse";
+  /** Speech clean-up amount in percent: the sound is this blend of a cleaned copy and the original. */
+  denoise?: number;
 }
 
 interface ImageProps extends ItemBase {
@@ -208,6 +210,8 @@ interface AudioProps extends ItemBase {
   playbackSpeed?: number;
   /** Playback direction. */
   playbackDirection?: "forward" | "reverse";
+  /** Speech clean-up amount in percent: the sound is this blend of a cleaned copy and the original. */
+  denoise?: number;
 }
 
 interface TextProps extends ItemBase {

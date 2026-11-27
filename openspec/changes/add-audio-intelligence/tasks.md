@@ -42,7 +42,7 @@
 
 ## 4. Denoise
 
-- [ ] 4.1 Add the `denoise` sound field (0–100) to the schema, projection and typings; verify a golden round trip and
+- [x] 4.1 Add the `denoise` sound field (0–100) to the schema, projection and typings; verify a golden round trip and
       an out-of-range diagnostic.
 - [ ] 4.2 Integrate the speech enhancement library and model through the model runtime, record the weight licence,
       and render the delay-compensated cleaned FLAC as a background task; verify the speech-in-noise fixture (noise
