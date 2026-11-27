@@ -174,7 +174,7 @@ enum Feed {
     /// A file's own audio track.
     Decoder(AudioDecoder),
     /// The timeline's mixdown.
-    Mix(ove_render::audio::Mixer, Arc<Document>),
+    Mix(Box<ove_render::audio::Mixer>, Arc<Document>),
 }
 
 /// A file (decode worker) or the composited timeline.
@@ -361,7 +361,7 @@ impl Session {
         *audio_ok = out.is_some();
         let audio = out.map(|out| Audio {
             out,
-            feed: Feed::Mix(ove_render::audio::Mixer::new(Some(&bundle)), doc.clone()),
+            feed: Feed::Mix(Box::new(ove_render::audio::Mixer::new(Some(&bundle))), doc.clone()),
             filled_to: 0,
             eof: false,
         });

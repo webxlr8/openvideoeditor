@@ -310,8 +310,12 @@ pub static TOOLS: &[ToolSpec] = &[
     ToolSpec {
         name: "measure_loudness",
         aliases: &[],
-        about: "Integrated loudness (LUFS, EBU R128), loudness range, sample peak and true peak.",
-        args: &[PROJECT, MEDIA],
+        about: "Integrated loudness (LUFS, EBU R128), loudness range, sample peak and true peak of a media file, or with `timeline` of the timeline mix as it would export (no export needed).",
+        args: &[
+            PROJECT,
+            arg("media", Str, "Media id, file name or path (not with timeline)"),
+            arg("timeline", Bool, "Measure the timeline mix instead of a media file"),
+        ],
         annotations: READ,
         surfaces: SERVERS,
         run: analyze::measure_loudness,
@@ -360,12 +364,22 @@ pub static TOOLS: &[ToolSpec] = &[
     ToolSpec {
         name: "export_video",
         aliases: &[],
-        about: "Render the timeline to an MP4 (H.264 + AAC). Refused while placeholders are pending. Takes about real time or less.",
+        about: "Render the timeline to an MP4 (H.264 + AAC), or the mix alone (audioOnly: m4a, wav or flac) without rendering video. `loudness` normalises the mix to a target with a true-peak limit and reports loudness before and after. Refused while placeholders are pending or media is offline. Takes about real time or less.",
         args: &[
             PROJECT,
             req("out", Str, "Output .mp4 path"),
             arg("height", Int, "720, 1080 (default) or 2160"),
             arg("fps", Int, "Frame rate (default 30)"),
+            arg(
+                "audioOnly",
+                Str,
+                "Write the mix alone, no video: m4a (AAC), wav (24-bit) or flac (empty: from the out extension)",
+            ),
+            arg(
+                "loudness",
+                Num,
+                "Loudness target, integrated LUFS: -14, -16, -23 or -24 (default off); the result reports before and after",
+            ),
         ],
         annotations: WRITE,
         surfaces: SERVERS,
@@ -647,6 +661,16 @@ pub static TOOLS: &[ToolSpec] = &[
         annotations: WRITE,
         surfaces: AGENTS,
         run: audio::duck_audio,
+        model: ModelText::Json,
+    },
+    ToolSpec {
+        name: "extract_audio",
+        aliases: &[],
+        about: "Extract the sound of a media file (a video, usually) into the project library as a new audio media entry: a 24-bit WAV or FLAC file in the bundle's media folder, added in one revision (undo removes the entry). Refused for media without audio or offline media.",
+        args: &[PROJECT, MEDIA, arg("format", Str, "wav (default) or flac")],
+        annotations: WRITE,
+        surfaces: SERVERS,
+        run: audio::extract_audio,
         model: ModelText::Json,
     },
 ];

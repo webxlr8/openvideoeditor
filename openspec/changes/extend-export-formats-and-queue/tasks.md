@@ -10,9 +10,9 @@
 
 ## 2. Settings model and encoders
 
-- [ ] 2.1 Implement the settings model, validation and the preset table; verify unit tests for each valid preset and
+- [x] 2.1 Implement the settings model, validation and the preset table; verify unit tests for each valid preset and
       for each refused combination (codec/container, alpha, bit depth, range).
-- [ ] 2.2 Implement per-codec encoder candidate lists with run-time filtering and reporting of the chosen encoder;
+- [x] 2.2 Implement per-codec encoder candidate lists with run-time filtering and reporting of the chosen encoder;
       verify a test with a mocked inventory picks the expected encoder and refuses HEVC when none exists.
 - [ ] 2.3 Implement ProRes (all profiles), DNxHR (all profiles), HEVC 8/10-bit, VP9 and hardware AV1 encoding paths;
       verify an ffprobe matrix test (codec, profile, pixel format, colour tags) and SSIM ≥ 0.99 against the H.264
