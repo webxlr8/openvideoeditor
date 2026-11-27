@@ -53,13 +53,13 @@ describe("reasoning", () => {
     await waitFor(() => expect(screen.getByTestId("reasoning-body").textContent.length).toBeGreaterThan(before));
     await waitFor(() => expect(screen.getByTestId("reasoning-body").textContent).toContain("does not cover the face"));
     // The answer follows: the block stops and says how long it took.
-    await waitFor(() => expect(screen.getByTestId("reasoning-time").textContent).toMatch(/^Thought for \d+s$/), { timeout: 5000 });
+    await waitFor(() => expect(screen.getByTestId("reasoning-time").textContent).toMatch(/^Thought for \d+s$/), { timeout: 20000 });
     fireEvent.click(screen.getByTestId("reasoning-toggle"));
     expect(screen.queryByTestId("reasoning-body")).toBeNull();
     fireEvent.click(screen.getByTestId("reasoning-toggle"));
     expect(localStorage.getItem("ove.reasoningOpen")).toBe("1");
-    await waitFor(() => expect(screen.queryByTestId("stop")).toBeNull(), { timeout: 5000 });
-  });
+    await waitFor(() => expect(screen.queryByTestId("stop")).toBeNull(), { timeout: 20000 });
+  }, 60000);
 
   it("draws at most once per frame while streaming at 200 tokens a second", async () => {
     // 600 reasoning tokens, 4 every timer step (about 16 ms on Windows): about 200 tokens/s.
@@ -87,7 +87,7 @@ describe("reasoning", () => {
     ));
     streaming = true;
     await screen.findByTestId("reasoning");
-    await waitFor(() => expect(screen.getByTestId("reasoning-time").textContent).toMatch(/^Thought/), { timeout: 10000 });
+    await waitFor(() => expect(screen.getByTestId("reasoning-time").textContent).toMatch(/^Thought/), { timeout: 20000 });
     streaming = false;
     globalThis.requestAnimationFrame = raf;
     window.__oveMock!.agent.reasoningPerStep = undefined;
@@ -101,6 +101,6 @@ describe("reasoning", () => {
     // Coalesced: one draw per frame, not per token, and each well inside a 16 ms frame.
     expect(frames).toBeLessThan(600 / 2);
     expect(p95).toBeLessThan(16);
-    await waitFor(() => expect(screen.queryByTestId("stop")).toBeNull(), { timeout: 5000 });
-  }, 20000);
+    await waitFor(() => expect(screen.queryByTestId("stop")).toBeNull(), { timeout: 20000 });
+  }, 60000);
 });

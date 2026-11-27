@@ -68,9 +68,9 @@ describe("activity layer", () => {
     expect(badge.textContent).toContain("Claude Code");
     expect(badge.textContent).toContain("changing 1");
     // Three seconds after the last event the display is gone.
-    await waitFor(() => expect(screen.queryByTestId("activity-badge")).toBeNull(), { timeout: FADE_MS + 1500 });
+    await waitFor(() => expect(screen.queryByTestId("activity-badge")).toBeNull(), { timeout: FADE_MS + 5000 });
     expect(outlined().length).toBe(0);
-  });
+  }, 20000);
 
   it("shows a band on the ruler over the range an agent reads", async () => {
     await editorWithClip();

@@ -18,6 +18,7 @@ pub mod exports;
 pub mod feedback;
 pub mod fx;
 pub mod generation;
+pub mod history;
 pub mod interchange;
 pub mod logging;
 pub mod media;
@@ -231,6 +232,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             assistant::agent_chat,
             assistant::agent_send,
             assistant::agent_send_context,
+            history::undo_agent_changes,
             assistant::agent_stop,
             assistant::agent_answer,
             assistant::agent_set_limits,

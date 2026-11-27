@@ -248,6 +248,12 @@ export const commands = {
 	 *  the exact printed lines with their revision, and kept in the chat log.
 	 */
 	agentSendContext: (chatId: string | null, text: string, mentions: MentionInput_Deserialize[]) => typedError<SendResult_Serialize, AppError>(__TAURI_INVOKE("agent_send_context", { chatId, text, mentions })),
+	/**
+	 *  History → "Undo this agent's changes": every revision of that agent's session (or of one assistant turn), as one
+	 *  new revision that can itself be undone. Refused when later edits by others changed the same fields: nothing
+	 *  changes, and the conflicting items are listed.
+	 */
+	undoAgentChanges: (kind: string, session: string, turn: string | null) => typedError<AgentUndo_Serialize, AppError>(__TAURI_INVOKE("undo_agent_changes", { kind, session, turn })),
 	agentStop: () => typedError<null, AppError>(__TAURI_INVOKE("agent_stop")),
 	agentAnswer: (questionId: string, answer: string) => typedError<null, AppError>(__TAURI_INVOKE("agent_answer", { questionId, answer })),
 	/**  Saves the spend caps and per-turn limits (Settings → Assistant). They apply from the next turn. */
@@ -560,6 +566,25 @@ export type AgentUiEvent_Deserialize = { kind: "turnStarted"; chatId: string } |
 export type AgentUiEvent_Serialize = { kind: "turnStarted"; chatId: string } | { kind: "textDelta"; text: string } | { kind: "thinkingDelta"; text: string } | { kind: "toolCall"; id: string; name: string; label: string } | { kind: "toolResult"; id: string; ok: boolean; summary: string } | { kind: "question"; id: string; question: string; options: string[] } | { kind: "retrying"; message: string; seconds: number | null } | { kind: "turnDone"; chatId: string; stopped: boolean; durationMs: number | null; inputTokens: number | null; outputTokens: number | null; cacheReadTokens: number | null; costUsd: number | null; note: string | null } | { kind: "error"; code: string; message: string } | 
 /**  The assistant asked to show a timeline time. */
 { kind: "seek"; seconds: number | null };
+
+/**  What "Undo this agent's changes" did. */
+export type AgentUndo = AgentUndo_Serialize | AgentUndo_Deserialize;
+
+/**  What "Undo this agent's changes" did. */
+export type AgentUndo_Deserialize = {
+	/**  The project after the undo; none when it was refused. */
+	view?: ProjectView_Deserialize | null,
+	/**  Why it was refused: the fields changed later by others (nothing was changed). */
+	conflicts: UndoConflictRow[],
+};
+
+/**  What "Undo this agent's changes" did. */
+export type AgentUndo_Serialize = {
+	/**  The project after the undo; none when it was refused. */
+	view: ProjectView_Serialize | null,
+	/**  Why it was refused: the fields changed later by others (nothing was changed). */
+	conflicts: UndoConflictRow[],
+};
 
 /**  Error returned by every command: a code plus a plain-language message. */
 export type AppError = {
@@ -1302,6 +1327,14 @@ export type HistoryRow_Deserialize = {
 	canRestore: boolean,
 	/**  The agent client that made it (an MCP client's name, such as claude-code), when recorded. */
 	client?: string | null,
+	/**
+	 *  Who made it, for grouping by agent (change add-agent-chat-context-and-activity): the recorded actor's kind
+	 *  (user, assistant, cli, mcp, …), session and turn, and its name as people read it (Claude Code, Assistant).
+	 */
+	actorKind?: string | null,
+	session?: string | null,
+	turn?: string | null,
+	actorName?: string | null,
 };
 
 /**  One revision in the history panel. */
@@ -1318,6 +1351,14 @@ export type HistoryRow_Serialize = {
 	canRestore: boolean,
 	/**  The agent client that made it (an MCP client's name, such as claude-code), when recorded. */
 	client: string | null,
+	/**
+	 *  Who made it, for grouping by agent (change add-agent-chat-context-and-activity): the recorded actor's kind
+	 *  (user, assistant, cli, mcp, …), session and turn, and its name as people read it (Claude Code, Assistant).
+	 */
+	actorKind: string | null,
+	session: string | null,
+	turn: string | null,
+	actorName: string | null,
 };
 
 /**  What the timeline needs to draw a clip's waveform and gain line. */
@@ -2278,6 +2319,15 @@ export type UiState = {
 	selection: string[],
 	/**  `timeline` or `source`. */
 	viewer: string,
+};
+
+/**  A field an agent changed that someone changed again later. */
+export type UndoConflictRow = {
+	/**  The item (its id), or the track, media or project. */
+	item: string,
+	field: string,
+	/**  The later change, as History lists it. */
+	summary: string,
 };
 
 export type UpdateInfo = UpdateInfo_Serialize | UpdateInfo_Deserialize;

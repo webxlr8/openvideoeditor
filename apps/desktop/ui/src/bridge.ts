@@ -103,6 +103,15 @@ export interface MockControl {
   meter(batch: AudioMeter): void;
   /** A project opened from outside the window (an agent or the command line, through the control link). */
   remoteOpen(name: string): void;
+  /** Simulates an agent's edit of one item field through the app, recorded with its actor (History groups by it). */
+  agentEdit(
+    actor: { kind: string; session: string; client?: string | null; name: string },
+    id: string,
+    field: string,
+    value: unknown,
+  ): void;
+  /** Simulates the person changing one item field (recorded so an agent undo can find the conflict). */
+  personEdit(id: string, field: string, value: unknown): void;
   /** Simulates the app showing what an agent reads or changes (`agentActivity`). */
   activity(ev: Pick<AgentActivity_Serialize, "actor" | "name" | "kind" | "ids"> & Partial<AgentActivity_Serialize>): void;
   /** The simulated assistant: whether a key is stored, how long each streamed step takes, whether the key check
@@ -763,6 +772,26 @@ function createMock(): {
     routePaths(paths) {
       emit("open-paths-requested", { paths });
     },
+    agentEdit(a, id, field, value) {
+      const it = project?.items.find((i) => i.id === id) as Record<string, unknown> | undefined;
+      const was = it?.[field];
+      recording = { kind: a.kind, session: a.session, client: a.client ?? null, name: a.name };
+      fire(editProject(`source apply: updated 1`, (p) => {
+        const x = p.items.find((i) => i.id === id) as Record<string, unknown> | undefined;
+        if (x) x[field] = value;
+      }, a.kind));
+      recording = null;
+      history[history.length - 1].fields = [{ id, field, was }];
+    },
+    personEdit(id, field, value) {
+      const it = project?.items.find((i) => i.id === id) as Record<string, unknown> | undefined;
+      const was = it?.[field];
+      fire(editProject(`edit ${field}`, (p) => {
+        const x = p.items.find((i) => i.id === id) as Record<string, unknown> | undefined;
+        if (x) x[field] = value;
+      }));
+      history[history.length - 1].fields = [{ id, field, was }];
+    },
     activity(ev) {
       emit("agent-activity", { removed: [], start: null, end: null, ts: Date.now(), ...ev });
     },
@@ -819,8 +848,14 @@ function createMock(): {
   let project: ProjectView_Serialize | null = null;
   let undoStack: ProjectView_Serialize[] = [];
   let redoStack: ProjectView_Serialize[] = [];
-  let history: { row: HistoryRow_Serialize; before: ProjectView_Serialize | null }[] =
-    [];
+  let history: {
+    row: HistoryRow_Serialize;
+    before: ProjectView_Serialize | null;
+    /** Item fields the change set (agent edits and simulated person edits), with their earlier values. */
+    fields?: { id: string; field: string; was: unknown }[];
+  }[] = [];
+  // The actor of the change being recorded (simulated agent edits).
+  let recording: { kind: string; session: string; client: string | null; name: string } | null = null;
   let seq = 0;
   const WHO: Record<string, string> = {
     gui: "You",
@@ -848,7 +883,11 @@ function createMock(): {
             : (WHO[source] ?? "You"),
         summary,
         canRestore: before !== null,
-        client: null,
+        client: recording?.client ?? null,
+        actorKind: recording?.kind ?? null,
+        session: recording?.session ?? null,
+        turn: null,
+        actorName: recording?.name ?? null,
       },
       before,
     });
@@ -1720,6 +1759,33 @@ function createMock(): {
       project
         ? ok(history.map((h) => h.row).reverse())
         : fail("invalid_argument", "No project is open."),
+    // History → "Undo this agent's changes": reverts that session's fields as one change, unless someone changed one
+    // of them later (then nothing changes and the conflicts are listed).
+    undoAgentChanges: (kind: string, session: string, _turn: string | null) => {
+      if (!project) return fail("invalid_argument", "No project is open.");
+      const at = history
+        .map((h, n) => ({ h, n }))
+        .filter(({ h }) => h.row.actorKind === kind && h.row.session === session && h.fields && !h.row.summary.startsWith("undo"));
+      if (at.length === 0) return fail("invalid_argument", "This agent's changes are already undone.");
+      const conflicts = at.flatMap(({ h, n }) =>
+        h.fields!.flatMap((f) =>
+          history
+            .slice(n + 1)
+            .filter((l) => l.row.actorKind !== kind && l.fields?.some((g) => g.id === f.id && g.field === f.field))
+            .map((l) => ({ item: f.id, field: f.field, summary: l.row.summary })),
+        ),
+      );
+      if (conflicts.length) return ok({ view: null, conflicts });
+      const r = editProject(`undo the session (${at.length} change${at.length === 1 ? "" : "s"})`, (p) => {
+        for (const { h } of [...at].reverse())
+          for (const f of h.fields!) {
+            const x = p.items.find((i) => i.id === f.id) as Record<string, unknown> | undefined;
+            if (x) x[f.field] = f.was;
+          }
+      }, "undo");
+      for (const { h } of at) h.row.summary = `undone: ${h.row.summary}`;
+      return r.then((v) => (v.status === "ok" ? { status: "ok" as const, data: { view: v.data, conflicts: [] } } : v));
+    },
     restoreBefore: (rev: number | null) => {
       const h = history.find((x) => x.row.rev === rev);
       if (!h?.before)

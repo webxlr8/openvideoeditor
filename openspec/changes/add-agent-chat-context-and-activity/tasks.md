@@ -39,7 +39,7 @@
 
 ## 5. History by actor
 
-- [ ] 5.1 Group revisions by actor in the History panel, and add "Undo this agent's changes" using actor-scoped undo.
+- [x] 5.1 Group revisions by actor in the History panel, and add "Undo this agent's changes" using actor-scoped undo.
       Verify with UI tests for the undo-one-agent and conflict scenarios.
 
 ## 6. Integration checks

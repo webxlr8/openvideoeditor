@@ -186,3 +186,16 @@ Measured on Windows 11 (32-core desktop, debug builds).
   runs, max 48–81 ms (garbage-collection pauses in the test process), 200 outlined. The p50 is inside a 16 ms frame;
   the p95 is at or just over it in this setting, so the test bounds p95 at 32 ms. A measurement in the built app's
   web view is part of task 6.1.
+
+**Group 5, History by actor:**
+- History rows carry the recorded actor's kind, session, turn and name. The panel groups consecutive rows by actor
+  ("Claude Code", "You", "Assistant"); each agent group (MCP, command line, assistant) offers "Undo this agent's
+  changes".
+- The command `undo_agent_changes` runs the registry's `undo_my_changes` (scope `any`, the command line's form) on
+  the open project: one new revision, itself undoable. An assistant group made in one turn undoes that turn.
+- Rust tests (`history.rs`): undoing the MCP session reverted both of its edits and kept the person's edit in
+  between; when the person later changed the same field, it was refused with that item and field and the revision
+  did not move. UI tests: the same two scenarios through the panel.
+- Test runs in this group: `exporting::a_stalled_queue_still_starts_the_export_within_5s`, `scrub_latency_and_edits`
+  and `ove-agent request_and_time_limits_name_the_limit` each failed once while other workers loaded the machine and
+  passed when run again; they are timing tests this change does not touch.
