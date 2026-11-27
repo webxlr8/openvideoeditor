@@ -119,3 +119,25 @@ Measured on the Windows 11 build machine (debug build, `cargo test`).
   markers have no tracks, so they are not rebased through ripples on apply. Property "concurrent edits to different
   markers never conflict and both are kept": 10,000 cases pass. The existing merge property suite
   (`tests/properties.rs`, `tests/rebase.rs`) passes unchanged.
+
+### Group 2: markers in edits and agents
+
+- Ripples (`ove_edit::markers::follow`): markers follow the time map of the edit's main track (the edited item's
+  track, or the first target track), because markers are timeline-wide and time maps are per track. The request
+  states whether markers follow: `edit_timeline` and `ove edit` take `markers` (default off, so agent results never
+  depend on a preference); the editor's planned edits always pass it on (GUI default on). The marker ops join the
+  ripple's batch, so the edit stays one revision. Property (`crates/ove-edit/tests/markers.rs`, ripple delete of a
+  random range with 0–6 random point and range markers): markers that end before the range never move, markers
+  after it shift by its length, points inside it are removed, ranges overlapping it shrink, and nothing moves when
+  markers do not follow. 10,000 cases pass.
+- Snapping: marker starts and ends are `snap::Kind::Marker` targets; the timeline's drag snapping includes them.
+- Tools (`list_markers`, `add_marker`, `update_marker`, `remove_markers`) are registry tools on every agent surface
+  and on `ove markers list|add|update|remove`. Agent surfaces (in-app, MCP, pinned MCP) are refused `resolved` with
+  `marker.resolveByAgent`; the command line is a person, so it may resolve. `list_markers` returns the item ids
+  under each marker (items covering a point, or overlapping a range).
+- The in-app assistant's prompt has a "Markers and review" section; the agent test drives a scripted model through
+  list → look → review → resolve (refused) and checks the marker ends in review. `look` is a stand-in frame in that
+  test, as in the existing frames test, because the renderer is not part of the agent crate's tests.
+- Timeline UI: a marker lane under the ruler with a status filter (view state, no revision), M adds a point marker
+  at the playhead, a click opens a popover (name, note, colour, status, assignee; Save and Delete are one revision
+  each). Vitest: `ui/src/Markers.test.tsx`, 5 tests. The built-app check is task 5.1.

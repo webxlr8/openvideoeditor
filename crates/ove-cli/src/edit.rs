@@ -92,6 +92,9 @@ pub struct EditArgs {
     /// Print the plan without applying it.
     #[arg(long = "dry-run")]
     pub dry_run: bool,
+    /// Markers follow a ripple: later markers shift with it, point markers inside a removed range are removed.
+    #[arg(long)]
+    pub markers: bool,
     /// remove-words: word ids (`<mediaId>@<sourceMs>`), comma separated.
     #[arg(long, value_delimiter = ',')]
     pub words: Vec<String>,
@@ -247,7 +250,10 @@ pub fn run(ctx: &Ctx, a: &EditArgs) -> Out {
     }
     let req = request(a)?;
     let request = serde_json::to_value(&req).map_err(|e| Fail::new("argument.invalid", e.to_string()))?;
-    ctx.tool("edit_timeline", json!({"project": a.project, "request": request, "rev": a.rev, "preview": a.dry_run}))
+    ctx.tool(
+        "edit_timeline",
+        json!({"project": a.project, "request": request, "rev": a.rev, "preview": a.dry_run, "markers": a.markers}),
+    )
 }
 
 fn remove_words(ctx: &Ctx, a: &EditArgs) -> Out {

@@ -226,6 +226,15 @@ export const commands = {
 	 *  as one revision. A refusal is the error and changes nothing.
 	 */
 	editPlan: (request: string) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("edit_plan", { request })),
+	/**
+	 *  Adds a marker at `at` seconds (the M key adds a point marker at the playhead). `fields_json` may set dur, name,
+	 *  color, note, status and assignee.
+	 */
+	markerAdd: (at: number | null, fieldsJson: string | null) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("marker_add", { at, fieldsJson })),
+	/**  Changes a marker (`set_json`: at, dur, name, color, note, status, assignee) and removes optional fields. */
+	markerUpdate: (id: string, setJson: string, unset: string[]) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("marker_update", { id, setJson, unset })),
+	/**  Removes markers. */
+	markerRemove: (ids: string[]) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("marker_remove", { ids })),
 	/**  Plans an edit verb without applying it (no revision): what a drag would do while it is held. */
 	editPreview: (request: string) => typedError<EditPreview_Serialize, AppError>(__TAURI_INVOKE("edit_preview", { request })),
 	/**  Adds a track. Video/caption/adjustment/layout tracks go on top, audio tracks at the bottom. */
@@ -1353,6 +1362,39 @@ export type LocalModels_Serialize = {
 	models: LocalModel_Serialize[],
 };
 
+/**  A marker as the timeline shows it. */
+export type MarkerView = MarkerView_Serialize | MarkerView_Deserialize;
+
+/**  A marker as the timeline shows it. */
+export type MarkerView_Deserialize = {
+	id: string,
+	/**  Seconds. */
+	at: number | null,
+	/**  Seconds; 0 for a point marker. */
+	dur: number | null,
+	/**  open, review or resolved. */
+	status: string,
+	name?: string | null,
+	color?: string | null,
+	note?: string | null,
+	assignee?: string | null,
+};
+
+/**  A marker as the timeline shows it. */
+export type MarkerView_Serialize = {
+	id: string,
+	/**  Seconds. */
+	at: number | null,
+	/**  Seconds; 0 for a point marker. */
+	dur: number | null,
+	/**  open, review or resolved. */
+	status: string,
+	name: string | null,
+	color: string | null,
+	note: string | null,
+	assignee: string | null,
+};
+
 /**  Properties shown next to the viewer. */
 export type MediaInfo = MediaInfo_Serialize | MediaInfo_Deserialize;
 
@@ -1644,6 +1686,8 @@ export type ProjectView_Deserialize = {
 	media: MediaView_Deserialize[],
 	/**  The project's "Use proxies" setting (absent: off). */
 	useProxies?: boolean | null,
+	/**  Timeline markers in time order (absent: none). */
+	markers?: MarkerView_Deserialize[] | null,
 };
 
 /**  Everything the editor shows about the open project. */
@@ -1664,6 +1708,8 @@ export type ProjectView_Serialize = {
 	media: MediaView_Serialize[],
 	/**  The project's "Use proxies" setting (absent: off). */
 	useProxies?: boolean,
+	/**  Timeline markers in time order (absent: none). */
+	markers?: MarkerView_Serialize[],
 };
 
 /**  A project was opened from the command line: the UI switches to the editor. */

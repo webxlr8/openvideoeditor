@@ -1801,6 +1801,44 @@ function createMock(): {
         for (const d of JSON.parse(itemsJson) as Fields[])
           p.items.push(fromDetail({ ...d, id: d.id ?? `i${++seq}` }));
       }),
+    // Markers (add-markers-keyframe-lanes-and-versions 2.5): one revision per add, save or delete.
+    markerAdd: (at: number | null, fieldsJson: string | null) =>
+      editProject("add marker", (p) => {
+        const f = (fieldsJson ? JSON.parse(fieldsJson) : {}) as Record<string, unknown>;
+        const s = (k: string) => (typeof f[k] === "string" ? f[k] : null);
+        const list = [...(p.markers ?? [])];
+        list.push({
+          id: `mk${++seq}`,
+          at: at ?? 0,
+          dur: typeof f.dur === "number" ? f.dur : 0,
+          status: s("status") ?? "open",
+          name: s("name"),
+          color: s("color"),
+          note: s("note"),
+          assignee: s("assignee"),
+        });
+        p.markers = list.sort((a, b) => (a.at ?? 0) - (b.at ?? 0) || a.id.localeCompare(b.id));
+      }),
+    markerUpdate: (id: string, setJson: string, unset: string[]) => {
+      if (!project?.markers?.some((m) => m.id === id))
+        return fail("not_found", "That marker no longer exists.");
+      const set = JSON.parse(setJson) as Record<string, unknown>;
+      const summary =
+        set.status === "resolved" ? "resolve marker" : set.status === "review" ? "marker to review" : "edit marker";
+      return editProject(summary, (p) => {
+        const m = p.markers?.find((x) => x.id === id);
+        if (!m) return;
+        Object.assign(m, set);
+        for (const k of unset) (m as Record<string, unknown>)[k] = null;
+        p.markers!.sort((a, b) => (a.at ?? 0) - (b.at ?? 0) || a.id.localeCompare(b.id));
+      });
+    },
+    markerRemove: (ids: string[]) =>
+      editProject(ids.length === 1 ? "remove marker" : "remove markers", (p) => {
+        const left = (p.markers ?? []).filter((m) => !ids.includes(m.id));
+        if (left.length) p.markers = left;
+        else delete p.markers;
+      }),
     duplicateItems: (ids: string[]) =>
       editProject("duplicate", (p) => {
         for (const id of ids) {

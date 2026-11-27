@@ -202,6 +202,10 @@ pub struct ProjectView {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[specta(optional)]
     pub use_proxies: Option<bool>,
+    /// Timeline markers in time order (absent: none).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub markers: Option<Vec<crate::markers::MarkerView>>,
 }
 
 /// The open project changed (any source).
@@ -513,6 +517,7 @@ fn view_from(
             .collect(),
         media,
         use_proxies: ove_render::proxy::enabled(d).then_some(true),
+        markers: crate::markers::views(d),
     }
 }
 

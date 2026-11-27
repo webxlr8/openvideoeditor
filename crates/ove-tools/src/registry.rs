@@ -8,7 +8,7 @@ use crate::spec::{
 };
 use crate::tools::{
     analyze, app, audio, code, deadair, docs, edit, exchange, export, export_queue, export_range, feedback, generate,
-    media, models, project, tasks, timeline, transcript,
+    markers, media, models, project, tasks, timeline, transcript,
 };
 
 pub(crate) const PROJECT: Arg = arg(
@@ -552,6 +552,11 @@ pub static TOOLS: &[ToolSpec] = &[
             req("request", Json(REQUEST), "The edit request (see `docs` topic `edit`)"),
             arg("rev", Int, "Revision the request was made against (default: the current one)"),
             arg("preview", Bool, "Return the plan without applying it"),
+            arg(
+                "markers",
+                Bool,
+                "Markers follow a ripple: later markers shift with it, points inside a removed range go",
+            ),
         ],
         annotations: WRITE,
         surfaces: AGENTS,
@@ -920,6 +925,47 @@ pub static TOOLS: &[ToolSpec] = &[
         annotations: DESTRUCTIVE,
         surfaces: AGENTS,
         run: tasks::cancel_task,
+        model: ModelText::Text,
+    },
+    // Markers (change add-markers-keyframe-lanes-and-versions, task 2.3).
+    ToolSpec {
+        name: "list_markers",
+        aliases: &[],
+        about: markers::LIST_MARKERS_ABOUT,
+        args: markers::LIST_MARKERS_ARGS,
+        annotations: READ,
+        surfaces: AGENTS,
+        run: markers::list_markers,
+        model: ModelText::Text,
+    },
+    ToolSpec {
+        name: "add_marker",
+        aliases: &[],
+        about: markers::ADD_MARKER_ABOUT,
+        args: markers::ADD_MARKER_ARGS,
+        annotations: WRITE,
+        surfaces: AGENTS,
+        run: markers::add_marker,
+        model: ModelText::Text,
+    },
+    ToolSpec {
+        name: "update_marker",
+        aliases: &[],
+        about: markers::UPDATE_MARKER_ABOUT,
+        args: markers::UPDATE_MARKER_ARGS,
+        annotations: WRITE,
+        surfaces: AGENTS,
+        run: markers::update_marker,
+        model: ModelText::Text,
+    },
+    ToolSpec {
+        name: "remove_markers",
+        aliases: &[],
+        about: markers::REMOVE_MARKERS_ABOUT,
+        args: markers::REMOVE_MARKERS_ARGS,
+        annotations: DESTRUCTIVE,
+        surfaces: AGENTS,
+        run: markers::remove_markers,
         model: ModelText::Text,
     },
 ];

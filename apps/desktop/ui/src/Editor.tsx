@@ -264,6 +264,9 @@ export function Editor({
         case "markClip":
           if (item) setRange({ in: item.start ?? 0, out: item.end ?? 0 });
           break;
+        case "addMarker":
+          onEdit(commands.markerAdd(at, null));
+          break;
         case "rippleTrimStart":
         case "rippleTrimEnd":
           if (item && at > (item.start ?? 0) && at < (item.end ?? 0))

@@ -1,6 +1,6 @@
 // The timeline: real tracks and items of the open project. Click to select (shift/⌘ to add), drag to move (also to
 // another compatible track), drag an edge to trim (the start edge moves the in-point), right-click for actions.
-// Snapping to the playhead and clip edges is on by default. Every gesture commits one revision on release.
+// Snapping to the playhead, clip edges and markers is on by default. Every gesture commits one revision on release.
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Ghost, ItemView_Serialize, ProjectView_Serialize } from "./bindings";
@@ -8,6 +8,7 @@ import { commands } from "./bridge";
 import { type EditResult, TIMELINE_FPS, addItems, firstTrack, linkDrift, trackAccepts, updateItem, updateItems, snapToFrame } from "./edit";
 import { Icon, type IconName } from "./icons";
 import { ClipAudioLayer } from "./ClipAudioLayer";
+import { MarkerLane } from "./MarkerLane";
 import { ContextMenu, type MenuItem } from "./Menu";
 import { useCutPreview } from "./cutPreview";
 import { resetScrub, scrubAudio } from "./scrubAudio";
@@ -113,7 +114,8 @@ export function Timeline(props: TimelineProps) {
   /** Snaps a time to the playhead, 0 and other items' edges (within SNAP_PX). */
   const snapTime = (t: number, ignore: string[]) => {
     if (!snap) return t;
-    const points = [0, playhead, ...items.filter((i) => !ignore.includes(i.id)).flatMap((i) => [i.start ?? 0, i.end ?? 0])];
+    const markerPoints = (project?.markers ?? []).flatMap((m) => ((m.dur ?? 0) > 0 ? [m.at ?? 0, (m.at ?? 0) + (m.dur ?? 0)] : [m.at ?? 0]));
+    const points = [0, playhead, ...markerPoints, ...items.filter((i) => !ignore.includes(i.id)).flatMap((i) => [i.start ?? 0, i.end ?? 0])];
     let best = t;
     let bestD = SNAP_PX / pps;
     for (const p of points) {
@@ -395,6 +397,7 @@ export function Timeline(props: TimelineProps) {
               ))}
             </div>
           </div>
+          <MarkerLane markers={project?.markers ?? []} pps={pps} headerW={HEADER_W} onEdit={onEdit} onSeek={onScrub} />
           <div className="tracks" ref={rows}>
             {tracks.map((t) => (
               <div className={`track${t.visible ? "" : " track-hidden"}`} key={t.id} data-testid={`track-${t.name}`}>

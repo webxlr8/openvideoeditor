@@ -36,6 +36,7 @@ export function shortcutGroups(): { group: string; keys: [string, string][] }[] 
         [`${k("rippleTrimStart")} / ${k("rippleTrimEnd")}`, "Ripple trim the start / end to the playhead"],
         [`${k("insert")} / ${k("overwrite")}`, "Insert / overwrite with the source clip at the playhead"],
         [`${k("markIn")} / ${k("markOut")} / ${k("markClip")}`, "Mark in / out / the selected clip"],
+        [k("addMarker"), "Add a marker at the playhead"],
         [`${MOD} C / ${MOD} V`, "Copy / paste at the playhead"],
         [`${MOD} A`, "Select all on the track"],
         [`${MOD} Z / ⇧${MOD} Z`, "Undo / redo"],

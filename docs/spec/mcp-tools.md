@@ -9,7 +9,7 @@ The CLI can serve itself as an stdio MCP server; tools mirror CLI commands. Para
 - `print_timeline` (read-only) — project*:string, from:integer, lines:integer
 - `check_timeline` (read-only) — project*:string, edits:array, rev:integer, source:string, prefer:enum(file|editor)
 - `apply_timeline` — project*:string, edits:array, rev:integer, source:string, prefer:enum(file|editor)
-- `edit_timeline` — project*:string, request*:string (JSON: `{"op": "split" | "trim" | "rippleTrim" | "rippleDelete" | "delete" | "insert" | "overwrite" | "lift" | "extract" | "closeGap" | "slip" | "slide" | "roll" | "move", …}`, times in seconds), rev:integer, preview:boolean. One revision per call; `preview` returns the plan without applying it; a request made against an older `rev` is moved through the ripples made since; a refusal is a tool error with `code` and `details.culprits`. (This app's addition: `ove edit`.)
+- `edit_timeline` — project*:string, request*:string (JSON: `{"op": "split" | "trim" | "rippleTrim" | "rippleDelete" | "delete" | "insert" | "overwrite" | "lift" | "extract" | "closeGap" | "slip" | "slide" | "roll" | "move", …}`, times in seconds), rev:integer, preview:boolean, markers:boolean. One revision per call; `markers` makes markers follow a ripple; `preview` returns the plan without applying it; a request made against an older `rev` is moved through the ripples made since; a refusal is a tool error with `code` and `details.culprits`. (This app's addition: `ove edit`.)
 - `verify_timeline` (read-only) — project*:string
 - `timeline_history` (read-only) — project*:string
 - `undo_timeline` — project*:string, rev:integer
@@ -53,3 +53,7 @@ The CLI can serve itself as an stdio MCP server; tools mirror CLI commands. Para
 - `docs` (read-only) — topic:string
 - `job_status` (read-only) — job_id*:string, wait:boolean
 - `cancel_job` — job_id*:string
+- `list_markers` (read-only) — project:string, status:enum(open|review|resolved), assignee:string. Each marker comes with the ids of the items under it. (This app's addition, as are the next three.)
+- `add_marker` — project:string, at*:number, dur:number, name:string, color:string, note:string, status:string, assignee:string
+- `update_marker` — project:string, id*:string, at:number, dur:number, name:string, color:string, note:string, status:string, assignee:string, unset:array. An agent may set `review`; `resolved` is refused with `marker.resolveByAgent`.
+- `remove_markers` (destructive) — project:string, ids*:array

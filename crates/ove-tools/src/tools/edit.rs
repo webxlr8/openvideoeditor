@@ -35,7 +35,7 @@ pub fn new_id() -> String {
 
 pub fn edit_timeline(ctx: &mut dyn ToolCtx, a: &Args) -> Result<Receipt, Fail> {
     let req = request(a)?;
-    let (rev, preview) = (a.i64("rev"), a.bool("preview"));
+    let (rev, preview, follow_markers) = (a.i64("rev"), a.bool("preview"), a.bool("markers"));
     let bundle = ctx.bundle(a.project())?;
     edit(ctx, &bundle, |w| {
         let current = w.rev();
@@ -48,7 +48,10 @@ pub fn edit_timeline(ctx: &mut dyn ToolCtx, a: &Args) -> Result<Receipt, Fail> {
         }
         let ripples = if base < current { w.project().ripples_since(base) } else { vec![] };
         let req = req.rebased(w.doc(), &ripples);
-        let plan = ove_edit::plan_with(w.doc(), &req, &mut new_id).map_err(refused)?;
+        let mut plan = ove_edit::plan_with(w.doc(), &req, &mut new_id).map_err(refused)?;
+        if follow_markers {
+            ove_edit::markers::follow(w.doc(), &req, &mut plan);
+        }
         let mut v = json!({
             "verb": req.verb(),
             "request": req,

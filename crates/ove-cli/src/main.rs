@@ -13,6 +13,7 @@ mod docs;
 mod edit;
 mod export;
 mod generate;
+mod markers;
 mod mcp;
 mod media;
 mod model_worker;
@@ -111,6 +112,11 @@ enum Cmd {
     Edit(edit::EditArgs),
     /// Report problems: overlaps, gaps, clips past their source, missing media, pending items.
     Verify { project: String },
+    /// Timeline markers: list (by status and assignee), add, update, remove.
+    Markers {
+        #[command(subcommand)]
+        cmd: markers::MarkersCmd,
+    },
     /// List revisions, oldest first.
     History { project: String },
     /// The words said on the timeline (with word ids and timeline times), transcript search, fillers and
@@ -348,6 +354,7 @@ fn run(cli: &Cli, source: Source) -> Out {
             ctx.tool("apply_timeline", json!({"project": project, "source": text, "prefer": side(*prefer)}))
         }
         Cmd::Edit(a) => edit::run(&ctx, a),
+        Cmd::Markers { cmd } => markers::run(&ctx, cmd),
         Cmd::Verify { project } => ctx.tool("verify_timeline", json!({"project": project})),
         Cmd::History { project } => ctx.tool("timeline_history", json!({"project": project})),
         Cmd::Transcript(t) => t.run(&ctx),

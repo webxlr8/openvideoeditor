@@ -69,6 +69,10 @@ Command paths with their arguments and flags (descriptions omitted):
 - `<cli> verify [options] <project>`
 - `<cli> history [options] <project>`
 - `<cli> undo [options] <project> [rev]`
+- `<cli> markers ls|list [options] <project>` — flags: `--status <open|review|resolved>`, `--assignee <name>`. (This app's addition, as are the next three.)
+- `<cli> markers add [options] <project>` — flags: `--at <seconds>`, `--dur <seconds>`, `--name <text>`, `--color <name|#rrggbb>`, `--note <text>`, `--status <status>`, `--assignee <name>`
+- `<cli> markers update [options] <project> <id>` — flags: as `add`, plus `--unset <fields>`
+- `<cli> markers rm|remove [options] <project> <id...>`
 - `<cli> app [options] [command]`
 - `<cli> app context [options] [project]`
 - `<cli> app open [options] <project>` — flags: `--focus`

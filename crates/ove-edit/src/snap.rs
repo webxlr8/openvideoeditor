@@ -1,5 +1,5 @@
-//! Snapping (task 2.4): times a drag snaps to (the playhead, item edges, range points, optional beat times, 0), a
-//! sticky threshold so a snapped edge does not flicker between nearby targets, and the frame grid.
+//! Snapping (task 2.4): times a drag snaps to (the playhead, item edges, marker starts and ends, range points, optional
+//! beat times, 0), a sticky threshold so a snapped edge does not flicker between nearby targets, and the frame grid.
 
 use ove_core::model::Document;
 use ove_core::time::{Micros, snap_to_frame};
@@ -12,6 +12,8 @@ pub enum Kind {
     Edge,
     Range,
     Beat,
+    /// A marker start or end.
+    Marker,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -46,6 +48,12 @@ pub fn targets(doc: &Document, src: &Sources) -> Vec<Target> {
     for it in doc.project.items.values().filter(|i| !src.exclude.contains(&i.id)) {
         out.push(Target { at: it.start, kind: Kind::Edge });
         out.push(Target { at: it.end, kind: Kind::Edge });
+    }
+    for m in doc.project.markers.values() {
+        out.push(Target { at: m.at, kind: Kind::Marker });
+        if m.dur > 0 {
+            out.push(Target { at: m.end(), kind: Kind::Marker });
+        }
     }
     out.sort();
     out.dedup_by_key(|t| (t.at, t.kind));
@@ -133,6 +141,24 @@ mod tests {
         let tg = targets(&d, &Sources { range: Some((6_000_000, 8_000_000)), beats: &beats, ..Default::default() });
         assert_eq!(snap(7_980_000, &tg, 50 * MS, None, 25.0).at, 8_000_000);
         assert_eq!(snap(4_230_000, &tg, 50 * MS, None, 25.0).target.map(|t| t.kind), Some(Kind::Beat));
+    }
+
+    #[test]
+    fn marker_starts_and_ends_are_targets() {
+        let d = apply_batch(
+            &doc(),
+            &[
+                Op::AddMarker { marker: json!({"id": "m1", "at": 6}) },
+                Op::AddMarker { marker: json!({"id": "m2", "at": 7, "dur": 1.5}) },
+            ],
+        )
+        .expect("valid")
+        .doc;
+        let tg = targets(&d, &Sources::default());
+        let s = snap(5_970_000, &tg, 50 * MS, None, 30.0);
+        assert_eq!((s.at, s.target.map(|t| t.kind)), (6_000_000, Some(Kind::Marker)));
+        assert_eq!(snap(7_030_000, &tg, 50 * MS, None, 30.0).at, 7_000_000);
+        assert_eq!(snap(8_480_000, &tg, 50 * MS, None, 30.0).at, 8_500_000, "a range marker's end");
     }
 
     #[test]

@@ -170,7 +170,7 @@ ove source print Nope                              # exit 1
 | `ask_user` |  | in-app | read | `question` `options`? |
 | `undo_my_changes` |  | in-app, mcp, pinned | destructive | `project`? `scope`? `turn`? |
 | `use_project` |  | mcp, pinned | read | `project` |
-| `edit_timeline` |  | in-app, mcp, pinned | write | `project`? `request` `rev`? `preview`? |
+| `edit_timeline` |  | in-app, mcp, pinned | write | `project`? `request` `rev`? `preview`? `markers`? |
 | `list_models_local` |  | in-app, mcp, pinned | read |  |
 | `get_transcript` |  | in-app, mcp, pinned | read | `project`? `clips`? `segments`? `offset`? `limit`? `model`? `language`? |
 | `remove_words` |  | in-app, mcp, pinned | write | `project`? `ids`? `ranges`? `match`? `pause`? `apply`? `rev`? |
@@ -196,4 +196,8 @@ ove source print Nope                              # exit 1
 | `list_tasks` |  | in-app, mcp, pinned | read, app | `project`? `kind`? |
 | `wait_tasks` |  | in-app, mcp, pinned | read, app | `project`? `kind`? `timeoutSeconds`? |
 | `cancel_task` |  | in-app, mcp, pinned | destructive | `id` |
+| `list_markers` |  | in-app, mcp, pinned | read | `project`? `status`? `assignee`? |
+| `add_marker` |  | in-app, mcp, pinned | write | `project`? `at` `dur`? `name`? `color`? `note`? `status`? `assignee`? |
+| `update_marker` |  | in-app, mcp, pinned | write | `project`? `id` `at`? `dur`? `name`? `color`? `note`? `status`? `assignee`? `unset`? |
+| `remove_markers` |  | in-app, mcp, pinned | destructive | `project`? `ids` |
 <!-- tools:end -->

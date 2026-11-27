@@ -1100,6 +1100,10 @@
           "preview": {
             "type": "boolean",
             "description": "Return the plan without applying it"
+          },
+          "markers": {
+            "type": "boolean",
+            "description": "Markers follow a ripple: later markers shift with it, points inside a removed range go"
           }
         },
         "required": [
@@ -2109,6 +2113,176 @@
         },
         "required": [
           "id"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "list_markers",
+      "description": "List the timeline markers in time order: id, time and duration in seconds, name, colour, note, status (open, review, resolved), assignee, and the ids of the items under each marker. Filter with `status` and `assignee` (for example open markers assigned to `agent`).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "status": {
+            "type": "string",
+            "description": "Only markers with this status: open, review or resolved"
+          },
+          "assignee": {
+            "type": "string",
+            "description": "Only markers assigned to this name (`agent`, `user`, …)"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "add_marker",
+      "description": "Add a marker at `at` seconds (a range with `dur`), as one revision. Status defaults to open. Markers carry review work: an agent never sets `resolved` (refused); see update_marker.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "at": {
+            "type": "number",
+            "description": "Timeline time in seconds"
+          },
+          "dur": {
+            "type": "number",
+            "description": "Duration in seconds (default 0: a point marker)"
+          },
+          "name": {
+            "type": "string",
+            "description": "Short label"
+          },
+          "color": {
+            "type": "string",
+            "description": "red, orange, yellow, green, teal, blue, purple, pink or #rrggbb"
+          },
+          "note": {
+            "type": "string",
+            "description": "Free text, at most 4,000 characters"
+          },
+          "status": {
+            "type": "string",
+            "description": "open (default), review or resolved"
+          },
+          "assignee": {
+            "type": "string",
+            "description": "Who should act on it: `agent`, `user` or a name"
+          }
+        },
+        "required": [
+          "at"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "update_marker",
+      "description": "Change one marker as one revision: time, duration, name, colour, note, status or assignee; `unset` removes name, color, note or assignee. Markers carry review work: list open markers assigned to `agent`, make the edit, check it with `look`, then set the marker's status to `review`. Never set `resolved`: only the person resolves a marker, and the request is refused with `marker.resolveByAgent`.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "id": {
+            "type": "string",
+            "description": "Marker id (from list_markers)"
+          },
+          "at": {
+            "type": "number",
+            "description": "New time in seconds"
+          },
+          "dur": {
+            "type": "number",
+            "description": "New duration in seconds"
+          },
+          "name": {
+            "type": "string",
+            "description": "New label"
+          },
+          "color": {
+            "type": "string",
+            "description": "New colour"
+          },
+          "note": {
+            "type": "string",
+            "description": "New note"
+          },
+          "status": {
+            "type": "string",
+            "description": "open, review or resolved (resolved: people only)"
+          },
+          "assignee": {
+            "type": "string",
+            "description": "New assignee"
+          },
+          "unset": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "description": "Fields to remove: name, color, note, assignee"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "remove_markers",
+      "description": "Remove markers by id as one revision.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "description": "Marker ids (from list_markers)"
+          }
+        },
+        "required": [
+          "ids"
         ],
         "additionalProperties": false
       },

@@ -11,14 +11,14 @@
 
 ## 2. Markers in edits and agents
 
-- [ ] 2.1 Map markers through planner time maps when requested (point removal, range shrink); verify property: a ripple
+- [x] 2.1 Map markers through planner time maps when requested (point removal, range shrink); verify property: a ripple
       never moves a marker before the removed range, and markers stay put when not following.
-- [ ] 2.2 Add markers to snap targets; verify a unit test in `ove-edit::snap`.
-- [ ] 2.3 `ove markers list|add|update|remove` with status and assignee filters, MCP marker tools returning items under
+- [x] 2.2 Add markers to snap targets; verify a unit test in `ove-edit::snap`.
+- [x] 2.3 `ove markers list|add|update|remove` with status and assignee filters, MCP marker tools returning items under
       each marker, refusal of agent `resolved`; verify CLI integration tests and an MCP contract test for the refusal.
-- [ ] 2.4 Assistant prompt rule for the review workflow; verify an agent test where a mock agent sets review after
+- [x] 2.4 Assistant prompt rule for the review workflow; verify an agent test where a mock agent sets review after
       `look` and the resolve attempt is refused.
-- [ ] 2.5 Ruler lane, M key, popover editor and status filter; verify UI tests for add, edit, filter and delete.
+- [x] 2.5 Ruler lane, M key, popover editor and status filter; verify UI tests for add, edit, filter and delete.
 
 ## 3. Keyframes
 

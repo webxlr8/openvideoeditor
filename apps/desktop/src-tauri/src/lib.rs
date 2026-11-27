@@ -18,6 +18,7 @@ pub mod fx;
 pub mod generation;
 pub mod interchange;
 pub mod logging;
+pub mod markers;
 pub mod media;
 pub mod meters;
 pub mod models;
@@ -215,6 +216,9 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             edits::paste_items,
             edits::trim_item,
             edits::edit_plan,
+            markers::marker_add,
+            markers::marker_update,
+            markers::marker_remove,
             edits::edit_preview,
             edits::add_track,
             edits::rename_track,

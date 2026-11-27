@@ -250,10 +250,13 @@ pub async fn paste_items(app: AppHandle, items_json: String, at: f64) -> AppResu
 /// the command's error (its message names what blocked the edit); a plan with no ops returns the current view.
 pub(crate) fn plan_and_apply(app: &AppHandle, state: &AppState, req: ove_edit::Request) -> AppResult<ProjectView> {
     let plan = with_project(state, |p| {
-        ove_edit::plan_with(p.doc(), &req, &mut new_item_id).map_err(|r| {
+        let mut plan = ove_edit::plan_with(p.doc(), &req, &mut new_item_id).map_err(|r| {
             let code = if r.code == "item.missing" { ErrorCode::NotFound } else { ErrorCode::InvalidArgument };
             AppError::new(code, r.message)
-        })
+        })?;
+        // In the editor, markers follow ripples (add-markers-keyframe-lanes-and-versions D4).
+        ove_edit::markers::follow(p.doc(), &req, &mut plan);
+        Ok(plan)
     })?;
     if plan.is_empty() {
         let g = lock(&state.projects.open)?;

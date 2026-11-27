@@ -30,7 +30,8 @@ export type KeyAction =
   | { type: "rippleTrimEnd" }
   | { type: "rippleDelete" }
   | { type: "insert" }
-  | { type: "overwrite" };
+  | { type: "overwrite" }
+  | { type: "addMarker" };
 
 /** Timeline tool modes: select (move and trim), blade (click to cut), trim (slip, slide and roll). */
 export type Tool = "select" | "blade" | "trim";
@@ -57,6 +58,7 @@ export const EDIT_ACTIONS = new Set([
   "rippleDelete",
   "insert",
   "overwrite",
+  "addMarker",
 ]);
 
 export interface KeyLike {
@@ -101,6 +103,7 @@ export const REBINDABLE: { id: string; label: string; key: string }[] = [
   { id: "rippleTrimEnd", label: "Ripple trim end to the playhead", key: "w" },
   { id: "insert", label: "Insert the source clip at the playhead", key: "," },
   { id: "overwrite", label: "Overwrite with the source clip at the playhead", key: "." },
+  { id: "addMarker", label: "Add a marker at the playhead", key: "m" },
 ];
 
 /** Keys that cannot be bound (they have fixed meanings). */
@@ -197,6 +200,7 @@ function rebindableAction(id: string): KeyAction | null {
     case "rippleTrimEnd":
     case "insert":
     case "overwrite":
+    case "addMarker":
       return { type: id };
     case "toolSelect":
       return { type: "tool", tool: "select" };
@@ -315,6 +319,9 @@ function defaultKeyToAction(e: KeyLike): KeyAction | null {
       return { type: "insert" };
     case ".":
       return { type: "overwrite" };
+    case "m":
+    case "M":
+      return { type: "addMarker" };
     case "Escape":
       return { type: "escape" };
     default:

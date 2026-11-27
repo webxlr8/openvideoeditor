@@ -14,6 +14,7 @@
 //! - A plan never creates an overlap that was not there before, unless the request asks for a crossfade.
 #![forbid(unsafe_code)]
 
+pub mod markers;
 pub mod retime;
 pub mod snap;
 mod verbs;

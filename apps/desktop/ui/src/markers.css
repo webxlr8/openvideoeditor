@@ -1,0 +1,122 @@
+/* The marker lane under the ruler, its flags and the marker popover. */
+.marker-lane {
+  position: relative;
+  height: 22px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-1);
+}
+.marker-lane-head {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 100%;
+  padding: 0 10px 0 14px;
+  background: var(--bg-1);
+  color: var(--muted);
+}
+.marker-filter {
+  margin-left: auto;
+  height: 18px;
+  font-size: 11px;
+  background: var(--bg-3);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+.marker-lane-body {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+}
+.marker {
+  position: absolute;
+  top: 2px;
+  height: 17px;
+  min-width: 10px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 4px 0 0;
+  background: none;
+  border: 0;
+  color: var(--text);
+  font-size: 11px;
+  cursor: pointer;
+  transform: translateX(-1px);
+}
+.marker-flag {
+  flex: none;
+  width: 3px;
+  height: 100%;
+  border-radius: 1px;
+  background: var(--marker-color);
+}
+.marker-range {
+  background: color-mix(in srgb, var(--marker-color) 28%, transparent);
+  border-radius: 3px;
+}
+.marker-label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  max-width: 160px;
+}
+.marker-review .marker-flag {
+  box-shadow: 0 0 0 1px var(--marker-color);
+}
+.marker-resolved {
+  opacity: 0.5;
+}
+.marker-open.marker,
+.marker:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+.marker-popover {
+  position: absolute;
+  top: 24px;
+  z-index: 20;
+  width: 280px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+.marker-row {
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  align-items: start;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.marker-row input,
+.marker-row select,
+.marker-row textarea {
+  min-width: 0;
+  background: var(--bg-3);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 3px 6px;
+  font: inherit;
+}
+.marker-row textarea {
+  resize: vertical;
+}
+.marker-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.marker-actions .spacer {
+  flex: 1;
+}
