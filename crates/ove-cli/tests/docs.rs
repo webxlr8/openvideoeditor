@@ -205,3 +205,61 @@ fn tool_examples() {
     let (d, lib) = setup();
     assert_eq!(run_examples("tools.md", &lib, d.path()), 5);
 }
+
+/// add-transcript-editing 1.5: the transcript page's examples, and the documented JSON shape, on a project whose one
+/// clip (source 2–8 s at 2× from timeline 10 s) has a cached transcript.
+#[test]
+fn transcript_examples_and_json_shape() {
+    let d = tempfile::tempdir().unwrap();
+    let lib = d.path().join("lib");
+    let library = ove_store::Library::open(&lib, std::sync::Arc::new(ove_core::SystemClock)).unwrap();
+    let mut p = library.create("Interview").unwrap();
+    let media = d.path().join("talk.wav");
+    std::fs::write(&media, vec![1u8; 4096]).unwrap();
+    let ops: Vec<ove_core::ops::Op> = serde_json::from_value(json!([
+        {"op": "addTrack", "track": {"id": "t_main", "name": "Main", "order": 0, "type": "video"}},
+        {"op": "addMedia", "media": {"id": "m_talk", "data": {"type": "audio", "fileName": "talk.wav", "duration": 60, "hasAudio": true}},
+         "entry": {"mediaId": "m_talk", "nativePath": media.to_string_lossy(), "ownedByBundle": false, "contentId": "c0ffee"}},
+        {"op": "addItem", "item": {"id": "v1", "trackId": "t_main", "type": "audio", "startTime": 10, "endTime": 13,
+         "mediaItemId": "m_talk", "trimStart": 2, "playbackSpeed": 2}}
+    ]))
+    .unwrap();
+    p.apply(ops, ove_core::revision::Source::Gui, None).unwrap();
+    let bundle = p.bundle().to_path_buf();
+    p.close().unwrap();
+    let w = |t: &str, s: f64, e: f64| ove_transcribe::Word {
+        text: t.into(),
+        start_us: (s * 1e6) as i64,
+        end_us: (e * 1e6) as i64,
+        confidence: 0.9,
+    };
+    let t = ove_transcribe::Transcript {
+        language: "en".into(),
+        model: "base".into(),
+        words: vec![w("Hello", 2.5, 3.0), w("there.", 3.0, 3.5), w("Um", 4.0, 4.4), w("next", 6.0, 6.5)],
+        duration_us: 60_000_000,
+    };
+    ove_transcribe::cache::store(&bundle, &ove_transcribe::cache::transcript_key("c0ffee", "base", None, false), &t);
+
+    assert_eq!(run_examples("transcript.md", &lib, d.path()), 5);
+
+    let out = ove(&lib, d.path(), &["transcript", "Interview", "--json"]);
+    let v: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert!(v["rev"].as_i64().is_some());
+    assert_eq!(v["totalWords"], 4);
+    assert_eq!(v["untranscribed"], json!([]));
+    let first = &v["words"][0];
+    for k in ["id", "text", "start", "end", "clipId", "mediaId", "sourceStart", "sourceEnd", "filler"] {
+        assert!(first.get(k).is_some(), "missing {k}: {first}");
+    }
+    assert_eq!(first["id"], "m_talk@2500");
+    assert_eq!(first["start"], 10.25);
+    assert_eq!(v["words"][2]["filler"], true);
+    let out = ove(&lib, d.path(), &["transcript", "Interview", "--segments", "--json"]);
+    let v: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["segments"][0]["text"], "Hello there.");
+    assert_eq!(v["segments"][1]["wordIds"], json!(["m_talk@4000", "m_talk@6000"]));
+    let out = ove(&lib, d.path(), &["transcript", "Interview", "--limit", "2", "--json"]);
+    let v: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["nextOffset"], 2);
+}

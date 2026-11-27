@@ -38,7 +38,7 @@
 - [x] 3.2 Implement `ove model-worker` with the stdio protocol, lazy load, 120 s idle exit and restart on crash; verify
       tests: idle exit, killed worker fails the job and the next job succeeds, 256×256×3 tensor round trip ≤ 2 ms.
       Done: `crates/ove-cli/tests/model_worker.rs`; round trip median 0.56 ms (design.md R5).
-- [ ] 3.3 Implement on-demand download of the native runtime library (if chosen) through the consent gate; verify a
+- [x] 3.3 Implement on-demand download of the native runtime library (if chosen) through the consent gate; verify a
       clean-profile test reports "runtime not installed" and installs after consent.
       Open: needs the D4 sign-off and a pinned, immutable location for the library on both platforms. The upstream
       release page could not be reached at its old address during apply; the plan is to mirror the exact library
@@ -61,7 +61,24 @@
       - Show the download host and progress at the first download, and document an offline manual install.
       - Keep `tract` buildable behind a feature flag until the macOS spike row exists.
       - A self-hosted mirror stays a later fallback (needs the owner's hosting).
-- [ ] 3.4 Daily CI check: a HEAD request on every pinned model and runtime URL; verify it fails on a 404.
+      Done (design.md R6): manifest `archive_member` (`crates/ove-models/src/manifest.rs`, `archive.rs`): the wheel is
+      verified, the three members (library, `LICENSE`, `ThirdPartyNotices.txt`) are extracted next to each other and
+      verified, then the wheel is deleted; `zip` 9.8 with `deflate` only, `cargo deny check` passes. The runtime is
+      native code, so it always needs the person's consent (any origin but the person gets "runtime not installed"
+      with size, host and install command). `crates/ove-models/tests/runtime.rs` (clean profile reports "runtime not
+      installed", downloads nothing, installs after consent; corrupt wheel; corrupt member; offline install), and
+      `the_pinned_wheel_installs_offline` with both real wheels (`--ignored`, passed). `ove model-worker` loads the
+      store's runtime (`crates/ove-cli/tests/model_worker.rs`: clean profile reports "runtime not installed";
+      `the_worker_loads_the_runtime_from_the_store` passed against a real download). Host and progress: the first
+      CLI progress line names the host; Settings → Storage shows "Downloads 16.7 MB from files.pythonhosted.org",
+      Install, progress and Cancel (`ModelsSection.test.tsx`). Offline install: `ove models install <id> --from
+      <folder>` (docs/cli/models.md). Notices: `apps/desktop/src-tauri/licenses/NOTICE.md`. macOS 14 minimum:
+      recorded in the manifest, the docs and R6 (the app's `minimumSystemVersion` is already 14.0). `tract` builds
+      behind the `ove-models` feature `tract` (`TractBackend`), checked nightly. The check in the built app on both
+      platforms stays with 5.1.
+- [x] 3.4 Daily CI check: a HEAD request on every pinned model and runtime URL; verify it fails on a 404.
+      Done: `ove_models::check` and `crates/ove-models/tests/pinned_urls.rs` (a local 404 fails the check; the live
+      check of all 5 URLs passed on 2026-11-27); job `model-urls` in `.github/workflows/nightly.yml` (daily 03:17).
 
 ## 4. Consent and surfaces
 

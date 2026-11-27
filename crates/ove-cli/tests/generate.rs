@@ -168,3 +168,148 @@ fn jobs_whose_worker_died_are_failed_and_their_placeholder_removed() {
     let (_, src, _) = ove(&lib, &[], &["source", "print", "Promo"]);
     assert!(!src["text"].as_str().unwrap().contains("pending={true}"), "placeholder removed: {src}");
 }
+
+/// fix-render-and-edit-correctness task 4.3, command-line path: the background worker is killed while the provider
+/// still works on the request; `ove generate status` resumes the job with a new worker, which polls the saved request
+/// (no second submission) and fills the placeholder.
+#[test]
+fn a_killed_worker_is_resumed_without_a_second_submission() {
+    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+    let posts = Arc::new(AtomicUsize::new(0));
+    let finished = Arc::new(AtomicBool::new(false));
+    let l = TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://{}", l.local_addr().unwrap());
+    let polls = Arc::new(Mutex::new(Vec::<String>::new()));
+    {
+        let (base, posts, finished, polls) = (base.clone(), posts.clone(), finished.clone(), polls.clone());
+        std::thread::spawn(move || {
+            for c in l.incoming().flatten() {
+                let (base, posts, finished, polls) = (base.clone(), posts.clone(), finished.clone(), polls.clone());
+                std::thread::spawn(move || {
+                    let mut r = BufReader::new(c.try_clone().unwrap());
+                    let mut line = String::new();
+                    r.read_line(&mut line).unwrap();
+                    let mut parts = line.split_whitespace();
+                    let method = parts.next().unwrap_or("").to_string();
+                    let target = parts.next().unwrap_or("").to_string();
+                    let mut len = 0;
+                    loop {
+                        let mut h = String::new();
+                        r.read_line(&mut h).unwrap();
+                        if h.trim().is_empty() {
+                            break;
+                        }
+                        if let Some(v) = h.to_ascii_lowercase().strip_prefix("content-length:") {
+                            len = v.trim().parse().unwrap_or(0);
+                        }
+                    }
+                    let mut body = vec![0; len];
+                    r.read_exact(&mut body).unwrap();
+                    let json_out = |v: Value| ("application/json", serde_json::to_vec(&v).unwrap());
+                    let (ctype, out): (&str, Vec<u8>) = if method == "POST" {
+                        posts.fetch_add(1, Ordering::SeqCst);
+                        json_out(json!({"request_id": "rk", "status_url": format!("{base}/q/rk/status"),
+                            "response_url": format!("{base}/q/rk"), "cancel_url": format!("{base}/q/rk/cancel")}))
+                    } else if target == "/q/rk/status" {
+                        polls.lock().unwrap().push(target.clone());
+                        // The provider is still working until the test says it is done.
+                        let s = if finished.load(Ordering::SeqCst) { "COMPLETED" } else { "IN_PROGRESS" };
+                        json_out(json!({"status": s}))
+                    } else if target == "/q/rk" {
+                        json_out(json!({"images": [{"url": format!("{base}/out.png")}]}))
+                    } else {
+                        ("image/png", PNG.to_vec())
+                    };
+                    let mut w = c;
+                    let _ = write!(
+                        w,
+                        "HTTP/1.1 200 OK\r\nContent-Type: {ctype}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        out.len()
+                    );
+                    let _ = w.write_all(&out);
+                });
+            }
+        });
+    }
+
+    let d = tempfile::tempdir().unwrap();
+    let lib = d.path().join("lib");
+    let l = ove_store::Library::open(&lib, Arc::new(ove_core::SystemClock)).unwrap();
+    let mut p = l.create("Promo").unwrap();
+    p.apply(ove_store::library::starter_tracks(), ove_core::Source::Gui, None).unwrap();
+    p.close().unwrap();
+    let bundle = lib.join("Promo.ove");
+    let env =
+        [("OVE_FAL_QUEUE_URL", base.as_str()), ("OVE_GENERATE_POLL_MS", "20"), ("FAL_KEY", "fal-test-key-0123456789")];
+
+    // Output to files, not pipes: on Windows the background worker inherits the starting process's handles, and a
+    // pipe would stay open (so reading it would wait) until the worker ends.
+    let out_file = d.path().join("start.json");
+    let status = Command::new(env!("CARGO_BIN_EXE_ove"))
+        .arg("--library")
+        .arg(&lib)
+        .args(["--json", "generate", "image", "Promo", "a lighthouse", "--yes", "--no-wait"])
+        .env_remove("OVE_LIBRARY")
+        .env_remove("FAL_KEY")
+        .envs(env)
+        .stdout(std::fs::File::create(&out_file).unwrap())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .unwrap();
+    assert!(status.success());
+    let v: Value = serde_json::from_slice(&std::fs::read(&out_file).unwrap()).unwrap();
+    let id = v["id"].as_str().unwrap().to_string();
+
+    // Wait until the worker has submitted the request, saved its handle and is polling.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    let job = loop {
+        let j = ove_generate::job::load(&bundle, &id).unwrap();
+        if j.status == ove_generate::Status::Running && j.remote.is_some() && polls.lock().unwrap().len() >= 2 {
+            break j;
+        }
+        assert!(std::time::Instant::now() < deadline, "the worker never started polling: {j:?}");
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    };
+    let pid = job.worker_pid.expect("the worker records its process id");
+
+    // Kill the worker outright, mid-job.
+    let kill = if cfg!(windows) {
+        Command::new("taskkill").args(["/F", "/PID", &pid.to_string()]).output().unwrap()
+    } else {
+        Command::new("kill").args(["-9", &pid.to_string()]).output().unwrap()
+    };
+    assert!(
+        kill.status.success(),
+        "could not kill worker {pid}: {} {}",
+        String::from_utf8_lossy(&kill.stdout),
+        String::from_utf8_lossy(&kill.stderr)
+    );
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while ove_generate::job::process_alive(pid) {
+        assert!(std::time::Instant::now() < deadline, "worker {pid} survived the kill");
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    let after_kill = ove_generate::job::load(&bundle, &id).unwrap();
+    assert_eq!(after_kill.status, ove_generate::Status::Running, "the dead worker left the job running");
+    // The app waits DEAD_WORKER_GRACE_MS without an update before it calls a worker dead; move the job's last
+    // update back past that instead of waiting a minute.
+    let mut aged = after_kill;
+    aged.updated_at -= ove_generate::job::DEAD_WORKER_GRACE_MS + 1_000;
+    ove_generate::job::save(&bundle, &aged).unwrap();
+
+    // The provider finishes while no worker is running; the next status call resumes the job.
+    finished.store(true, Ordering::SeqCst);
+    let (code, s, e) = ove(&lib, &env, &["generate", "status", &id, "--wait"]);
+    assert_eq!(code, Some(0), "{e}");
+    assert_eq!(s["status"], "succeeded", "{s}");
+    assert_eq!(posts.load(Ordering::SeqCst), 1, "resuming does not submit the request again");
+    let done = ove_generate::job::load(&bundle, &id).unwrap();
+    assert_ne!(done.worker_pid, Some(pid), "a new worker finished the job");
+    assert_eq!(std::fs::read(bundle.join(done.output.as_deref().unwrap())).unwrap(), PNG);
+    let (_, src, _) = ove(&lib, &[], &["source", "print", "Promo"]);
+    let text = src["text"].as_str().unwrap();
+    assert!(text.contains("<image"), "{text}");
+    assert!(!text.contains("pending={true}"), "the placeholder is filled: {text}");
+}

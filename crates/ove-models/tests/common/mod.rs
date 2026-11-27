@@ -169,11 +169,9 @@ pub fn manifest(id: &str, files: &[(&str, &[u8])]) -> Manifest {
         licence: "MIT".into(),
         files: files
             .iter()
-            .map(|(name, b)| ModelFile {
-                name: (*name).into(),
-                url: format!("https://models.invalid/repo/resolve/{COMMIT}/{name}"),
-                sha256: sha(b),
-                bytes: b.len() as u64,
+            .map(|(name, b)| {
+                let url = format!("https://models.invalid/repo/resolve/{COMMIT}/{name}");
+                ModelFile::new(name, &url, &sha(b), b.len() as u64)
             })
             .collect(),
         runtime: RuntimeKind::Onnx,

@@ -6,7 +6,7 @@ model store, which every project shares. The app shows the same list in Settings
 
 ```sh
 ove models list [--json]
-ove models install <id> [--yes] [--json]
+ove models install <id> [--yes] [--from <folder>] [--json]
 ove models remove <id> [--json]
 ```
 
@@ -39,16 +39,53 @@ locations; the pinned sizes and hashes still apply.
 
 ## Consent
 
-A model larger than 50 MB downloads only after the person agrees: in the app's prompt, or with `--yes` typed at the
-terminal. Without `--yes`, and always over MCP, `install` refuses with exit 1 and code `model.consent`; the details
-carry the model's `id`, `purpose`, `bytes` and the `install` command. Models of 50 MB or less download without a
-prompt.
+A model larger than 50 MB, and the inference runtime whatever its size, downloads only after the person agrees: with
+Install in Settings → Storage, or with `--yes` typed at the terminal. Without `--yes`, and always over MCP, `install`
+refuses with exit 1 and code `model.consent`; the details carry the model's `id`, `purpose`, `bytes` (installed size),
+`downloadBytes`, the `host` it downloads from and the `install` command. Other models of 50 MB or less download
+without a prompt. The first progress line of a download names the host (`downloading <id> (<size>) from <host>`).
+
+## The inference runtime
+
+Voice activity detection and the other ONNX models run on ONNX Runtime 1.32.0 (MIT, by Microsoft), which is not in the
+installer. It installs into the store as the model `onnxruntime`:
+
+- It comes from the official Python wheel on the Python package index (`files.pythonhosted.org`), whose file
+  locations are content addressed. The wheel is checked against its pinned size and SHA-256, the library is extracted
+  and checked against its own pins, and the wheel is deleted. Download: 16.7 MB on Windows (library 22.7 MB), 22.5 MB
+  on macOS (library 35.3 MB).
+- The wheel's `LICENSE` and `ThirdPartyNotices.txt` are installed next to the library in
+  `onnxruntime/1.32.0/`.
+- macOS needs version 14 or later on Apple silicon (the wheel is built for `macosx_14_0_arm64`).
+- A feature that needs the runtime when it is not installed reports `runtime not installed` with the size, the host
+  and the install command, and does not download it by itself.
+- `OVE_ONNXRUNTIME_LIB` names a library file to use instead of the store's.
+
+The pinned wheels:
+
+| Platform | Wheel | Bytes | SHA-256 |
+|---|---|---|---|
+| Windows x64 | `onnxruntime-1.32.0-cp312-cp312-win_amd64.whl` | 16,698,767 | `efe7456952c243a05a53d5b8732953625144642c2f3989094277f6217f0c0c40` |
+| macOS arm64 | `onnxruntime-1.32.0-cp312-cp312-macosx_14_0_arm64.whl` | 22,519,308 | `d52510bbbcc880c13b826f7d75cdf33ac5cf0bb864d960000fc29ce73f0cb83e` |
+
+### Offline install
+
+On a computer without internet access (or behind a proxy that blocks the package index):
+
+1. On a computer with access, download the wheel for the target platform from the table above (it is on the
+   `onnxruntime` 1.32.0 page of the Python package index) and check its SHA-256.
+2. Copy it, under its original file name, into a folder on the target computer.
+3. Run `ove models install onnxruntime --from <folder>`.
+
+`--from` takes any model: the folder must hold each file under the name at the end of its pinned URL (the model file,
+or the archive it comes from). Every size and hash is checked as for a download, nothing is fetched, and the files in
+the folder are left in place. `--from` works only from the terminal, not over MCP.
 
 ## Commands
 
 `list` prints every model with its size, whether it is installed, its purpose and, when installed, its folder. With
 `--json`: `{"root", "installedBytes", "models": [{"id", "version", "purpose", "licence", "runtime", "inProcess",
-"bytes", "installed", "location"}]}`.
+"bytes", "installed", "location", "host", "downloadBytes"}]}`.
 
 `install` downloads and verifies a model (progress on stderr) and prints `installed <id>`, or `<id> is already
 installed` without downloading anything. With `--json`: `{"id", "installed", "already", "bytes", "paths"}`.
@@ -70,7 +107,10 @@ ove models install whisper-base        # exit 1
 ove models install whisper-base --json # exit 1
 ove models install no-such-model       # exit 1
 ove models remove whisper-tiny         # exit 1
+ove models install onnxruntime         # exit 1
+ove models install onnxruntime --from no-such-folder # exit 1
 ```
 
 The second line refuses because the speech model is a 148 MB download: run `ove models install whisper-base --yes`
-to download it.
+to download it. The sixth refuses because the inference runtime always needs consent; the seventh because the folder
+does not hold the wheel.

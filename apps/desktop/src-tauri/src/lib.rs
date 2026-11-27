@@ -228,6 +228,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             // Settings → Storage: local machine-learning models (add-model-runtime).
             models::local_models,
             models::remove_local_model,
+            models::install_local_model,
+            models::cancel_local_model_install,
         ])
         .events(collect_events![
             PlaybackChanged,
@@ -244,6 +246,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             models::LocalModelsChanged,
             waveforms::AudioAnalysisChanged,
             meters::AudioMeter,
+            models::LocalModelInstallProgress,
         ])
         .error_handling(tauri_specta::ErrorHandlingMode::Result)
 }

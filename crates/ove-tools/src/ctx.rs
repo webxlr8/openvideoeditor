@@ -187,6 +187,16 @@ impl Editor for LocalEditor<'_> {
         Ok(self.project.restore_as(target, Source::Undo)?.map(|c| (c.record.rev, c.record.summary)))
     }
     fn set_diagnostics(&mut self, lines: Vec<String>) -> Result<(), Fail> {
+        // Unchanged diagnostics (the usual case) are not written again: that saves a file write and a second
+        // projection print on every edit.
+        let on_disk = std::fs::read(self.project.bundle().join("cache/diagnostics.json")).ok();
+        let unchanged = match on_disk {
+            Some(bytes) => serde_json::from_slice::<Vec<String>>(&bytes).is_ok_and(|old| old == lines),
+            None => lines.is_empty(),
+        };
+        if unchanged {
+            return Ok(());
+        }
         Ok(self.project.set_diagnostics(lines)?)
     }
 }

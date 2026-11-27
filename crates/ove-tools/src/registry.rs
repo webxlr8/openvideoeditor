@@ -6,7 +6,7 @@ use crate::spec::{
     AGENTS, APP_READ, APP_WRITE, Arg, DESTRUCTIVE, IN_APP, MCP, ModelText, READ, SERVERS, ToolSpec, WRITE, arg, cli,
     req,
 };
-use crate::tools::{analyze, app, audio, code, docs, edit, exchange, media, models, project, timeline};
+use crate::tools::{analyze, app, audio, code, docs, edit, exchange, media, models, project, timeline, transcript};
 
 const PROJECT: Arg = arg(
     "project",
@@ -525,6 +525,24 @@ pub static TOOLS: &[ToolSpec] = &[
         annotations: READ,
         surfaces: AGENTS,
         run: models::list_models_local,
+        model: ModelText::Json,
+    },
+    ToolSpec {
+        name: "get_transcript",
+        aliases: &[],
+        about: "The words said on the timeline, in timeline order: id (`<mediaId>@<sourceMs>`, stable across edits), text, timeline start and end in seconds, clip id, source times and a filler flag, with the project `rev` they were read at. Pages at 10,000 words (`offset`, `limit`). `segments: true` gives sentences instead. Media without a transcript are listed in `untranscribed`.",
+        args: &[
+            PROJECT,
+            arg("clips", List, "Only these clip ids (default: every clip with sound)"),
+            arg("segments", Bool, "Sentences instead of words"),
+            arg("offset", Int, "First word of the page (default 0)"),
+            arg("limit", Int, "Words per page (default and most 10000)"),
+            arg("model", Str, "Only transcripts made with this speech model (tiny, base, small)"),
+            arg("language", Str, "Only transcripts in this language (ISO 639-1), with `model`"),
+        ],
+        annotations: READ,
+        surfaces: AGENTS,
+        run: transcript::get_transcript,
         model: ModelText::Json,
     },
     ToolSpec {

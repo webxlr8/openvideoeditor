@@ -2,6 +2,7 @@
 //! (directly in `<data dir>/models`) is adopted in place, nothing downloads, and captions still run.
 //! Needs the tiny model (77 MB): set `OVE_WHISPER_MODEL_DIR` to a folder holding `ggml-tiny.bin` (downloaded there if
 //! missing) and run with `--ignored`.
+#![cfg(feature = "recognize")]
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code")]
 
 use std::path::{Path, PathBuf};

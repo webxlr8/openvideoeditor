@@ -56,7 +56,7 @@ fn documented_examples_run_with_documented_exit_codes() {
         }
         ran += 1;
     }
-    assert_eq!(ran, 5);
+    assert_eq!(ran, 7);
     // Nothing was downloaded by any of them.
     assert!(!store.path().join("whisper-base").exists());
 }
@@ -214,7 +214,15 @@ fn mcp_lists_the_local_models() {
     assert_eq!(call["isError"], false, "{call}");
     let models = call["structuredContent"]["models"].as_array().unwrap();
     let ids: Vec<&str> = models.iter().map(|m| m["id"].as_str().unwrap()).collect();
-    assert_eq!(ids, ["whisper-tiny", "whisper-base", "whisper-small"]);
+    assert_eq!(ids[..3], ["whisper-tiny", "whisper-base", "whisper-small"]);
+    // The inference runtime is listed on the platforms it is pinned for.
+    let runtime = ove_models::manifest::RuntimePlatform::current().is_some();
+    assert_eq!(ids[3], "silero-vad");
+    assert_eq!(ids.len(), if runtime { 5 } else { 4 }, "{ids:?}");
+    if runtime {
+        assert_eq!(ids[4], "onnxruntime");
+        assert_eq!(models[4]["host"], "files.pythonhosted.org");
+    }
     assert!(models.iter().all(|m| m["installed"] == false && m["bytes"].as_u64().unwrap() > 0));
 
     // Unknown arguments are refused as an error result, as for every tool.

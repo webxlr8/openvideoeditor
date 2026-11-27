@@ -99,6 +99,8 @@ export interface MockControl {
   };
   /** Simulated speech models: which are on disk, and how long each progress step takes. */
   captions: { installed: string[]; stepMs: number };
+  /** The simulated inference runtime (Settings → Storage): installed or not, and the time per download step. */
+  runtime: { installed: boolean; stepMs: number };
   /** Ids of the supported agents that are "installed on this computer" (none unless a test says so). */
   localAgents: string[];
   /** Onboarding state as the native side would keep it. Onboarding is over by default (the welcome would cover
@@ -687,6 +689,7 @@ function createMock(): {
     },
     agent: { hasKey: true, stepMs: 120, ask: false },
     captions: { installed: [], stepMs: 60 },
+    runtime: { installed: false, stepMs: 20 },
     localAgents: [],
     onboarding: { ...SETTLED },
   };
@@ -1012,6 +1015,17 @@ function createMock(): {
   let captionJobModel: string | null = null;
   let freeBytes = 120e9;
   const removeWhenFree: string[] = [];
+  // The inference runtime as the store lists it (Windows numbers), and a running simulated download.
+  const RUNTIME = {
+    id: "onnxruntime",
+    purpose:
+      "Inference runtime for voice activity and other local models (ONNX Runtime)",
+    licence: "MIT",
+    bytes: 23_010_854,
+    downloadBytes: 16_698_767,
+    host: "files.pythonhosted.org",
+  };
+  let runtimeDownload: ReturnType<typeof setInterval> | null = null;
   const removeSpeechModel = (id: string): number => {
     const short = id.replace(/^whisper-/, "");
     const i = control.captions.installed.indexOf(short);
@@ -2273,11 +2287,73 @@ function createMock(): {
               : null,
             inUse:
               installed && captionJob !== null && captionJobModel === short,
+            host: "huggingface.co",
+            downloadBytes: MODEL_BYTES[short],
           };
-        }),
+        }).concat([
+          {
+            ...RUNTIME,
+            installed: control.runtime.installed,
+            location: control.runtime.installed
+              ? "C:/Users/you/AppData/Roaming/dev.openvideoeditor.app/models/onnxruntime/1.32.0"
+              : null,
+            inUse: false,
+          },
+        ]),
       }),
+    installLocalModel: (id: string) => {
+      track(`installLocalModel:${id}`);
+      if (id !== RUNTIME.id)
+        return fail("invalid_argument", `unknown model "${id}"`);
+      if (runtimeDownload)
+        return fail("invalid_argument", `${id} is already downloading`);
+      const total = RUNTIME.downloadBytes;
+      const progress = (done: number, finished: boolean, error: string | null) =>
+        emit("local-model-install-progress", {
+          id,
+          host: RUNTIME.host,
+          doneBytes: done,
+          totalBytes: total,
+          finished,
+          error,
+        });
+      progress(0, false, null);
+      let step = 0;
+      runtimeDownload = setInterval(() => {
+        step += 1;
+        if (step < 4) return progress((total * step) / 4, false, null);
+        if (runtimeDownload) clearInterval(runtimeDownload);
+        runtimeDownload = null;
+        control.runtime.installed = true;
+        freeBytes -= RUNTIME.bytes;
+        progress(total, true, null);
+      }, control.runtime.stepMs);
+      return ok(null);
+    },
+    cancelLocalModelInstall: (id: string) => {
+      track(`cancelLocalModelInstall:${id}`);
+      if (!runtimeDownload || id !== RUNTIME.id) return ok(false);
+      clearInterval(runtimeDownload);
+      runtimeDownload = null;
+      emit("local-model-install-progress", {
+        id,
+        host: RUNTIME.host,
+        doneBytes: 0,
+        totalBytes: RUNTIME.downloadBytes,
+        finished: true,
+        error: "cancelled",
+      });
+      return ok(true);
+    },
     removeLocalModel: (id: string) => {
       track(`removeLocalModel:${id}`);
+      if (id === RUNTIME.id) {
+        if (!control.runtime.installed)
+          return ok({ id, status: "notInstalled" as const, freedBytes: 0, freeBytes });
+        control.runtime.installed = false;
+        freeBytes += RUNTIME.bytes;
+        return ok({ id, status: "removed" as const, freedBytes: RUNTIME.bytes, freeBytes });
+      }
       const short = id.replace(/^whisper-/, "");
       if (!CAPTION_MODELS.some(([m]) => m === short))
         return fail("invalid_argument", `unknown model "${id}"`);
@@ -2530,6 +2606,7 @@ function createMock(): {
     audioMeter: makeEvent("audio-meter"),
     captionJobProgress: makeEvent("caption-job-progress"),
     localModelsChanged: makeEvent("local-models-changed"),
+    localModelInstallProgress: makeEvent("local-model-install-progress"),
     exportProgress: makeEvent("export-progress"),
     openPathsRequested: makeEvent("open-paths-requested"),
     playbackChanged: makeEvent("playback-changed"),

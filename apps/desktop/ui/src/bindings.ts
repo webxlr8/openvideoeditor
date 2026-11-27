@@ -265,6 +265,13 @@ export const commands = {
 	 *  ends, then sends `localModelsChanged`.
 	 */
 	removeLocalModel: (id: string) => typedError<LocalModelsChanged_Serialize, AppError>(__TAURI_INVOKE("remove_local_model", { id })),
+	/**
+	 *  Downloads a model or the inference runtime after the person asked for it in Settings → Storage (this is their
+	 *  consent). Returns at once; `localModelInstallProgress` reports the host and progress, and the end.
+	 */
+	installLocalModel: (id: string) => typedError<null, AppError>(__TAURI_INVOKE("install_local_model", { id })),
+	/**  Cancels a download started with `install_local_model`. Returns false when none was running. */
+	cancelLocalModelInstall: (id: string) => typedError<boolean, AppError>(__TAURI_INVOKE("cancel_local_model_install", { id })),
 };
 
 /** Events */
@@ -276,6 +283,7 @@ export const events = {
 	captionJobProgress: makeEvent<CaptionJobProgress_Serialize, CaptionJobProgress_Deserialize>("caption-job-progress"),
 	exportProgress: makeEvent<ExportProgress_Serialize, ExportProgress_Deserialize>("export-progress"),
 	generationUpdated: makeEvent<GenerationUpdated, GenerationUpdated>("generation-updated"),
+	localModelInstallProgress: makeEvent<LocalModelInstallProgress_Serialize, LocalModelInstallProgress_Deserialize>("local-model-install-progress"),
 	localModelsChanged: makeEvent<LocalModelsChanged_Serialize, LocalModelsChanged_Deserialize>("local-models-changed"),
 	openPathsRequested: makeEvent<OpenPathsRequested, OpenPathsRequested>("open-paths-requested"),
 	playbackChanged: makeEvent<PlaybackChanged, PlaybackChanged>("playback-changed"),
@@ -879,6 +887,38 @@ export type KeyCheck = {
 /**  One model as the Storage list shows it. */
 export type LocalModel = LocalModel_Serialize | LocalModel_Deserialize;
 
+/**
+ *  Progress of a download the person started in Settings → Storage. The first event names the host the files come
+ *  from; the last has `finished` set, with `error` when it failed or was cancelled.
+ */
+export type LocalModelInstallProgress = LocalModelInstallProgress_Serialize | LocalModelInstallProgress_Deserialize;
+
+/**
+ *  Progress of a download the person started in Settings → Storage. The first event names the host the files come
+ *  from; the last has `finished` set, with `error` when it failed or was cancelled.
+ */
+export type LocalModelInstallProgress_Deserialize = {
+	id: string,
+	host: string,
+	doneBytes: number | null,
+	totalBytes: number | null,
+	finished: boolean,
+	error?: string | null,
+};
+
+/**
+ *  Progress of a download the person started in Settings → Storage. The first event names the host the files come
+ *  from; the last has `finished` set, with `error` when it failed or was cancelled.
+ */
+export type LocalModelInstallProgress_Serialize = {
+	id: string,
+	host: string,
+	doneBytes: number | null,
+	totalBytes: number | null,
+	finished: boolean,
+	error: string | null,
+};
+
 /**  One model as the Storage list shows it. */
 export type LocalModel_Deserialize = {
 	id: string,
@@ -891,6 +931,10 @@ export type LocalModel_Deserialize = {
 	location?: string | null,
 	/**  A running job uses it (removal waits for the job). */
 	inUse: boolean,
+	/**  Where it downloads from (shown before the first download). */
+	host?: string | null,
+	/**  Bytes to download (an archive counts once). */
+	downloadBytes: number | null,
 };
 
 /**  One model as the Storage list shows it. */
@@ -905,6 +949,10 @@ export type LocalModel_Serialize = {
 	location: string | null,
 	/**  A running job uses it (removal waits for the job). */
 	inUse: boolean,
+	/**  Where it downloads from (shown before the first download). */
+	host: string | null,
+	/**  Bytes to download (an archive counts once). */
+	downloadBytes: number | null,
 };
 
 export type LocalModels = LocalModels_Serialize | LocalModels_Deserialize;

@@ -1034,6 +1034,54 @@
       }
     },
     {
+      "name": "get_transcript",
+      "description": "The words said on the timeline, in timeline order: id (`<mediaId>@<sourceMs>`, stable across edits), text, timeline start and end in seconds, clip id, source times and a filler flag, with the project `rev` they were read at. Pages at 10,000 words (`offset`, `limit`). `segments: true` gives sentences instead. Media without a transcript are listed in `untranscribed`.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "clips": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "description": "Only these clip ids (default: every clip with sound)"
+          },
+          "segments": {
+            "type": "boolean",
+            "description": "Sentences instead of words"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "First word of the page (default 0)"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Words per page (default and most 10000)"
+          },
+          "model": {
+            "type": "string",
+            "description": "Only transcripts made with this speech model (tiny, base, small)"
+          },
+          "language": {
+            "type": "string",
+            "description": "Only transcripts in this language (ISO 639-1), with `model`"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
       "name": "duck_audio",
       "description": "Lower music under dialogue as one revision: writes volume keyframes on the music items (ramp down `attack` before each line of speech, `depth` dB during it, back up over `release`; lines closer than `hold` merge). Speech comes from the dialogue's cached transcript, else from its level. `mode` replace (default) rewrites volume keyframes only in the affected range, so running again replaces an earlier duck; merge multiplies with existing ones. `dryRun` returns the planned keyframes per music item without changing anything.",
       "inputSchema": {

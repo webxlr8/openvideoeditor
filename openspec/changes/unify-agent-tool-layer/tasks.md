@@ -34,7 +34,7 @@
       client name) and the in-app assistant. Verify:
       - a migration test that opens bundles from the previous release;
       - a fuzz target for the record decoder that runs in CI.
-- [ ] 3.2 Move selective undo from `assistant.rs` into `ove-store`. Add scopes mine, turn and session (any only from the
+- [x] 3.2 Move selective undo from `assistant.rs` into `ove-store`. Add scopes mine, turn and session (any only from the
       CLI with `--any`). Make `undo_timeline` default to mine for agents, and add `undo_my_changes`. Verify:
       - integration tests for the person-edits-survive and conflict-refused scenarios;
       - "Undo this turn" still works in the app's e2e test.
@@ -46,13 +46,17 @@
 - [x] 4.1 Add `ove mcp --project <p> [--turn <id>]` and the `use_project` tool, and refuse other projects with
       `project.pinned`. Verify: a scripted client runs two concurrent pinned sessions on different projects, and each
       project's history shows only its own session.
-- [ ] 4.2 Allow writes to an open project that is not in front. Verify: an e2e test where the person's window shows
+- [x] 4.2 Allow writes to an open project that is not in front. Verify: an e2e test where the person's window shows
       project Q and the MCP session edits project P; P's history gains the revision, and Q is untouched.
-- [ ] 4.3 Keep the bundle open for the whole `ove mcp` session, closing it when idle and keeping the existing lock
+- [x] 4.3 Keep the bundle open for the whole `ove mcp` session, closing it when idle and keeping the existing lock
       (gate 1, D3: the headless stale-apply case measured 207 ms against a 150 ms budget; the extra 95 ms is opening
       the bundle and writing the snapshot on close, not printing). Verify: the `stale-apply` bench case, headless with
       the revision cached, at 150 ms or less; the lock-contention test in `mcp_edits.rs` still passes while the app
       opens the same project.
+      Done: `BundleCtx.hold` (`ove mcp` holds a project for 2 s after its last call, `OVE_MCP_HOLD_MS`); the bench's
+      session mode (`OVE_BENCH_SESSION=1`) measured 102 ms median (design.md, Group 4 results). Lock test:
+      `the_session_holds_the_project_between_calls_and_lets_the_app_open_it_when_idle` in `mcp_edits.rs`; the
+      two-session test there still passes (a writer waits up to 3 s for another `ove` session to let go).
 
 ## 5. Frames for agents
 
