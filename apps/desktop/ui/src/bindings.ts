@@ -129,6 +129,11 @@ export const commands = {
 	 *  the analysis is not ready the status is `pending`, and its task is moved to interactive priority.
 	 */
 	peakRange: (mediaId: string, start: number | null, end: number | null, bins: number) => typedError<PeakRangeView_Serialize, AppError>(__TAURI_INVOKE("peak_range", { mediaId, start, end, bins })),
+	/**
+	 *  Plays the grain of the open project's timeline mix at `t` seconds. Called up to 60 times a second while the play
+	 *  head is dragged; it returns at once (the worker plays only the latest).
+	 */
+	scrubAudio: (t: number | null) => typedError<null, AppError>(__TAURI_INVOKE("scrub_audio", { t })),
 	/**  Save dialog for the export destination. `None` when cancelled. */
 	chooseExportPath: (defaultName: string) => typedError<string | null, AppError>(__TAURI_INVOKE("choose_export_path", { defaultName })),
 	/**  Shows a file in the system file manager. */
@@ -263,6 +268,7 @@ export const events = {
 	agentUiEvent: makeEvent<AgentUiEvent_Serialize, AgentUiEvent_Deserialize>("agent-ui-event"),
 	appErrorRaised: makeEvent<AppErrorRaised, AppErrorRaised>("app-error-raised"),
 	audioAnalysisChanged: makeEvent<AudioAnalysisChanged, AudioAnalysisChanged>("audio-analysis-changed"),
+	audioMeter: makeEvent<AudioMeter_Serialize, AudioMeter_Deserialize>("audio-meter"),
 	captionJobProgress: makeEvent<CaptionJobProgress_Serialize, CaptionJobProgress_Deserialize>("caption-job-progress"),
 	exportProgress: makeEvent<ExportProgress_Serialize, ExportProgress_Deserialize>("export-progress"),
 	generationUpdated: makeEvent<GenerationUpdated, GenerationUpdated>("generation-updated"),
@@ -435,6 +441,27 @@ export type AudioAnalysisChanged = {
 	contentId: string,
 	/**  ready | error */
 	status: string,
+};
+
+/**  A batch of meter readings. */
+export type AudioMeter = AudioMeter_Serialize | AudioMeter_Deserialize;
+
+/**  A batch of meter readings. */
+export type AudioMeter_Deserialize = {
+	/**  Media seconds being heard when the batch was sent. */
+	heard: number | null,
+	/**  Whether the mix is playing; when false the meters fall back. */
+	playing: boolean,
+	readings: MeterReadingView_Deserialize[],
+};
+
+/**  A batch of meter readings. */
+export type AudioMeter_Serialize = {
+	/**  Media seconds being heard when the batch was sent. */
+	heard: number | null,
+	/**  Whether the mix is playing; when false the meters fall back. */
+	playing: boolean,
+	readings: MeterReadingView_Serialize[],
 };
 
 /**  What to caption. */
@@ -948,6 +975,33 @@ export type MediaView_Serialize = {
 	thumbnail: string | null,
 	/**  The hover-skim sheet, once built (served at `ove-skim://localhost/<contentId>.jpg`). */
 	skim: SkimView | null,
+};
+
+/**  One reading as the UI uses it. Times are media seconds; levels are dB. */
+export type MeterReadingView = MeterReadingView_Serialize | MeterReadingView_Deserialize;
+
+/**  One reading as the UI uses it. Times are media seconds; levels are dB. */
+export type MeterReadingView_Deserialize = {
+	start: number | null,
+	end: number | null,
+	/**  Sample peak, RMS and true peak per channel (left, right). */
+	peak: (number | null)[],
+	rms: (number | null)[],
+	truePeak: (number | null)[],
+	momentary?: number | null,
+	shortTerm?: number | null,
+};
+
+/**  One reading as the UI uses it. Times are media seconds; levels are dB. */
+export type MeterReadingView_Serialize = {
+	start: number | null,
+	end: number | null,
+	/**  Sample peak, RMS and true peak per channel (left, right). */
+	peak: (number | null)[],
+	rms: (number | null)[],
+	truePeak: (number | null)[],
+	momentary: number | null,
+	shortTerm: number | null,
 };
 
 export type ModelOption = {

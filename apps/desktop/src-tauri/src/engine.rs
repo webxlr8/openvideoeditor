@@ -393,7 +393,7 @@ impl Session {
     }
 
     /// Keeps the ring filled ahead of the play head.
-    fn feed_audio(&mut self) {
+    fn feed_audio(&mut self, meters: &mut crate::meters::Meters) {
         let Some(a) = self.audio.as_mut() else { return };
         if a.eof {
             return;
@@ -429,6 +429,7 @@ impl Session {
                         break;
                     }
                     let mixed = mixer.mix(doc, a.filled_to, BLOCK);
+                    meters.tap(a.filled_to, &mixed);
                     let (rate, channels) = ring.format();
                     ring.push(a.filled_to, &to_device(&mixed, rate, channels));
                     a.filled_to += (BLOCK as i64 * 1_000_000) / ove_render::audio::RATE as i64;
@@ -450,7 +451,7 @@ impl Session {
 }
 
 /// Converts 48 kHz stereo to the device format (nearest-sample rate change, channel up/down-mix).
-fn to_device(stereo: &[f32], rate: u32, channels: u16) -> Vec<f32> {
+pub(crate) fn to_device(stereo: &[f32], rate: u32, channels: u16) -> Vec<f32> {
     let src_rate = ove_render::audio::RATE;
     if rate == src_rate && channels == 2 {
         return stereo.to_vec();
@@ -590,6 +591,7 @@ fn run(app: AppHandle, viewer: Sender<ViewerMsg>, rx: Receiver<EngineMsg>, share
     let mut last_sent: Option<PlaybackState> = None;
     // Frames still to step (positive forward, negative back); any other transport command cancels them.
     let mut pending_steps: i64 = 0;
+    let mut meters = crate::meters::Meters::default();
     loop {
         shared.beat();
         let busy = pending_steps != 0
@@ -689,8 +691,11 @@ fn run(app: AppHandle, viewer: Sender<ViewerMsg>, rx: Receiver<EngineMsg>, share
             let out = s.player.tick(time.now_us());
             if let Some(t) = out.audio_restart {
                 s.restart_audio(t);
+                meters.restart();
             }
-            s.feed_audio();
+            s.feed_audio(&mut meters);
+            let position = s.audio.as_ref().and_then(|a| a.out.ring().position());
+            meters.emit(&app, time.now_us(), position, s.player.transport().is_playing());
             let shown = match out.present {
                 Some(AnyFrame::Media(f)) => to_gpu_frame(f),
                 Some(AnyFrame::Timeline(f)) => Some(crate::timeline::to_viewer(&f)),

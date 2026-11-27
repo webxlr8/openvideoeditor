@@ -5,6 +5,8 @@
 
 pub mod analysis;
 pub mod audio;
+/// The BS.1770 core, shared with the meters and export (design D8).
+pub use ove_render::loudness;
 pub mod grid;
 pub mod image;
 pub mod look;

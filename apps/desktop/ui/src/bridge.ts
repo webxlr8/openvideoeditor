@@ -19,6 +19,7 @@ import type {
   AutoCaptionRequest_Deserialize,
   ChatItem_Serialize,
   AppInfo_Serialize,
+  AudioMeter,
   Diagnostics_Serialize,
   MediaInfo_Serialize,
   PlaybackState,
@@ -82,6 +83,8 @@ export interface MockControl {
   calls: string[];
   /** Simulates the native side routing paths to the window. */
   routePaths(paths: string[]): void;
+  /** Simulates the engine sending a batch of level-meter readings. */
+  meter(batch: AudioMeter): void;
   /** A project opened from outside the window (an agent or the command line, through the control link). */
   remoteOpen(name: string): void;
   /** The simulated assistant: whether a key is stored, how long each streamed step takes, whether the key check
@@ -670,6 +673,9 @@ function createMock(): {
     rects: [],
     lastRect: null,
     calls: [],
+    meter(batch) {
+      emit("audio-meter", batch);
+    },
     routePaths(paths) {
       emit("open-paths-requested", { paths });
     },
@@ -1685,6 +1691,10 @@ function createMock(): {
       }
       return ok({ status: "ready", message: null, contentId: `mock-${mediaId}`, channels: 2, bins: n, level: 0, data });
     },
+    scrubAudio: async (t: number | null) => {
+      track(`scrubAudio:${t}`);
+      return ok(null);
+    },
     requestSkim: async (_mediaId: string) => {
       track("requestSkim");
       return ok(null);
@@ -2463,6 +2473,7 @@ function createMock(): {
     agentUiEvent: makeEvent("agent-ui-event"),
     appErrorRaised: makeEvent("app-error-raised"),
     audioAnalysisChanged: makeEvent("audio-analysis-changed"),
+    audioMeter: makeEvent("audio-meter"),
     captionJobProgress: makeEvent("caption-job-progress"),
     localModelsChanged: makeEvent("local-models-changed"),
     exportProgress: makeEvent("export-progress"),

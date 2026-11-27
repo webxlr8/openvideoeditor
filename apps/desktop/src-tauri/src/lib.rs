@@ -15,12 +15,14 @@ pub mod generation;
 pub mod interchange;
 pub mod logging;
 pub mod media;
+pub mod meters;
 pub mod models;
 pub mod motion;
 pub mod onboarding;
 pub mod projects;
 pub mod sample;
 pub mod scripted_dialogs;
+pub mod scrub;
 pub mod support;
 pub mod tasks;
 pub mod timeline;
@@ -168,6 +170,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             exporting::cancel_export,
             tasks::request_skim,
             waveforms::peak_range,
+            scrub::scrub_audio,
             exporting::choose_export_path,
             exporting::reveal_path,
             edits::item_detail,
@@ -237,6 +240,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             captions::CaptionJobProgress,
             models::LocalModelsChanged,
             waveforms::AudioAnalysisChanged,
+            meters::AudioMeter,
         ])
         .error_handling(tauri_specta::ErrorHandlingMode::Result)
 }

@@ -32,12 +32,12 @@
 
 ## 4. Meters and scrub audio
 
-- [ ] 4.1 Add the meter tap (peak, RMS, true peak, momentary and short-term loudness per channel, tagged with media
+- [x] 4.1 Add the meter tap (peak, RMS, true peak, momentary and short-term loudness per channel, tagged with media
       time) and the throttled event; verify a −6 dBFS sine reads −6.0 dB within 0.1 dB and a loopback click test
       aligns within one UI frame.
-- [ ] 4.2 Implement meter ballistics as a pure function and draw the meters; verify unit tests for fall rates, 1.5 s
+- [x] 4.2 Implement meter ballistics as a pure function and draw the meters; verify unit tests for fall rates, 1.5 s
       peak hold and the latched clip indicator, and measure meter CPU use (target under 1 %).
-- [ ] 4.3 Implement scrub grains from the shared mixer with the revision-keyed window cache and direction prefetch;
+- [x] 4.3 Implement scrub grains from the shared mixer with the revision-keyed window cache and direction prefetch;
       verify latency p95 (cached ≤ 40 ms, cold ≤ 120 ms) recorded in Results, no discontinuity at grain boundaries
       larger than the signal step plus 1e-3, and that an edit changes the next grain.
 
