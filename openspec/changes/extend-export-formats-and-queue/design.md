@@ -241,3 +241,47 @@ LGPL FFmpeg 9.0.2 build in `H:/Development/OpenvideoEditor/tools/ffmpeg/out/wind
   encoder and loudness). 9 UI tests in `Export.test.tsx`: preset choice, a refused combination, WAV with a loudness
   target, a range outside and inside the timeline, cancel from the dialog, two queued jobs in the panel with one
   cancelled and one finished, save range as media, render in place undone in one step, and export range.
+
+### Group 6 (integration checks, Windows half)
+
+Built app (`ove-desktop` debug build) driven by `apps/desktop/e2e-app/run.mjs` on Windows 11 with tauri-driver and
+msedgedriver; the export worker is the debug `ove` built with `--features media`; media from
+`tests/media/files` (`h264_longgop.mp4`, 4 s, 1920×1080). The harness gives the app and `ove` a queue folder of their
+own (`OVE_EXPORT_QUEUE_DIR`) and names the worker program (`OVE_EXPORT_WORKER_PROGRAM`). Six flows pass:
+"split export", "export: MP4 …" (both moved to the preset dialog), "export formats", "export queue", "range" and
+"agent export". The run's final whole-log check fails only on crash reports and forced diagnostic panics dated
+2026-11-26 in the Windows profile's shared log folder (left by earlier runs, not by these flows); today's log has no
+ERROR line.
+
+- 6.1 (Windows): from the dialog's presets, each file probed with ffprobe and decoded end to end with a full FFmpeg
+  without errors:
+
+  | Preset | Probe |
+  |---|---|
+  | ProRes 422 HQ master | prores HQ, yuv422p10le, 1920×1080; pcm_s24le 48 kHz; 4.00 s |
+  | ProRes 4444 with alpha | prores 4444, yuva444p12le, 1920×1080; pcm_s24le 48 kHz; 4.00 s |
+  | YouTube 1080p (H.264) | h264 (h264_mf), yuv420p, 1920×1080; aac 48 kHz; 4.00 s |
+  | Audio WAV 24-bit | no video; pcm_s24le 48 kHz; 4.00 s |
+
+  Not on this machine, shown disabled with the reason: DNxHR HQ and HQX ("This build of the app has no DNxHR encoder
+  (dnxhd)…"), Web VP9 and VP9 with alpha ("…cannot write WebM files (webm muxer missing)"). HEVC 10-bit stays
+  selectable because `hevc_mf` is in the inventory, but it refuses the test picture at export time (group 2). Playback
+  in the OS player was not checked (needs a person; Windows has no ProRes player built in). Open: macOS half, DNxHR,
+  VP9 and HEVC on a build or machine that has them, OS-player playback.
+- 6.2 (Windows): three exports queued from the dialog (ProRes 422 HQ, H.264 1080p, sound-only WAV at -14 LUFS); the
+  H.264 one cancelled in the Exports panel while queued (status `cancelled` 1.6 s after the click, including the
+  panel's poll; no file, no `.partial`); the app closed while the ProRes export ran and the WAV waited, then reopened:
+  both finished (the worker is a separate process). The WAV measures -14 LUFS integrated (FFmpeg `ebur128`). Encode
+  speed at 1080p, 4 s timeline, debug build of the worker (a release build is faster; not measured here):
+  ProRes 422 HQ 0.10× realtime (38.5 s), ProRes 4444 with alpha 0.10× (38.8 s), H.264 (`h264_mf`) 0.16× (24.8 s),
+  24-bit WAV 4.4× (0.9 s). Open: macOS half and release-build speeds.
+- 6.3 (Windows): an MCP client ("e2e-agent") queued a ProRes export and an H.264 export with `export_video`,
+  cancelled the second with `cancel_job` (4 ms, while queued; nothing written), waited on the first with
+  `job_status {wait: true}` (done, ProRes file probes), got `job.unknown` for an unknown id, and the app's Exports
+  panel listed both jobs ("by e2e-agent", done and cancelled). Open: macOS half.
+- Range menu in the built app: the clip marked with X, "Save range as media" added one bundle-owned ProRes 422 HQ file
+  (1920×1080, 4.000 s) and left the clips as they were; "Render in place…" asked first, then put one clip of the new
+  media over the range; one Undo restored the clips. Found and fixed on the way: the rendered media had no content id,
+  so the app's background "media identities" revision landed on top of the render and Undo undid that instead. The
+  `save_range_as_media` tool now stores the file's identity (content id, size, time) with the media, as an import
+  does (`crates/ove-cli/tests/export_range.rs` checks it).

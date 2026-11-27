@@ -2,14 +2,14 @@
 // project the native side holds (through the UI's own bridge), files in the bundle, files written by exports.
 // The first flow is the exception: it starts where a new person does, on the welcome.
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import readline from "node:readline";
 
-import { Key, sleep } from "./lib/session.mjs";
-import { WINDOWS, bundleItems, captureScreen, ffprobe, makeSpeech, revisionFiles, ssim } from "./lib/support.mjs";
+import { By, Key, sleep } from "./lib/session.mjs";
+import { WINDOWS, bundleItems, captureScreen, ffprobe, makeSpeech, revisionFiles, ssim, which } from "./lib/support.mjs";
 
 // ---------------------------------------------------------------------------------------------------------------
 // Shared steps
@@ -184,6 +184,105 @@ function startMcp(ctx, args, env = {}) {
       child.kill();
     },
   };
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Export queue (extend-export-formats-and-queue): presets, the Exports panel, range renders
+
+/** Streams of a media file as ffprobe reports them (codec, profile, pixel and sample formats), plus its duration. */
+function probeFile(file) {
+  const bin = process.env.OVE_E2E_FFPROBE || which("ffprobe");
+  if (!bin) return null;
+  const out = execFileSync(
+    bin,
+    [
+      "-v", "error",
+      "-show_entries",
+      "stream=codec_type,codec_name,profile,pix_fmt,width,height,sample_fmt,sample_rate,bits_per_raw_sample,bits_per_sample:format=duration,format_name",
+      "-of", "json", file,
+    ],
+    { encoding: "utf8" },
+  );
+  const j = JSON.parse(out);
+  const streams = j.streams ?? [];
+  return {
+    video: streams.find((s) => s.codec_type === "video") ?? null,
+    audio: streams.find((s) => s.codec_type === "audio") ?? null,
+    duration: Number(j.format?.duration ?? 0),
+    format: j.format?.format_name ?? "",
+  };
+}
+
+/** Decodes every frame and sample with a full FFmpeg (as a player would); returns the errors it printed. */
+function decodeErrors(file) {
+  const bin = process.env.OVE_FIXTURE_FFMPEG || which("ffmpeg");
+  if (!bin) return null;
+  const r = spawnSync(bin, ["-v", "error", "-i", file, "-f", "null", "-"], { encoding: "utf8" });
+  return r.status === 0 ? (r.stderr ?? "").trim() : `exit ${r.status}: ${(r.stderr ?? "").slice(-400)}`;
+}
+
+/** Integrated loudness (LUFS) of a file, measured with a full FFmpeg's EBU R128 filter. */
+function integratedLoudness(file) {
+  const bin = process.env.OVE_FIXTURE_FFMPEG || which("ffmpeg");
+  if (!bin) return null;
+  const r = spawnSync(bin, ["-hide_banner", "-nostats", "-i", file, "-af", "ebur128", "-f", "null", "-"], { encoding: "utf8" });
+  const m = [...(r.stderr ?? "").matchAll(/I:\s+(-?[\d.]+) LUFS/g)].pop();
+  return m ? Number(m[1]) : null;
+}
+
+/** Opens the export dialog with its presets loaded. */
+async function openExportDialog(app) {
+  await app.click("open-export");
+  await app.find("export-dialog");
+  await app.find("export-presets", 30000);
+}
+
+/** The dialog's summary of the current settings, once checked. */
+async function exportSummary(app) {
+  return app.waitFor(async () => {
+    if (await app.exists("export-invalid")) throw new Error(`refused: ${await app.text("export-invalid")}`);
+    return (await app.exists("export-summary")) ? (await app.text("export-summary")) || null : null;
+  }, "the export settings to be checked");
+}
+
+/** Exports the open project with a preset through the dialog; waits for the job to finish and returns the file
+ * (moved to the artefacts folder as `name`), the dialog's result line and the summary. */
+async function exportWithPreset(ctx, project, preset, ext, name, timeout = 6 * 60 * 1000) {
+  const { app } = ctx;
+  await openExportDialog(app);
+  await app.click(`export-preset-${preset}`);
+  const summary = await exportSummary(app);
+  await app.click("export-start");
+  const done = await app.find("export-done", timeout);
+  const line = (await app.textOf(done)).split("\n")[0];
+  await app.clickText("Done", "export-dialog");
+  await app.waitGone("export-dialog");
+  const written = path.join(ctx.dialogs, "save", `${project}.${ext}`);
+  assert.ok(fs.existsSync(written), `${written} exists`);
+  const to = path.join(ctx.out, name);
+  fs.renameSync(written, to);
+  return { file: to, line, summary };
+}
+
+/** Seconds an export took, from the dialog's or panel's result line ("… in 12.3 s"). */
+const secondsIn = (line) => Number(/in ([\d.]+) s/.exec(line)?.[1] ?? NaN);
+
+/** Opens the Exports panel from the rail and returns its job rows by status. */
+async function exportRows(app) {
+  if (!(await app.exists("exports-panel"))) await app.click("rail-exports");
+  await app.find("exports-panel");
+  const rows = [];
+  for (const el of await app.all("export-job"))
+    rows.push({ el, id: await el.getAttribute("data-id"), status: await el.getAttribute("data-status"), text: await app.textOf(el) });
+  return rows;
+}
+
+/** Right-clicks the marked range in the ruler and picks a menu entry. */
+async function rangeMenu(app, entry) {
+  const range = await app.find("range");
+  await app.scrollIntoView(range);
+  await app.driver.actions({ async: true }).contextClick(range).perform();
+  await app.click(`menu-${entry}`);
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -729,9 +828,9 @@ export const FLOWS = [
       ctx.log(`    clip ${sped.start}–${sped.end} s at 2×, fades in and out`);
 
       const exportTo = async (name) => {
-        await app.click("open-export");
-        await app.find("export-dialog");
-        await app.clickText("720p", "export-dialog");
+        await openExportDialog(app);
+        await app.click("export-preset-social-720p");
+        await exportSummary(app);
         await app.click("export-start");
         await app.find("export-done", 6 * 60 * 1000);
         await app.clickText("Done", "export-dialog");
@@ -779,9 +878,9 @@ export const FLOWS = [
       const { app, media } = ctx;
       await newProject(app, "Export E2E");
       await importWithButton(ctx, [media.video]);
-      await app.click("open-export");
-      await app.find("export-dialog");
-      await app.clickText("720p", "export-dialog");
+      await openExportDialog(app);
+      await app.click("export-preset-social-720p");
+      await exportSummary(app);
       await app.click("export-start");
       const done = await app.find("export-done", 6 * 60 * 1000);
       ctx.log(`    ${(await app.textOf(done)).split("\n")[0]}`);
@@ -820,6 +919,277 @@ export const FLOWS = [
       assert.match(xml, /h264_longgop/);
       await app.clickText("Done", "export-dialog");
       await app.waitGone("export-dialog");
+    },
+  },
+
+  {
+    // extend-export-formats-and-queue task 6.1 (Windows half) and the encode speeds of 6.2.
+    name: "export formats: ProRes 422 HQ, ProRes 4444 with alpha, H.264 1080p and 24-bit WAV from presets probe and decode",
+    timeoutMs: 25 * 60 * 1000,
+    async run(ctx) {
+      const { app, media } = ctx;
+      const project = "Export Formats E2E";
+      await newProject(app, project);
+      await importWithButton(ctx, [media.video]);
+
+      // Presets this computer has no encoder for are listed but cannot be chosen.
+      await openExportDialog(app);
+      const off = [];
+      for (const p of await app.all('[data-testid^="export-preset-"]')) {
+        if (!(await p.isEnabled())) off.push(`${(await app.textOf(p)).split("\n")[0]} (${await p.getAttribute("title")})`);
+      }
+      ctx.log(`    not on this computer: ${off.join("; ") || "none"}`);
+      await app.clickText("Close", "export-dialog");
+      await app.waitGone("export-dialog");
+
+      const cases = [
+        {
+          preset: "prores-422-hq-master",
+          ext: "mov",
+          ok: (p) =>
+            p.video?.codec_name === "prores" && /HQ/i.test(p.video.profile) && p.video.pix_fmt === "yuv422p10le" &&
+            p.video.width === 1920 && p.video.height === 1080 && p.audio?.codec_name === "pcm_s24le",
+        },
+        {
+          preset: "prores-4444-with-alpha",
+          ext: "mov",
+          ok: (p) => p.video?.codec_name === "prores" && /4444/.test(p.video.profile) && /^yuva444p/.test(p.video.pix_fmt),
+        },
+        {
+          preset: "youtube-1080p",
+          ext: "mp4",
+          ok: (p) => p.video?.codec_name === "h264" && p.video.height === 1080 && p.audio?.codec_name === "aac",
+        },
+        {
+          preset: "audio-wav-24-bit",
+          ext: "wav",
+          ok: (p) => !p.video && p.audio?.codec_name === "pcm_s24le" && Number(p.audio.sample_rate) === 48000,
+        },
+      ];
+      const speeds = [];
+      for (const c of cases) {
+        const r = await exportWithPreset(ctx, project, c.preset, c.ext, `formats-${c.preset}.${c.ext}`);
+        const p = probeFile(r.file);
+        assert.ok(p, "ffprobe is needed for this flow");
+        const v = p.video ? `${p.video.codec_name} ${p.video.profile ?? ""} ${p.video.pix_fmt} ${p.video.width}x${p.video.height}` : "no video";
+        const a = p.audio ? `${p.audio.codec_name} ${p.audio.sample_rate} Hz` : "no audio";
+        const seconds = secondsIn(r.line);
+        const speed = p.duration / seconds;
+        speeds.push({ preset: c.preset, summary: r.summary, duration: p.duration, seconds, speed });
+        ctx.log(`    ${c.preset}: ${v}; ${a}; ${p.duration.toFixed(2)} s in ${seconds} s (${speed.toFixed(2)}× realtime)`);
+        assert.ok(c.ok(p), `${c.preset} probes as expected: ${JSON.stringify(p)}`);
+        assert.ok(Math.abs(p.duration - 4) < 0.5, `${c.preset} duration ${p.duration}`);
+        const errors = decodeErrors(r.file);
+        assert.equal(errors, "", `${c.preset} decodes without errors`);
+      }
+      fs.writeFileSync(path.join(ctx.out, "export-speeds.json"), JSON.stringify(speeds, null, 2));
+    },
+  },
+
+  {
+    // extend-export-formats-and-queue tasks 5.1 and 6.2 (Windows half).
+    name: "export queue: three exports, one cancelled in the Exports panel, a sound-only WAV at -14 LUFS; quit and reopen, all finish",
+    timeoutMs: 25 * 60 * 1000,
+    async run(ctx) {
+      const { media } = ctx;
+      const project = "Export Queue E2E";
+      await newProject(ctx.app, project);
+      await importWithButton(ctx, [media.video, media.video2]);
+      const queue = async (setup) => {
+        const app = ctx.app;
+        await openExportDialog(app);
+        await setup(app);
+        const summary = await exportSummary(app);
+        await app.click("export-start");
+        await app.find("export-progress", 30000);
+        await app.click("export-show-exports");
+        await app.waitGone("export-dialog");
+        return summary;
+      };
+      ctx.log(`    queued: ${await queue((app) => app.click("export-preset-prores-422-hq-master"))}`);
+      ctx.log(`    queued: ${await queue((app) => app.click("export-preset-youtube-1080p"))}`);
+      ctx.log(
+        `    queued: ${await queue(async (app) => {
+          await app.click("export-audio-only");
+          await app.select("export-loudness", "-14");
+        })}`,
+      );
+      const save = (ext) => path.join(ctx.dialogs, "save", `${project}.${ext}`);
+      const ours = async () => {
+        const rows = await exportRows(ctx.app);
+        const by = (ext) => rows.find((r) => r.text.includes(`${project}.${ext}`));
+        return { mov: by("mov"), mp4: by("mp4"), wav: by("wav") };
+      };
+      let rows = await ctx.app.waitFor(async () => {
+        const r = await ours();
+        return r.mov && r.mp4 && r.wav ? r : null;
+      }, "the three exports in the Exports panel");
+      ctx.log(`    panel: mov ${rows.mov.status}, mp4 ${rows.mp4.status}, wav ${rows.wav.status}`);
+      assert.ok(["queued", "running"].includes(rows.mp4.status), `the second export waits or runs: ${rows.mp4.status}`);
+
+      // Cancel the second one from the panel.
+      const t0 = Date.now();
+      await ctx.app.click(await rows.mp4.el.findElement(By.css('[data-testid="export-job-cancel"]')));
+      rows = await ctx.app.waitFor(async () => {
+        const r = await ours();
+        return r.mp4?.status === "cancelled" ? r : null;
+      }, "the second export to be cancelled", 10000);
+      ctx.log(`    cancelled in the panel after ${Date.now() - t0} ms; mov ${rows.mov.status}, wav ${rows.wav.status}`);
+
+      // Quit while the exports go on; they belong to the queue's worker, not to the window.
+      const pending = Object.entries(rows).filter(([, r]) => ["queued", "running"].includes(r.status)).map(([k]) => k);
+      ctx.log(`    quitting with ${pending.join(", ") || "nothing"} still to finish`);
+      await ctx.restart();
+      await openFromHome(ctx.app, project);
+      rows = await ctx.app.waitFor(
+        async () => {
+          const r = await ours();
+          return r.mov?.status === "done" && r.wav?.status === "done" ? r : null;
+        },
+        "the ProRes and WAV exports to finish after reopening",
+        15 * 60 * 1000,
+        1000,
+      );
+      assert.equal(rows.mp4.status, "cancelled", "the cancelled export stays cancelled");
+      // A finished row: file and status, what was written, then the encoder and time taken.
+      ctx.log(`    mov: ${rows.mov.text.split("\n")[2]}`);
+      ctx.log(`    wav: ${rows.wav.text.split("\n")[2]}`);
+
+      assert.ok(!fs.existsSync(save("mp4")), "the cancelled export left no file");
+      for (const f of fs.readdirSync(path.join(ctx.dialogs, "save"))) assert.ok(!f.endsWith(".partial"), `no partial file: ${f}`);
+      const mov = probeFile(save("mov"));
+      assert.equal(mov.video?.codec_name, "prores");
+      assert.equal(decodeErrors(save("mov")), "", "the ProRes file decodes");
+      const wav = probeFile(save("wav"));
+      assert.ok(!wav.video && wav.audio?.codec_name === "pcm_s24le", `sound-only 24-bit WAV: ${JSON.stringify(wav)}`);
+      const lufs = integratedLoudness(save("wav"));
+      ctx.log(`    WAV integrated loudness ${lufs} LUFS (target -14)`);
+      assert.ok(lufs !== null && Math.abs(lufs + 14) <= 1, `loudness ${lufs}`);
+      for (const ext of ["mov", "wav"]) fs.renameSync(save(ext), path.join(ctx.out, `queue.${ext}`));
+    },
+  },
+
+  {
+    // extend-export-formats-and-queue task 5.2 in the built app.
+    name: "range: save a marked range as media, render it in place, one undo restores the clips",
+    timeoutMs: 10 * 60 * 1000,
+    async run(ctx) {
+      const { app, media } = ctx;
+      const project = "Range Media E2E";
+      await newProject(app, project);
+      let view = await importWithButton(ctx, [media.video]);
+      const [clip] = mainClips(view);
+      // X marks the selected clip as the range.
+      await clickClip(app, clip.id, 0.5);
+      await app.keys("x");
+      const range = await app.find("range");
+      const [a, b] = [Number(await range.getAttribute("data-in")), Number(await range.getAttribute("data-out"))];
+      ctx.log(`    marked ${a.toFixed(3)}–${b.toFixed(3)} s of a ${clip.start}–${clip.end} s clip`);
+      assert.ok(b > a, "a range is marked");
+
+      const before = shape(await app.project());
+      const mediaBefore = (await app.project()).media.length;
+      await rangeMenu(app, "save-range");
+      ctx.log(`    ${(await app.textOf(await app.find("range-done", 5 * 60 * 1000))).split("\n")[0]}`);
+      await app.clickText("Done", "range-media-dialog");
+      view = await app.waitFor(async () => {
+        const p = await app.project();
+        return p.media.length === mediaBefore + 1 ? p : null;
+      }, "the rendered range in the media");
+      const saved = view.media[view.media.length - 1];
+      assert.deepEqual(shape(view).items, before.items, "saving as media leaves the clips as they were");
+      const rendered = path.join(view.bundle, "media", "rendered");
+      const files = fs.readdirSync(rendered);
+      assert.equal(files.length, 1, `one rendered file: ${files}`);
+      const p = probeFile(path.join(rendered, files[0]));
+      ctx.log(`    ${files[0]}: ${p.video?.codec_name} ${p.video?.profile} ${p.video?.width}x${p.video?.height}, ${p.duration.toFixed(3)} s`);
+      assert.ok(Math.abs(p.duration - (b - a)) < 0.1, `the file lasts the range: ${p.duration}`);
+      assert.equal(p.video?.width, 1920);
+      assert.equal(saved.status, "online");
+
+      await rangeMenu(app, "render-in-place");
+      await app.click("range-confirm");
+      ctx.log(`    ${(await app.textOf(await app.find("range-done", 5 * 60 * 1000))).split("\n")[0]}`);
+      await app.clickText("Done", "range-media-dialog");
+      view = await app.waitFor(async () => {
+        const v = await app.project();
+        return v.items.some((i) => i.mediaId && i.mediaId !== clip.mediaId && Math.abs(i.start - a) < 1e-3) ? v : null;
+      }, "a clip of the rendered range in place");
+      const placed = view.items.find((i) => i.mediaId !== clip.mediaId && Math.abs(i.start - a) < 1e-3);
+      ctx.log(`    in place: ${placed.trackId} ${placed.start.toFixed(3)}–${placed.end.toFixed(3)} s; main ${mainClips(view).map((i) => `${i.start.toFixed(2)}–${i.end.toFixed(2)}`).join(", ")}`);
+      assert.ok(Math.abs(placed.end - b) < 1e-3, "the clip covers the range");
+      for (const i of view.items.filter((x) => x.id !== placed.id && x.trackId !== "t_audio")) {
+        assert.ok(i.end <= a + 1e-3 || i.start >= b - 1e-3, `nothing else covers the range: ${JSON.stringify(i)}`);
+      }
+
+      const placedRev = (await app.project()).rev;
+      await app.click("undo");
+      let last;
+      try {
+        await app.waitFor(async () => {
+          last = await app.project();
+          return JSON.stringify(shape(last).items) === JSON.stringify(before.items);
+        }, "one undo to restore the clips");
+      } catch (e) {
+        const h = await app.invoke("project_history");
+        ctx.log(`    history: ${h.slice(0, 6).map((r) => `${r.rev} ${r.source} ${r.summary}`).join(" | ")}`);
+        ctx.log(`    placed at rev ${placedRev}; after undo rev ${last?.rev}: ${JSON.stringify(shape(last).items)}
+    before: ${JSON.stringify(before.items)}`);
+        throw e;
+      }
+      assert.ok(fs.readdirSync(rendered).length >= 1, "the rendered files stay in the bundle");
+    },
+  },
+
+  {
+    // extend-export-formats-and-queue task 6.3 (Windows half).
+    name: "agent export: an MCP client queues an export and waits on job_status, cancels a second; the Exports panel shows both",
+    timeoutMs: 10 * 60 * 1000,
+    async run(ctx) {
+      const { app, media } = ctx;
+      const project = "Agent Export E2E";
+      await newProject(app, project);
+      await importWithButton(ctx, [media.video]);
+      const mcp = startMcp(ctx, []);
+      const out1 = path.join(ctx.out, "agent-1.mov");
+      const out2 = path.join(ctx.out, "agent-2.mp4");
+      let job1;
+      let job2;
+      try {
+        await mcp.request("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "e2e-agent", version: "1.0" } });
+        const r1 = await mcp.call("export_video", { project, out: out1, preset: "ProRes 422 HQ master" });
+        assert.equal(r1.isError, false, JSON.stringify(r1));
+        job1 = r1.structuredContent.jobId;
+        const r2 = await mcp.call("export_video", { project, out: out2, preset: "YouTube 1080p" });
+        job2 = r2.structuredContent.jobId;
+        ctx.log(`    queued ${job1} (${r1.structuredContent.status}) and ${job2} (${r2.structuredContent.status})`);
+        const t0 = Date.now();
+        const c = await mcp.call("cancel_job", { job_id: job2 });
+        assert.equal(c.isError, false, JSON.stringify(c));
+        assert.equal(c.structuredContent.status, "cancelled");
+        ctx.log(`    cancel_job: ${c.structuredContent.status} in ${Date.now() - t0} ms`);
+        const s = await mcp.call("job_status", { job_id: job1, wait: true });
+        assert.equal(s.structuredContent.status, "done", JSON.stringify(s.structuredContent));
+        ctx.log(`    job_status: ${s.content?.[0]?.text ?? s.structuredContent.status}`);
+        const unknown = await mcp.call("job_status", { job_id: "x_0_00000000" });
+        assert.equal(unknown.isError, true, "an unknown job id is an error");
+        assert.match(JSON.stringify(unknown), /job\.unknown/);
+      } finally {
+        mcp.close();
+      }
+      assert.equal(probeFile(out1).video?.codec_name, "prores");
+      assert.ok(!fs.existsSync(out2), "the cancelled job wrote nothing");
+      // The app shows the agent's jobs in the same queue.
+      const rows = await app.waitFor(async () => {
+        const r = await exportRows(app);
+        const one = r.find((x) => x.id === job1);
+        const two = r.find((x) => x.id === job2);
+        return one && two ? { one, two } : null;
+      }, "the agent's jobs in the Exports panel");
+      assert.equal(rows.one.status, "done");
+      assert.equal(rows.two.status, "cancelled");
+      assert.match(rows.one.text, /by e2e-agent/);
+      ctx.log(`    panel: ${rows.one.text.split("\n")[1]}`);
     },
   },
 

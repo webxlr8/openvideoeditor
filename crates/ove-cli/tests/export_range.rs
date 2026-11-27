@@ -128,6 +128,10 @@ fn a_range_saved_as_media_adds_one_owned_media_item_and_leaves_the_timeline() {
     let path = bundle.join(v["file"].as_str().unwrap());
     assert!(path.is_file());
     assert!(entry.owned_by_bundle && entry.native_path.starts_with("media/rendered/"), "{entry:?}");
+    // The file's identity comes with it (as for an import), so the app adds no "media identities" revision on top
+    // and one undo still undoes the render.
+    assert!(entry.fields.get("contentId").and_then(Value::as_str).is_some_and(|c| !c.is_empty()), "{entry:?}");
+    assert_eq!(ove_store::media::refresh_identity(&path, &entry.fields), None, "the identity is current");
     let info = ove_media::probe(&path).unwrap();
     let secs = info.duration_us.unwrap() as f64 / 1e6;
     assert!((secs - 7.0).abs() < 0.05, "{secs}");

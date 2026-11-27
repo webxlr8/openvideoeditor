@@ -171,6 +171,12 @@ mod imp {
         let rel = format!("media/rendered/{}", out.file_name().map(|n| n.to_string_lossy()).unwrap_or_default());
         let media_id = format!("m_r{:x}", now_ms());
         let len = end - start;
+        // The file's identity (content id, size, time) goes in with it, as for an import: no later "media
+        // identities" revision lands on top of this one, so one undo still undoes the render.
+        let mut entry = json!({"mediaId": media_id, "nativePath": rel, "ownedByBundle": true, "probeStatus": "probed"});
+        if let Some(e) = entry.as_object_mut() {
+            e.extend(ove_store::media::identity_fields(&out));
+        }
         let committed = edit(ctx, &bundle, |w| {
             let current = w.project().doc();
             if current.project.rev != rev {
@@ -186,9 +192,7 @@ mod imp {
                     "type": "video", "fileName": file_name, "duration": micros_to_json(len),
                     "width": res.width, "height": res.height, "hasAudio": res.audio_encoder.is_some(),
                     "rendered": {"start": micros_to_json(start), "end": micros_to_json(end), "rev": rev}}}),
-                entry: Some(
-                    json!({"mediaId": media_id, "nativePath": rel, "ownedByBundle": true, "probeStatus": "probed"}),
-                ),
+                entry: Some(entry.clone()),
             };
             let mut ops = vec![add.clone()];
             if replace {

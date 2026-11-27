@@ -271,8 +271,3 @@
   padding: 0 8px;
   font-size: 11px;
 }
-
-/* The marked range takes a right-click (its menu); a left press still scrubs through the ruler. */
-.ruler .range-mark {
-  pointer-events: auto;
-}

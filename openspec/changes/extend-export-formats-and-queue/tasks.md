@@ -68,6 +68,11 @@
 - [ ] 6.1 In the built app on macOS and Windows: export ProRes 422 HQ, DNxHR HQ, HEVC 10-bit (where an encoder exists),
       VP9 WebM, ProRes 4444 with alpha and 24-bit WAV from the sample project; verify each file plays in the OS player
       and probes as expected.
+      Open: Windows half done for ProRes 422 HQ, ProRes 4444 with alpha, H.264 and 24-bit WAV (probe and full decode);
+      DNxHR, VP9 and HEVC have no encoder in this build or machine; OS-player playback and the macOS half need a person
+      and the macOS machine.
 - [ ] 6.2 In the built app on both OSes: queue three exports, quit, reopen; verify all finish, and record encode speed
       (× realtime) per codec at 1080p in design.md Results.
+      Open: Windows half done (e2e flow "export queue"; debug-build speeds in Results); macOS half not available here.
 - [ ] 6.3 Agent path: an MCP client queues an export, polls `job_status`, and cancels a second one; verify on both OSes.
+      Open: Windows half done (e2e flow "agent export"); macOS half not available here.
