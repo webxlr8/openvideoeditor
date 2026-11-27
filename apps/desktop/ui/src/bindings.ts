@@ -1525,6 +1525,10 @@ export type MediaIndexStatus = {
 	modelInstalled: boolean,
 	/**  Its download size when it is not. */
 	downloadBytes: number | null,
+	/**  What the install offer names: the model, its weights' licence and where it downloads from. */
+	modelName: string,
+	licence: string,
+	host: string,
 	/**  Videos and images with a current index, of all. */
 	indexed: number,
 	total: number,

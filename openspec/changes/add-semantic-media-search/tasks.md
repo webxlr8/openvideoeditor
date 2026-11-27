@@ -5,13 +5,14 @@
 - [ ] 1.1 Confirm the weight and tokenizer licences at a pinned revision and record them in design.md; verify the
       owner signs off.
       _Apply note: licences checked and recorded (design.md "Model and tokenizer licences"); open: owner sign-off on
-      two points._
+      two points. Release is blocked until the owner signs off._
 - [ ] 1.2 Export the image encoder (half precision and 8-bit) and the 8-bit text encoder with our own scripts, add
       their manifest to `ove-models`; verify cosine ≥ 0.99 against the reference implementation on fixtures for every
       runtime path on both OSes.
       _Apply note: manifest added (`siglip2-base`), pinning an existing conversion; shipped pair passes ≥ 0.99 against
-      the full-precision graph on Windows CPU (design.md Results). Open: our own export scripts (needs Python), parity
-      against the original framework, macOS._
+      the full-precision graph on Windows CPU (design.md Results); the 0.63 GB pair was approved by the CTO and CEO
+      with conditions. Open: our own export scripts and parity against the original framework (both need Python),
+      macOS._
 - [ ] 1.3 Implement text tokenisation and image preprocessing in crate `ove-vision`; verify golden token ids and
       preprocessed tensors against the reference.
       _Apply note: both implemented; token ids match the reference tokenizer (11 golden texts). Open: preprocessed

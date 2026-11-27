@@ -17,6 +17,9 @@ use crate::tokenizer::{TEXT_LENGTH, Tokenizer};
 
 pub use ove_models::manifest::{SIGLIP2_ID, SIGLIP2_TEXT, SIGLIP2_TOKENIZER, SIGLIP2_VISION};
 
+/// The model's name as the install offer shows it.
+pub const MODEL_NAME: &str = "SigLIP 2 base (patch 16, 256 px)";
+
 /// The model's learned similarity scale: `exp(logit_scale)` with `logit_scale = 4.7265129` from the released weights.
 pub const LOGIT_SCALE: f32 = 112.901_18;
 /// The model's learned similarity bias.
@@ -220,6 +223,10 @@ mod tests {
         assert_eq!(n.id, SIGLIP2_ID);
         assert!(n.download_bytes > 300_000_000, "{}", n.download_bytes);
         assert!(n.message.contains("needs your consent"), "{}", n.message);
+        // The consent text names the size people read, the model and its licence.
+        assert!(n.message.contains("0.63 GB download"), "{}", n.message);
+        assert!(n.message.contains("SigLIP 2 base") && n.message.contains("licence Apache-2.0"), "{}", n.message);
+        assert_eq!(n.licence, "Apache-2.0");
         assert_eq!(std::fs::read_dir(dir.path()).map(|d| d.count()).unwrap_or(0), 0, "nothing was downloaded");
     }
 }

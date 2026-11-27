@@ -781,7 +781,16 @@ function createMock(): {
     connectors: initialConnectors(),
     mediaSearch: {
       result: { moments: [], spoken: [], timelines: [], files: [], index: { visual: "ready", indexed: 0, total: 0 } },
-      status: { modelInstalled: true, downloadBytes: 0, indexed: 0, total: 0, running: 0 },
+      status: {
+        modelInstalled: true,
+        downloadBytes: 0,
+        modelName: "SigLIP 2 base (patch 16, 256 px)",
+        licence: "Apache-2.0",
+        host: "huggingface.co",
+        indexed: 0,
+        total: 0,
+        running: 0,
+      },
     },
     tasks: { tasks: [], paused: [], runAnyway: [] },
     setTasks(view) {

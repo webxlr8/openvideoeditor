@@ -24,9 +24,10 @@ start to the last one's end, plus 150 ms on each side.
 
 ## The visual search model
 
-The model (SigLIP 2, about 0.63 GB) is downloaded only after the person agrees: in Settings > Storage, or with
-`ove models install siglip2-base --yes`. No search command and no agent tool downloads it. Without it, `index`
-in the result says `notInstalled` with the download size, and Moments stays empty. The other sections still work.
+The model (SigLIP 2 base, licence Apache-2.0, a 0.63 GB download) is downloaded only after the person agrees: in
+Settings > Storage or the media panel, or with `ove models install siglip2-base --yes`. No search command and no
+agent tool downloads it. Without it, `index` in the result says `notInstalled` with the download size, and Moments
+stays empty. Spoken, Timelines and Files still work.
 
 With the model installed, the app indexes each video and image in the background (a low-priority task): it splits
 videos into shots at cuts, samples the sharpest frame near the middle of each shot and every 8 seconds, skips black

@@ -51,7 +51,7 @@ fn run_in(store: &Store, cmd: &ModelsCmd, source: Source) -> Out {
 }
 
 fn mb(bytes: u64) -> String {
-    format!("{:.1} MB", bytes as f64 / 1e6)
+    ove_models::error::size_text(bytes)
 }
 
 fn list(store: &Store) -> Out {
@@ -70,7 +70,7 @@ fn install(store: &Store, id: &str, origin: Origin) -> Out {
         // Progress goes to stderr; stdout keeps the one result (JSON with --json).
         if !already && !told_host {
             told_host = true;
-            eprintln!("downloading {} ({}) from {host}", p.model, mb(p.total));
+            eprintln!("downloading {} ({}, licence {}) from {host}", p.model, mb(p.total), m.licence);
         }
         if !already && pct != last_pct && (pct.is_multiple_of(5) || pct == 100) {
             last_pct = pct;

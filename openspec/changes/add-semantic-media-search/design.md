@@ -22,17 +22,20 @@ Requirements: specs/media-search.
 ## Decisions
 
 ### D1. Model: SigLIP 2 base, patch 16, 256 px
-An image–text embedding model with 768-dimensional outputs, Apache-2.0 weights (to be confirmed with its tokenizer,
-see Open Questions). We export it to ONNX ourselves, with two image-encoder variants (half precision for accelerated
-paths, 8-bit for CPU) and an 8-bit text encoder. Release gate: cosine similarity ≥ 0.99 against the reference
-implementation on fixtures, for each runtime path. Total download about 0.45 GB, so it always needs consent.
-**Amended during apply (2026-11-27):** this machine has no Python, so the export scripts could not run here. The
-manifest pins an existing ONNX conversion of the released weights at a fixed commit instead, checked file by file
-(size and SHA-256). Its 8-bit encoders failed the parity gate against the same conversion's full-precision graphs
-(image cosine 0.83–0.93, text 0.96–0.97), so the shipped pair is the half-precision image encoder (cosine 1.0000)
-and the text encoder with 4-bit block-quantised weights (cosine ≥ 0.996). The download is 0.63 GB (186 MB + 443 MB +
-4 MB tokenizer), not 0.45 GB. Our own export with selective quantisation stays open (tasks.md 1.2) and could bring the
-size back down.
+An image–text embedding model with 768-dimensional outputs and Apache-2.0 weights (licence review below). The pinned
+files are an existing ONNX conversion of the released weights at a fixed commit, checked file by file (size and
+SHA-256): the image encoder in half precision and the text encoder with 4-bit block-quantised weights, plus the
+release's tokenizer. Total download 0.63 GB (186 MB + 443 MB + 4 MB), so it always needs consent; the consent prompt,
+Settings > Storage, the media panel and `ove models` show "0.63 GB", the model's name (SigLIP 2 base) and its licence.
+Release gate: cosine similarity ≥ 0.99 against the reference implementation on fixtures, for each runtime path.
+**Approved during apply (2026-11-27, CTO and CEO, with conditions):** the plan was our own export with 8-bit encoders.
+This machine has no Python, so the conversion above is pinned instead. Its 8-bit encoders failed the parity gate
+against the same conversion's full-precision graphs (image cosine 0.83–0.93, text 0.96–0.97); the shipped pair passes
+(image 1.0000, text ≥ 0.996, design.md Results). Our own export with selective quantisation, and parity against the
+original framework, stay open (tasks.md 1.2, needs Python); they could make the download smaller.
+**Release is blocked on the owner's licence sign-off** (tasks.md 1.1, the two points under "Model and tokenizer
+licences"). Until then the model stays in the catalog for testing, downloads only on the person's request, and ships
+in no installer.
 Alternatives: original CLIP ViT-B/32 (weaker on fine detail, older tokenizer); larger SigLIP variants (better recall,
 2–4× size and memory); a cloud embedding API (breaks local-first and costs money).
 
@@ -261,3 +264,19 @@ tests) passes, 5 of them in `ui/src/media/MediaPanel.test.tsx`:
   indexing when the model was installed after the project opened).
 
 Not measured here: results within 300 ms on 10 hours of indexed footage in the built app (tasks.md 7.1).
+
+### Conditions of the model approval (CTO and CEO, 2026-11-27)
+
+- Size, name and licence: the consent message (`model.consent` and "model not installed" results), `ove models list`,
+  the first download progress line, Settings > Storage and the media panel's install offer show "0.63 GB",
+  "SigLIP 2 base" and "Apache-2.0" (tests: `ove-vision` `model::tests`, `ove-models --test siglip2`,
+  `ove-cli --test media_search` `ove_models_shows_the_size_name_and_licence`, UI `MediaPanel.test.tsx` and
+  `ModelsSection.test.tsx`). Sizes from 500 MB up read in gigabytes everywhere.
+- Install, resume, hash, remove (`cargo test -p ove-models --test siglip2`, stand-in bodies under the real id, version,
+  file names and licence): agents and features get `NeedsConsent` and nothing is requested; the person's install
+  resumes the text encoder from 120,000 bytes after a dropped connection; a damaged tokenizer is refused by its
+  SHA-256 and nothing is installed; Remove frees the files and the model reads as not installed.
+- Without the model, Spoken, Timelines and Files still answer (CLI test on a closed project with an empty model folder;
+  UI test with the not-installed result), and nothing is downloaded.
+- Task 1.2 stays open (parity against the original framework needs Python). Release is blocked on the owner's licence
+  sign-off (task 1.1).
