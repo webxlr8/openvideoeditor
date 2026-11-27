@@ -313,6 +313,8 @@ fn wait_times_out_with_the_remaining_count() {
     s.set_pause(PauseReason::Playback, false);
     let w = s.wait(&filter, Duration::from_secs(5));
     assert!(w.done && w.remaining == 0);
+    // The other project's task may still be running; once it is done nothing is left to cancel.
+    assert!(s.wait(&TaskFilter::default(), Duration::from_secs(5)).done);
     assert_eq!(s.cancel_matching(&TaskFilter::default()), 0);
 }
 

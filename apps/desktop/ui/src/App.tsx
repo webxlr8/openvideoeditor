@@ -28,6 +28,7 @@ import { useOnboarding } from "./onboarding/useOnboarding";
 import { Welcome } from "./onboarding/Welcome";
 import { SpendCards } from "./spend/SpendCard";
 import { FeedbackQueue } from "./feedback/FeedbackQueue";
+import { TasksButton } from "./tasks/TasksPopover";
 import { EDIT_ACTIONS, keyToAction } from "./keys";
 import {
   templateAspect,
@@ -595,6 +596,7 @@ export function App() {
           timelineMode={mode === "timeline"}
           barExtras={
             <>
+              <TasksButton onError={showError} />
               <PreviewModeToggle mode={mode} onChange={switchMode} />
               <button
                 className="btn primary xp-open"

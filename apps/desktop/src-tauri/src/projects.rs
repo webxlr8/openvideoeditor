@@ -198,6 +198,10 @@ pub struct ProjectView {
     pub tracks: Vec<TrackView>,
     pub items: Vec<ItemView>,
     pub media: Vec<MediaView>,
+    /// The project's "Use proxies" setting (absent: off).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub use_proxies: Option<bool>,
 }
 
 /// The open project changed (any source).
@@ -508,6 +512,7 @@ fn view_from(
             })
             .collect(),
         media,
+        use_proxies: ove_render::proxy::enabled(d).then_some(true),
     }
 }
 
@@ -572,6 +577,12 @@ impl MediaCache {
             m.skim = content_id_of(d, &m.id).and_then(|cid| self.skims.get(cid).cloned());
         }
         (v, stale)
+    }
+
+    /// Forgets everything checked and derived, so the next media check reads it all again from disk (after
+    /// Settings → Storage cleared a cache).
+    pub fn forget(&mut self) {
+        *self = MediaCache::default();
     }
 
     /// Records a finished skim sheet.
@@ -734,10 +745,27 @@ fn refresh_once(app: &AppHandle, state: &AppState) {
                     c.skims.insert(cid.to_string(), s);
                     return None;
                 }
-                Some((cid.to_string(), resolve_media_path(&bundle, &e.native_path), dur))
+                let original = resolve_media_path(&bundle, &e.native_path);
+                Some((cid.to_string(), crate::proxies::derivative_source(&bundle, &doc, cid, original), dur))
             })
             .collect()
     };
+    // Proxies, when the project uses them: online videos without one.
+    let online_videos: Vec<(String, PathBuf)> = {
+        let online: BTreeSet<&str> =
+            links.iter().filter(|(_, _, l)| l.state == MediaState::Online).map(|(id, _, _)| id.as_str()).collect();
+        doc.registry
+            .values()
+            .filter(|e| online.contains(e.media_id.as_str()))
+            .filter_map(|e| {
+                let cid = e.fields.get("contentId")?.as_str()?;
+                let data = doc.project.media.get(&e.media_id)?.fields.get("data")?;
+                (data.get("type").and_then(Value::as_str) == Some("video")).then_some(())?;
+                Some((cid.to_string(), resolve_media_path(&bundle, &e.native_path)))
+            })
+            .collect()
+    };
+    crate::proxies::queue_missing(app, &bundle, &doc, online_videos);
     // Audio analysis (peaks and loudness), keyed by content id: queued once per content for online media with sound.
     let analyses: Vec<(String, PathBuf)> = {
         let mut c = relock(&state.projects.media);
@@ -1137,7 +1165,7 @@ fn queue_thumbnails(app: &AppHandle, bundle: &Path, files: Vec<(String, String, 
 }
 
 /// Sends the open project's view shortly, once for a burst of changes (thumbnails arriving).
-fn emit_view_soon(app: &AppHandle) {
+pub(crate) fn emit_view_soon(app: &AppHandle) {
     static PENDING: AtomicBool = AtomicBool::new(false);
     if PENDING.swap(true, Ordering::SeqCst) {
         return;

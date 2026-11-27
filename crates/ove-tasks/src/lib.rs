@@ -11,6 +11,7 @@ pub mod model;
 pub mod os;
 pub mod output;
 pub mod queue;
+pub mod remote;
 pub mod scheduler;
 
 pub use cancel::CancelToken;
