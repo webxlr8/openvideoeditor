@@ -168,12 +168,14 @@ Measured on the Windows 11 build machine (debug build, `cargo test`).
 
 ### Group 4: versions and scoped undo
 
-- Storage (`crates/ove-store/src/versions.rs`): `.revs/versions.json` lists `{name, rev, createdAt, actor, note,
-  bytes}`; each version has a snapshot `.revs/versions/<rev>.json` holding the document without its items plus the
-  ids of its item objects, and items live content-addressed (SHA-256) in `.revs/versions/objects/`, so items that did
-  not change between versions are stored once. A save writes objects, then the snapshot, then the list, each
-  atomically; pruning only touches revision records and periodic snapshots. In the two-version test the second
-  version stores one new object out of three and adds fewer bytes than the first.
+- Storage (`crates/ove-store/src/versions.rs`): `.revs/versions.json` lists `{name, rev, snapshot, createdAt, actor,
+  note, bytes}`. Each version writes one pack (`packs/<id>.items.json` and `.hashes.json`) with only the items no
+  earlier version stored (content hash: first 16 bytes of SHA-256), and a snapshot `<id>.json` holding the document
+  without its items plus the items as ranges `[pack, start, count]`, so unchanged runs collapse. A save is four atomic
+  writes (pack items, pack hashes, snapshot, list); pruning only touches revision records and periodic snapshots. A
+  first design stored one file per item: the 5.2 measurement showed 68 s for the first save of 5,000 items (one
+  flush per file) and 6.3x growth over 20 versions (a hash per item per snapshot), so it was replaced by packs and
+  ranges before this group was finished. In the two-version test the second version stores one item out of two.
 - Fault injection (`tests/versions.rs`): a disk-full failure injected at each write, flush and rename point of the
   objects, the snapshot and the list leaves no version listed, no temp files, and the project usable; a retry then
   succeeds. Pruning: a version saved after 20 revisions survives 3,000 more revisions and a prune 31 days later (its
@@ -193,3 +195,12 @@ Measured on the Windows 11 build machine (debug build, `cargo test`).
 - History panel: a Versions section (save with a name, compare with now, restore) and a filter by who made each
   change (view state). Vitest: `ui/src/Versions.test.tsx` (save, compare, restore + undo, duplicate refusal) and the
   filter test in `ui/src/HistoryPanel.test.tsx`.
+
+### Group 5: integration checks
+
+- 5.2 (`crates/ove-store/tests/versions_size.rs`, debug build, Windows 11, `--ignored --nocapture`): 5,000 text
+  items, 20 versions with 50 items (1%) edited between them. `project.json` 1,706,970 bytes; first version 1,135,965
+  bytes; all 20 versions 1,854,450 bytes on disk (1.63x one snapshot, against 20x for full copies); save: first
+  86 ms, later median 69 ms; `version diff` v0 to v19 (950 changes) 185 ms, v10 to the current timeline (450 changes)
+  173 ms.
+- 5.1 needs the built app on macOS and Windows and is not done in this session.

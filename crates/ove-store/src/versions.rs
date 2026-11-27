@@ -2,17 +2,18 @@
 //! pruning never removes, so "version 2 sent to the client" can be printed, compared and restored long after its
 //! revision records are gone.
 //!
-//! Layout, under `.revs/versions/`:
-//! - `objects/<sha256>.json`: one item each, content-addressed, so items unchanged between versions are stored once
-//!   (shared structure);
-//! - `<rev>.json`: the version's snapshot: the document without its items, plus the ids of its item objects;
-//! - `../versions.json`: the list of versions `{name, rev, createdAt, actor, note, bytes}`, written last.
+//! Layout, under `.revs/versions/`, where `<id>` is `<rev>-<n>` (n: how many versions existed before it):
+//! - `packs/<id>.items.json` and `packs/<id>.hashes.json`: the items this version stored that no earlier version
+//!   had, and their content hashes. Items unchanged between versions are stored once (shared structure).
+//! - `<id>.json`: the snapshot: the document without its items, plus the items as ranges `[pack, start, count]` of
+//!   pack entries, in document order. Unchanged runs of items collapse into a few ranges.
+//! - `../versions.json`: the list of versions `{name, rev, snapshot, createdAt, actor, note, bytes}`, written last.
 //!
-//! A save writes objects, then the snapshot, then the list, each atomically, so a crash during a save leaves the
-//! version either absent or complete. Pruning only touches revision records and periodic snapshots, never this
-//! folder.
+//! A save is four atomic writes (pack items, pack hashes, snapshot, list), so a crash during a save leaves the version
+//! either absent or complete; files a failed save left behind are overwritten by the next save with that id. Pruning
+//! only touches revision records and periodic snapshots, never this folder.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 use ove_core::model::Document;
@@ -26,12 +27,12 @@ use crate::error::{Result, StoreError};
 use crate::fsio::{self, Points};
 use crate::project::{Committed, Project};
 
-/// Failpoints of the three writes of a save (exercised by the fault-injection test).
-pub const OBJECT: Points = Points {
-    write: "version.object.write",
-    flush: "version.object.flush",
-    rename: "version.object.rename",
-    dirsync: "version.object.dirsync",
+/// Failpoints of the writes of a save (exercised by the fault-injection test).
+pub const PACK: Points = Points {
+    write: "version.pack.write",
+    flush: "version.pack.flush",
+    rename: "version.pack.rename",
+    dirsync: "version.pack.dirsync",
 };
 pub const SNAPSHOT: Points = Points {
     write: "version.snap.write",
@@ -51,13 +52,16 @@ pub const NAME_MAX: usize = 120;
 pub struct Version {
     pub name: String,
     pub rev: i64,
+    /// The snapshot id (`<rev>-<n>`).
+    #[serde(default)]
+    pub snapshot: String,
     /// ms since the epoch.
     pub created_at: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub actor: Option<Actor>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
-    /// Bytes this version added to the bundle (its snapshot plus the item objects no earlier version had).
+    /// Bytes this version added to the bundle (its snapshot plus the items no earlier version had).
     #[serde(default)]
     pub bytes: u64,
 }
@@ -70,24 +74,32 @@ fn list_path(bundle: &Path) -> PathBuf {
     bundle.join(".revs").join("versions.json")
 }
 
-fn snap_path(bundle: &Path, rev: i64) -> PathBuf {
-    dir(bundle).join(format!("{rev}.json"))
+fn snap_path(bundle: &Path, id: &str) -> PathBuf {
+    dir(bundle).join(format!("{id}.json"))
 }
 
-fn object_path(bundle: &Path, id: &str) -> PathBuf {
-    dir(bundle).join("objects").join(format!("{id}.json"))
+fn pack_path(bundle: &Path, id: &str, part: &str) -> PathBuf {
+    dir(bundle).join("packs").join(format!("{id}.{part}.json"))
 }
 
 fn io(op: &str, path: &Path, e: std::io::Error) -> StoreError {
     StoreError::io(op, path, e)
 }
 
+fn invalid(path: &Path, e: impl std::fmt::Display) -> StoreError {
+    StoreError::refused("version.invalid", format!("{} is not readable: {e}", path.display()))
+}
+
+fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<T> {
+    let bytes = std::fs::read(path).map_err(|e| io("read", path, e))?;
+    serde_json::from_slice(&bytes).map_err(|e| invalid(path, e))
+}
+
 /// The versions of a bundle, oldest first (empty when none were saved).
 pub fn list(bundle: &Path) -> Result<Vec<Version>> {
     let path = list_path(bundle);
     match std::fs::read(&path) {
-        Ok(bytes) => serde_json::from_slice(&bytes)
-            .map_err(|e| StoreError::refused("version.invalid", format!("{} is not readable: {e}", path.display()))),
+        Ok(bytes) => serde_json::from_slice(&bytes).map_err(|e| invalid(&path, e)),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
         Err(e) => Err(io("read", &path, e)),
     }
@@ -103,19 +115,25 @@ pub fn find(bundle: &Path, name: &str) -> Result<Version> {
 
 /// Reads a version's document.
 pub fn doc(bundle: &Path, v: &Version) -> Result<Document> {
-    let path = snap_path(bundle, v.rev);
-    let bytes = std::fs::read(&path).map_err(|e| io("read", &path, e))?;
-    let snap: Value = serde_json::from_slice(&bytes)
-        .map_err(|e| StoreError::refused("version.invalid", format!("{} is not readable: {e}", path.display())))?;
+    let path = snap_path(bundle, &v.snapshot);
+    let snap: Value = read_json(&path)?;
     let mut d = snap.get("doc").cloned().unwrap_or(Value::Null);
+    let mut packs: HashMap<String, Vec<Value>> = HashMap::new();
     let mut items = Vec::new();
-    for id in snap.get("items").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str) {
-        let p = object_path(bundle, id);
-        let b = std::fs::read(&p).map_err(|e| io("read", &p, e))?;
-        items
-            .push(serde_json::from_slice::<Value>(&b).map_err(|e| {
-                StoreError::refused("version.invalid", format!("{} is not readable: {e}", p.display()))
-            })?);
+    for r in snap.get("items").and_then(Value::as_array).into_iter().flatten() {
+        let (Some(pack), Some(start), Some(count)) =
+            (r.get(0).and_then(Value::as_str), r.get(1).and_then(Value::as_u64), r.get(2).and_then(Value::as_u64))
+        else {
+            return Err(invalid(&path, "an item range is malformed"));
+        };
+        if !packs.contains_key(pack) {
+            let list: Vec<Value> = read_json(&pack_path(bundle, pack, "items"))?;
+            packs.insert(pack.to_string(), list);
+        }
+        let list = &packs[pack];
+        let (a, b) = (start as usize, (start + count) as usize);
+        let run = list.get(a..b).ok_or_else(|| invalid(&path, format!("pack {pack} has no entries {a}..{b}")))?;
+        items.extend(run.iter().cloned());
     }
     if let Some(p) = d.get_mut("project").and_then(Value::as_object_mut) {
         p.insert("timelineItems".into(), Value::Array(items));
@@ -123,14 +141,28 @@ pub fn doc(bundle: &Path, v: &Version) -> Result<Document> {
     Document::from_json(&d).map_err(|e| StoreError::refused("version.invalid", e.to_string()))
 }
 
-fn object_id(text: &str) -> String {
-    let h = Sha256::digest(text.as_bytes());
-    h.iter().map(|b| format!("{b:02x}")).collect()
+/// A short content hash: the first 16 bytes of SHA-256, as hex.
+fn content_hash(text: &str) -> String {
+    Sha256::digest(text.as_bytes()).iter().take(16).map(|b| format!("{b:02x}")).collect()
 }
 
-/// Writes the snapshot of `d` (objects first, then the snapshot). Returns the bytes written.
-fn write_snapshot(bundle: &Path, d: &Document) -> Result<u64> {
-    let mut written = 0u64;
+/// Where every item stored by the listed versions lives: hash → (pack, index).
+fn stored(bundle: &Path, versions: &[Version]) -> Result<HashMap<String, (String, u64)>> {
+    let mut m = HashMap::new();
+    for v in versions {
+        let p = pack_path(bundle, &v.snapshot, "hashes");
+        let hashes: Vec<String> = read_json(&p)?;
+        for (i, h) in hashes.into_iter().enumerate() {
+            m.entry(h).or_insert_with(|| (v.snapshot.clone(), i as u64));
+        }
+    }
+    Ok(m)
+}
+
+/// Writes the pack and snapshot of `d` under `id`, sharing items the earlier versions stored. Returns the bytes
+/// written.
+fn write_snapshot(bundle: &Path, id: &str, d: &Document, earlier: &[Version]) -> Result<u64> {
+    let mut known = stored(bundle, earlier)?;
     let mut full = d.to_json();
     let items: Vec<Value> = full
         .get_mut("project")
@@ -138,26 +170,38 @@ fn write_snapshot(bundle: &Path, d: &Document) -> Result<u64> {
         .and_then(|p| p.remove("timelineItems"))
         .and_then(|v| v.as_array().cloned())
         .unwrap_or_default();
-    std::fs::create_dir_all(dir(bundle).join("objects")).map_err(|e| io("create", &dir(bundle), e))?;
-    let mut ids = Vec::with_capacity(items.len());
-    let mut seen = BTreeSet::new();
-    for it in &items {
-        let text = format!("{it}");
-        let id = object_id(&text);
-        let p = object_path(bundle, &id);
-        if seen.insert(id.clone()) && !p.exists() {
-            fsio::write_atomic(&p, text.as_bytes(), OBJECT, false).map_err(|e| io("write", &p, e))?;
-            written += text.len() as u64;
+    let (mut new_items, mut new_hashes) = (Vec::new(), Vec::new());
+    let mut ranges: Vec<(String, u64, u64)> = Vec::new();
+    for it in items {
+        let h = content_hash(&it.to_string());
+        let (pack, at) = match known.get(&h) {
+            Some(loc) => loc.clone(),
+            None => {
+                let loc = (id.to_string(), new_items.len() as u64);
+                known.insert(h.clone(), loc.clone());
+                new_hashes.push(h);
+                new_items.push(it);
+                loc
+            }
+        };
+        match ranges.last_mut() {
+            Some((p, s, n)) if *p == pack && *s + *n == at => *n += 1,
+            _ => ranges.push((pack, at, 1)),
         }
-        ids.push(Value::String(id));
     }
-    let text = format!("{:#}\n", json!({"format": "ove-version-snapshot", "doc": full, "items": ids}));
-    let p = snap_path(bundle, d.project.rev);
-    if !p.exists() {
-        fsio::write_atomic(&p, text.as_bytes(), SNAPSHOT, false).map_err(|e| io("write", &p, e))?;
+    std::fs::create_dir_all(dir(bundle).join("packs")).map_err(|e| io("create", &dir(bundle), e))?;
+    let mut written = 0u64;
+    for (part, value) in [("items", Value::Array(new_items)), ("hashes", json!(new_hashes))] {
+        let p = pack_path(bundle, id, part);
+        let text = value.to_string();
+        fsio::write_atomic(&p, text.as_bytes(), PACK, false).map_err(|e| io("write", &p, e))?;
         written += text.len() as u64;
     }
-    Ok(written)
+    let ranges: Vec<Value> = ranges.into_iter().map(|(p, s, n)| json!([p, s, n])).collect();
+    let text = json!({"format": "ove-version-snapshot", "doc": full, "items": ranges}).to_string();
+    let p = snap_path(bundle, id);
+    fsio::write_atomic(&p, text.as_bytes(), SNAPSHOT, false).map_err(|e| io("write", &p, e))?;
+    Ok(written + text.len() as u64)
 }
 
 fn write_list(bundle: &Path, list: &[Version]) -> Result<()> {
@@ -186,10 +230,12 @@ impl Project {
         if all.iter().any(|v| v.name == name) {
             return Err(StoreError::refused("version.exists", format!("a version named \"{name}\" already exists")));
         }
-        let bytes = write_snapshot(self.bundle(), self.doc())?;
+        let id = format!("{}-{}", self.rev(), all.len());
+        let bytes = write_snapshot(self.bundle(), &id, self.doc(), &all)?;
         let v = Version {
             name: name.to_string(),
             rev: self.rev(),
+            snapshot: id,
             created_at: now_ms,
             actor,
             note: note.map(str::trim).filter(|n| !n.is_empty()).map(str::to_string),
@@ -225,4 +271,14 @@ impl Project {
         }
         Ok(Some(self.apply_as(ops, Source::Restore, Some(format!("restore version \"{name}\"")), actor)?))
     }
+}
+
+/// Pack entries each listed version stored, by snapshot id (for size reports).
+pub fn pack_sizes(bundle: &Path) -> Result<BTreeMap<String, usize>> {
+    let mut m = BTreeMap::new();
+    for v in list(bundle)? {
+        let hashes: Vec<String> = read_json(&pack_path(bundle, &v.snapshot, "hashes"))?;
+        m.insert(v.snapshot, hashes.len());
+    }
+    Ok(m)
 }

@@ -139,7 +139,15 @@ mod tests {
     fn who_names_the_saver() {
         assert_eq!(who(None), "You");
         assert_eq!(who(Some(&Actor::new(ActorKind::Mcp))), "MCP");
-        let v = Version { name: "v1".into(), rev: 5, created_at: 9, actor: None, note: Some("n".into()), bytes: 10 };
+        let v = Version {
+            name: "v1".into(),
+            rev: 5,
+            snapshot: "5-0".into(),
+            created_at: 9,
+            actor: None,
+            note: Some("n".into()),
+            bytes: 10,
+        };
         assert_eq!(view(&v).who, "You");
         assert_eq!(view(&v).rev, 5.0);
     }

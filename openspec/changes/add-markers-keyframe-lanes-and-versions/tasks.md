@@ -45,5 +45,5 @@
 
 - [ ] 5.1 In the built app on macOS and Windows: marker review round trip with an MCP agent, keyframe lane edits, save
       and restore a version, agent-only undo; verify each behaves as specified and each gesture is one undo step.
-- [ ] 5.2 Size and speed: 20 versions of a 5,000-item project; verify bundle growth and `version diff` time, recorded
+- [x] 5.2 Size and speed: 20 versions of a 5,000-item project; verify bundle growth and `version diff` time, recorded
       in design.md Results.

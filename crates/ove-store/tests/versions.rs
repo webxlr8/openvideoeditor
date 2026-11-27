@@ -70,8 +70,12 @@ fn unchanged_items_are_stored_once() {
     let first = p.save_version("v1", None, None, 1).unwrap();
     trim_a(&mut p, 3.0);
     let second = p.save_version("v2", None, None, 2).unwrap();
-    let objects = std::fs::read_dir(p.bundle().join(".revs/versions/objects")).unwrap().count();
-    assert_eq!(objects, 3, "a, b, and the trimmed a: b is shared");
+    let packs = ove_store::versions::pack_sizes(p.bundle()).unwrap();
+    assert_eq!(
+        packs.values().copied().collect::<Vec<_>>(),
+        [2, 1],
+        "the second version stores only the trimmed a: b is shared"
+    );
     assert!(
         second.bytes < first.bytes,
         "the second version adds only what changed ({} vs {})",
@@ -84,8 +88,9 @@ fn unchanged_items_are_stored_once() {
 fn a_failed_save_leaves_no_version_and_a_retry_works() {
     let (_d, mut p) = project();
     for point in [
-        "version.object.write",
-        "version.object.rename",
+        "version.pack.write",
+        "version.pack.flush",
+        "version.pack.rename",
         "version.snap.write",
         "version.snap.flush",
         "version.snap.rename",
