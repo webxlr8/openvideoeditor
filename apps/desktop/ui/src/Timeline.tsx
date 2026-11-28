@@ -3,7 +3,7 @@
 // Snapping to the playhead, clip edges and markers is on by default. Every gesture commits one revision on release.
 
 import { CLIP_DRAG_TYPE } from "./media/MediaPanel";
-import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Ghost, ItemView_Serialize, ProjectView_Serialize } from "./bindings";
 import { commands } from "./bridge";
 import { type EditResult, TIMELINE_FPS, addItems, firstTrack, linkDrift, trackAccepts, updateItem, updateItems, snapToFrame } from "./edit";
@@ -20,6 +20,7 @@ import { MOD, type Tool } from "./keys";
 export const HEADER_W = 188;
 const ROW_H = 41;
 const SNAP_PX = 8;
+const NO_MARKERS: never[] = [];
 const TRACK_ICON: Record<string, IconName> = { video: "media", caption: "captions", audio: "audio", adjustment: "effects", layout: "layout" };
 
 export type SelectMode = "replace" | "toggle";
@@ -79,6 +80,12 @@ export function Timeline(props: TimelineProps) {
   const [menu, setMenu] = useState<{ at: { x: number; y: number }; items: MenuItem[] } | null>(null);
   // Tracks whose keyframe lanes are open (view state: no revision).
   const [expanded, setExpanded] = useState<string[]>([]);
+  // Keyframed properties per track, computed once per change of the items (lane toggles and row heights).
+  const lanesByTrack = useMemo(() => {
+    const byTrack = new Map<string, ItemView_Serialize[]>();
+    for (const i of project?.items ?? []) if (i.keyframes?.length) byTrack.set(i.trackId, [...(byTrack.get(i.trackId) ?? []), i]);
+    return new Map([...byTrack].map(([t, list]) => [t, laneProperties(list)]));
+  }, [project?.items]);
   const cutPreview = useCutPreview();
   const items = project?.items ?? [];
   const tracks = project?.tracks ?? [];
@@ -171,7 +178,7 @@ export function Timeline(props: TimelineProps) {
     // Rows are ROW_H tall, plus LANE_H per keyframe lane of an expanded track.
     let y = clientY - r.top;
     for (const t of tracks) {
-      const h = ROW_H + (expanded.includes(t.id) ? laneProperties(items.filter((i) => i.trackId === t.id)).length * LANE_H : 0);
+      const h = ROW_H + (expanded.includes(t.id) ? (lanesByTrack.get(t.id)?.length ?? 0) * LANE_H : 0);
       if (y < h) return t;
       y -= h;
     }
@@ -411,7 +418,7 @@ export function Timeline(props: TimelineProps) {
               ))}
             </div>
           </div>
-          <MarkerLane markers={project?.markers ?? []} pps={pps} headerW={HEADER_W} onEdit={onEdit} onSeek={onScrub} />
+          <MarkerLane markers={project?.markers ?? NO_MARKERS} pps={pps} headerW={HEADER_W} onEdit={onEdit} onSeek={onScrub} />
           <div className="tracks" ref={rows}>
             {tracks.map((t) => (
               <Fragment key={t.id}>
@@ -420,7 +427,7 @@ export function Timeline(props: TimelineProps) {
                   <Icon name={TRACK_ICON[t.kind] ?? "media"} size={14} />
                   <span>{t.name}</span>
                   <span className="track-tools">
-                    {laneProperties(items.filter((i) => i.trackId === t.id)).length > 0 && (
+                    {(lanesByTrack.get(t.id)?.length ?? 0) > 0 && (
                       <button
                         className={`tiny kf-toggle${expanded.includes(t.id) ? " on" : ""}`}
                         data-testid={`kf-toggle-${t.name}`}

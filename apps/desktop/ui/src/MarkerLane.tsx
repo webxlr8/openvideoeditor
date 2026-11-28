@@ -1,7 +1,7 @@
 // The marker lane under the ruler: markers as flags (ranges as bars), a status filter, and a popover editor on click.
 // The filter is view state; adding (M), saving and deleting are each one revision.
 
-import { useState } from "react";
+import { memo, useState } from "react";
 import "./markers.css";
 import type { MarkerView_Serialize as MarkerView } from "./bindings";
 import { commands } from "./bridge";
@@ -36,7 +36,7 @@ export interface MarkerLaneProps {
   onSeek: (t: number) => void;
 }
 
-export function MarkerLane({ markers, pps, headerW, onEdit, onSeek }: MarkerLaneProps) {
+export const MarkerLane = memo(function MarkerLane({ markers, pps, headerW, onEdit, onSeek }: MarkerLaneProps) {
   const [filter, setFilter] = useState<MarkerFilter>("all");
   const [open, setOpen] = useState<string | null>(null);
   const shown = markers.filter((m) => filter === "all" || m.status === filter);
@@ -95,7 +95,7 @@ export function MarkerLane({ markers, pps, headerW, onEdit, onSeek }: MarkerLane
       )}
     </div>
   );
-}
+});
 
 export interface MarkerPopoverProps {
   marker: MarkerView;
