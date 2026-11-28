@@ -45,13 +45,15 @@ refuses with exit 1 and code `model.consent`; the details carry the model's `id`
 `downloadBytes`, the `host` it downloads from, the `licence` of its weights and the `install` command. Other models
 of 50 MB or less download without a prompt. The first progress line of a download names the size, the licence and
 the host (`downloading <id> (<size>, licence <licence>) from <host>`). Sizes from 500 MB up read in gigabytes
-(`0.63 GB`), smaller ones in megabytes.
+(`0.76 GB`), smaller ones in megabytes.
 
 ## Visual search
 
-The media search model `siglip2-base` (SigLIP 2 base, patch 16, 256 px; licence Apache-2.0) is a 0.63 GB download
-from `huggingface.co`: the image encoder in half precision (186 MB), the text encoder with 4-bit weights (443 MB)
-and the tokenizer (4 MB). It needs consent like any model over 50 MB, and the inference runtime. Releasing it is on
+The media search model `siglip2-base` (SigLIP 2 base, patch 16, 256 px; licence Apache-2.0) is a 0.76 GB download
+from `huggingface.co`: the image and text encoders in half precision (186 MB and 565 MB) and the tokenizer (4 MB).
+The size shown is the sum of the files the manifest pins. When a model update keeps a file's pin, an installed copy
+of it is reused instead of downloaded again, and files the update no longer uses are deleted once the new ones are
+verified. It needs consent like any model over 50 MB, and the inference runtime. Releasing it is on
 hold until the owner signs off its licence review (see `openspec/changes/add-semantic-media-search/design.md`).
 See [media-search.md](media-search.md).
 

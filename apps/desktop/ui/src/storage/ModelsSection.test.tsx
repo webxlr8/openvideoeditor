@@ -14,7 +14,7 @@ describe("settings: storage models", () => {
   it("formats sizes", () => {
     expect(sizeText(147_951_465)).toBe("148.0 MB");
     expect(sizeText(120e9)).toBe("120.0 GB");
-    expect(sizeText(633_152_112)).toBe("0.63 GB");
+    expect(sizeText(755_234_909)).toBe("0.76 GB");
     expect(sizeText(null)).toBe("…");
   });
 

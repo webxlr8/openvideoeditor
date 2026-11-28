@@ -60,7 +60,7 @@ pub fn mb_up(bytes: u64) -> String {
 }
 
 /// A download or model size as people read it: gigabytes (10^9) from 500 MB up (two decimals below 1 GB, so the
-/// visual search model reads "0.63 GB"), otherwise megabytes with one decimal, rounded up.
+/// visual search model reads "0.76 GB"), otherwise megabytes with one decimal, rounded up.
 pub fn size_text(bytes: u64) -> String {
     if bytes >= 1_000_000_000 {
         format!("{:.1} GB", bytes as f64 / 1e9)

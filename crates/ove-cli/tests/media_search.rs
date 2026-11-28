@@ -371,10 +371,13 @@ fn documented_examples_run_with_documented_exit_codes() {
     assert_eq!(std::fs::read_dir(&models).unwrap().count(), 0, "nothing was downloaded");
 }
 
-/// `ove models` names the visual search model, its size as 0.63 GB and its licence; installing it without `--yes`
+/// `ove models` names the visual search model, its size from the manifest (0.76 GB) and its licence; installing it
+/// without `--yes`
 /// refuses with the same facts and downloads nothing.
 #[test]
 fn ove_models_shows_the_size_name_and_licence() {
+    let size = ove_models::error::size_text(ove_models::manifest::siglip2_manifest().download_bytes());
+    assert_eq!(size, "0.76 GB");
     let d = tempfile::tempdir().unwrap();
     let models = d.path().join("models");
     std::fs::create_dir_all(&models).unwrap();
@@ -385,10 +388,7 @@ fn ove_models_shows_the_size_name_and_licence() {
         .unwrap();
     let text = String::from_utf8_lossy(&out.stdout);
     let line = text.lines().find(|l| l.starts_with("siglip2-base")).unwrap_or_else(|| panic!("{text}"));
-    assert!(
-        line.contains("0.63 GB") && line.contains("SigLIP 2 base") && line.contains("licence Apache-2.0"),
-        "{line}"
-    );
+    assert!(line.contains(&size) && line.contains("SigLIP 2 base") && line.contains("licence Apache-2.0"), "{line}");
     let out = Command::new(env!("CARGO_BIN_EXE_ove"))
         .args(["models", "install", "siglip2-base"])
         .env("OVE_MODELS_DIR", &models)
@@ -396,6 +396,6 @@ fn ove_models_shows_the_size_name_and_licence() {
         .unwrap();
     assert!(!out.status.success());
     let err = String::from_utf8_lossy(&out.stderr);
-    assert!(err.contains("0.63 GB download") && err.contains("licence Apache-2.0"), "{err}");
+    assert!(err.contains(&format!("{size} download")) && err.contains("licence Apache-2.0"), "{err}");
     assert_eq!(std::fs::read_dir(&models).unwrap().filter_map(Result::ok).filter(|e| e.path().is_dir()).count(), 0);
 }

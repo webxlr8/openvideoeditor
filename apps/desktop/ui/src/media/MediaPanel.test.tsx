@@ -84,24 +84,24 @@ describe("media panel", () => {
 
   it("says when nothing looks like the query, and offers the install when the model is missing", async () => {
     results({ moments: [], index: { visual: "ready", indexed: 2, total: 2, untranscribed: 3 } });
-    window.__oveMock!.mediaSearch.status = { ...window.__oveMock!.mediaSearch.status, modelInstalled: false, downloadBytes: 633_152_112, indexed: 0, total: 2, running: 0 };
+    window.__oveMock!.mediaSearch.status = { ...window.__oveMock!.mediaSearch.status, modelInstalled: false, downloadBytes: 755_234_909, indexed: 0, total: 2, running: 0 };
     await panel();
     await search("volcano");
     expect((await screen.findByTestId("moments-empty")).textContent).toBe("No visual matches.");
     expect(screen.getByTestId("spoken")).toBeTruthy();
     expect(screen.getByTestId("untranscribed").textContent).toContain("3 files are not");
 
-    results({ moments: [], index: { visual: "notInstalled", downloadBytes: 633_152_112, indexed: 0, total: 2 } });
+    results({ moments: [], index: { visual: "notInstalled", downloadBytes: 755_234_909, indexed: 0, total: 2 } });
     fireEvent.change(screen.getByTestId("media-search"), { target: { value: "volcano erupting" } });
-    expect((await screen.findByTestId("moments-not-installed")).textContent).toContain("0.63 GB");
+    expect((await screen.findByTestId("moments-not-installed")).textContent).toContain("0.76 GB");
     // Without the model, Spoken, Timelines and Files still list their results.
     expect(screen.getByTestId("spoken").textContent).toContain("the price is");
     expect(screen.getByTestId("timeline-hit").textContent).toContain("Harbour title");
     expect(screen.getByTestId("file-hit").textContent).toContain("Selects");
-    await waitFor(() => expect(screen.getByTestId("index-pill").textContent).toBe("Visual search not installed · 0.63 GB"));
+    await waitFor(() => expect(screen.getByTestId("index-pill").textContent).toBe("Visual search not installed · 0.76 GB"));
     fireEvent.click(screen.getByTestId("index-pill"));
-    expect(screen.getByTestId("install-offer").textContent).toContain("Download 0.63 GB");
-    expect(screen.getByTestId("install-offer").textContent).toContain("a 0.63 GB download");
+    expect(screen.getByTestId("install-offer").textContent).toContain("Download 0.76 GB");
+    expect(screen.getByTestId("install-offer").textContent).toContain("a 0.76 GB download");
     expect(screen.getByTestId("install-model").textContent).toBe("SigLIP 2 base (patch 16, 256 px)");
     expect(screen.getByTestId("install-licence").textContent).toBe("Apache-2.0");
   });

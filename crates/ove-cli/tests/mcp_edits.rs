@@ -228,10 +228,17 @@ fn two_sessions_are_told_apart_and_each_undoes_only_its_own_change() {
     let mut two = Mcp::start_with(&lib, &short_hold);
     one.initialize("claude-code");
     two.initialize("codex");
+    // On a failure, say which error and how long the call took: `project.locked` after about WAIT_FOR_SESSION is a
+    // holder that did not let go; `project.locked` at once is a waiter that gave up early (see docs/flaky-tests.md).
+    let failed = |who: &str, r: &Value, took: std::time::Duration| {
+        format!("{who}'s rename failed with {} after {took:?}: {r}", r["structuredContent"]["error"]["code"])
+    };
+    let t0 = std::time::Instant::now();
     let r = one.rename("i0", "One");
-    assert_eq!(r["isError"], false, "session one's rename: {r}");
+    assert_eq!(r["isError"], false, "{}", failed("session one", &r, t0.elapsed()));
+    let t0 = std::time::Instant::now();
     let r = two.rename("i1", "Two");
-    assert_eq!(r["isError"], false, "session two's rename: {r}");
+    assert_eq!(r["isError"], false, "{}", failed("session two", &r, t0.elapsed()));
     let h = one.call("timeline_history", json!({"project": "Demo"}));
     let revs = h["structuredContent"]["revisions"].as_array().unwrap();
     let last: Vec<&Value> = revs.iter().rev().take(2).map(|r| &r["actor"]).collect();
@@ -306,4 +313,131 @@ fn the_session_holds_the_project_between_calls_and_lets_the_app_open_it_when_idl
         .map(|r| r["summary"].as_str().unwrap_or_default().to_string())
         .collect();
     assert_eq!(summaries.iter().filter(|s| s.starts_with("source apply")).count(), 2, "{summaries:?}");
+}
+
+/// Deletes item `id` of Demo as the editor does: opens it for writing (waiting while an MCP session lets go of it),
+/// applies the removal as a GUI revision and closes it.
+fn delete_in_editor(lib: &Path, id: &str) {
+    let bundle = ove_store::Library::open(lib, Arc::new(ove_core::SystemClock)).unwrap().find("Demo").unwrap();
+    let t0 = std::time::Instant::now();
+    let mut p = loop {
+        match ove_store::project::Project::open(
+            &bundle,
+            ove_store::project::Mode::Write,
+            Arc::new(ove_core::SystemClock),
+        ) {
+            Ok(p) => break p,
+            Err(e) if e.code() == "project.locked" && t0.elapsed() < std::time::Duration::from_secs(10) => {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            Err(e) => panic!("the editor could not open the project: {e}"),
+        }
+    };
+    let del: Op = serde_json::from_value(json!({"op": "removeItems", "ids": [id]})).unwrap();
+    p.apply(vec![del], Source::Gui, None).unwrap();
+    p.close().unwrap();
+}
+
+/// The items of Demo now.
+fn item_ids(lib: &Path) -> Vec<String> {
+    let bundle = ove_store::Library::open(lib, Arc::new(ove_core::SystemClock)).unwrap().find("Demo").unwrap();
+    let p =
+        ove_store::project::Project::open(&bundle, ove_store::project::Mode::ReadOnly, Arc::new(ove_core::SystemClock))
+            .unwrap();
+    let mut ids: Vec<String> = p.doc().project.items.keys().cloned().collect();
+    ids.sort();
+    ids
+}
+
+/// An agent's edit to an item the person deleted meanwhile: without `prefer` it is refused with `edit.conflict`,
+/// names the item and applies nothing; sent again with `prefer: "file"` (the person chose to bring it back) the
+/// item is re-created with the edit.
+#[test]
+fn an_agent_edit_to_an_item_deleted_in_the_editor_is_refused_until_the_person_chooses_to_restore_it() {
+    let (_d, lib) = setup(3);
+    let mut m = Mcp::start_with(&lib, &[("OVE_MCP_HOLD_MS", "200")]);
+    let printed = m.call("print_timeline", json!({"project": "Demo"}));
+    let text = printed["structuredContent"]["text"].as_str().unwrap().to_string();
+    let rev = printed["structuredContent"]["rev"].as_i64().unwrap();
+    let line = element(&text, "i0");
+    let edits = json!([{"oldText": line, "newText": line.replacen("Title 0", "Opening", 1)}]);
+    delete_in_editor(&lib, "i0");
+
+    let r = m.call("apply_timeline", json!({"project": "Demo", "rev": rev, "edits": edits}));
+    assert_eq!(r["isError"], true, "{r}");
+    let error = &r["structuredContent"]["error"];
+    assert_eq!(error["code"], "edit.conflict", "{r}");
+    let message = error["message"].as_str().unwrap();
+    assert!(message.contains("\"Item 0\" (i0)"), "the clip is named by name and id: {message}");
+    assert!(message.contains("Ask the person"), "{message}");
+    assert!(message.contains("prefer: \"file\""), "{message}");
+    let items = error["details"]["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1, "{r}");
+    assert_eq!(items[0]["id"], "i0");
+    assert_eq!(items[0]["name"], "Item 0");
+    assert_eq!(item_ids(&lib), ["i1", "i2"], "nothing was applied");
+
+    let r = m.call("apply_timeline", json!({"project": "Demo", "rev": rev, "edits": edits, "prefer": "file"}));
+    assert_eq!(r["isError"], false, "{r}");
+    assert_eq!(r["structuredContent"]["conflicts"][0]["id"], "i0", "the conflict is still reported: {r}");
+    let text =
+        m.call("print_timeline", json!({"project": "Demo"}))["structuredContent"]["text"].as_str().unwrap().to_string();
+    assert!(element(&text, "i0").contains("Opening"), "re-created with the edit: {text}");
+}
+
+/// The dry run agrees with the apply: `check_timeline` without `prefer` reports an edit to an item deleted in the
+/// editor as the same `edit.conflict` refusal; with `prefer: "file"` it passes. Neither call changes the project.
+#[test]
+fn check_timeline_reports_the_same_conflict_as_apply_for_an_item_deleted_in_the_editor() {
+    let (_d, lib) = setup(3);
+    let mut m = Mcp::start_with(&lib, &[("OVE_MCP_HOLD_MS", "200")]);
+    let printed = m.call("print_timeline", json!({"project": "Demo"}));
+    let text = printed["structuredContent"]["text"].as_str().unwrap().replacen("Title 0", "Opening", 1);
+    delete_in_editor(&lib, "i0");
+
+    let r = m.call("check_timeline", json!({"project": "Demo", "source": text}));
+    assert_eq!(r["isError"], true, "{r}");
+    let error = &r["structuredContent"]["error"];
+    assert_eq!(error["code"], "edit.conflict", "{r}");
+    let message = error["message"].as_str().unwrap();
+    assert!(message.contains("\"Item 0\" (i0)"), "the clip is named by name and id: {message}");
+    assert!(message.contains("Ask the person"), "{message}");
+    assert_eq!(error["details"]["items"][0]["id"], "i0", "{r}");
+    assert_eq!(error["details"]["items"][0]["name"], "Item 0", "{r}");
+
+    let r = m.call("check_timeline", json!({"project": "Demo", "source": text, "prefer": "file"}));
+    assert_eq!(r["isError"], false, "{r}");
+    assert_eq!(r["structuredContent"]["ok"], true, "{r}");
+    assert_eq!(r["structuredContent"]["conflicts"][0]["id"], "i0", "the conflict is still listed: {r}");
+    assert_eq!(item_ids(&lib), ["i1", "i2"], "a check changes nothing");
+}
+
+/// `ove source apply` keeps "file wins": with no `--prefer` an edit to an item deleted in the editor re-creates it.
+#[test]
+fn source_apply_still_brings_back_an_item_deleted_in_the_editor_by_default() {
+    let (d, lib) = setup(3);
+    let ove = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_ove"))
+            .arg("--library")
+            .arg(&lib)
+            .args(args)
+            .env_remove("OVE_LIBRARY")
+            .output()
+            .unwrap()
+    };
+    let out = ove(&["source", "print", "Demo", "--json"]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let text = serde_json::from_slice::<Value>(&out.stdout).unwrap()["text"]
+        .as_str()
+        .unwrap()
+        .replacen("Title 0", "Opening", 1);
+    let file = d.path().join("edited.tsx");
+    std::fs::write(&file, text).unwrap();
+    delete_in_editor(&lib, "i0");
+
+    let out = ove(&["source", "apply", "Demo", file.to_str().unwrap(), "--json"]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let v: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["conflicts"][0]["id"], "i0", "the conflict is reported: {v}");
+    assert_eq!(item_ids(&lib), ["i0", "i1", "i2"], "the item is back");
 }

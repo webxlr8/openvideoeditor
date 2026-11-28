@@ -123,6 +123,7 @@ fn our_pipeline_matches_the_reference_embeddings() {
         text: models.join(&text),
         tokenizer: models.join("tokenizer.model"),
         vision_sha256: String::new(),
+        text_sha256: String::new(),
     };
     let mut enc = SiglipEncoder::new(&runner, files).unwrap();
     let mut worst_image = 1f32;
