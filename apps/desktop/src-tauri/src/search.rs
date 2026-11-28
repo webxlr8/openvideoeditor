@@ -103,6 +103,10 @@ pub struct MediaIndexStatus {
     pub model_installed: bool,
     /// Its download size when it is not.
     pub download_bytes: f64,
+    /// What the install offer names: the model, its weights' licence and where it downloads from.
+    pub model_name: String,
+    pub licence: String,
+    pub host: String,
     /// Videos and images with a current index, of all.
     pub indexed: u32,
     pub total: u32,
@@ -163,6 +167,7 @@ pub async fn media_index_status(app: AppHandle) -> AppResult<MediaIndexStatus> {
             (p.bundle().to_path_buf(), p.doc().clone())
         };
         let store = crate::models::store(&app);
+        let manifest = ove_models::manifest::siglip2_manifest();
         let (installed, download, prov) = match ove_vision::model::installed(&store) {
             Ok(f) => (true, 0.0, Some(ove_vision::model::provenance_of(&f))),
             Err(n) => (false, n.download_bytes as f64, None),
@@ -188,6 +193,9 @@ pub async fn media_index_status(app: AppHandle) -> AppResult<MediaIndexStatus> {
         Ok(MediaIndexStatus {
             model_installed: installed,
             download_bytes: download,
+            model_name: ove_vision::model::MODEL_NAME.into(),
+            licence: manifest.licence.clone(),
+            host: manifest.host().unwrap_or_default().to_string(),
             indexed: indexed as u32,
             total: items.len() as u32,
             running: state.tasks.list(&filter).len() as u32,

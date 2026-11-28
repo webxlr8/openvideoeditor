@@ -14,7 +14,9 @@ import { Icon } from "../icons";
 import { PanelHint } from "../onboarding/PanelHint";
 import type { PanelProps } from "../Panels";
 import { SkimThumb, tileStyle } from "../SkimThumb";
+import { sizeText } from "../storage/ModelsSection";
 import "./media.css";
+import { AskAssistant } from "../chat/AskAssistant";
 
 /** Typing pauses this long before a search runs. */
 export const DEBOUNCE_MS = 250;
@@ -88,8 +90,6 @@ export interface SearchResult {
   };
 }
 
-const sizeText = (b: number | null) =>
-  (b ?? 0) >= 1e8 ? `${((b ?? 0) / 1e9).toFixed(2)} GB` : `${Math.round((b ?? 0) / 1e6)} MB`;
 const secs = (t: number | null) => {
   t = t ?? 0;
   const m = Math.floor(t / 60);
@@ -269,6 +269,7 @@ export function MediaPanel({
           </button>
         )}
       </div>
+      {project && project.media.length > 0 && <AskAssistant panel="media" project={project} selection={[]} />}
       <div className="ms-bar">
         {searchingNow && (
           <div className="ms-chips" role="group" aria-label="Search scope">
@@ -320,8 +321,10 @@ export function MediaPanel({
       {confirmInstall && status && (
         <div className="ms-install" role="dialog" aria-label="Install visual search" data-testid="install-offer">
           <p>
-            Visual search finds shots by what they show, on this computer. It needs a {sizeText(status.downloadBytes)}{" "}
-            model from huggingface.co (and the inference runtime, if it is not installed yet).
+            Visual search finds shots by what they show, on this computer. It needs the model{" "}
+            <strong data-testid="install-model">{status.modelName}</strong> (licence{" "}
+            <span data-testid="install-licence">{status.licence}</span>), a {sizeText(status.downloadBytes)} download
+            from <span className="mono">{status.host}</span>, and the inference runtime if it is not installed yet.
           </p>
           <div className="ms-install-actions">
             <button className="btn primary" onClick={install} data-testid="install-confirm">

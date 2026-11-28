@@ -22,17 +22,23 @@ Requirements: specs/media-search.
 ## Decisions
 
 ### D1. Model: SigLIP 2 base, patch 16, 256 px
-An image–text embedding model with 768-dimensional outputs, Apache-2.0 weights (to be confirmed with its tokenizer,
-see Open Questions). We export it to ONNX ourselves, with two image-encoder variants (half precision for accelerated
-paths, 8-bit for CPU) and an 8-bit text encoder. Release gate: cosine similarity ≥ 0.99 against the reference
-implementation on fixtures, for each runtime path. Total download about 0.45 GB, so it always needs consent.
-**Amended during apply (2026-11-27):** this machine has no Python, so the export scripts could not run here. The
-manifest pins an existing ONNX conversion of the released weights at a fixed commit instead, checked file by file
-(size and SHA-256). Its 8-bit encoders failed the parity gate against the same conversion's full-precision graphs
-(image cosine 0.83–0.93, text 0.96–0.97), so the shipped pair is the half-precision image encoder (cosine 1.0000)
-and the text encoder with 4-bit block-quantised weights (cosine ≥ 0.996). The download is 0.63 GB (186 MB + 443 MB +
-4 MB tokenizer), not 0.45 GB. Our own export with selective quantisation stays open (tasks.md 1.2) and could bring the
-size back down.
+An image–text embedding model with 768-dimensional outputs and Apache-2.0 weights (licence review below). The pinned
+files are an existing ONNX conversion of the released weights at a fixed commit, checked file by file (size and
+SHA-256): the image encoder in half precision and the text encoder with 4-bit block-quantised weights, plus the
+release's tokenizer. Total download 0.63 GB (186 MB + 443 MB + 4 MB), so it always needs consent; the consent prompt,
+Settings > Storage, the media panel and `ove models` show "0.63 GB", the model's name (SigLIP 2 base) and its licence.
+Release gate: cosine similarity ≥ 0.99 against the reference implementation on fixtures, for each runtime path.
+**Approved during apply (2026-11-27, CTO and CEO, with conditions):** the plan was our own export with 8-bit encoders.
+This machine has no Python, so the conversion above is pinned instead. Its 8-bit encoders failed the parity gate
+against the same conversion's full-precision graphs (image cosine 0.83–0.93, text 0.96–0.97); the shipped pair passes
+(image 1.0000, text ≥ 0.996, design.md Results). Our own export with selective quantisation, and parity against the
+original framework, stay open (tasks.md 1.2, needs Python); they could make the download smaller.
+**Release is blocked on the owner's licence sign-off** (tasks.md 1.1, the two points under "Model and tokenizer
+licences"). Until then the model stays in the catalog for testing, downloads only on the person's request, and ships
+in no installer.
+**Found later during apply (parity against the original framework, Results):** the shipped text encoder fails the
+gate on one fixture text (cosine 0.9360). Our own export passes at 0.56 GB, and the conversion's half-precision pair
+passes at 0.76 GB; switching the manifest to either needs approval (and, for ours, an immutable hosting location).
 Alternatives: original CLIP ViT-B/32 (weaker on fine detail, older tokenizer); larger SigLIP variants (better recall,
 2–4× size and memory); a cloud embedding API (breaks local-first and costs money).
 
@@ -261,3 +267,60 @@ tests) passes, 5 of them in `ui/src/media/MediaPanel.test.tsx`:
   indexing when the model was installed after the project opened).
 
 Not measured here: results within 300 ms on 10 hours of indexed footage in the built app (tasks.md 7.1).
+
+### Conditions of the model approval (CTO and CEO, 2026-11-27)
+
+- Size, name and licence: the consent message (`model.consent` and "model not installed" results), `ove models list`,
+  the first download progress line, Settings > Storage and the media panel's install offer show "0.63 GB",
+  "SigLIP 2 base" and "Apache-2.0" (tests: `ove-vision` `model::tests`, `ove-models --test siglip2`,
+  `ove-cli --test media_search` `ove_models_shows_the_size_name_and_licence`, UI `MediaPanel.test.tsx` and
+  `ModelsSection.test.tsx`). Sizes from 500 MB up read in gigabytes everywhere.
+- Install, resume, hash, remove (`cargo test -p ove-models --test siglip2`, stand-in bodies under the real id, version,
+  file names and licence): agents and features get `NeedsConsent` and nothing is requested; the person's install
+  resumes the text encoder from 120,000 bytes after a dropped connection; a damaged tokenizer is refused by its
+  SHA-256 and nothing is installed; Remove frees the files and the model reads as not installed.
+- Without the model, Spoken, Timelines and Files still answer (CLI test on a closed project with an empty model folder;
+  UI test with the not-installed result), and nothing is downloaded.
+- Task 1.2 stays open (see below: the shipped text encoder fails against the original framework). Release is
+  blocked on the owner's licence sign-off (task 1.1).
+
+### Parity against the original framework (tasks.md 1.2, 1.3)
+
+Reference: the released checkpoint `google/siglip2-base-patch16-256` at `3f9f96cb90da5dbc758b01813f2f6f1aee24c1ab`,
+loaded by transformers 5.24.1 on torch 2.15.0 (CPU) in the dev venv, installed by hash
+(`tools/vision-export/requirements.txt`). Before loading, `model.safetensors` matched its pinned SHA-256
+`6125cacc…5dc863`, as did `tokenizer.json` and `tokenizer.model`; weights only, offline, no remote code. The
+reference's logit scale and bias (112.90118, −16.771803) equal the constants in `ove-vision`. Fixtures: 8 generated
+pictures (colour fields, stripes, checkerboard, gradient, disc, noise, a portrait) and 8 texts, written with the
+reference outputs to `crates/ove-vision/tests/reference/` by `tools/vision-export/siglip2_export.py`.
+
+Our preprocessing and tokenizer (`cargo test -p ove-vision --test reference`, the first test runs in every test run):
+token ids equal the reference's for all 8 texts, including a text cut at 64 tokens (the end-of-sequence id is kept,
+as our tokenizer does). The sampled preprocessed tensors differ by at most one 8-bit level (0.0078); channel means
+differ by at most 0.0004.
+
+Encoders, worst cosine against the reference embeddings (ONNX Runtime 1.32.0, CPU):
+
+| Encoder | Size | Reference inputs (Python) | Our preprocessing and tokens (Rust) | Gate |
+|---|---|---|---|---|
+| Shipped image, half precision | 186 MB | 1.0000 | 0.9996 | passes |
+| Shipped text, 4-bit + f16 | 443 MB | 0.9360 ("The Price Is Right!"; others 0.9917–0.9977) | 0.9360 | **fails** |
+| Conversion's text, half precision (pinned commit, not shipped) | 565 MB | 1.0000 | — | passes |
+| Our image, full precision | 372 MB | 1.0000 | — | passes |
+| Our image, half precision | 186 MB | 1.0000 | 0.9996 (with our text below) | passes |
+| Our image, 8-bit (matrix products only) | 102 MB | 0.8655 | — | fails |
+| Our text, full precision | 1,130 MB | 1.0000 | — | passes |
+| Our text, 8-bit (matrix products and embedding) | 284 MB | 0.8872 | — | fails |
+| Our text, 8-bit embedding table only | 540 MB | 0.9917 | — | passes |
+| **Our text, 8-bit embedding table, half-precision layers** | **368 MB** | **0.9917** | **0.9917** | **passes** |
+
+The earlier parity check (against the conversion's own full-precision graphs, on short texts only) missed the shipped
+text encoder's failure: a capitalised, punctuated text loses most in 4 bits. Two pairs pass on Windows CPU:
+
+- our half-precision image encoder and our text encoder with an 8-bit embedding table: 0.56 GB (186 + 368 + 4 MB),
+  smaller than the shipped 0.63 GB, but our exports are not hosted anywhere yet; the manifest needs an immutable
+  location (for example a versioned release asset of this repository);
+- the conversion's half-precision image and text encoders, already at the pinned commit: 0.76 GB.
+
+Until one of them is approved and pinned, the shipped text encoder does not meet the release gate, and task 1.2 stays
+open (macOS is open as well). Task 1.3 is done.

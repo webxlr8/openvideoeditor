@@ -430,7 +430,7 @@ pub fn siglip2_manifest() -> Manifest {
     Manifest {
         id: SIGLIP2_ID.into(),
         version: "b16-256-f16-q4-d111425".into(),
-        purpose: "Visual media search: finds shots by what they show".into(),
+        purpose: "SigLIP 2 base: visual media search, finds shots by what they show".into(),
         licence: "Apache-2.0".into(),
         files: vec![
             ModelFile::new(

@@ -38,6 +38,8 @@ fn fixture() -> (tempfile::TempDir, PathBuf, PathBuf) {
         {"op": "addTrack", "track": {"id": "t_main", "name": "Main", "order": 0, "type": "video"}},
         media("m1", "harbour.mov", "c1"),
         media("m2", "market.mov", "c2"),
+        {"op": "addItem", "item": {"id": "title", "trackId": "t_main", "type": "text", "startTime": 20, "endTime": 23,
+                                   "name": "Harbour title", "textContent": "Dusk at the harbour"}},
     ]))
     .unwrap();
     p.apply(ops, ove_core::revision::Source::Gui, None).unwrap();
@@ -133,10 +135,19 @@ fn spoken_search_and_the_model_not_installed_answer_headless() {
     assert!(v["index"]["downloadBytes"].as_u64().unwrap() > 300_000_000, "{v}");
     assert_eq!(std::fs::read_dir(&models).unwrap().count(), 0, "nothing was downloaded");
     assert_eq!(v["index"]["untranscribed"], 1);
-    // Files match names.
+    // Files match names, and Timelines match clip and title text, with no model either.
     let (_, v) = ove(&lib, &models, &["media", "search", "Lib", "market", "--scope", "files"]);
     assert_eq!(v["files"][0]["media"], "m2");
     assert!(v.get("spoken").is_none());
+    let (code, v) = ove(&lib, &models, &["media", "search", "Lib", "harbour"]);
+    assert_eq!(code, 0, "{v}");
+    assert_eq!(v["index"]["visual"], "notInstalled");
+    assert_eq!(v["moments"], json!([]));
+    assert_eq!(v["timelines"][0]["item"], "title", "{v}");
+    assert_eq!(v["files"][0]["media"], "m1", "{v}");
+    let (_, v) = ove(&lib, &models, &["media", "search", "Lib", "price", "--scope", "spoken"]);
+    assert_eq!(v["spoken"][0]["text"], "price", "{v}");
+    assert_eq!(std::fs::read_dir(&models).unwrap().count(), 0, "still nothing downloaded");
 }
 
 #[test]
@@ -358,4 +369,33 @@ fn documented_examples_run_with_documented_exit_codes() {
     }
     assert_eq!(ran, 8);
     assert_eq!(std::fs::read_dir(&models).unwrap().count(), 0, "nothing was downloaded");
+}
+
+/// `ove models` names the visual search model, its size as 0.63 GB and its licence; installing it without `--yes`
+/// refuses with the same facts and downloads nothing.
+#[test]
+fn ove_models_shows_the_size_name_and_licence() {
+    let d = tempfile::tempdir().unwrap();
+    let models = d.path().join("models");
+    std::fs::create_dir_all(&models).unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_ove"))
+        .args(["models", "list"])
+        .env("OVE_MODELS_DIR", &models)
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&out.stdout);
+    let line = text.lines().find(|l| l.starts_with("siglip2-base")).unwrap_or_else(|| panic!("{text}"));
+    assert!(
+        line.contains("0.63 GB") && line.contains("SigLIP 2 base") && line.contains("licence Apache-2.0"),
+        "{line}"
+    );
+    let out = Command::new(env!("CARGO_BIN_EXE_ove"))
+        .args(["models", "install", "siglip2-base"])
+        .env("OVE_MODELS_DIR", &models)
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("0.63 GB download") && err.contains("licence Apache-2.0"), "{err}");
+    assert_eq!(std::fs::read_dir(&models).unwrap().filter_map(Result::ok).filter(|e| e.path().is_dir()).count(), 0);
 }

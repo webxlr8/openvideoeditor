@@ -152,8 +152,25 @@ pub fn edited_text(p: &Project, rev: Option<i64>, edits: &[TextEdit]) -> Result<
 /// element whose attributes are written one per line). Each is unique in the text, so it can be the `oldText` of
 /// the next edit.
 pub fn elements(text: &str) -> BTreeMap<String, String> {
+    element_spans(text).into_iter().map(|s| (s.id, s.text)).collect()
+}
+
+/// One item's printed element in a projection text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ElementSpan {
+    pub id: String,
+    /// First and last line of the element, 1-based (the numbering `print_timeline`'s `from` uses).
+    pub first: usize,
+    pub last: usize,
+    /// The element's lines.
+    pub text: String,
+}
+
+/// The printed elements of a projection text in print order (tracks top to bottom, then start time), with the
+/// lines each one spans. Mentions quote them; activity maps a printed line range to the items it shows.
+pub fn element_spans(text: &str) -> Vec<ElementSpan> {
     let lines: Vec<&str> = text.lines().collect();
-    let mut out = BTreeMap::new();
+    let mut out = Vec::new();
     let mut i = 0;
     while i < lines.len() {
         let t = lines[i].trim_start();
@@ -173,7 +190,7 @@ pub fn elements(text: &str) -> BTreeMap<String, String> {
         let end = i.min(lines.len().saturating_sub(1));
         let block = lines[start..=end].join("\n");
         if let Some(id) = attr_id(&block) {
-            out.insert(id, block);
+            out.push(ElementSpan { id, first: start + 1, last: end + 1, text: block });
         }
         i = end + 1;
     }

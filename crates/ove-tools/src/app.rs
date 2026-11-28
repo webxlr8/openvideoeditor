@@ -38,6 +38,8 @@ pub trait AppHost {
     fn ask_spend(&mut self, _card: &Value) -> Result<bool, Fail> {
         Err(confirm_required())
     }
+    /// Shows what `actor` reads on the open project; see [`ToolCtx::notify`].
+    fn notify(&mut self, _actor: Option<&Actor>, _activity: &crate::activity::Activity) {}
     /// Starts the app's generation worker for a saved job; see [`ToolCtx::start_generation`].
     fn start_generation(&mut self, _bundle: &Path, _job: &str) -> Result<(), Fail> {
         Err(Fail::new("generate.unavailable", "generation jobs cannot be started here"))
@@ -147,6 +149,10 @@ impl ToolCtx for AppCtx<'_> {
     }
     fn start_generation(&mut self, bundle: &Path, job: &str) -> Result<(), Fail> {
         self.host.start_generation(bundle, job)
+    }
+    fn notify(&mut self, _bundle: &Path, activity: &crate::activity::Activity) {
+        let actor = self.actor.clone();
+        self.host.notify(actor.as_ref(), activity);
     }
     fn skills(&mut self) -> Result<crate::skills::SkillStore, Fail> {
         match self.host.skills() {

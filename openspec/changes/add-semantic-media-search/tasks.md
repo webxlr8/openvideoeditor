@@ -5,17 +5,20 @@
 - [ ] 1.1 Confirm the weight and tokenizer licences at a pinned revision and record them in design.md; verify the
       owner signs off.
       _Apply note: licences checked and recorded (design.md "Model and tokenizer licences"); open: owner sign-off on
-      two points._
+      two points. Release is blocked until the owner signs off._
 - [ ] 1.2 Export the image encoder (half precision and 8-bit) and the 8-bit text encoder with our own scripts, add
       their manifest to `ove-models`; verify cosine ≥ 0.99 against the reference implementation on fixtures for every
       runtime path on both OSes.
       _Apply note: manifest added (`siglip2-base`), pinning an existing conversion; shipped pair passes ≥ 0.99 against
-      the full-precision graph on Windows CPU (design.md Results). Open: our own export scripts (needs Python), parity
-      against the original framework, macOS._
-- [ ] 1.3 Implement text tokenisation and image preprocessing in crate `ove-vision`; verify golden token ids and
+      the full-precision graph on Windows CPU (design.md Results); the 0.63 GB pair was approved by the CTO and CEO
+      with conditions. Our own export and parity script is `tools/vision-export/`. Against the original framework
+      the shipped text encoder fails the gate (worst 0.9360); our own export (half-precision image encoder, text
+      encoder with an 8-bit embedding table and half-precision layers, 0.56 GB) passes (0.9996 / 0.9917) on Windows CPU.
+      Open: a decision to host and pin our export (or another passing pair) in the manifest, and macOS._
+- [x] 1.3 Implement text tokenisation and image preprocessing in crate `ove-vision`; verify golden token ids and
       preprocessed tensors against the reference.
-      _Apply note: both implemented; token ids match the reference tokenizer (11 golden texts). Open: preprocessed
-      tensors against the original framework (needs Python); unit tests check hand-computed values._
+      _Apply note: token ids equal the original framework's on 8 texts and the reference tokenizer's on 11; sampled
+      preprocessed tensors of 8 pictures are within one 8-bit level (`cargo test -p ove-vision --test reference`)._
 
 ## 2. Sampling and index
 

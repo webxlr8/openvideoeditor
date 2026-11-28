@@ -59,6 +59,18 @@ pub fn mb_up(bytes: u64) -> String {
     format!("{}.{}", tenths / 10, tenths % 10)
 }
 
+/// A download or model size as people read it: gigabytes (10^9) from 500 MB up (two decimals below 1 GB, so the
+/// visual search model reads "0.63 GB"), otherwise megabytes with one decimal, rounded up.
+pub fn size_text(bytes: u64) -> String {
+    if bytes >= 1_000_000_000 {
+        format!("{:.1} GB", bytes as f64 / 1e9)
+    } else if bytes >= 500_000_000 {
+        format!("{:.2} GB", bytes as f64 / 1e9)
+    } else {
+        format!("{} MB", mb_up(bytes))
+    }
+}
+
 /// Bytes as megabytes (10^6) with one decimal, rounded down (for amounts available).
 pub fn mb_down(bytes: u64) -> String {
     let tenths = bytes / 100_000;

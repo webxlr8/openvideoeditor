@@ -163,6 +163,8 @@ fn handle(app: &AppHandle, method: &str, params: Value) -> Result<Value, ove_con
         "confirm_spend" => crate::spend::confirm_spend(app, params),
         // Background tasks: `ove tasks` and the agent tools list_tasks, wait_tasks and cancel_task.
         "tasks" => crate::background::tasks_method(&app.state::<AppState>().tasks, &params),
+        // An external agent says what it reads (the live activity display).
+        "notify" => crate::activity::notify(app, params),
         "apply" => {
             let ops: Vec<Op> = serde_json::from_value(params.get("ops").cloned().unwrap_or(Value::Null))
                 .map_err(|e| refusal("ops.invalid", e.to_string()))?;

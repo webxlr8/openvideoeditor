@@ -26,10 +26,6 @@ pub fn open_store() -> Result<Store, Fail> {
     Ok(store)
 }
 
-fn mb(bytes: u64) -> String {
-    format!("{:.1} MB", bytes as f64 / 1e6)
-}
-
 fn status_json(s: &ModelStatus) -> Value {
     serde_json::to_value(s).unwrap_or(Value::Null)
 }
@@ -40,7 +36,8 @@ pub fn list(store: &Store) -> Receipt {
     let mut text = String::new();
     for m in &models {
         let state = if m.installed { "installed" } else { "not installed" };
-        text.push_str(&format!("{:<16} {:>9}  {:<13}  {}\n", m.id, mb(m.bytes), state, m.purpose));
+        let size = ove_models::error::size_text(m.bytes);
+        text.push_str(&format!("{:<16} {:>9}  {:<13}  {} (licence {})\n", m.id, size, state, m.purpose, m.licence));
         if let Some(loc) = &m.location {
             text.push_str(&format!("{:<16} {}\n", "", loc.display()));
         }

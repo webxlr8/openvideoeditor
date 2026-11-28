@@ -1,0 +1,27 @@
+/* History grouped by who made the changes, with "Undo this agent's changes". */
+
+.history-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 4px 2px;
+  border-top: 1px solid var(--line);
+}
+.history-group:first-child {
+  border-top: 0;
+}
+.history-group-name {
+  font-weight: 600;
+  flex: 1;
+}
+.history-conflicts {
+  margin: 4px 0 6px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  background: color-mix(in srgb, #e5484d 14%, transparent);
+}
+.history-conflicts ul {
+  margin: 4px 0 0;
+  padding-left: 16px;
+}

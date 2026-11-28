@@ -90,10 +90,12 @@ impl WriteLock {
         if let Some(h) = &took_over_from {
             tracing::warn!(bundle = %bundle.display(), previous = %h.describe(), "took over a stale project lock");
         }
+        // Temp file and rename, so a waiter never reads a half-written holder. A waiter can still find no holder
+        // file between our lock and this rename; it treats that as "busy, holder not known yet" and polls again.
         let me = Holder::current();
         serde_json::to_vec(&me)
             .map_err(std::io::Error::from)
-            .and_then(|bytes| std::fs::write(&holder_path, bytes))
+            .and_then(|bytes| crate::fsio::write_derived(&holder_path, &bytes))
             .map_err(|e| StoreError::io("write lock holder", &holder_path, e))?;
         Ok(WriteLock { file, holder_path, took_over_from })
     }
@@ -101,6 +103,9 @@ impl WriteLock {
 
 impl Drop for WriteLock {
     fn drop(&mut self) {
+        // Remove the holder file before the unlock: after the unlock the next holder may already have written its
+        // own file, and removing it then would delete theirs. A waiter that polls between the two steps finds the
+        // lock busy and no holder file, and polls again (see `open_write_waiting` in ove-tools).
         let _ = std::fs::remove_file(&self.holder_path);
         let _ = self.file.unlock();
     }
