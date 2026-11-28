@@ -14,6 +14,8 @@ pub enum Kind {
     Beat,
     /// A marker start or end.
     Marker,
+    /// A bar's first beat: preferred over other beats in reach.
+    Downbeat,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -30,6 +32,8 @@ pub struct Sources<'a> {
     pub range: Option<(Micros, Micros)>,
     /// Beat times, when beat detection has run.
     pub beats: &'a [Micros],
+    /// Downbeat times (the first beat of each bar), also when beat detection has run.
+    pub downbeats: &'a [Micros],
     /// Items whose edges are not targets (the items being dragged).
     pub exclude: &'a [String],
 }
@@ -45,6 +49,7 @@ pub fn targets(doc: &Document, src: &Sources) -> Vec<Target> {
         out.push(Target { at: b, kind: Kind::Range });
     }
     out.extend(src.beats.iter().map(|&at| Target { at, kind: Kind::Beat }));
+    out.extend(src.downbeats.iter().map(|&at| Target { at, kind: Kind::Downbeat }));
     for it in doc.project.items.values().filter(|i| !src.exclude.contains(&i.id)) {
         out.push(Target { at: it.start, kind: Kind::Edge });
         out.push(Target { at: it.end, kind: Kind::Edge });
@@ -77,7 +82,14 @@ pub fn snap(t: Micros, targets: &[Target], threshold: Micros, sticky: Option<Tar
     {
         return Snapped { at: s.at, target: Some(s) };
     }
-    let best = targets.iter().filter(|g| (g.at - t).abs() <= threshold).min_by_key(|g| ((g.at - t).abs(), g.kind));
+    let reach = || targets.iter().filter(|g| (g.at - t).abs() <= threshold);
+    let mut best = reach().min_by_key(|g| ((g.at - t).abs(), g.kind));
+    // A beat in reach gives way to a downbeat in reach.
+    if best.is_some_and(|g| g.kind == Kind::Beat)
+        && let Some(d) = reach().filter(|g| g.kind == Kind::Downbeat).min_by_key(|g| (g.at - t).abs())
+    {
+        best = Some(d);
+    }
     match best {
         Some(g) => Snapped { at: g.at, target: Some(*g) },
         None => Snapped { at: snap_to_frame(t.max(0), fps), target: None },
@@ -159,6 +171,20 @@ mod tests {
         assert_eq!((s.at, s.target.map(|t| t.kind)), (6_000_000, Some(Kind::Marker)));
         assert_eq!(snap(7_030_000, &tg, 50 * MS, None, 30.0).at, 7_000_000);
         assert_eq!(snap(8_480_000, &tg, 50 * MS, None, 30.0).at, 8_500_000, "a range marker's end");
+    }
+
+    #[test]
+    fn a_downbeat_in_reach_wins_over_a_closer_beat() {
+        let d = doc();
+        let (beats, downs) = ([10_000_000, 10_500_000], [10_000_000]);
+        let tg = targets(&d, &Sources { beats: &beats, downbeats: &downs, ..Default::default() });
+        // 10.32 s: the beat at 10.5 s is closer, but the downbeat at 10 s is in reach.
+        let s = snap(10_320_000, &tg, 400 * MS, None, 30.0);
+        assert_eq!((s.at, s.target.map(|t| t.kind)), (10_000_000, Some(Kind::Downbeat)));
+        // Out of the downbeat's reach: the beat.
+        assert_eq!(snap(10_450_000, &tg, 100 * MS, None, 30.0).at, 10_500_000);
+        // No beat sources: no beat targets.
+        assert!(!targets(&d, &Sources::default()).iter().any(|t| matches!(t.kind, Kind::Beat | Kind::Downbeat)));
     }
 
     #[test]

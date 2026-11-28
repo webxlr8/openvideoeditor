@@ -94,8 +94,8 @@ v1 is bring-your-own provider keys (same model as agents). Provider adapters beh
 ## 4. Roadmap (OpenSpec changes, in order)
 
 Risk-first: the two technical gates (R1 viewer, R2 motion graphics) come before the bulk of the UI work.
-Changes 1–3 are fully specified; later changes get their proposal/specs/design/tasks written just before they start,
-so they build on what earlier changes actually delivered.
+Changes 1–16 each have a first implementation; their open tasks are in their `tasks.md`. Changes 17+ (waves 0–4 in
+§4.1) are all specified, and their tasks record what is verified and what is left.
 
 | # | Change | Capabilities | Depends on | Gate / exit |
 |---|---|---|---|---|

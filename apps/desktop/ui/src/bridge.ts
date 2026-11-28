@@ -28,6 +28,7 @@ import type {
   AppInfo_Serialize,
   AudioMeter,
   DuckRequest,
+  SyncRequest,
   Diagnostics_Serialize,
   MediaInfo_Serialize,
   PlaybackState,
@@ -37,6 +38,7 @@ import type {
   ProjectView_Serialize,
   MediaIndexStatus,
   ViewerBackend,
+  ViewerPreview,
   ViewerRect,
   ExportCheck_Serialize as ExportCheck,
   ExportForm_Serialize as ExportForm,
@@ -60,6 +62,8 @@ import {
 } from "./motionMock";
 import { type MockSkills, createSkillsMock, initialSkills } from "./skills/skillsMock";
 import { type MockConnectors, createConnectorsMock, initialConnectors } from "./agents/connectorsMock";
+import { mockGeometry, mockPick } from "./overlay/overlayMock";
+import { PLAYBACK_RATES } from "./overlay/rates";
 
 export type Commands = typeof generated.commands;
 export type Events = typeof generated.events;
@@ -595,6 +599,7 @@ function createMock(): {
     volume: 1,
     muted: false,
     audioAvailable: false,
+    rate: 1,
   };
   let timer: ReturnType<typeof setInterval> | null = null;
   const last = () => Math.max(0, state.totalFrames - 1);
@@ -615,11 +620,16 @@ function createMock(): {
           } else state.frame = next;
           changed();
         },
-        1000 / ((state.frameRate ?? 30) * Math.abs(state.speed ?? 1)),
+        1000 / ((state.frameRate ?? 30) * Math.abs(state.speed ?? 1) * (state.rate ?? 1)),
       );
     }
   };
   const apply = (c: TransportCommand) => {
+    if (c.kind === "setRate") {
+      if (PLAYBACK_RATES.includes(c.rate ?? 1)) state.rate = c.rate ?? 1;
+      if (state.playing) setSpeed(state.speed ?? 1);
+      return;
+    }
     if (!state.hasMedia) {
       if (c.kind === "setLoop") state.looping = c.enabled;
       return;
@@ -1041,6 +1051,8 @@ function createMock(): {
             status: "online",
             thumbnail: null,
             skim: null,
+            // Files named with "TC" stand for media that carries a start timecode.
+            ...(/\btc\b/i.test(name) ? { timecode: "10:00:00:00" } : {}),
             folder: null,
             tags: [],
             subclips: [],
@@ -1722,7 +1734,9 @@ function createMock(): {
       return ok(null);
     },
     transport: (command: TransportCommand) => {
-      track(`transport:${command.kind}`);
+      track(command.kind === "setRate" ? `transport:setRate:${command.rate}` : `transport:${command.kind}`);
+      if (command.kind === "setRate" && !PLAYBACK_RATES.includes(command.rate ?? NaN))
+        return fail("invalid_argument", `${command.rate}× is not a supported playback rate; supported rates: ${PLAYBACK_RATES.join(", ")}`);
       apply(command);
       changed();
       return ok({ ...state });
@@ -2253,6 +2267,56 @@ function createMock(): {
           refresh(i);
         }
       });
+    },
+    // Beat stand-in: audio items whose name has "music" get a beat every 0.5 s and a downbeat every 2 s.
+    timelineBeats: async () => {
+      track("timelineBeats");
+      const items = (project?.items ?? [])
+        .filter((i) => i.kind === "audio" && /music/i.test(i.name ?? ""))
+        .map((i) => {
+          const start = i.start ?? 0;
+          const end = i.end ?? 0;
+          const beats: number[] = [];
+          for (let t = start; t < end - 1e-9; t += 0.5) beats.push(Math.round(t * 1e6) / 1e6);
+          return { item: i.id, beats, downbeats: beats.filter((_, k) => k % 4 === 0) };
+        });
+      return ok({ items, modelMissing: false });
+    },
+    // Sound sync stand-in: every sound target lines up 1.5 s after the reference starts.
+    syncItems: async (request: SyncRequest) => {
+      track("syncItems");
+      const ref = mock(request.reference);
+      if (!ref) return fail("not_found", `No item ${request.reference}.`);
+      const sound = (k: string) => k === "video" || k === "audio";
+      const targets = request.targets.filter((t) => t !== ref.id).map((id) => ({ id, item: mock(id) }));
+      const placed = targets.filter((t) => t.item && sound(t.item.kind));
+      if (placed.length === 0) return fail("invalid_argument", "Nothing was synchronised. The selected items have no sound to match.");
+      const moved = new Map<string, number>();
+      const r = await editProject(`synchronise ${placed.length} item${placed.length === 1 ? "" : "s"}`, () => {
+        for (const { item } of placed) {
+          if (!item) continue;
+          const len = (item.end ?? 0) - (item.start ?? 0);
+          const start = (ref.start ?? 0) + 1.5;
+          moved.set(item.id, start - (item.start ?? 0));
+          item.start = start;
+          item.end = start + len;
+          refresh(item);
+        }
+      });
+      if (r.status !== "ok") return r;
+      const views = targets.map((t) => ({
+        item: t.id,
+        status: moved.has(t.id) ? "placed" : "unmatched",
+        method: moved.has(t.id) ? "audio" : null,
+        confidence: moved.has(t.id) ? 0.8 : 0,
+        movedBy: moved.get(t.id) ?? null,
+        driftPpm: null,
+        driftApplied: null,
+        reason: moved.has(t.id) ? null : "no sound",
+      }));
+      const unmatched = views.filter((v) => v.status !== "placed").map((v) => `${v.item}: ${v.reason}`);
+      const summary = [`Synchronised ${placed.length} of ${targets.length} item${targets.length === 1 ? "" : "s"}`, ...unmatched].join(" · ");
+      return ok({ view: r.data, summary, targets: views });
     },
     requestSkim: async (_mediaId: string) => {
       track("requestSkim");
@@ -2855,6 +2919,24 @@ function createMock(): {
       const seq = project?.rev ?? 0;
       if (since != null && seq <= since) return ok(null);
       return ok({ seq, scope: "waveform", ptsUs: 0, width: 256, height: 256, data: btoa("\u0000".repeat(65536)) });
+    },
+    // The viewer overlay (add-viewer-interaction-and-text-fills): see overlay/overlayMock.ts.
+    viewerGeometry: (time: number | null) => {
+      if (!project) return fail("invalid_argument", "No project is open.");
+      return ok(mockGeometry(project, (id) => mock(id)?.fields, time ?? 0));
+    },
+    viewerPick: (time: number | null, x: number | null, y: number | null) => {
+      track(`viewerPick:${(time ?? 0).toFixed(2)}:${(x ?? 0).toFixed(2)}:${(y ?? 0).toFixed(2)}`);
+      if (!project) return fail("invalid_argument", "No project is open.");
+      return ok(mockPick(mockGeometry(project, (id) => mock(id)?.fields, time ?? 0), x ?? 0, y ?? 0));
+    },
+    viewerFullscreen: (on: boolean) => {
+      track(`viewerFullscreen:${on}`);
+      return ok(null);
+    },
+    viewerPreview: (preview: ViewerPreview | null) => {
+      track(preview ? `viewerPreview:${preview.itemId}:${preview.setJson}` : "viewerPreview:none");
+      return ok(null);
     },
     colorScopes: (time: number | null) => {
       track(`colorScopes:${time ?? 0}`);

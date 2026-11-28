@@ -20,3 +20,14 @@ fix, move it back into the parallel run and remove it from this note.
 | `ove-tasks` `tests/scheduler.rs` `wait_times_out_with_the_remaining_count` | After the wait for the `p1` tasks, the test checked that no task at all was left to cancel. The `p2` task is not in that wait, so under load it was often still queued or running. | Fixed in `add-background-tasks-and-media-derivatives`: the test waits for all tasks before that check. The time-out checks are unchanged. |
 | `ove-desktop` `src/scrub.rs` `scrub::tests::scrub_latency_and_edits` | It measures wall-clock time from a scrub event to a ready audio grain against the latency budget (cold p95 at most 120 ms, cached p95 at most 40 ms). A cold grain decodes and mixes audio on the CPU, so other tests on the same CPU make it slower. In a parallel run the cold p95 was 140 ms. Alone it passes. | Not changed. The limit is a product budget for latency that the person feels, so the test keeps wall-clock time and the same limits. CPU time would hide disk and scheduling delays. The serial step runs it with no other tests, which is the condition the budget is for. |
 | Desktop UI test for the skim thumbnail (`SkimThumb`) | It depended on frame timing in the test web view. | Another worker moves it to the built-app check (app e2e). It is not in the serial step. |
+
+## Activity flood frame time (ui/src/activity/Activity.test.tsx)
+
+- **Why timing-sensitive:** it asserted a 16 ms median and 32 ms p95 draw time in jsdom with React's development
+  build. Those wall-clock numbers depend on machine load, and it failed twice in a row while other builds ran
+  (2026-11-28).
+- **Fix:** same rule as SkimThumb. The unit test keeps the batching (fewer than 1,000/3 draws) and the 200-outline cap,
+  and logs draw times without asserting them. The 16 ms frame budget moves to the built-app check
+  (add-agent-chat-context-and-activity task 4.3).
+- **Review date:** 2027-02-27.
+

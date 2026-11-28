@@ -1630,4 +1630,103 @@ export const FLOWS = [
       assert.ok(fs.existsSync(path.join(view.bundle, ".lock.holder")), "this app holds the lock now");
     },
   },
+  {
+    // add-viewer-interaction-and-text-fills groups 1-3 in the built app.
+    name: "viewer: overlay lines up with the frame, click selects, a handle drag is one revision, guides, full screen, rates",
+    async run(ctx) {
+      const { app, media } = ctx;
+      await newProject(app, "Viewer E2E");
+      const view = await importWithButton(ctx, [media.video]);
+      const [clip] = mainClips(view);
+      const overlay = await app.find("viewer-overlay");
+
+      // 2.1: the overlay covers the frame within 1 screen pixel (stream backend: the canvas; native: the viewer box).
+      const backend = (await app.invoke("app_info")).viewerBackend;
+      const frameEl = backend === "stream" ? await app.find("viewer-canvas") : await app.find("viewer-rect");
+      const [o, f] = [await app.rect(overlay), await app.rect(frameEl)];
+      const off = Math.max(
+        Math.abs(o.x - f.x),
+        Math.abs(o.y - f.y),
+        Math.abs(o.x + o.width - (f.x + f.width)),
+        Math.abs(o.y + o.height - (f.y + f.height)),
+      );
+      ctx.log(`    overlay vs frame (${backend}): ${off.toFixed(2)} px`);
+      assert.ok(off <= 1, `overlay lines up with the frame within 1 px (off by ${off})`);
+
+      // 1.3: a click on the picture selects the clip; the handles appear while paused.
+      await app.clickAt(overlay, 0, 0);
+      await app.waitFor(
+        async () => (await (await app.find(`[data-testid="clip"][data-id="${clip.id}"]`)).getAttribute("class")).includes("selected"),
+        "the clip to be selected by a click in the viewer",
+      );
+      await app.find("overlay-handles");
+
+      // 2.2: scale it down with a corner handle, then move it: one revision each, and undo restores.
+      // Revisions are counted in the history (revision numbers are not consecutive).
+      const changes = async () => (await app.invoke("project_history")).length;
+      const rev0 = await changes();
+      await app.drag(await app.find("handle-scale-2"), -Math.round(o.width / 4), -Math.round(o.height / 4));
+      await app.waitFor(async () => (await changes()) === rev0 + 1, "one revision for the scale drag");
+      const scaled = (await detail(app, clip.id)).transform;
+      assert.ok(scaled.scale < 0.8, `scaled down (${JSON.stringify(scaled)})`);
+      const started = Date.now();
+      await app.drag(overlay, Math.round(o.width / 8), 0);
+      await app.waitFor(async () => (await changes()) === rev0 + 2, "one revision for the move");
+      ctx.log(`    move drag to revision: ${Date.now() - started} ms (WebDriver pointer actions, 8 steps)`);
+      const movedT = (await detail(app, clip.id)).transform;
+      assert.ok(movedT.x > 50, `moved right (${JSON.stringify(movedT)})`);
+      await app.click("undo");
+      await app.waitFor(async () => ((await detail(app, clip.id)).transform?.x ?? 0) === (scaled.x ?? 0), "undo restores the position");
+
+      const afterUndo = await changes();
+      // Drag preview latency: a transient preview to the next presented frame.
+      const presented = async () => (await app.invoke("diagnostics")).viewer.presentedFrames;
+      const lat = [];
+      for (const x of [100, -100, 200, -200, 0]) {
+        const before = await presented();
+        const t0 = Date.now();
+        await app.invoke("viewer_preview", { preview: { itemId: clip.id, setJson: JSON.stringify({ transform: { ...scaled, x } }) } });
+        await app.waitFor(async () => (await presented()) > before, "a preview frame", 10000, 5);
+        lat.push(Date.now() - t0);
+      }
+      await app.invoke("viewer_preview", { preview: null });
+      lat.sort((a, b) => a - b);
+      ctx.log(`    drag preview to frame: median ${lat[2]} ms, max ${lat[4]} ms`);
+      assert.equal(await changes(), afterUndo, "previews make no revision");
+
+      // 3.1: guides are view state only.
+      await app.click("guides-button");
+      await app.click("guides-title");
+      await app.select("guides-mask", "9:16");
+      await app.find("guide-layer");
+      await app.keys(Key.ESCAPE);
+      assert.equal(await changes(), afterUndo, "guides change nothing in the project");
+
+      // 3.3: full screen and back with Esc.
+      await app.click("viewer-fullscreen");
+      await app.waitFor(async () => (await (await app.find("viewer-area")).getAttribute("data-full")) === "true", "full screen");
+      await app.find("fullscreen-controls");
+      await sleep(500);
+      const full = await app.rect(await app.find("viewer-area"));
+      const win = await app.driver.executeScript("return { w: window.innerWidth, h: window.innerHeight };");
+      assert.ok(full.width >= win.w - 1 && full.height >= win.h - 1, `the viewer fills the window (${JSON.stringify(full)} vs ${JSON.stringify(win)})`);
+      await app.keys(Key.ESCAPE);
+      await app.waitFor(async () => (await (await app.find("viewer-area")).getAttribute("data-full")) === "false", "back from full screen");
+      await app.find("timeline");
+
+      // 3.4: the rate menu sets 1.5x; 7x is refused with the supported rates.
+      await app.click("rate-button");
+      await app.click(`[data-testid="rate-item-1.5"]`);
+      await app.waitFor(async () => (await app.invoke("playback_state")).rate === 1.5, "rate 1.5");
+      // The 1.5x timing itself is measured on the simulated clock (crates/ove-playback/tests/player.rs): a debug build
+      // composites far below real time, so wall-clock timing here would measure the compositor, not the rate.
+      assert.equal((await app.invoke("playback_state")).rate, 1.5);
+      await assert.rejects(
+        app.invoke("transport", { command: { kind: "setRate", rate: 7 } }),
+        /supported rates: 0.5, 1, 1.25, 1.5, 2/,
+      );
+      await app.click("rate-button");
+      await app.click("rate-item-1");
+    },
+  },
 ];

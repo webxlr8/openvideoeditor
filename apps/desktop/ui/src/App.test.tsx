@@ -35,6 +35,16 @@ describe("App", () => {
     await waitFor(() => expect(screen.getByTestId("timecode").textContent).toBe("00:00:12:15"));
   });
 
+  it("shows the source timecode of media that carries one", async () => {
+    await openEditorWithMedia();
+    await act(async () => window.__oveMock!.routePaths(["/tmp/Recorder TC.wav"]));
+    await waitFor(() => expect(screen.getAllByTestId("clip").length).toBe(2));
+    if (screen.queryByTestId("close-inspector")) fireEvent.click(screen.getByTestId("close-inspector"));
+    const tcs = await screen.findAllByTestId("media-timecode");
+    expect(tcs.length).toBe(1);
+    expect(tcs[0].textContent).toBe("TC 10:00:00:00");
+  });
+
   it("shows a plain-language error for an unsupported routed file and keeps state", async () => {
     await openEditorWithMedia();
     await act(async () => window.__oveMock!.routePaths(["/tmp/notes.txt"]));

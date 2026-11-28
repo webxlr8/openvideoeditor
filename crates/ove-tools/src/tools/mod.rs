@@ -3,6 +3,7 @@
 pub mod analyze;
 pub mod app;
 pub mod audio;
+pub mod audio_intel;
 pub mod backend;
 pub mod code;
 pub mod color;
@@ -15,6 +16,7 @@ pub mod export_queue;
 pub mod export_range;
 pub mod feedback;
 pub mod generate;
+pub mod geometry;
 pub mod keyframes;
 pub mod markers;
 pub mod media;

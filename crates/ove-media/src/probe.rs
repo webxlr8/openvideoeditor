@@ -7,6 +7,7 @@ use ffmpeg_the_third::media::Type as MediaType;
 use serde::Serialize;
 
 use crate::error::Result;
+use crate::timecode::SourceTimecode;
 use crate::util::{
     Micros, NOPTS, PixelFormatInfo, Rational, codec_name, codec_profile_name, open_input, pix_fmt_info,
     sample_fmt_name, ts_to_us,
@@ -24,6 +25,9 @@ pub struct MediaInfo {
     pub video: Option<VideoStreamInfo>,
     pub audio: Option<AudioStreamInfo>,
     pub stream_count: usize,
+    /// Embedded start timecode (QuickTime timecode track, MXF, Broadcast WAV or iXML); `None` when the file has none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_timecode: Option<SourceTimecode>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -148,7 +152,50 @@ pub fn probe(path: &Path) -> Result<MediaInfo> {
         });
     }
 
-    Ok(MediaInfo { path: path.to_owned(), container, duration_us, bit_rate, video, audio, stream_count })
+    let source_timecode = if container.split(',').any(|c| c == "wav" || c == "w64") {
+        crate::timecode::wav_timecode(path)
+    } else {
+        container_timecode(&input, best_v)
+    };
+
+    Ok(MediaInfo {
+        path: path.to_owned(),
+        container,
+        duration_us,
+        bit_rate,
+        video,
+        audio,
+        stream_count,
+        source_timecode,
+    })
+}
+
+/// The container `timecode` tag: the video stream's first (FFmpeg copies a QuickTime timecode track there), then
+/// the format's, then any stream's. The label rate is the video frame rate, else the timecode stream's.
+fn container_timecode(
+    input: &ffmpeg_the_third::format::context::Input,
+    best_v: Option<usize>,
+) -> Option<SourceTimecode> {
+    let rate_of = |st: &ffmpeg_the_third::format::stream::Stream| -> Option<(u32, u32)> {
+        let r: Rational = st.avg_frame_rate().into();
+        let r = if r.num > 0 && r.den > 0 { r } else { st.rate().into() };
+        (r.num > 0 && r.den > 0).then_some((r.num as u32, r.den as u32))
+    };
+    let video = best_v.and_then(|i| input.stream(i));
+    let video_rate = video.as_ref().and_then(&rate_of);
+    let mut found: Option<(String, Option<(u32, u32)>)> =
+        video.as_ref().and_then(|st| st.metadata().get("timecode").map(|t| (t.to_string(), video_rate)));
+    if found.is_none() {
+        found = input.metadata().get("timecode").map(|t| (t.to_string(), video_rate));
+    }
+    if found.is_none() {
+        found = input
+            .streams()
+            .find_map(|st| st.metadata().get("timecode").map(|t| (t.to_string(), video_rate.or_else(|| rate_of(&st)))));
+    }
+    let (label, rate) = found?;
+    let (num, den) = rate.unwrap_or((25, 1));
+    SourceTimecode::from_label(&label, num, den)
 }
 
 /// Timestamps from the demuxer's sample index (MOV/MP4 `stts`, MKV cues are sparse and give < 3 entries' use).

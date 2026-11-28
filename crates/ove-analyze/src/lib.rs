@@ -5,15 +5,21 @@
 
 pub mod analysis;
 pub mod audio;
+pub mod beats;
 pub mod color_stats;
 pub mod duck;
 /// The BS.1770 core, shared with the meters and export (design D8).
 pub use ove_render::loudness;
 pub mod grid;
+pub mod guides;
 pub mod image;
 pub mod look;
 pub mod peaks;
 pub mod storyboard;
+pub mod sync;
+pub mod sync_place;
+#[doc(hidden)]
+pub mod synth;
 pub mod video;
 
 pub use audio::{Levels, Loudness, Range, levels, loudness, silence, waveform_png};

@@ -111,6 +111,109 @@ pub fn caption_style(f: &Map<String, Value>, k: f32, frame_w: f32, active: Optio
     }
 }
 
+/// What a text layer shows at its time: its words, style, typewriter reveal and animation state. Drawing and layer
+/// geometry ([`crate::geometry`]) both start from this, so the geometry matches the drawn text.
+#[derive(Debug, Clone)]
+pub struct TextFrame {
+    pub content: String,
+    pub words: Vec<String>,
+    pub style: TextStyle,
+    /// Characters drawn (`usize::MAX`: all).
+    pub reveal: usize,
+    pub anim: AnimState,
+}
+
+impl TextFrame {
+    /// The text a layer shows with `k` canvas pixels per reference pixel in an area `area_w` pixels wide; `None` when
+    /// it shows nothing (empty text, or an animation that hides it at this time).
+    pub fn of(layer: &Layer, k: f64, area_w: f64) -> Option<TextFrame> {
+        let content = layer.fields.get("textContent").and_then(Value::as_str).unwrap_or("").to_string();
+        if content.trim().is_empty() {
+            return None;
+        }
+        let anim = TextAnimation::from_fields(&layer.fields)
+            .map(|a| a.state(layer.rel_us as f64 / 1e6, layer.dur_us as f64 / 1e6))
+            .unwrap_or_default();
+        if anim.opacity <= 0.0 || anim.reveal <= 0.0 {
+            return None;
+        }
+        let style = text_style(&layer.fields, k as f32, area_w as f32);
+        let words = words_of(&content);
+        let reveal = if anim.reveal < 1.0 {
+            let total: usize = words.iter().map(|w| w.chars().count() + 1).sum();
+            (total as f64 * anim.reveal).floor() as usize
+        } else {
+            usize::MAX
+        };
+        Some(TextFrame { content, words, style, reveal, anim })
+    }
+
+    /// Cache key of the rasterised text (before blur and glitch).
+    pub fn key(&self) -> u64 {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        self.content.hash(&mut hasher);
+        format!("{:?}", self.style).hash(&mut hasher);
+        self.reveal.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    /// The rasterised text, before blur and glitch.
+    pub fn raster(&self) -> Rgba {
+        if self.reveal == usize::MAX {
+            render_words(&self.words, &self.style)
+        } else {
+            render_words_partial(&self.words, &self.style, self.reveal)
+        }
+    }
+
+    /// The raster after the animation's blur and glitch (which pad it).
+    pub fn animated(&self, img: Arc<Rgba>) -> Arc<Rgba> {
+        animate_text(img, &self.anim, self.style.size)
+    }
+
+    /// Where the (animated) text image goes, around `centre` (canvas pixels).
+    pub fn place(&self, layer: &Layer, centre: (f64, f64)) -> Place {
+        let x = &layer.xform;
+        let flip = if x.flip_x { -1.0 } else { 1.0 };
+        let size = self.style.size as f64;
+        let s = x.scale * self.anim.scale;
+        Place {
+            cx: centre.0 + self.anim.dx * size,
+            cy: centre.1 + self.anim.dy * size,
+            sx: s * flip,
+            sy: s,
+            rotation: x.rotation + self.anim.rotation,
+        }
+    }
+}
+
+/// The area a layer is placed in on a `w`×`h` canvas (its layout slot, else the frame), and the centre the layer's
+/// transform puts it at (`k` canvas pixels per reference pixel): `(area x, y, w, h, centre)`.
+pub fn layer_area(layer: &Layer, w: u32, h: u32, k: f64) -> (f64, f64, f64, f64, (f64, f64)) {
+    let (area_x, area_y, area_w, area_h) = match layer.slot {
+        Some(s) => (s[0] as f64 * w as f64, s[1] as f64 * h as f64, s[2] as f64 * w as f64, s[3] as f64 * h as f64),
+        None => (0.0, 0.0, w as f64, h as f64),
+    };
+    let x = &layer.xform;
+    (area_x, area_y, area_w, area_h, (area_x + area_w / 2.0 + x.x * k, area_y + area_h / 2.0 + x.y * k))
+}
+
+/// The size of a code item's composition: its `codeComposition` width and height, else the reference frame.
+pub fn code_size(layer: &Layer, aspect: &str) -> Option<(u32, u32)> {
+    let c = ove_graphics::CodeComposition::from_value(layer.fields.get("codeComposition")?)?;
+    let (rw, rh) = reference_size(aspect);
+    Some((c.width.unwrap_or(rw).clamp(16, 8192), c.height.unwrap_or(rh).clamp(16, 8192)))
+}
+
+/// Where a code layer's composition (`cw`×`ch` composition pixels) goes in its area: the placement with the scale in
+/// canvas pixels per composition pixel.
+pub fn code_place(layer: &Layer, area_w: f64, area_h: f64, centre: (f64, f64), (cw, ch): (u32, u32)) -> Place {
+    let x = &layer.xform;
+    let flip = if x.flip_x { -1.0 } else { 1.0 };
+    let s = (area_w / cw as f64).min(area_h / ch as f64) * x.scale;
+    Place { cx: centre.0, cy: centre.1, sx: s * flip, sy: s, rotation: x.rotation }
+}
+
 /// Blur and glitch for an animated text image (sizes relative to the font size).
 fn animate_text(img: Arc<Rgba>, anim: &AnimState, size: f32) -> Arc<Rgba> {
     let mut img = img;
@@ -319,13 +422,8 @@ impl Renderer {
     fn draw_layer(&mut self, doc: &Document, target: Tex, layer: &Layer, k: f64, opacity: f32, blend: Blend) {
         let (w, h) = self.backend.size(target);
         let x = &layer.xform;
-        let flip = if x.flip_x { -1.0 } else { 1.0 };
         // A layout slot replaces the frame as the area the layer is placed in.
-        let (area_x, area_y, area_w, area_h) = match layer.slot {
-            Some(s) => (s[0] as f64 * w as f64, s[1] as f64 * h as f64, s[2] as f64 * w as f64, s[3] as f64 * h as f64),
-            None => (0.0, 0.0, w as f64, h as f64),
-        };
-        let centre = (area_x + area_w / 2.0 + x.x * k, area_y + area_h / 2.0 + x.y * k);
+        let (_, _, area_w, area_h, centre) = layer_area(layer, w, h, k);
         match &layer.kind {
             LayerKind::Video { media_id, .. } | LayerKind::Image { media_id } => {
                 let image = matches!(layer.kind, LayerKind::Image { .. });
@@ -365,61 +463,30 @@ impl Renderer {
                 self.backend.release(tex);
             }
             LayerKind::Text => {
-                let content = layer.fields.get("textContent").and_then(Value::as_str).unwrap_or("").to_string();
-                if content.trim().is_empty() {
-                    return;
-                }
-                let anim = TextAnimation::from_fields(&layer.fields)
-                    .map(|a| a.state(layer.rel_us as f64 / 1e6, layer.dur_us as f64 / 1e6))
-                    .unwrap_or_default();
-                if anim.opacity <= 0.0 || anim.reveal <= 0.0 {
-                    return;
-                }
-                let st = text_style(&layer.fields, k as f32, area_w as f32);
-                let words = words_of(&content);
-                let reveal = if anim.reveal < 1.0 {
-                    let total: usize = words.iter().map(|w| w.chars().count() + 1).sum();
-                    (total as f64 * anim.reveal).floor() as usize
-                } else {
-                    usize::MAX
-                };
-                let mut hasher = std::collections::hash_map::DefaultHasher::new();
-                content.hash(&mut hasher);
-                format!("{st:?}").hash(&mut hasher);
-                reveal.hash(&mut hasher);
-                let key = hasher.finish();
-                let mut img = match self.text.get(&layer.item_id) {
+                let Some(text) = TextFrame::of(layer, k, area_w) else { return };
+                let key = text.key();
+                let img = match self.text.get(&layer.item_id) {
                     Some((hk, img)) if *hk == key => img.clone(),
                     _ => {
-                        let img = Arc::new(if reveal == usize::MAX {
-                            render_words(&words, &st)
-                        } else {
-                            render_words_partial(&words, &st, reveal)
-                        });
+                        let img = Arc::new(text.raster());
                         self.text.insert(layer.item_id.clone(), (key, img.clone()));
                         img
                     }
                 };
-                img = animate_text(img, &anim, st.size);
-                let (dx, dy) = (anim.dx * st.size as f64, anim.dy * st.size as f64);
-                let s = x.scale * anim.scale;
-                let place = Place {
-                    cx: centre.0 + dx,
-                    cy: centre.1 + dy,
-                    sx: s * flip,
-                    sy: s,
-                    rotation: x.rotation + anim.rotation,
-                };
+                let img = animate_text(img, &text.anim, text.style.size);
+                let place = text.place(layer, centre);
                 let tex = self.backend.upload(&img);
-                let params = DrawParams { opacity: opacity * anim.opacity as f32, blend, ..Default::default() };
+                let params = DrawParams { opacity: opacity * text.anim.opacity as f32, blend, ..Default::default() };
                 self.backend.draw(target, tex, place, &params);
                 self.backend.release(tex);
             }
             LayerKind::Code => {
-                let Some((img, (cw, ch), real)) = self.code_frame(doc, layer, (w, h), x.scale) else { return };
-                let fit = (area_w / cw as f64).min(area_h / ch as f64);
-                let s = fit * x.scale / real;
-                let place = Place { cx: centre.0, cy: centre.1, sx: s * flip, sy: s, rotation: x.rotation };
+                let Some((img, size, real)) = self.code_frame(doc, layer, (w, h), x.scale) else { return };
+                // The image is `real` image pixels per composition pixel.
+                let mut place = code_place(layer, area_w, area_h, centre, size);
+                place.sx /= real;
+                place.sy /= real;
+                let s = place.sy;
                 let params = DrawParams {
                     opacity,
                     blend,
@@ -543,6 +610,36 @@ impl Renderer {
         }
         let n = points.len() as f64;
         Ok(Some(acc.map(|v| (v / n) as f32)))
+    }
+
+    /// Draws the visible layer of item `item_id` at `t_us` alone on a transparent canvas of the renderer's size, at
+    /// full opacity with the normal blend and without its transition: the layer's own pixels, for hit testing. `None`
+    /// when the item is not visible then.
+    pub fn render_layer(&mut self, doc: &Document, t_us: Micros, item_id: &str) -> Option<Rgba> {
+        self.recover();
+        let (w, h) = self.size(doc);
+        let (_, ref_h) = reference_size(&doc.project.aspect_ratio);
+        let k = h as f64 / ref_h as f64;
+        let layer = layers_at(doc, t_us).into_iter().find(|l| l.item_id == item_id)?;
+        let canvas = self.backend.create(w, h, [0, 0, 0, 0]);
+        self.draw_layer(doc, canvas, &layer, k, 1.0, Blend::Normal);
+        let out = self.backend.read(canvas);
+        self.backend.release(canvas);
+        Some(out)
+    }
+
+    /// The pixel size of the frame a video or image layer draws at `t_us`, decoded (aspect ratio of the source).
+    pub fn source_size(&mut self, doc: &Document, layer: &Layer) -> Option<(u32, u32)> {
+        let (media_id, src_us, image) = match &layer.kind {
+            LayerKind::Video { media_id, src_us } => (media_id, *src_us, false),
+            LayerKind::Image { media_id } => (media_id, 0, true),
+            _ => return None,
+        };
+        let path = media_path(doc, self.bundle.as_deref(), media_id)?;
+        let (_, h) = self.size(doc);
+        let max_h = ((h as f64 * layer.xform.scale.abs().clamp(1.0, 2.0)).ceil() as u32).min(2160);
+        let frame = self.sources.frame(&layer.item_id, &path, src_us, max_h, image)?;
+        Some((frame.w, frame.h))
     }
 
     /// Renders the frame at timeline time `t_us`.

@@ -35,7 +35,9 @@
 - [x] 4.3 Draw the activity layer in the timeline: ruler band, outlines, actor badge, 100 ms coalescing, 3 s fade,
       skipped when the person is editing, capped at 200. Verify:
       - UI tests of each scenario;
-      - the flood test (1,000 applies in 10 s) with frame time under 16 ms. Record in Results.
+      - the flood test (1,000 applies in 10 s): batching and the 200 cap in the unit test. Record in Results.
+- [ ] 4.3a Frame time under 16 ms for the 1,000-apply flood, measured in the built app on both systems (moved out of
+      the jsdom unit test on 2026-11-28 because its wall-clock numbers depend on machine load; docs/flaky-tests.md).
 
 ## 5. History by actor
 

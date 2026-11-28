@@ -5,7 +5,7 @@ machine is not listed here; it is done there. Each row names the change and task
 `openspec/changes/<change>/tasks.md` is the source of truth, so this list adds no acceptance criteria of its own.
 Record each measured number in that change's `design.md` under Results, tick the task, and delete the row here.
 
-The rows are in order of what they unblock. Last updated: 2026-11-27 (after wave 2).
+The rows are in order of what they unblock. Last updated: 2026-11-28 (after wave 3).
 
 ## 1. FFmpeg rebuild (first: users are affected now)
 
@@ -77,8 +77,14 @@ hands-on work is needed after that.
   tokenizer files. Release of semantic search is blocked on it. The model is a 0.76 GB opt-in download.
 - extend-ai-generation-actions: the remote model catalog's daily fetch, and creating and storing its ed25519 release
   signing key (task 1.4), before that change starts. Also real provider keys for its live checks (5.1, 5.3).
-- Semantic search option (b): host our own smaller SigLIP 2 export (0.56 GB instead of 0.76 GB, passes the 0.99
-  parity gate) as an immutable, versioned asset, with NOTICE text for the modified Apache-2.0 weights. Hosting means
-  publishing files, so it needs your approval and a location. Until then the conversion's fp16 files are used.
+- **One hosting policy for our own model exports.** Should we host our own model exports as versioned GitHub release
+  assets of this repository, pinned by SHA-256 and size, with NOTICE files? Hosting means publishing outside this
+  machine. Approving a host is not approving a licence: each model's licence row stays separate. Assets:
+  - Beat This small, as our ONNX export (add-audio-intelligence). Code and weights are MIT. Users cannot download the
+    beat model until it is hosted.
+  - SigLIP 2, our smaller export (0.56 GB instead of 0.76 GB; add-semantic-media-search). Until it is hosted, the
+    upstream conversion's fp16 files are used.
+  - Later: the speaker-diarization model (add-speakers-and-caption-tools) and the subject-matte model
+    (add-color-management-and-subject-mattes), if their upstream files are not usable as published.
 - Creating a public community skills repository.
 - Any place agent feedback reports could be sent. Today they are copied by hand only.

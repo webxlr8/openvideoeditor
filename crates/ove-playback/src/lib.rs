@@ -17,7 +17,7 @@ mod player;
 pub mod scrub;
 mod transport;
 
-pub use audio::AudioRing;
+pub use audio::{AudioRing, retime};
 pub use clock::{AudioPosition, ClockSource, Micros, PlaybackClock, SimTime, SystemTime, TimeSource};
 pub use diagnostics::{Diagnostics, DiagnosticsSnapshot, Samples, Stats};
 #[cfg(feature = "media")]
@@ -25,4 +25,4 @@ pub use media::WorkerSource;
 #[cfg(feature = "audio-output")]
 pub use output::{AudioOutput, AudioUnavailable, DEVICE_POLL, OutputStatus};
 pub use player::{FrameSource, Player, PlayerConfig, PresentableFrame, SourcePoll, TickOutput};
-pub use transport::{Command, Effect, PlayState, Speed, Transport};
+pub use transport::{Command, Effect, PlayState, RATES, Speed, Transport, supported_rate};

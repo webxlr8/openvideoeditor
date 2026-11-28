@@ -45,7 +45,8 @@ in seconds. Every change is one revision: the user can undo it in the app, and `
    pending placeholders (exit 1 when there are errors).
 6. **Look**: `ove look <project> --at 2,5.5 --out frames/` renders composited frames; `--every 2 --sheet sheet.png`
    makes a contact sheet; `--stats` reports brightness and black/clipped pixels. Frames come from the same
-   compositor and backend as export (`--backend auto|cpu|gpu`).
+   compositor and backend as export (`--backend auto|cpu|gpu`). `--overlay safe,grid,mask:9:16` draws the
+   viewer's guides over the frames (never exported); `ove geometry <project> --at 3` lists where each layer is.
 
 ## As MCP tools
 
@@ -62,7 +63,8 @@ change; `undo_my_changes` undoes all of this session's changes. `ove docs tools`
 - Inspect footage before cutting: `ove media grab <project> <media> --at 3 --out f.png`,
   `ove media filmstrip <project> <media> --out strip.png`, `ove media scenes <project> <media>` (cut times).
 - Audio: `ove audio silence` (quiet ranges to cut), `ove audio loudness` (LUFS, true peak), `ove audio levels`,
-  `ove audio waveform`, `ove audio duck` (lower music under dialogue with volume keyframes).
+  `ove audio waveform`, `ove audio duck` (lower music under dialogue with volume keyframes), `ove audio sync` (line
+  up a recorder or other cameras against a reference clip by timecode or sound, with drift correction).
 - Volume over time: add a keyframe track to a `clip` or `audio` element, for example
   `keyframeTracks={[{property: "volume", keyframes: [{time: 0, value: 100}, {time: 2, value: 0}]}]}` fades out over
   2 s. Values are percent (0–200, like `volume`), times are seconds from the item's start, and the level changes

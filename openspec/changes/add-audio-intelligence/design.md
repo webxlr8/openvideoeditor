@@ -127,11 +127,104 @@ when they are next probed; missing values mean "no timecode".
   denoise model (a few MB) are below that limit but are listed in Settings → Storage.
 - DirectML stays off by default with a CPU fallback, pending a licence ruling.
 - SVT-AV1 stays excluded pending a licence ruling (not used by this change).
-- Verify that the Beat This checkpoints, not only its code, are under a permissive licence before pinning.
-- Verify that the DeepFilterNet3 weights carry the same permissive licence as the library before pinning.
+- Verified 2026-11-27: the Beat This README says "The code and the published model weights are released under the MIT
+  license" (https://github.com/CPJKU/beat_this). Recorded with the pins in tools/notices/beat-this.md.
+- Verified 2026-11-27: the DeepFilterNet README says "All code and model weights in this repository are
+  dual-licensed under either: MIT License … Apache License, Version 2.0" (https://github.com/Rikorose/DeepFilterNet).
+- Open: the exported beat model files have no immutable download location yet. The owner publishes them at a pinned
+  URL (a versioned release or a commit-pinned model repository) and adds them to the model catalog; until then they
+  are placed in `<models>/beat-this-small/` and checked against their pinned sizes and SHA-256.
 
 ## Results
 
 To be filled during apply: sync accuracy at head and tail and drift error on fixtures, sync run time for a 2 h
 reference against 10 targets, beat accuracy on fixtures, denoise noise reduction and real-time factor, on the macOS
 and Windows reference machines.
+
+### Source timecode (group 1, Windows 11 x64)
+
+- `crates/ove-media/tests/timecode.rs` probes fixtures made by the fixture FFmpeg: a 23.976 video at 10:00:00:00
+  (864,000 frames, start exactly 864,000 × 1001 / 24,000 s), a 29.97 drop-frame video at 10:00:00;00
+  (1,078,920 frames), a 25 fps MP4 at 01:02:03:04, a phone-style MP4 without timecode (no `sourceTimecode`), and
+  Broadcast WAV files written chunk by chunk (`bext` with iXML rate, `bext` only, iXML only, zero reference, none).
+- A video at 10:00:00:00 (23.976) and a WAV whose `time_reference` is 4 s later are 192,000 samples apart at
+  48 kHz, exactly; one more sample in the WAV gives 192,001.
+- Deviation from the task text: FFmpeg refuses drop-frame at 23.976 ("drop frame is only allowed with multiples of
+  30000/1001"), and drop-frame timecode is not defined for 24-frame rates. The drop-frame path is therefore checked
+  at 29.97; the 23.976 fixture is non-drop. A 23.976 label written with `;` is accepted and keeps `dropFrame`, but
+  drops no frame numbers.
+- A 23.976 recorder 4 real seconds after 10:00:00:00 is labelled 10:00:03:23, not 10:00:04:00: 4 s at 24000/1001 is
+  95.9 frames. Sync uses the exact start, not the label.
+
+### Audio sync (group 2, Windows 11 x64, test profile: opt-level 1)
+
+Fixtures are synthetic recordings (`ove_analyze::synth`): speech-like bursts of three partials (300 Hz – 3.5 kHz) in
+phrases with pauses, pink noise per microphone, a one-pole low-pass at 4 kHz on the recorder, and a clock rate per
+recording. The envelopes go through the same onset code as the import analysis cache (10 ms hops).
+
+| Check | Target | Measured |
+| --- | --- | --- |
+| Coarse offset, recorder 12.345 s late, 10 dB SNR, low-passed | within 10 ms | 12.3439 s (1.09 ms), confidence 0.64, peak ratio 4.1 |
+| Fine offset (GCC-PHAT, 2 s window) on the same fixture | ≤ 1 ms | 0.029 ms |
+| Looped music (4 s loop) | refused | refused as ambiguous |
+| Two-hour recorder, +50 ppm, 10 dB SNR | drift within 3 ppm | 50.000 ppm (237 of 237 windows, residual 0.167 ms) |
+| Same, offset at head / tail of the overlap | ≤ 1 ms / ≤ 2 ms | 0.027 ms / 0.024 ms |
+| 10-minute recorder at +2,000 ppm | reported, not applied | 1,985.4 ppm reported, not applied |
+| 2 h reference against 10 targets of 10 min, cached envelopes | under 10 s | 4.14 s |
+| CLI `ove audio sync --dry-run` on WAV files (7.25 s offset) | ≤ 1 ms | within 1 ms; no revision; apply is one revision |
+
+Notes:
+- The coarse search matches the 20 s most active part of each fifth of a long target, not the whole target: with
+  2,000 ppm of drift a 60 s probe smeared by 120 ms (12 envelope hops) and no longer correlated. 20 s probes smear by
+  at most 40 ms at that rate.
+- The import cache keeps a 10 ms onset envelope, not the 2 ms one in D2, and sync reuses it as the task asks. The
+  fine step makes up the precision: the 10 ms coarse step lands within ±1 hop and GCC-PHAT searches ±20 ms.
+- The fine step and the drift windows read short stretches of raw audio (2 s at the head, 1 s per drift window),
+  not the whole file. The 2 h timing uses synthesised audio for those reads, so file decoding time is not in the
+  4.14 s; a WAV or AAC read of one second is a few milliseconds.
+- The 2 h timing test asserts the 10 s budget with a 2.4× margin at opt-level 1. If it fails under load, it belongs
+  in the serial timing lane (docs/flaky-tests.md).
+
+### Beats (group 3, Windows 11 x64)
+
+Export and parity (task 3.1), with `tools/model-spike/export_beat_this.py` in the dev venv (`OVE_PYTHON`, packages
+pinned with hashes in `tools/model-spike/requirements.txt`: torch 2.15.0+cpu, torchaudio 2.11.1+cpu, beat_this
+1.1.0, onnx 1.23.2, onnxruntime 1.32.0). The checkpoint was downloaded into its own folder, hashed before loading
+and loaded with `weights_only=True`.
+
+| Item | Value |
+| --- | --- |
+| `small0.ckpt` | 8,451,101 bytes, SHA-256 `6074be2c…7d47b` |
+| `beat_this_frontend.onnx` (our log-mel frontend) | 4,467,329 bytes, SHA-256 `3372aaf1…1fb01` |
+| `beat_this_small0.onnx` (network) | 10,555,597 bytes, SHA-256 `71793320…c727` |
+| Frontend against the upstream log-mel frontend, 30 s | max difference 8.5e-6 |
+| Parity, 120 BPM 4/4 click track (75 s) | max logit difference 1.44e-5; 229/229 beats and 29/29 downbeats within one frame |
+| Parity, 100 BPM 3/4 clicks (70 s) | max logit difference 7.63e-6; beats and downbeats identical |
+| Parity, 96 BPM 4/4 clicks (20 s) | max logit difference 9.89e-6; beats and downbeats identical |
+| Gate (logits within 1e-3, beats within one frame) | PASS, worst 1.44e-5 |
+
+Decision change from D6: the frontend is a separate graph, not inside the network graph. The network attends over a
+whole 30 s chunk, so its logits depend on where chunks start. A first export with chunks cut on the samples differed
+from the reference by up to 2.8 in logits. The app now cuts the spectrogram exactly as the network was trained and
+evaluated (1,500-frame chunks from −6 frames, 1,488 apart, the last one moved to the end, borders dropped, earlier
+chunks win), which needs the whole spectrogram first. The frontend graph runs on any stretch of the reflect-padded
+piece and gives the same frames.
+
+Detection (task 3.2) through ove-models ONNX Runtime 1.32 (`crates/ove-cli/tests/beats.rs`, model run when
+`OVE_BEAT_MODEL_DIR` and `OVE_ONNXRUNTIME_LIB` are set):
+
+| Check | Target | Measured |
+| --- | --- | --- |
+| 120 BPM click track, 40 s | beats every 500 ms ± 20 ms, 120 ± 0.5 BPM | all within one 20 ms frame of the grid, all intervals 500 ± 20 ms, 120.0 BPM, meter 4 |
+| Waltz at 150 BPM (bass on 1, chords on 2 and 3), 40 s | a downbeat every third beat | meter 3, 34 downbeats |
+| No model files | "model not installed" with size, no download | `modelNotInstalled`, 15.0 MB, nothing created |
+
+A click track whose three beats sound alike is read as one downbeat per beat by the model; the 3/4 fixture is a
+waltz with harmony, as music has it. Timeline mapping (task 3.3) is checked by a property test against the
+renderer's own source-time mapping under trim, speed (0.25–4×) and reverse.
+
+Snap to beats (task 3.4): the `ove-edit` snap engine takes downbeat targets, and a beat in reach gives way to a
+downbeat in reach (unit test). The timeline's "Snap to beats" toggle fetches the music items' beats in timeline
+seconds (`timeline_beats`: cached, else the local model, never a download), draws beat and downbeat marks and snaps
+moves and trims with the same rule. UI tests: an edge dragged to 56.35 s lands on the downbeat at 56 s although the
+beat at 56.5 s is closer; with the option off there are no marks and the edge does not land on either.

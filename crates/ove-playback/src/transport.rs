@@ -56,6 +56,20 @@ pub enum Command {
     GoToEnd,
     Seek(Micros),
     SetLoop(bool),
+    /// Playback rate, one of [`RATES`] (a multiplier of the shuttle speed). Others are ignored; callers refuse them
+    /// with [`supported_rate`].
+    SetRate(f64),
+}
+
+/// The playback rates the transport plays at (add-viewer-interaction-and-text-fills, design D5).
+pub const RATES: [f64; 5] = [0.5, 1.0, 1.25, 1.5, 2.0];
+
+/// `rate` when it is one of [`RATES`]; otherwise a refusal naming them.
+pub fn supported_rate(rate: f64) -> Result<f64, String> {
+    RATES.iter().copied().find(|r| (r - rate).abs() < 1e-9).ok_or_else(|| {
+        let list: Vec<String> = RATES.iter().map(|r| format!("{r}")).collect();
+        format!("{rate}× is not a supported playback rate; supported rates: {}", list.join(", "))
+    })
 }
 
 /// What the engine must do as a result of a command or event.
@@ -83,15 +97,22 @@ pub struct Transport {
     pub position: Micros,
     /// Presentation time of the last frame (seek target for End).
     pub last_frame: Micros,
+    /// Playback rate (one of [`RATES`]); multiplies the shuttle speed.
+    pub rate: f64,
 }
 
 impl Transport {
     pub fn new(last_frame: Micros) -> Self {
-        Transport { state: PlayState::Paused, speed: Speed::Fwd1, looping: false, position: 0, last_frame }
+        Transport { state: PlayState::Paused, speed: Speed::Fwd1, looping: false, position: 0, last_frame, rate: 1.0 }
     }
 
     pub fn is_playing(&self) -> bool {
         self.state == PlayState::Playing
+    }
+
+    /// Media seconds per wall second while playing: the shuttle speed times the rate.
+    pub fn factor(&self) -> f64 {
+        self.speed.factor() * self.rate
     }
 
     /// Audio is heard only while playing forward at 1×.
@@ -162,6 +183,14 @@ impl Transport {
                 self.looping = on;
                 vec![]
             }
+            Command::SetRate(rate) => match supported_rate(rate) {
+                Ok(rate) if rate != self.rate => {
+                    self.rate = rate;
+                    // Restart the clock from where it is at the new rate.
+                    if self.is_playing() { vec![Effect::Run] } else { vec![] }
+                }
+                _ => vec![],
+            },
         }
     }
 

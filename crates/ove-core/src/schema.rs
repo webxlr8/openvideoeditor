@@ -319,6 +319,12 @@ const SOUND: &[Field] = &[
     f("audioFadeOut", Kind::Obj { fields: FADE, open: false }, "Audio fade at the end."),
     fd("playbackSpeed", num(0.01, 100.0), Def::Num(1.0), "Playback speed factor."),
     fd("playbackDirection", Kind::Enum(PLAYBACK_DIRECTIONS), Def::Str("forward"), "Playback direction."),
+    fd(
+        "denoise",
+        num(0.0, 100.0),
+        Def::Num(0.0),
+        "Speech clean-up amount in percent: the sound is this blend of a cleaned copy and the original.",
+    ),
 ];
 
 const TEXT: &[Field] = &[

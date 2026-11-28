@@ -50,6 +50,7 @@ const EMPTY: PlaybackState = {
   volume: 1,
   muted: false,
   audioAvailable: false,
+  rate: 1,
 };
 
 interface Toast {

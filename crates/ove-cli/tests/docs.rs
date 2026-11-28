@@ -116,6 +116,28 @@ fn project_examples() {
     }
 }
 
+/// docs/cli/geometry.md: layer geometry at a time, and the refusal past the end (needs the renderer).
+#[cfg(feature = "media")]
+#[test]
+fn geometry_examples() {
+    let (d, lib) = setup();
+    assert_eq!(run_examples("geometry.md", &lib, d.path()), 3);
+    let out = ove(&lib, d.path(), &["geometry", "Demo", "--at", "3", "--json"]);
+    let v: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!((v["width"].as_u64(), v["height"].as_u64()), (Some(1920), Some(1080)));
+    let layers = v["layers"].as_array().unwrap();
+    assert_eq!(layers.len(), 1, "the placeholder ends at 2 s: {v}");
+    assert_eq!((layers[0]["itemId"].as_str(), layers[0]["itemType"].as_str()), (Some("b"), Some("text")));
+    // The title is centred: its corners are symmetric about the frame centre.
+    let q = &layers[0]["quad"];
+    let (x0, x1) = (q[0][0].as_f64().unwrap(), q[1][0].as_f64().unwrap());
+    assert!((x0 + x1 - 1920.0).abs() < 1.0, "{q}");
+    let late = ove(&lib, d.path(), &["geometry", "Demo", "--at", "60"]);
+    assert_eq!(late.status.code(), Some(1));
+    let err = String::from_utf8_lossy(&late.stderr);
+    assert!(err.contains("which is 4 s long"), "{err}");
+}
+
 /// docs/cli/tasks.md: `ove tasks` without the app (no background work exists outside it).
 #[test]
 fn tasks_examples() {

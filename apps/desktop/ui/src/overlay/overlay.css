@@ -1,0 +1,152 @@
+/* The viewer overlay: selection box, handles and snap lines (add-viewer-interaction-and-text-fills). */
+
+.viewer-overlay {
+  touch-action: none;
+}
+
+.viewer-overlay svg {
+  pointer-events: none;
+}
+
+.viewer-overlay .overlay-box {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.viewer-overlay .overlay-source {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+  opacity: 0.6;
+}
+
+.viewer-overlay .overlay-stem {
+  stroke: var(--accent);
+  stroke-width: 1;
+}
+
+.viewer-overlay .overlay-handle {
+  fill: #fff;
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  pointer-events: all;
+}
+
+.viewer-overlay .overlay-crop {
+  fill: var(--accent);
+  stroke: #fff;
+}
+
+.viewer-overlay .overlay-snap {
+  stroke: #ff4fa3;
+  stroke-width: 1;
+}
+
+/* Guides (never exported). */
+.guide-layer line,
+.guide-layer rect {
+  fill: none;
+  vector-effect: non-scaling-stroke;
+}
+.guide-layer .guide-thirds,
+.guide-layer .guide-grid {
+  stroke: rgba(255, 255, 255, 0.45);
+  stroke-width: 1;
+}
+.guide-layer .guide-action {
+  stroke: rgba(0, 200, 255, 0.85);
+  stroke-width: 1;
+}
+.guide-layer .guide-title {
+  stroke: rgba(0, 255, 140, 0.85);
+  stroke-width: 1;
+}
+.guide-layer .guide-centre line {
+  stroke: rgba(255, 80, 80, 0.9);
+  stroke-width: 1;
+}
+.guide-layer .guide-mask {
+  fill: rgba(0, 0, 0, 0.6);
+}
+.guide-layer .guide-mask-edge {
+  stroke: rgba(255, 255, 255, 0.6);
+  stroke-dasharray: 4 3;
+}
+.guide-layer .guide-platform {
+  stroke: rgba(255, 196, 0, 0.9);
+  stroke-dasharray: 6 3;
+}
+
+.guides-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  min-width: 220px;
+}
+.guides-panel .guide-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  justify-content: space-between;
+}
+.guides-panel .guide-actions {
+  display: flex;
+  gap: 6px;
+}
+.guide-presets {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.guide-preset {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+.guide-preset input[type="number"] {
+  width: 52px;
+}
+
+/* Full-screen viewer. */
+.viewer-area.is-full {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: #000;
+}
+.fullscreen-controls {
+  position: absolute;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 10px;
+  background: rgba(20, 20, 24, 0.85);
+  z-index: 10;
+  transition: opacity 0.25s;
+}
+.fullscreen-controls.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+.fullscreen-controls .fs-scrub {
+  width: 320px;
+}
+.fullscreen-controls .fs-timecode {
+  font-variant-numeric: tabular-nums;
+}
+
+/* The viewer toolbar holds the guides menu, full screen and zoom in one row. */
+.viewer-tools:not([hidden]) {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}

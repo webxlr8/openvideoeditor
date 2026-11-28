@@ -147,6 +147,9 @@ pub struct MediaView {
     pub thumbnail: Option<String>,
     /// The hover-skim sheet, once built (served at `ove-skim://localhost/<contentId>.jpg`).
     pub skim: Option<SkimView>,
+    /// Start timecode label (`HH:MM:SS:FF`, `;` for drop-frame) when the file carries one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timecode: Option<String>,
     /// Media panel folder (add-semantic-media-search), `/`-separated; none at the top level.
     pub folder: Option<String>,
     pub tags: Vec<String>,
@@ -479,6 +482,9 @@ fn view_from(
                 status: status_name(st.map(|s| s.state).unwrap_or(MediaState::Online)).into(),
                 thumbnail: thumbnail(&m.id),
                 skim: None,
+                timecode: get("sourceTimecode")
+                    .and_then(|v| serde_json::from_value::<ove_media::SourceTimecode>(v.clone()).ok())
+                    .map(|t| t.label()),
                 folder: m.fields.get("folder").and_then(Value::as_str).map(str::to_string),
                 tags: m
                     .fields
@@ -1130,6 +1136,9 @@ pub(crate) fn media_records(canonical: &Path, info: &ove_media::MediaInfo, id: &
     data.insert("format".into(), info.container.clone().into());
     data.insert("duration".into(), ove_core::time::micros_to_json(duration_us));
     data.insert("hasAudio".into(), info.audio.is_some().into());
+    if let Some(tc) = info.source_timecode.as_ref().and_then(|t| serde_json::to_value(t).ok()) {
+        data.insert("sourceTimecode".into(), tc);
+    }
     if let Some(v) = &info.video {
         data.insert("width".into(), v.width.into());
         data.insert("height".into(), v.height.into());
@@ -1863,6 +1872,7 @@ mod tests {
                 video: None,
                 audio: None,
                 stream_count: 1,
+                source_timecode: None,
             },
             "m1",
             0,
