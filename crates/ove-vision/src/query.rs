@@ -25,7 +25,7 @@ pub fn cached(bundle: &Path, model: &str, query: &str) -> Option<Vec<f32>> {
 
 /// The embedding of `query`: from the cache, else from `encoder` (and then cached; a failed write is ignored).
 pub fn embed(bundle: &Path, encoder: &mut dyn Encoder, query: &str) -> crate::Result<Vec<f32>> {
-    let model = encoder.provenance().model_hash;
+    let model = encoder.text_key();
     if let Some(v) = cached(bundle, &model, query) {
         return Ok(v);
     }

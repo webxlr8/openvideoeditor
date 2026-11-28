@@ -1,8 +1,10 @@
 //! The visual search model's manifest through the store (add-semantic-media-search, CTO/CEO condition 3): an agent or
-//! a feature never starts the 0.63 GB download; the person's install resumes after an interrupted connection, checks
-//! every file's SHA-256 and refuses a damaged one; Remove deletes the files and the model reads as not installed.
+//! a feature never starts the 0.76 GB download; the person's install resumes after an interrupted connection, checks
+//! every file's SHA-256 and refuses a damaged one; Remove deletes the files and the model reads as not installed. The
+//! switch to the half-precision text encoder reuses the installed image encoder and removes the old text encoder
+//! only once the new one is verified.
 //!
-//! The real files are 0.63 GB, so the test serves small stand-ins under the same id, version, file names, licence
+//! The real files are 0.76 GB, so the test serves small stand-ins under the same id, version, file names, licence
 //! and layout (three files from one host); the consent check uses the real pinned sizes.
 
 mod common;
@@ -31,15 +33,18 @@ fn path(name: &str) -> String {
 fn the_real_pins_need_consent_and_name_size_model_and_licence() {
     let m = siglip2_manifest();
     assert!(needs_consent(&m));
-    assert_eq!(m.download_bytes(), 633_152_112);
-    assert_eq!(ove_models::error::size_text(m.download_bytes()), "0.63 GB");
+    // The size people see is the sum of the pinned files.
+    let sum: u64 = m.files.iter().map(|f| f.bytes).sum();
+    assert_eq!(m.download_bytes(), sum);
+    let size = ove_models::error::size_text(sum);
+    assert_eq!(size, "0.76 GB");
     let dir = tempfile::tempdir().unwrap();
     let server = Server::start();
     let s = Store::with_catalog(dir.path(), vec![m]).with_url_override(Some(UrlOverride::Mirror(server.base.clone())));
     for origin in [Origin::Agent, Origin::Feature] {
         match s.ensure_installed(SIGLIP2_ID, origin, &mut |_| {}, &AtomicBool::new(false)).unwrap() {
             Ensure::NeedsConsent(n) => {
-                assert!(n.message.contains("0.63 GB download from huggingface.co"), "{}", n.message);
+                assert!(n.message.contains(&format!("{size} download from huggingface.co")), "{}", n.message);
                 assert!(
                     n.message.contains("SigLIP 2 base") && n.message.contains("licence Apache-2.0"),
                     "{}",
@@ -97,4 +102,53 @@ fn a_damaged_file_is_refused_by_its_hash_and_nothing_is_installed() {
     assert!(!s.is_installed(SIGLIP2_ID));
     let version = siglip2_manifest().version;
     assert!(!dir.path().join(SIGLIP2_ID).join(&version).join(SIGLIP2_TOKENIZER).exists());
+}
+
+/// The manifest update from the 4-bit to the half-precision text encoder: the image encoder and the tokenizer keep
+/// their pins, so the person's install reuses them (no request for them), downloads only the new text encoder, checks
+/// it, and only then deletes the old text encoder and the previous version's folder. A failed download of the new
+/// text encoder leaves the old files in place.
+#[test]
+fn a_text_encoder_update_reuses_the_image_encoder_and_removes_the_old_text_file() {
+    let image = body(300_000, 41);
+    let old_text = body(200_000, 42);
+    let new_text = body(250_000, 43);
+    let tok = body(30_000, 44);
+    let mut old = stand_in(&[image.clone(), old_text.clone(), tok.clone()]);
+    old.version = "previous".into();
+    old.files[1].name = "text_model_q4f16.onnx".into();
+    let new = stand_in(&[image.clone(), new_text.clone(), tok.clone()]);
+    assert_eq!(new.files[0].sha256, old.files[0].sha256, "the image encoder keeps its pin");
+
+    let server = Server::start();
+    server.add(&format!("/{SIGLIP2_ID}/previous/{SIGLIP2_VISION}"), image.clone(), Mode::Normal);
+    server.add(&format!("/{SIGLIP2_ID}/previous/text_model_q4f16.onnx"), old_text.clone(), Mode::Normal);
+    server.add(&format!("/{SIGLIP2_ID}/previous/{SIGLIP2_TOKENIZER}"), tok.clone(), Mode::Normal);
+    let dir = tempfile::tempdir().unwrap();
+    let mirror = || Some(UrlOverride::Mirror(server.base.clone()));
+    let before = Store::with_catalog(dir.path(), vec![old]).with_url_override(mirror());
+    before.install(SIGLIP2_ID, &mut |_| {}, &AtomicBool::new(false)).unwrap();
+    let old_text_path = dir.path().join(SIGLIP2_ID).join("previous").join("text_model_q4f16.onnx");
+    assert!(old_text_path.is_file());
+
+    // The new text encoder is damaged on its first try: nothing old is deleted, and the model is not installed.
+    server.add(&path(SIGLIP2_TEXT), new_text.clone(), Mode::Corrupt);
+    let after = Store::with_catalog(dir.path(), vec![new]).with_url_override(mirror());
+    assert!(!after.is_installed(SIGLIP2_ID), "a new manifest version needs its new file");
+    let e = after.install(SIGLIP2_ID, &mut |_| {}, &AtomicBool::new(false)).unwrap_err();
+    assert_eq!(e, ModelError::Corrupt { model: SIGLIP2_ID.into(), file: SIGLIP2_TEXT.into() });
+    assert!(old_text_path.is_file(), "the old text encoder stays until the new one is verified");
+
+    // The good file: only the new text encoder is requested; the image encoder and tokenizer are reused.
+    server.add(&path(SIGLIP2_TEXT), new_text.clone(), Mode::Normal);
+    let requests_before = server.requests().len();
+    let out = after.install(SIGLIP2_ID, &mut |_| {}, &AtomicBool::new(false)).unwrap();
+    let new_requests: Vec<String> = server.requests()[requests_before..].iter().map(|r| r.path.clone()).collect();
+    assert_eq!(new_requests, vec![path(SIGLIP2_TEXT)], "only the new text encoder downloads");
+    for (p, b) in out.paths.iter().zip([&image, &new_text, &tok]) {
+        assert_eq!(&std::fs::read(p).unwrap(), b);
+    }
+    assert!(after.is_installed(SIGLIP2_ID));
+    assert!(!old_text_path.exists(), "the old 4-bit text encoder is removed");
+    assert!(!dir.path().join(SIGLIP2_ID).join("previous").exists(), "the previous version's folder is gone");
 }
