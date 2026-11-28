@@ -172,7 +172,10 @@ impl Project {
         actor: Option<Actor>,
     ) -> Result<Committed, UndoError> {
         let revs: Vec<i64> = self.revisions_in_scope(scope)?.iter().map(|r| r.rev).collect();
-        self.undo_selected(&revs, Source::Undo, summary, actor)
+        // The scope's own revisions that change nothing now (set a value already there, or undone before) are not
+        // reverted, and are not someone else's later change either.
+        let ours: BTreeSet<i64> = self.records()?.iter().filter(|r| in_scope(r, scope)).map(|r| r.rev).collect();
+        self.undo_selected_among(&revs, &ours, Source::Undo, summary, actor)
     }
 }
 
@@ -182,6 +185,19 @@ impl Project {
     pub fn undo_selected(
         &mut self,
         revs: &[i64],
+        source: Source,
+        summary: String,
+        actor: Option<Actor>,
+    ) -> Result<Committed, UndoError> {
+        self.undo_selected_among(revs, &BTreeSet::new(), source, summary, actor)
+    }
+
+    /// [`Project::undo_selected`], where revisions in `ours` (the same actor's, not reverted) never count as a later
+    /// change by someone else.
+    pub fn undo_selected_among(
+        &mut self,
+        revs: &[i64],
+        ours: &BTreeSet<i64>,
         source: Source,
         summary: String,
         actor: Option<Actor>,
@@ -201,7 +217,8 @@ impl Project {
                 })
             })
             .collect::<Result<_, _>>()?;
-        let later: Vec<RevisionRecord> = self.records()?.into_iter().filter(|r| r.rev > first).collect();
+        let later: Vec<RevisionRecord> =
+            self.records()?.into_iter().filter(|r| r.rev > first && !ours.contains(&r.rev)).collect();
         let found = conflicts(&chosen, &later);
         if !found.is_empty() {
             return Err(UndoError::Conflict(found));

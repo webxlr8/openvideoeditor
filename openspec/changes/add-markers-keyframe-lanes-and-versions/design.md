@@ -192,6 +192,9 @@ Measured on the Windows 11 build machine (debug build, `cargo test`).
   until timelines arrive. Property (`tests/scoped_undo.rs`, durable revisions, 500 cases by default): undoing agent
   A either equals replaying everyone else's edits alone, or is refused with a conflict and changes nothing; it is
   refused only when someone else later changed a field A changed.
+  At the full 500 cases the property found a false conflict: an agent revision that set a value already there was
+  skipped as a no-op and then counted as someone else's later change. `undo_scope` now ignores every revision of
+  its own scope when looking for conflicts (`undo_selected_among`); the seed is in `scoped_undo.proptest-regressions`.
 - History panel: a Versions section (save with a name, compare with now, restore) and a filter by who made each
   change (view state). Vitest: `ui/src/Versions.test.tsx` (save, compare, restore + undo, duplicate refusal) and the
   filter test in `ui/src/HistoryPanel.test.tsx`.
