@@ -123,17 +123,38 @@ reported with item id, field, file value and editor value.
 
 ### Requirement: Removal conflicts
 When one side removed an item that the other side changed since the base revision, the result SHALL follow the policy:
-under the default policy the file's intent wins (the item is removed, or re-created with its id); under `prefer
-editor` the current state wins. Each case SHALL be reported as a conflict.
+under `prefer file` the file's intent wins (the item is removed, or re-created with its id); under `prefer editor`
+the current state wins. Each case SHALL be reported as a conflict. `ove source apply` without `--prefer` SHALL use
+`prefer file`.
 
 #### Scenario: File removes an item the editor changed
 - **WHEN** the GUI changed item A's opacity and the file omits item A, from the same base
-- **THEN** item A is removed under the default policy, kept under `prefer editor`, and a conflict is reported
+- **THEN** item A is removed under `prefer file`, kept under `prefer editor`, and a conflict is reported
 
-#### Scenario: File edits an item the editor removed
-- **WHEN** the GUI deleted item A and the file changes item A's start, from the same base
-- **THEN** item A is re-created with its id under the default policy, stays deleted under `prefer editor`, and a
-  conflict is reported
+#### Scenario: File edits an item the editor removed, command line
+- **WHEN** the GUI deleted item A and the file changes item A's start, from the same base, and `ove source apply`
+  runs without `--prefer`
+- **THEN** item A is re-created with its id, and a conflict is reported; under `--prefer editor` it stays deleted
+
+### Requirement: Agent applies do not restore deleted items by default
+An agent's apply (`apply_timeline`) with no `prefer` SHALL refuse a file that edits an item deleted in the editor
+since the base revision: `edit.conflict`, nothing applied, each item named by name and id, and the agent told to ask
+the person. The tool's text says to pass `prefer: "file"` only after the person chooses to bring the items back. This
+guard is advisory: the apply cannot check it.
+
+#### Scenario: Agent edits an item the editor removed, no preference
+- **WHEN** the GUI deleted item A ("Intro", id `i_a`) and an agent's `apply_timeline` without `prefer` changes item
+  A's start, from the same base
+- **THEN** the call fails with `edit.conflict`, nothing is applied, the message names "Intro" (`i_a`) and asks the
+  agent to ask the person, and the details list the conflicting item
+
+#### Scenario: Agent edits an item the editor removed, person chose to restore it
+- **WHEN** the same apply is sent again with `prefer: "file"`
+- **THEN** item A is re-created with its id, and a conflict is reported
+
+#### Scenario: The guard is advisory
+- **WHEN** an agent passes `prefer: "file"` on its first apply, without asking the person
+- **THEN** item A is re-created; the apply has no way to tell whether the person chose
 
 ### Requirement: Base revision availability
 Apply SHALL refuse a projection whose `rev` is missing, malformed, newer than the current revision, or no longer

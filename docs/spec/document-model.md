@@ -90,7 +90,11 @@ Aspects: 16:9, 4:3, 3:4, 9:16, 1:1, 4:5.
 2. Diff against the revision named by `rev` → ops. 10 op kinds: `addTrack, updateTrack, removeTrack, reorderTracks,
    unsetTrackFields, addItem, updateItem, removeItems, unsetItemFields, setAspectRatio`.
 3. Rebase ops onto the current document item by item; GUI edits to other items survive. Same-item conflicts: file wins
-   by default, `--prefer editor` keeps GUI values; conflicts are reported.
+   by default, `--prefer editor` keeps GUI values; conflicts are reported. An edit to an item deleted in the editor:
+   `ove source apply` re-creates it by default (file wins). An agent's `apply_timeline` without `prefer` refuses it
+   with `edit.conflict` and applies nothing; the message names each item (name and id) and asks the agent to ask the
+   person. The agent passes `prefer: "file"` only after the person chooses to bring the items back. This rule is
+   advisory (tool text only): the apply does not check it, and an agent can pass `prefer: "file"` at once.
 4. Items without `id` are new; items missing from the file are removed (reported as "removed N items"); a changed id
    means replace (loses undo trail).
 5. New revision written to `.revs/`; open app applies live (~200 ms) as one undo step. A ripple revision also
