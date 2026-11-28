@@ -70,24 +70,37 @@ pub const WAIT_FOR_SESSION: Duration = Duration::from_secs(7);
 
 /// Opens `bundle` for writing. When another `ove` process holds it (a session between calls), waits up to
 /// [`WAIT_FOR_SESSION`] for it to be released; any other holder (the app) is reported at once.
+///
+/// It also waits while the lock is busy but its holder is not known (no `.lock.holder`, or one it cannot read): a
+/// holder writes that file just after it takes the lock and removes it just before it lets go, so a poll between
+/// the two steps finds no file. Only a holder that names a process other than `ove` stops the wait at once.
 pub fn open_write_waiting(bundle: &Path) -> Result<Project, Fail> {
     let t0 = Instant::now();
     loop {
         match Project::open(bundle, Mode::Write, clock()) {
             Ok(p) => return Ok(p),
-            Err(e) if e.code() == "project.locked" && held_by_ove(bundle) && t0.elapsed() < WAIT_FOR_SESSION => {
+            Err(e) if e.code() == "project.locked" && worth_waiting(bundle) && t0.elapsed() < WAIT_FOR_SESSION => {
                 std::thread::sleep(Duration::from_millis(25));
+            }
+            Err(e) if e.code() == "project.locked" && t0.elapsed() >= WAIT_FOR_SESSION => {
+                let mut f: Fail = e.into();
+                f.message = format!("{} (waited {} s for it to be released)", f.message, WAIT_FOR_SESSION.as_secs());
+                return Err(f);
             }
             Err(e) => return Err(e.into()),
         }
     }
 }
 
-/// True when the project's lock holder is another `ove` command-line process.
-fn held_by_ove(bundle: &Path) -> bool {
+/// True when a busy lock may soon be released: its holder is another `ove` command-line process, or the holder is
+/// not known (yet).
+fn worth_waiting(bundle: &Path) -> bool {
     let holder: Option<ove_store::lock::Holder> =
         std::fs::read(bundle.join(".lock.holder")).ok().and_then(|b| serde_json::from_slice(&b).ok());
-    holder.is_some_and(|h| h.process == "ove" && h.pid != std::process::id())
+    match holder {
+        None => true,
+        Some(h) => h.process == "ove" && h.pid != std::process::id(),
+    }
 }
 
 /// A project the session keeps open for writing between calls.
