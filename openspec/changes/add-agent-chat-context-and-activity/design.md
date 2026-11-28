@@ -125,4 +125,77 @@ Additive. Chat logs without mention records open unchanged.
 
 ## Results
 
-(To be filled during apply.)
+Measured on Windows 11 (32-core desktop, debug builds).
+
+**Group 1, mentions:**
+- Excerpts: an item mention is the item's printed element (`ove_tools::edits::element_spans`), byte-exact and unique
+  in the projection, with the `rev` it was printed from. A range lists the overlapping items in print order, capped
+  at 40 lines (a 50-item range: 40 shown, `10 more`). A media mention is its row of the header's media table.
+- Mentions are logged as a `mentions` record after the user record and sent as one text block plus image blocks.
+  Logs without the record read unchanged (test `mentions_round_trip_and_follow_their_message`).
+- Images go through the registry's `grab_frame` at a width that keeps the long side at 1,568 px (4000×2000 → 1568
+  wide, 1000×4000 → 392 wide); the sixth and later images are named in a notice.
+- Agent tests with the mock model (`crates/ove-agent/tests/mentions.rs`): the edit lands with one tool call
+  (`apply_timeline`, no `print_timeline`); after a concurrent move in the editor the edit merges onto the moved item.
+- Decision made during apply: an edit whose merge would bring back an item deleted in the editor after the text's
+  revision is now refused with `edit.conflict` (nothing applied) unless the caller passes `prefer: "file"`. Before,
+  the default (`prefer: file`) re-created the item, which the "Mentioned item deleted" scenario forbids. The 3-way
+  merge itself is unchanged; the check sits in `apply_timeline`.
+
+**Group 2, hand-off and the `/` menu:**
+- `askAssistant({prompt, mentions, newChat})` (`ui/src/chat/handoff.ts`) opens the chat and fills the input; it never
+  sends. The prepared requests live in one table (`ui/src/chat/prompts.ts`): Captions (filler words, names and
+  jargon, translation), Audio (score this range, duck under dialogue), Media (organise), Effects (match a shot to a
+  reference) and Transcript (tighten). UI tests per panel check the request and its mentions appear and nothing is
+  sent.
+- A new mention kind, `track`, quotes a track's items (capped at 40 lines like a range); "Remove filler words"
+  mentions the caption track with it. A marked-range placeholder is filled from the in and out points.
+- The `/` menu lists valid installed skills and the project templates. A skill becomes a chip; when the message is
+  sent the app reads it through the registry's `read_skill` and the turn's first request carries its text
+  (agent test `a_skill_chosen_from_the_slash_menu_is_read_at_the_start_of_the_turn`). A template opens its intake
+  form, then puts its request in the input. With no match the menu says "No matches" and Enter sends the text.
+
+**Group 3, reasoning:**
+- Reasoning deltas collect in a buffer and are drawn once per animation frame into a block that is collapsed by
+  default (first line and elapsed time; "Thinking 3s" while it streams, "Thought for 5s" after). Expanded, it keeps
+  updating. The open or closed choice is kept per user (local storage). A reopened chat shows the summarized thinking
+  of each reply as a closed block.
+- Frame measurement (`ui/src/chat/Reasoning.test.tsx`, jsdom, React Profiler around the whole app; the display frame
+  stood in for by a 16 ms timer): 600 tokens streamed at 199–215 tokens/s in three runs gave 207–213 reasoning draws
+  (not 600), about 50 commits per second, render p95 2.47–2.70 ms and max 3.7–11.4 ms per commit, all under 16 ms.
+  This measures render work in the test DOM, not paint in the built app's web view; that check is part of task 6.1.
+
+**Group 4, live activity:**
+- Reads: `ove_tools::call` tells its context what a watched tool reads (`ove_tools::activity`): `print_timeline` with
+  `from`/`lines` maps to the items on those lines (`element_spans`), a full print to the whole timeline (0 to the
+  printed duration), `look` to the span of its `at` times before it runs and of the rendered frames after,
+  `get_transcript` to its clips. The in-app assistant's context emits `agentActivity`; external agents
+  (`LinkCtx`, so `ove` commands and `ove mcp`) send the new fire-and-forget control method `notify`.
+- Changes: one hook after every project view the app sends walks the revisions it has not shown yet (by parent,
+  at most 50) and emits each agent revision's added, changed and removed items as a change, named after its actor
+  (`claude-code` → "Claude Code"). The person's own revisions are sent as `person` and clear those items' outlines,
+  so a person's edit made while an agent works is never shown as the agent's.
+- Integration test (`crates/ove-cli/tests/activity.rs`): an `ove mcp` session named claude-code against a stand-in
+  app produced a read of the whole timeline (0–4 s), a read of item `b` (partial print) and a change of `b` (apply
+  through the app), all named "Claude Code".
+- Timeline layer (`ui/src/activity`, mounted with one line in `Timeline.tsx`): events are batched every 100 ms; an
+  external change was outlined within 300 ms in the UI test; everything fades 3 s after the agent's last event; at
+  most 200 outlines with a "+N more" count.
+- Flood test (1,000 applies over 10 s against 400 items, React Profiler around the whole app, development build in
+  jsdom): 93–95 commits (about 9 per second, not one per apply), render p50 6.5–12.9 ms, p95 12.1–18.7 ms over five
+  runs, max 48–81 ms (garbage-collection pauses in the test process), 200 outlined. The p50 is inside a 16 ms frame;
+  the p95 is at or just over it in this setting, so the test bounds p95 at 32 ms. A measurement in the built app's
+  web view is part of task 6.1.
+
+**Group 5, History by actor:**
+- History rows carry the recorded actor's kind, session, turn and name. The panel groups consecutive rows by actor
+  ("Claude Code", "You", "Assistant"); each agent group (MCP, command line, assistant) offers "Undo this agent's
+  changes".
+- The command `undo_agent_changes` runs the registry's `undo_my_changes` (scope `any`, the command line's form) on
+  the open project: one new revision, itself undoable. An assistant group made in one turn undoes that turn.
+- Rust tests (`history.rs`): undoing the MCP session reverted both of its edits and kept the person's edit in
+  between; when the person later changed the same field, it was refused with that item and field and the revision
+  did not move. UI tests: the same two scenarios through the panel.
+- Test runs in this group: `exporting::a_stalled_queue_still_starts_the_export_within_5s`, `scrub_latency_and_edits`
+  and `ove-agent request_and_time_limits_name_the_limit` each failed once while other workers loaded the machine and
+  passed when run again; they are timing tests this change does not touch.

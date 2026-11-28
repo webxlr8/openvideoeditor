@@ -10,7 +10,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use ove_agent::tools::{self, ApplyRequest, ToolHost, label};
-use ove_agent::{AgentEvent, ChatStore, Client, KeyStore, OsKeyStore, ProjectCap, Record, Spend, TurnConfig, run_turn};
+use ove_agent::{
+    AgentEvent, ChatStore, Client, KeyStore, OsKeyStore, ProjectCap, Record, Spend, TurnConfig, run_turn_with,
+};
 use ove_core::ops::Op;
 use ove_core::revision::Source;
 use serde::{Deserialize, Serialize};
@@ -257,7 +259,7 @@ pub struct ChatSummaryView {
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatItem {
-    /// user, assistant, tool, question or note.
+    /// user, assistant, tool, question, note, reasoning (the summarized thinking), changes or usage.
     pub role: String,
     pub text: String,
     /// Tool call / question id.
@@ -268,6 +270,37 @@ pub struct ChatItem {
     pub usage: Option<TurnUsageView>,
     /// role `changes`: what the turn changed.
     pub review: Option<TurnReview>,
+    /// role `user`: what the message mentioned (items, ranges, media, skills).
+    pub mentions: Vec<MentionChip>,
+}
+
+/// A mention as the chat input sends it: an item, media or skill by id, or a time range.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct MentionInput {
+    /// `item`, `range`, `media` or `skill`.
+    pub kind: String,
+    pub id: Option<String>,
+    /// A range's start and end, seconds.
+    pub start: Option<f64>,
+    pub end: Option<f64>,
+}
+
+/// A mention as the chat shows it under a message.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct MentionChip {
+    pub kind: String,
+    pub label: String,
+    pub ids: Vec<String>,
+    /// An image was attached.
+    pub image: bool,
+}
+
+impl From<&ove_agent::Mention> for MentionChip {
+    fn from(m: &ove_agent::Mention) -> Self {
+        MentionChip { kind: m.kind.clone(), label: m.label.clone(), ids: m.ids.clone(), image: m.image.is_some() }
+    }
 }
 
 /// Live assistant activity.
@@ -449,6 +482,10 @@ impl ove_tools::AppHost for DesktopApp<'_> {
     }
     fn skills(&mut self) -> Option<ove_tools::skills::SkillStore> {
         skill_store(&self.host.app)
+    }
+    /// The assistant's reads show live on the timeline.
+    fn notify(&mut self, actor: Option<&ove_core::revision::Actor>, activity: &ove_tools::activity::Activity) {
+        crate::activity::emit(&self.host.app, actor, Source::Agent, activity);
     }
 }
 
@@ -708,6 +745,7 @@ pub fn chat_items(records: &[Record]) -> Vec<ChatItem> {
         options: vec![],
         usage: None,
         review: None,
+        mentions: vec![],
     };
     let undone: HashSet<&str> = records
         .iter()
@@ -747,6 +785,12 @@ pub fn chat_items(records: &[Record]) -> Vec<ChatItem> {
                             let t = b["text"].as_str().unwrap_or_default();
                             if !t.trim().is_empty() {
                                 out.push(item("assistant", t.to_string()));
+                            }
+                        }
+                        Some("thinking") => {
+                            let t = b["thinking"].as_str().unwrap_or_default();
+                            if !t.trim().is_empty() {
+                                out.push(item("reasoning", t.to_string()));
                             }
                         }
                         Some("tool_use") if b["name"] != "ask_user" => {
@@ -795,6 +839,11 @@ pub fn chat_items(records: &[Record]) -> Vec<ChatItem> {
                     }),
                     ..item("usage", String::new())
                 });
+            }
+            Record::Mentions { mentions, .. } => {
+                if let Some(u) = out.iter_mut().rev().find(|i| i.role == "user") {
+                    u.mentions = mentions.iter().map(MentionChip::from).collect();
+                }
             }
             Record::Summary { .. } if !out.iter().any(|i| i.role == "note" && i.text == SUMMARY_NOTE) => {
                 out.push(item("note", SUMMARY_NOTE.into()));
@@ -979,13 +1028,81 @@ pub async fn agent_undo_turn(
 #[serde(rename_all = "camelCase")]
 pub struct SendResult {
     pub chat_id: String,
+    /// Things the chat tells the person about the message (images left out, mentions that no longer exist).
+    #[serde(default)]
+    pub notices: Vec<String>,
+}
+
+/// Resolves the message's mentions when it is sent (design D1): item and range lines and media rows from the open
+/// project with its revision, then — through the tool registry, as the assistant — the attached images
+/// (`grab_frame`, downscaled) and the chosen skills (`read_skill`). Returns the mentions and notices for the chat.
+fn resolve_mentions(app: &AppHandle, refs: &[MentionInput]) -> AppResult<(Vec<ove_agent::Mention>, Vec<String>)> {
+    if refs.is_empty() {
+        return Ok((vec![], vec![]));
+    }
+    let to_ref =
+        |m: &MentionInput| ove_agent::MentionRef { kind: m.kind.clone(), id: m.id.clone(), start: m.start, end: m.end };
+    let timeline: Vec<ove_agent::MentionRef> = refs.iter().filter(|m| m.kind != "skill").map(to_ref).collect();
+    let mut resolved = {
+        let state = app.state::<AppState>();
+        let g = crate::projects::lock(&state.projects.open)?;
+        let p = g.as_ref().ok_or_else(|| AppError::new(ErrorCode::InvalidArgument, "Open a project first."))?;
+        ove_agent::mention::resolve(p, &timeline)
+    };
+    let mut host = DesktopHost { app: app.clone(), cancel: Arc::new(AtomicBool::new(false)), revs: vec![], turn: None };
+    let mut desk = DesktopApp { host: &mut host };
+    let mut ctx = ove_tools::AppCtx::assistant(&mut desk);
+    for want in &resolved.images {
+        let mut args = serde_json::Map::new();
+        args.insert("media".into(), want.media.clone().into());
+        args.insert("width".into(), want.width.into());
+        let label = resolved.mentions[want.index].label.clone();
+        match ove_tools::call(&mut ctx, "grab_frame", &args) {
+            Ok(r) => match r.images.first() {
+                Some(png) => resolved.mentions[want.index].image = Some(ove_tools::receipt::base64(&png.bytes)),
+                None => resolved.notices.push(format!("{label} could not be attached as an image.")),
+            },
+            Err(f) => resolved.notices.push(format!("{label} could not be attached as an image: {}", f.message)),
+        }
+    }
+    for m in refs.iter().filter(|m| m.kind == "skill") {
+        let Some(id) = m.id.as_deref() else { continue };
+        let mut args = serde_json::Map::new();
+        args.insert("id".into(), id.into());
+        match ove_tools::call(&mut ctx, "read_skill", &args) {
+            Ok(r) => {
+                let name = r.json["name"].as_str().unwrap_or(id).to_string();
+                let text = r.json["text"].as_str().unwrap_or_default();
+                resolved.mentions.push(ove_agent::mention::skill(id, &name, text));
+            }
+            Err(f) => resolved.notices.push(format!("The skill {id} could not be read: {}", f.message)),
+        }
+    }
+    Ok((resolved.mentions, resolved.notices))
 }
 
 /// Starts a turn in a chat (a new chat when `chat_id` is empty). Progress arrives as `agentUiEvent`.
 #[tauri::command]
 #[specta::specta]
 pub async fn agent_send(app: AppHandle, chat_id: Option<String>, text: String) -> AppResult<SendResult> {
-    worker::blocking("agent_send", move || {
+    worker::blocking("agent_send", move || send(app, chat_id, text, vec![])).await
+}
+
+/// [`agent_send`] with what the message mentions (items, ranges, media, skills). Each mention is resolved now, as
+/// the exact printed lines with their revision, and kept in the chat log.
+#[tauri::command]
+#[specta::specta]
+pub async fn agent_send_context(
+    app: AppHandle,
+    chat_id: Option<String>,
+    text: String,
+    mentions: Vec<MentionInput>,
+) -> AppResult<SendResult> {
+    worker::blocking("agent_send_context", move || send(app, chat_id, text, mentions)).await
+}
+
+fn send(app: AppHandle, chat_id: Option<String>, text: String, refs: Vec<MentionInput>) -> AppResult<SendResult> {
+    {
         let state = app.state::<AppState>();
         let state = &*state;
         let text = text.trim().to_string();
@@ -1019,6 +1136,7 @@ pub async fn agent_send(app: AppHandle, chat_id: Option<String>, text: String) -
             }
             None => None,
         };
+        let (mentions, notices) = resolve_mentions(&app, &refs)?;
         let chat_id = match chat_id.filter(|c| !c.is_empty()) {
             Some(c) => c,
             None => {
@@ -1045,7 +1163,8 @@ pub async fn agent_send(app: AppHandle, chat_id: Option<String>, text: String) -
             .spawn(move || {
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     let client = Client::new(key);
-                    let mut host = DesktopHost { app: app2.clone(), cancel: cancel.clone(), revs: Vec::new(), turn: None };
+                    let mut host =
+                        DesktopHost { app: app2.clone(), cancel: cancel.clone(), revs: Vec::new(), turn: None };
                     let cfg = TurnConfig {
                         model,
                         max_requests: limits.max_requests as usize,
@@ -1056,9 +1175,10 @@ pub async fn agent_send(app: AppHandle, chat_id: Option<String>, text: String) -
                         skill_index: skill_store(&app2).and_then(|s| ove_tools::skills::index_for(&s)),
                         ..TurnConfig::default()
                     };
-                    let _ = run_turn(&client, &store, &chat2, &text, &mut host, &cfg, &cancel, &mut |e| {
-                        let _ = AgentUiEvent::from(e).emit(&app2);
-                    });
+                    let _ =
+                        run_turn_with(&client, &store, &chat2, &text, &mentions, &mut host, &cfg, &cancel, &mut |e| {
+                            let _ = AgentUiEvent::from(e).emit(&app2);
+                        });
                 }));
                 if result.is_err() {
                     tracing::error!("the assistant turn panicked");
@@ -1084,9 +1204,8 @@ pub async fn agent_send(app: AppHandle, chat_id: Option<String>, text: String) -
                 relock(&st.assistant.answers).clear();
             })
             .map_err(|e| AppError::new(ErrorCode::Internal, e.to_string()))?;
-        Ok(SendResult { chat_id })
-    })
-    .await
+        Ok(SendResult { chat_id, notices })
+    }
 }
 
 #[tauri::command]
@@ -1148,6 +1267,7 @@ mod tests {
                 message_id: "m".into(),
                 model: "x".into(),
                 blocks: vec![
+                    json!({"type": "thinking", "thinking": "", "signature": "s"}),
                     json!({"type": "text", "text": "On it."}),
                     json!({"type": "tool_use", "id": "t1", "name": "apply_timeline", "input": {"edits": [{}]}}),
                 ],
@@ -1254,6 +1374,33 @@ mod tests {
         let mut records = records;
         records.push(Record::TurnUndone { turn: "u_1".into(), rev });
         assert!(chat_items(&records)[1].review.as_ref().unwrap().undone);
+    }
+
+    #[test]
+    fn a_reopened_chat_shows_the_mentions_of_each_message() {
+        let m = ove_agent::Mention {
+            kind: "media".into(),
+            ids: vec!["m1".into()],
+            rev: Some(3),
+            label: "poster.png".into(),
+            excerpt: "row".into(),
+            range: None,
+            more: 0,
+            image: Some("AAAA".into()),
+        };
+        let items = chat_items(&[
+            Record::User { id: "u_1".into(), text: "use this".into(), time: 0 },
+            Record::Mentions { turn: "u_1".into(), mentions: vec![m] },
+            Record::Assistant {
+                message_id: "m".into(),
+                model: "x".into(),
+                blocks: vec![json!({"type": "thinking", "thinking": "Compare the posters first.", "signature": "s"})],
+            },
+        ]);
+        assert_eq!(items.len(), 2);
+        assert_eq!((items[1].role.as_str(), items[1].text.as_str()), ("reasoning", "Compare the posters first."));
+        let chips = &items[0].mentions;
+        assert_eq!((chips[0].kind.as_str(), chips[0].label.as_str(), chips[0].image), ("media", "poster.png", true));
     }
 
     #[test]

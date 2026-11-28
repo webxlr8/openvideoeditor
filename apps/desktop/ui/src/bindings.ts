@@ -264,7 +264,18 @@ export const commands = {
 	agentChats: () => typedError<ChatSummaryView[], AppError>(__TAURI_INVOKE("agent_chats")),
 	agentChat: (id: string) => typedError<ChatItem_Serialize[], AppError>(__TAURI_INVOKE("agent_chat", { id })),
 	/**  Starts a turn in a chat (a new chat when `chat_id` is empty). Progress arrives as `agentUiEvent`. */
-	agentSend: (chatId: string | null, text: string) => typedError<SendResult, AppError>(__TAURI_INVOKE("agent_send", { chatId, text })),
+	agentSend: (chatId: string | null, text: string) => typedError<SendResult_Serialize, AppError>(__TAURI_INVOKE("agent_send", { chatId, text })),
+	/**
+	 *  [`agent_send`] with what the message mentions (items, ranges, media, skills). Each mention is resolved now, as
+	 *  the exact printed lines with their revision, and kept in the chat log.
+	 */
+	agentSendContext: (chatId: string | null, text: string, mentions: MentionInput_Deserialize[]) => typedError<SendResult_Serialize, AppError>(__TAURI_INVOKE("agent_send_context", { chatId, text, mentions })),
+	/**
+	 *  History → "Undo this agent's changes": every revision of that agent's session (or of one assistant turn), as one
+	 *  new revision that can itself be undone. Refused when later edits by others changed the same fields: nothing
+	 *  changes, and the conflicting items are listed.
+	 */
+	undoAgentChanges: (kind: string, session: string, turn: string | null) => typedError<AgentUndo_Serialize, AppError>(__TAURI_INVOKE("undo_agent_changes", { kind, session, turn })),
 	agentStop: () => typedError<null, AppError>(__TAURI_INVOKE("agent_stop")),
 	agentAnswer: (questionId: string, answer: string) => typedError<null, AppError>(__TAURI_INVOKE("agent_answer", { questionId, answer })),
 	/**  Saves the spend caps and per-turn limits (Settings → Assistant). They apply from the next turn. */
@@ -427,6 +438,7 @@ export const commands = {
 
 /** Events */
 export const events = {
+	agentActivity: makeEvent<AgentActivity_Serialize, AgentActivity_Deserialize>("agent-activity"),
 	agentUiEvent: makeEvent<AgentUiEvent_Serialize, AgentUiEvent_Deserialize>("agent-ui-event"),
 	appErrorRaised: makeEvent<AppErrorRaised, AppErrorRaised>("app-error-raised"),
 	audioAnalysisChanged: makeEvent<AudioAnalysisChanged, AudioAnalysisChanged>("audio-analysis-changed"),
@@ -448,6 +460,47 @@ export const events = {
 };
 
 /* Types */
+/**  One thing an agent did on the timeline. */
+export type AgentActivity = AgentActivity_Serialize | AgentActivity_Deserialize;
+
+/**  One thing an agent did on the timeline. */
+export type AgentActivity_Deserialize = {
+	/**  Who, as a stable key: the actor kind and its session (`mcp:<session>`, `assistant:<chat>`). */
+	actor: string,
+	/**  The badge's name: Assistant, the client's name (Claude Code), MCP agent or Command line. */
+	name: string,
+	/**  `read`, `change`, or `person` (the person's own edit; never outlined). */
+	kind: string,
+	/**  Items read, changed or added. */
+	ids: string[],
+	/**  Items removed. */
+	removed: string[],
+	/**  The time range read, seconds. */
+	start?: number | null,
+	end?: number | null,
+	/**  When, ms since the epoch. */
+	ts: number | null,
+};
+
+/**  One thing an agent did on the timeline. */
+export type AgentActivity_Serialize = {
+	/**  Who, as a stable key: the actor kind and its session (`mcp:<session>`, `assistant:<chat>`). */
+	actor: string,
+	/**  The badge's name: Assistant, the client's name (Claude Code), MCP agent or Command line. */
+	name: string,
+	/**  `read`, `change`, or `person` (the person's own edit; never outlined). */
+	kind: string,
+	/**  Items read, changed or added. */
+	ids: string[],
+	/**  Items removed. */
+	removed: string[],
+	/**  The time range read, seconds. */
+	start: number | null,
+	end: number | null,
+	/**  When, ms since the epoch. */
+	ts: number | null,
+};
+
 export type AgentConnect = {
 	status: AgentConnectStatus,
 	instructions: string,
@@ -561,6 +614,25 @@ export type AgentUiEvent_Deserialize = { kind: "turnStarted"; chatId: string } |
 export type AgentUiEvent_Serialize = { kind: "turnStarted"; chatId: string } | { kind: "textDelta"; text: string } | { kind: "thinkingDelta"; text: string } | { kind: "toolCall"; id: string; name: string; label: string } | { kind: "toolResult"; id: string; ok: boolean; summary: string } | { kind: "question"; id: string; question: string; options: string[] } | { kind: "retrying"; message: string; seconds: number | null } | { kind: "turnDone"; chatId: string; stopped: boolean; durationMs: number | null; inputTokens: number | null; outputTokens: number | null; cacheReadTokens: number | null; costUsd: number | null; note: string | null } | { kind: "error"; code: string; message: string } | 
 /**  The assistant asked to show a timeline time. */
 { kind: "seek"; seconds: number | null };
+
+/**  What "Undo this agent's changes" did. */
+export type AgentUndo = AgentUndo_Serialize | AgentUndo_Deserialize;
+
+/**  What "Undo this agent's changes" did. */
+export type AgentUndo_Deserialize = {
+	/**  The project after the undo; none when it was refused. */
+	view?: ProjectView_Deserialize | null,
+	/**  Why it was refused: the fields changed later by others (nothing was changed). */
+	conflicts: UndoConflictRow[],
+};
+
+/**  What "Undo this agent's changes" did. */
+export type AgentUndo_Serialize = {
+	/**  The project after the undo; none when it was refused. */
+	view: ProjectView_Serialize | null,
+	/**  Why it was refused: the fields changed later by others (nothing was changed). */
+	conflicts: UndoConflictRow[],
+};
 
 /**  Error returned by every command: a code plus a plain-language message. */
 export type AppError = {
@@ -755,7 +827,7 @@ export type ChatItem = ChatItem_Serialize | ChatItem_Deserialize;
 
 /**  One line of the chat as the UI shows it. */
 export type ChatItem_Deserialize = {
-	/**  user, assistant, tool, question or note. */
+	/**  user, assistant, tool, question, note, reasoning (the summarized thinking), changes or usage. */
 	role: string,
 	text: string,
 	/**  Tool call / question id. */
@@ -766,11 +838,13 @@ export type ChatItem_Deserialize = {
 	usage?: TurnUsageView | null,
 	/**  role `changes`: what the turn changed. */
 	review?: TurnReview | null,
+	/**  role `user`: what the message mentioned (items, ranges, media, skills). */
+	mentions: MentionChip[],
 };
 
 /**  One line of the chat as the UI shows it. */
 export type ChatItem_Serialize = {
-	/**  user, assistant, tool, question or note. */
+	/**  user, assistant, tool, question, note, reasoning (the summarized thinking), changes or usage. */
 	role: string,
 	text: string,
 	/**  Tool call / question id. */
@@ -781,6 +855,8 @@ export type ChatItem_Serialize = {
 	usage: TurnUsageView | null,
 	/**  role `changes`: what the turn changed. */
 	review: TurnReview | null,
+	/**  role `user`: what the message mentioned (items, ranges, media, skills). */
+	mentions: MentionChip[],
 };
 
 export type ChatSummaryView = {
@@ -1324,6 +1400,14 @@ export type HistoryRow_Deserialize = {
 	canRestore: boolean,
 	/**  The agent client that made it (an MCP client's name, such as claude-code), when recorded. */
 	client?: string | null,
+	/**
+	 *  Who made it, for grouping by agent (change add-agent-chat-context-and-activity): the recorded actor's kind
+	 *  (user, assistant, cli, mcp, …), session and turn, and its name as people read it (Claude Code, Assistant).
+	 */
+	actorKind?: string | null,
+	session?: string | null,
+	turn?: string | null,
+	actorName?: string | null,
 };
 
 /**  One revision in the history panel. */
@@ -1340,6 +1424,14 @@ export type HistoryRow_Serialize = {
 	canRestore: boolean,
 	/**  The agent client that made it (an MCP client's name, such as claude-code), when recorded. */
 	client: string | null,
+	/**
+	 *  Who made it, for grouping by agent (change add-agent-chat-context-and-activity): the recorded actor's kind
+	 *  (user, assistant, cli, mcp, …), session and turn, and its name as people read it (Claude Code, Assistant).
+	 */
+	actorKind: string | null,
+	session: string | null,
+	turn: string | null,
+	actorName: string | null,
 };
 
 /**  What the timeline needs to draw a clip's waveform and gain line. */
@@ -1712,6 +1804,38 @@ export type MediaView_Serialize = {
 	subclips: SubclipView[],
 };
 
+/**  A mention as the chat shows it under a message. */
+export type MentionChip = {
+	kind: string,
+	label: string,
+	ids: string[],
+	/**  An image was attached. */
+	image: boolean,
+};
+
+/**  A mention as the chat input sends it: an item, media or skill by id, or a time range. */
+export type MentionInput = MentionInput_Serialize | MentionInput_Deserialize;
+
+/**  A mention as the chat input sends it: an item, media or skill by id, or a time range. */
+export type MentionInput_Deserialize = {
+	/**  `item`, `range`, `media` or `skill`. */
+	kind: string,
+	id?: string | null,
+	/**  A range's start and end, seconds. */
+	start?: number | null,
+	end?: number | null,
+};
+
+/**  A mention as the chat input sends it: an item, media or skill by id, or a time range. */
+export type MentionInput_Serialize = {
+	/**  `item`, `range`, `media` or `skill`. */
+	kind: string,
+	id: string | null,
+	/**  A range's start and end, seconds. */
+	start: number | null,
+	end: number | null,
+};
+
 /**  One reading as the UI uses it. Times are media seconds; levels are dB. */
 export type MeterReadingView = MeterReadingView_Serialize | MeterReadingView_Deserialize;
 
@@ -2015,8 +2139,18 @@ export type ScopeFrame = {
 	data: string,
 };
 
-export type SendResult = {
+export type SendResult = SendResult_Serialize | SendResult_Deserialize;
+
+export type SendResult_Deserialize = {
 	chatId: string,
+	/**  Things the chat tells the person about the message (images left out, mentions that no longer exist). */
+	notices?: string[],
+};
+
+export type SendResult_Serialize = {
+	chatId: string,
+	/**  Things the chat tells the person about the message (images left out, mentions that no longer exist). */
+	notices: string[],
 };
 
 export type SkillDiffLine = {
@@ -2409,6 +2543,15 @@ export type UiState = {
 	selection: string[],
 	/**  `timeline` or `source`. */
 	viewer: string,
+};
+
+/**  A field an agent changed that someone changed again later. */
+export type UndoConflictRow = {
+	/**  The item (its id), or the track, media or project. */
+	item: string,
+	field: string,
+	/**  The later change, as History lists it. */
+	summary: string,
 };
 
 export type UpdateInfo = UpdateInfo_Serialize | UpdateInfo_Deserialize;

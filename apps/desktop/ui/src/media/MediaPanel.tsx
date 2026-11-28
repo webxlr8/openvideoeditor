@@ -16,6 +16,7 @@ import type { PanelProps } from "../Panels";
 import { SkimThumb, tileStyle } from "../SkimThumb";
 import { sizeText } from "../storage/ModelsSection";
 import "./media.css";
+import { AskAssistant } from "../chat/AskAssistant";
 
 /** Typing pauses this long before a search runs. */
 export const DEBOUNCE_MS = 250;
@@ -268,6 +269,7 @@ export function MediaPanel({
           </button>
         )}
       </div>
+      {project && project.media.length > 0 && <AskAssistant panel="media" project={project} selection={[]} />}
       <div className="ms-bar">
         {searchingNow && (
           <div className="ms-chips" role="group" aria-label="Search scope">

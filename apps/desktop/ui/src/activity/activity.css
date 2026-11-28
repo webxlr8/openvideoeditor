@@ -1,0 +1,81 @@
+/* Live agent activity on the timeline: ruler band, item outlines, actor badges. */
+
+.activity-band {
+  position: absolute;
+  top: 0;
+  z-index: 5;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--accent, #7c6cff) 28%, transparent);
+  border-left: 1px solid var(--accent, #7c6cff);
+  border-right: 1px solid var(--accent, #7c6cff);
+  animation: activity-in 120ms ease-out;
+}
+
+.activity-outline {
+  position: absolute;
+  z-index: 3;
+  pointer-events: none;
+  border-radius: 6px;
+  box-sizing: border-box;
+  animation: activity-in 120ms ease-out;
+}
+.activity-outline.change {
+  border: 2px solid var(--accent, #7c6cff);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent, #7c6cff) 25%, transparent);
+}
+.activity-outline.read {
+  border: 1px dashed color-mix(in srgb, var(--accent, #7c6cff) 70%, white);
+}
+
+.activity-badges {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 0;
+  z-index: 6;
+  pointer-events: none;
+}
+.activity-badges-inner {
+  position: sticky;
+  display: inline-flex;
+  gap: 6px;
+  top: 0;
+  transform: translateY(5px);
+}
+.activity-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  white-space: nowrap;
+  background: var(--bg-2);
+  border: 1px solid color-mix(in srgb, var(--accent, #7c6cff) 60%, transparent);
+}
+.activity-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent, #7c6cff);
+  animation: activity-pulse 1s ease-in-out infinite alternate;
+}
+
+@keyframes activity-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes activity-pulse {
+  to {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .activity-band,
+  .activity-outline,
+  .activity-dot {
+    animation: none;
+  }
+}
