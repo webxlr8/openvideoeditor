@@ -19,6 +19,8 @@ struct Ring {
     latency_us: Micros,
     position: Option<AudioPosition>,
     underruns: u64,
+    /// Media time per device time: the playback rate the queued audio was resampled for.
+    speed: f64,
 }
 
 /// Cloneable handle; all clones share one ring.
@@ -38,6 +40,7 @@ impl AudioRing {
             latency_us: 0,
             position: None,
             underruns: 0,
+            speed: 1.0,
         })))
     }
 
@@ -72,6 +75,18 @@ impl AudioRing {
         r.buf.extend(samples.iter().copied());
     }
 
+    /// Scrub: replaces the queued audio with `grain` (48 kHz stereo frames in the ring's format) for media time
+    /// `pts_us`, fading the queued audio out first ([`crate::scrub::splice`]) so the cut makes no click.
+    pub fn splice_grain(&self, pts_us: Micros, grain: &[f32]) {
+        let mut r = self.lock();
+        let queued: Vec<f32> =
+            r.buf.iter().take(crate::scrub::SPLICE_FADE_FRAMES * r.channels as usize).copied().collect();
+        let joined = crate::scrub::splice(&queued, grain);
+        r.buf.clear();
+        r.buf.extend(joined);
+        r.front_us = Some(pts_us);
+    }
+
     pub fn clear(&self) {
         let mut r = self.lock();
         r.buf.clear();
@@ -88,8 +103,24 @@ impl AudioRing {
     /// Media time just after the last queued sample (where the producer continues).
     pub fn end_us(&self) -> Option<Micros> {
         let r = self.lock();
-        r.front_us
-            .map(|f| f + (r.buf.len() / r.channels.max(1) as usize) as Micros * 1_000_000 / r.rate.max(1) as Micros)
+        let device = (r.buf.len() / r.channels.max(1) as usize) as Micros * 1_000_000 / r.rate.max(1) as Micros;
+        r.front_us.map(|f| f + (device as f64 * r.speed).round() as Micros)
+    }
+
+    /// The playback rate the producer resamples for (media seconds per device second). Queued audio is dropped.
+    pub fn set_speed(&self, speed: f64) {
+        let mut r = self.lock();
+        let speed = if speed.is_finite() && speed > 0.0 { speed } else { 1.0 };
+        if r.speed != speed {
+            r.speed = speed;
+            r.buf.clear();
+            r.front_us = None;
+            r.position = None;
+        }
+    }
+
+    pub fn speed(&self) -> f64 {
+        self.lock().speed
     }
 
     pub fn set_volume(&self, v: f32) {
@@ -141,13 +172,58 @@ impl AudioRing {
         }
         let frames = (n / r.channels.max(1) as usize) as Micros;
         let rate = r.rate.max(1) as Micros;
-        r.front_us = Some(front + frames * 1_000_000 / rate);
+        let device = frames * 1_000_000 / rate;
+        r.front_us = Some(front + (device as f64 * r.speed).round() as Micros);
     }
+}
+
+/// Resamples interleaved audio of `channels` channels for playback at `rate` (linear interpolation): `n` frames
+/// become `n / rate` frames, so they play `rate` times faster (and higher, as a tape would). Rate 1 is a copy.
+pub fn retime(samples: &[f32], channels: usize, rate: f64) -> Vec<f32> {
+    let ch = channels.max(1);
+    let frames = samples.len() / ch;
+    if frames == 0 || !rate.is_finite() || rate <= 0.0 || (rate - 1.0).abs() < 1e-9 {
+        return samples.to_vec();
+    }
+    let out_frames = ((frames as f64) / rate).round().max(1.0) as usize;
+    let mut out = Vec::with_capacity(out_frames * ch);
+    for i in 0..out_frames {
+        let pos = i as f64 * rate;
+        let i0 = (pos.floor() as usize).min(frames - 1);
+        let i1 = (i0 + 1).min(frames - 1);
+        let f = (pos - i0 as f64) as f32;
+        for c in 0..ch {
+            let (a, b) = (samples[i0 * ch + c], samples[i1 * ch + c]);
+            out.push(a + (b - a) * f);
+        }
+    }
+    out
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn retime_shortens_by_the_rate_and_the_ring_counts_media_time() {
+        let ramp: Vec<f32> = (0..1000).flat_map(|i| [i as f32, -(i as f32)]).collect();
+        let fast = retime(&ramp, 2, 1.5);
+        assert_eq!(fast.len(), 2 * 667);
+        assert_eq!((fast[2], fast[3]), (1.5, -1.5));
+        assert_eq!(retime(&ramp, 2, 0.5).len(), 4000);
+        assert_eq!(retime(&ramp, 2, 1.0), ramp);
+        // 1 kHz mono at 1.5x: 100 device samples are 150 ms of media.
+        let ring = AudioRing::new(1000, 1);
+        ring.set_speed(1.5);
+        ring.push(0, &[0.0; 100]);
+        assert_eq!(ring.end_us(), Some(150_000));
+        ring.set_paused(false);
+        let mut out = [0.0f32; 10];
+        ring.fill(&mut out, 0, 0);
+        assert_eq!(ring.end_us(), Some(150_000));
+        ring.fill(&mut out, 10_000, 0);
+        assert_eq!(ring.position().unwrap().media_us, 15_000);
+    }
 
     #[test]
     fn fill_consumes_and_reports_position() {

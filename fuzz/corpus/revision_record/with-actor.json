@@ -1,0 +1,1 @@
+{"rev":1794433052235,"parent":1794433052000,"time":1794433052235,"source":"mcp","summary":"source apply: updated 1 item","ops":[{"op":"updateItem","id":"a","set":{"name":"x"}}],"inverse":[{"op":"updateItem","id":"a","set":{"name":"y"}}],"actor":{"kind":"mcp","session":"mcp-1","turn":"t1","client":"claude-code"}}

@@ -1,0 +1,3075 @@
+{
+  "tools": [
+    {
+      "name": "list_projects",
+      "description": "List the projects in the library (name, id, aspect ratio, duration, bundle path).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "search": {
+            "type": "string",
+            "description": "Only names containing this text"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "create_project",
+      "description": "Create a project with the starter tracks (Text, Captions, Overlay, Main, Audio).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Project name"
+          },
+          "aspect": {
+            "type": "string",
+            "description": "16:9, 9:16, 1:1, 4:5, 4:3 or 3:4"
+          },
+          "open": {
+            "type": "boolean",
+            "description": "Also open it in the running app"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "show_project",
+      "description": "Project summary: aspect ratio, duration, tracks with item counts, media count, revision.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "rename_project",
+      "description": "Rename a project.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "name": {
+            "type": "string",
+            "description": "New name"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "print_timeline",
+      "description": "Print the timeline as its literal TSX projection (header with media table, pending count and rev, then <track> and item elements, one per line). Always print before editing; use from/lines to read part of a long timeline.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "from": {
+            "type": "integer",
+            "description": "First line (1-based)"
+          },
+          "lines": {
+            "type": "integer",
+            "description": "Number of lines"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "check_timeline",
+      "description": "Check an edited timeline text without applying it: parse errors with positions, what would change, conflicts with edits made meanwhile.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "source": {
+            "type": "string",
+            "description": "The full edited timeline.tsx text"
+          },
+          "prefer": {
+            "type": "string",
+            "enum": [
+              "file",
+              "editor"
+            ],
+            "description": "Leave it out. Without it, an edit to an item the person deleted meanwhile is reported as a refusal (edit.conflict), as apply_timeline would refuse it; other conflicts keep your change. Pass \"file\" only after the person chooses to bring the deleted items back; \"editor\" keeps the person's values"
+          }
+        },
+        "required": [
+          "source"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "apply_timeline",
+      "description": "Apply an edit to the timeline as one undoable revision. Give `edits` (each oldText must occur exactly once in the printed timeline of `rev`; newText replaces it; empty newText deletes) with the `rev` from the header you edited, or a whole replacement `source`. Edits the person made meanwhile are merged. Returns what changed, conflicts and warnings, or the diagnostics that refused the edit.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "rev": {
+            "type": "integer",
+            "description": "The rev from the printed header the edits were made against"
+          },
+          "edits": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "oldText": {
+                  "type": "string"
+                },
+                "newText": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "oldText",
+                "newText"
+              ],
+              "additionalProperties": false
+            },
+            "description": "Text edits against the printed timeline"
+          },
+          "source": {
+            "type": "string",
+            "description": "Complete replacement projection text (instead of edits)"
+          },
+          "prefer": {
+            "type": "string",
+            "enum": [
+              "file",
+              "editor"
+            ],
+            "description": "Leave it out. Without it, an edit to an item the person deleted meanwhile is refused (edit.conflict) and nothing is applied; other conflicts keep your change. Pass \"file\" only after the person chooses to bring the deleted items back; \"editor\" keeps the person's values"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "verify_timeline",
+      "description": "Report problems: overlapping items, gaps on the main track, clips running past their source, missing or offline media, pending placeholders.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "timeline_history",
+      "description": "List revisions (oldest first) with their source and summary.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "undo_timeline",
+      "description": "Undo your most recent change that is not undone yet (or your revision `rev`) as a new revision. Only your own changes are undone; edits the person or other agents made meanwhile stay. Refused with undo.conflict, listing the items, when a later change touched the same fields.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "rev": {
+            "type": "integer",
+            "description": "One of your revisions to undo (default: your latest)"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "list_media",
+      "description": "The project's media: id, name (usable as src), kind, duration, online/offline status and use count.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "all": {
+            "type": "boolean",
+            "description": "Include unused media"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "add_media",
+      "description": "Add files to a project by absolute path: each is probed, registered and placed as a clip (video/images on Main, audio on Audio, after the last clip unless `at` is given).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "description": "Absolute file paths"
+          },
+          "track": {
+            "type": "string",
+            "description": "Track name or id"
+          },
+          "at": {
+            "type": "number",
+            "description": "Start of the first clip in seconds"
+          },
+          "noTimeline": {
+            "type": "boolean",
+            "description": "Only register the files"
+          }
+        },
+        "required": [
+          "paths"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "remove_media",
+      "description": "Remove media items and every clip that uses them.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "media": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "description": "Media ids or file names"
+          }
+        },
+        "required": [
+          "media"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "relink_media",
+      "description": "Point a media item at a new file, or find offline files by name under a folder.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "media": {
+            "type": "string",
+            "description": "Media id or file name"
+          },
+          "path": {
+            "type": "string",
+            "description": "New file path"
+          },
+          "folder": {
+            "type": "string",
+            "description": "Folder to search"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "probe_media",
+      "description": "Container, streams, codecs, resolution, frame rate and duration of a media item or file.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "media": {
+            "type": "string",
+            "description": "Media id, file name or path"
+          }
+        },
+        "required": [
+          "media"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "grab_frame",
+      "description": "Decode one frame of a media item or file; returns it as an image.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "media": {
+            "type": "string",
+            "description": "Media id, file name or path"
+          },
+          "at": {
+            "type": "number",
+            "description": "Time in seconds (default 0)"
+          },
+          "width": {
+            "type": "integer",
+            "description": "Width in pixels (default: source width)"
+          },
+          "grid": {
+            "type": "boolean",
+            "description": "Overlay a labelled grid in the frame's pixels from its centre, with safe-area boxes"
+          }
+        },
+        "required": [
+          "media"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "filmstrip",
+      "description": "Contact sheet of frames across a media file (or a range); returns the image and the frame times.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "media": {
+            "type": "string",
+            "description": "Media id, file name or path"
+          },
+          "count": {
+            "type": "integer",
+            "description": "Frames (default 8)"
+          },
+          "every": {
+            "type": "number",
+            "description": "One frame every N seconds"
+          },
+          "from": {
+            "type": "number",
+            "description": "Start (s)"
+          },
+          "to": {
+            "type": "number",
+            "description": "End (s)"
+          },
+          "columns": {
+            "type": "integer",
+            "description": "Columns"
+          },
+          "tileWidth": {
+            "type": "integer",
+            "description": "Tile width in pixels (default 240)"
+          },
+          "storyboard": {
+            "type": "boolean",
+            "description": "A storyboard instead: frames across the whole file, repeats dropped, at most 36 tiles with timecodes"
+          }
+        },
+        "required": [
+          "media"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "detect_scenes",
+      "description": "Hard cuts in a video: times (s) and scores.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "media": {
+            "type": "string",
+            "description": "Media id, file name or path"
+          },
+          "threshold": {
+            "type": "number",
+            "description": "0–1, default 0.3"
+          }
+        },
+        "required": [
+          "media"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "audio_levels",
+      "description": "Peak and RMS level (dBFS) per bucket across an audio or video file.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "media": {
+            "type": "string",
+            "description": "Media id, file name or path"
+          },
+          "points": {
+            "type": "integer",
+            "description": "Buckets (default 100)"
+          }
+        },
+        "required": [
+          "media"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "waveform_image",
+      "description": "The waveform of an audio or video file as an image.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "media": {
+            "type": "string",
+            "description": "Media id, file name or path"
+          },
+          "width": {
+            "type": "integer",
+            "description": "Pixels (default 1200)"
+          },
+          "height": {
+            "type": "integer",
+            "description": "Pixels (default 200)"
+          }
+        },
+        "required": [
+          "media"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "detect_silence",
+      "description": "Ranges quieter than a threshold for at least a minimum length — candidates for cuts. `mode: \"speech\"` finds dead air instead: pauses that voice activity finds and that are `relativeDb` below the speaker's own level (music beds stay), per media in source seconds; the document is not changed.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "media": {
+            "type": "string",
+            "description": "Media id, file name or path"
+          },
+          "thresholdDb": {
+            "type": "number",
+            "description": "dBFS, default -40 (level mode)"
+          },
+          "minDuration": {
+            "type": "number",
+            "description": "Seconds, default 0.5 (level mode)"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "level",
+              "speech"
+            ],
+            "description": "level (default) or speech"
+          },
+          "minPause": {
+            "type": "number",
+            "description": "Seconds, default 0.5, 0.25–3 (speech mode)"
+          },
+          "padding": {
+            "type": "number",
+            "description": "Seconds kept each side, default 0.15, 0–0.5 (speech mode)"
+          },
+          "relativeDb": {
+            "type": "number",
+            "description": "dB below the speech level, default 12 (speech mode)"
+          }
+        },
+        "required": [
+          "media"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "measure_loudness",
+      "description": "Integrated loudness (LUFS, EBU R128), loudness range, sample peak and true peak of a media file, or with `timeline` of the timeline mix as it would export (no export needed).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "media": {
+            "type": "string",
+            "description": "Media id, file name or path (not with timeline)"
+          },
+          "timeline": {
+            "type": "boolean",
+            "description": "Measure the timeline mix instead of a media file"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "look",
+      "description": "Render composited timeline frames (what the export will show) and return them as images, optionally with brightness stats.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "at": {
+            "type": "string",
+            "description": "Times in seconds, comma-separated"
+          },
+          "every": {
+            "type": "number",
+            "description": "One frame every N seconds"
+          },
+          "count": {
+            "type": "integer",
+            "description": "Frames across the timeline (default 6)"
+          },
+          "width": {
+            "type": "integer",
+            "description": "Pixels (default 640)"
+          },
+          "stats": {
+            "type": "boolean",
+            "description": "Brightness and black/clipped shares"
+          },
+          "grid": {
+            "type": "boolean",
+            "description": "Overlay a labelled grid in transform units (pixels from the canvas centre) with title-safe and action-safe boxes"
+          },
+          "storyboard": {
+            "type": "boolean",
+            "description": "One storyboard sheet of the whole timeline instead: repeats dropped, at most 36 tiles, each with its timecode and the ids of the visible items"
+          },
+          "overlay": {
+            "type": "string",
+            "description": "Viewer guides drawn over the frames, comma-separated: safe (action safe 93 %, title safe 90 %), grid or thirds, grid:<2-5>, centre, mask:<2.39:1|1.85:1|1:1|9:16|4:5>"
+          },
+          "backend": {
+            "type": "string",
+            "description": "Compositing backend: auto (default; the GPU when its startup self-test matches the CPU reference), cpu or gpu"
+          },
+          "view": {
+            "type": "string",
+            "description": "result (default) or matte: every chroma key shows its matte (white kept, black removed)"
+          },
+          "scope": {
+            "type": "string",
+            "description": "waveform, parade or vectorscope: return that scope of each frame instead of the frame (the colour panel's binning)"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "screenshot",
+      "description": "Render the frame under the running app's playhead; returns the image.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "width": {
+            "type": "integer",
+            "description": "Pixels (default 1280)"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "export_video",
+      "description": "Render the timeline (or a range of it) to a video or audio file. Pick a `preset` (see `docs` topic `export`: \"YouTube 1080p\", \"ProRes 422 HQ master\", \"ProRes 4444 with alpha\", \"DNxHR HQ master\", \"Web VP9\", \"Audio WAV 24-bit\", …), or a `format` (mp4, mov, mkv, webm, m4a, wav, flac; default: the extension of `out`) with optional codec fields. HEVC and AV1 need a hardware encoder. Refused while placeholders are pending or media is offline, and for combinations that cannot be written (the error names the fields). Exports run one at a time in a queue shared with the app; the call returns a job id (use `job_status`, `cancel_job`), or the result with `wait`. `audioOnly` writes the mix alone; `loudness` normalises it to a target with a true-peak limit and the result reports loudness before and after. The result names the encoder used.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "out": {
+            "type": "string",
+            "description": "Output file path; its extension must match the format"
+          },
+          "preset": {
+            "type": "string",
+            "description": "Named export preset"
+          },
+          "format": {
+            "type": "string",
+            "description": "Container: mp4, mov, mkv, webm, m4a, wav or flac"
+          },
+          "quality": {
+            "type": "string",
+            "description": "very low, low, medium (default), high or very high"
+          },
+          "resolution": {
+            "type": "string",
+            "description": "720p, 1080p (default), 4k, or match (the timeline's own size)"
+          },
+          "height": {
+            "type": "integer",
+            "description": "Output height in pixels (instead of resolution)"
+          },
+          "frameRate": {
+            "type": "number",
+            "description": "Frames per second (default 30, or the preset's)"
+          },
+          "fps": {
+            "type": "integer",
+            "description": "Same as frameRate"
+          },
+          "range": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 2,
+            "maxItems": 2,
+            "description": "[start, end] in seconds: export only this part"
+          },
+          "videoCodec": {
+            "type": "string",
+            "description": "h264, hevc, prores, dnxhr, vp9 or av1"
+          },
+          "profile": {
+            "type": "string",
+            "description": "ProRes: proxy, lt, standard, hq, 4444; DNxHR: lb, sq, hq, hqx, 444; HEVC: main, main10"
+          },
+          "bitDepth": {
+            "type": "integer",
+            "description": "Video bit depth: 8, 10 or 12"
+          },
+          "alpha": {
+            "type": "boolean",
+            "description": "Keep transparency (ProRes 4444 in MOV, VP9 in WebM)"
+          },
+          "videoBitrate": {
+            "type": "integer",
+            "description": "Video bit rate in bits per second (H.264, HEVC, AV1), instead of quality"
+          },
+          "audioCodec": {
+            "type": "string",
+            "description": "aac, pcm, flac, opus, or none"
+          },
+          "audioBitDepth": {
+            "type": "integer",
+            "description": "PCM and FLAC: 16 or 24"
+          },
+          "settings": {
+            "type": "object",
+            "description": "A whole export settings value (see `docs` topic `export`)"
+          },
+          "audioOnly": {
+            "type": "string",
+            "description": "Write the mix alone, no video: m4a (AAC), wav (24-bit) or flac (empty: from the out extension)"
+          },
+          "loudness": {
+            "type": "number",
+            "description": "Loudness target, integrated LUFS: -14, -16, -23 or -24 (default off); the result reports before and after"
+          },
+          "wait": {
+            "type": "boolean",
+            "description": "Return when the export has finished (default: return the job id at once; follow it with job_status)"
+          },
+          "backend": {
+            "type": "string",
+            "description": "Compositing backend: auto (default; the GPU when its startup self-test matches the CPU reference), cpu or gpu"
+          }
+        },
+        "required": [
+          "out"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "export_timeline_file",
+      "description": "Write the timeline for another editor: FCPXML (Final Cut, Resolve), XML (Premiere), EDL or OTIO — chosen by the file extension.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "file": {
+            "type": "string",
+            "description": "Output path (.fcpxml, .xml, .edl or .otio)"
+          },
+          "fps": {
+            "type": "number",
+            "description": "Frame rate (default 30; 29.97 and 23.976 allowed)"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "import_timeline_file",
+      "description": "Add the tracks and clips of an FCPXML / XML / EDL / OTIO file to a project as one revision.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "file": {
+            "type": "string",
+            "description": "Timeline file path"
+          },
+          "fps": {
+            "type": "number",
+            "description": "Frame rate of an EDL (default 30)"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "app_context",
+      "description": "What the running app shows: open project (name, id, bundle, revision), playhead, play state, selected clip ids, viewer mode.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "open_in_app",
+      "description": "Open a project in the running app.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "seek",
+      "description": "Move the app's playhead to a time in seconds so the person sees that moment.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "seconds": {
+            "type": "number",
+            "description": "Time in seconds"
+          }
+        },
+        "required": [
+          "seconds"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "play",
+      "description": "Start playback in the app, optionally at a playback rate.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "rate": {
+            "type": "number",
+            "description": "Playback rate: 0.5, 1, 1.25, 1.5 or 2 (default: keep the current one); audio plays resampled"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "pause",
+      "description": "Pause playback in the app.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "docs",
+      "description": "Documentation: without a topic, the list of topics; `agents` is the editing guide (start there).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "topic": {
+            "type": "string",
+            "description": "Topic name"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "check_code",
+      "description": "Check a code item's composition before (or after) applying it: transpiles the TSX, reports syntax errors, imports and unavailable globals with line:column, then renders frames at the start, middle and end and reports runtime errors, endless loops, unsupported elements and styles, console output and the slowest frame time. Pass the codeComposition object ({source, props?, assets?} or {template, props}).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "composition": {
+            "type": "object",
+            "description": "The codeComposition value"
+          },
+          "duration": {
+            "type": "number",
+            "description": "Item duration in seconds (default 4)"
+          }
+        },
+        "required": [
+          "composition"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "undo_my_changes",
+      "description": "Undo every change of this session (scope session, the default) or of one turn (scope turn) as one new revision, keeping everyone else's edits. Refused with undo.conflict, listing the items, when a later change by someone else touched the same fields.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "session",
+              "turn"
+            ],
+            "description": "session (default) or turn"
+          },
+          "turn": {
+            "type": "string",
+            "description": "The turn id (default: the current turn)"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "use_project",
+      "description": "Set this session's project: later calls may leave out `project`. A session started for one project (ove mcp --project) cannot switch to another.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path"
+          }
+        },
+        "required": [
+          "project"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "edit_timeline",
+      "description": "Run one edit verb as one revision (one undo step): split, trim, rippleTrim, rippleDelete, delete, insert, overwrite, lift, extract, closeGap, slip, slide, roll, move. Later items ripple on sync-locked tracks, linked items edit together, times snap to the frame grid. `request` is the edit as JSON, e.g. {\"op\":\"rippleDelete\",\"tracks\":[\"a1\"],\"ranges\":[{\"start\":12.3,\"end\":14}]} (seconds). Returns the plan and the printed lines of what changed; a refusal names a code and the culprit item ids. With `rev`, a request made against an older revision is moved through the ripples made since.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "request": {
+            "type": [
+              "object",
+              "string"
+            ],
+            "description": "The edit request (see `docs` topic `edit`)"
+          },
+          "rev": {
+            "type": "integer",
+            "description": "Revision the request was made against (default: the current one)"
+          },
+          "preview": {
+            "type": "boolean",
+            "description": "Return the plan without applying it"
+          },
+          "markers": {
+            "type": "boolean",
+            "description": "Markers follow a ripple: later markers shift with it, points inside a removed range go"
+          }
+        },
+        "required": [
+          "request"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "list_models_local",
+      "description": "List the local machine-learning models (id, purpose, licence, size in bytes, whether installed, folder). Models over 50 MB install only with the person's consent: in the app's Settings > Storage, or `ove models install <id> --yes` typed by the person.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "get_transcript",
+      "description": "The words said on the timeline, in timeline order: id (`<mediaId>@<sourceMs>`, stable across edits), text, timeline start and end in seconds, clip id, source times and a filler flag, with the project `rev` they were read at. Pages at 10,000 words (`offset`, `limit`). `segments: true` gives sentences instead. Media without a transcript are listed in `untranscribed`.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "clips": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "description": "Only these clip ids (default: every clip with sound)"
+          },
+          "segments": {
+            "type": "boolean",
+            "description": "Sentences instead of words"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "First word of the page (default 0)"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Words per page (default and most 10000)"
+          },
+          "model": {
+            "type": "string",
+            "description": "Only transcripts made with this speech model (tiny, base, small)"
+          },
+          "language": {
+            "type": "string",
+            "description": "Only transcripts in this language (ISO 639-1), with `model`"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "remove_words",
+      "description": "Cut words from the timeline as one revision: word ids from `get_transcript`, `ranges` of ids (`from` to `to` in timeline order) or exact phrases (`match`). Each cut keeps part of the natural pause (`pause`: tight 60 ms, balanced 150 ms, loose 320 ms), snaps its edges to the quietest point near the word, fades the seam, and later items close the gap; captions drop the cut words. Ids read at an older `rev` stay valid. `apply: false` returns the plan and the `timeline.tsx` diff without changing anything.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "description": "Word ids (`<mediaId>@<sourceMs>`)"
+          },
+          "ranges": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "from": {
+                  "type": "string"
+                },
+                "to": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "from",
+                "to"
+              ],
+              "additionalProperties": false
+            },
+            "description": "Inclusive word-id ranges"
+          },
+          "match": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "description": "Exact phrases; every occurrence is cut"
+          },
+          "pause": {
+            "type": "string",
+            "enum": [
+              "tight",
+              "balanced",
+              "loose"
+            ],
+            "description": "Pause kept at each seam (default balanced)"
+          },
+          "apply": {
+            "type": "boolean",
+            "description": "false: dry run (default true)"
+          },
+          "rev": {
+            "type": "integer",
+            "description": "Revision the ids were read at"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "remove_silence",
+      "description": "Cut dead air from the timeline as one revision: pauses found with on-device voice activity that are at least `relativeDb` (default 12) below the speaker's own level and at least `minPause` long (default 0.5 s), keeping `padding` (default 0.15 s) on each side except at clip edges. Music beds and loud ambience stay. Needs the inference runtime (the person installs it in Settings > Storage). `apply: false` returns the plan and the `timeline.tsx` diff.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "clips": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "description": "Only these clip ids (default: every clip with sound)"
+          },
+          "minPause": {
+            "type": "number",
+            "description": "Seconds, 0.25–3"
+          },
+          "padding": {
+            "type": "number",
+            "description": "Seconds, 0–0.5"
+          },
+          "relativeDb": {
+            "type": "number",
+            "description": "dB below the speech level"
+          },
+          "apply": {
+            "type": "boolean",
+            "description": "false: dry run (default true)"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "find_fillers",
+      "description": "Filler candidates on the timeline for review: listed filler words (`um`, `uh`, …) selected by default, context-dependent words (`like`, `you know`) flagged but not selected, and voiced sounds no word covers (after dead-air detection). Word candidates carry ids for `remove_words`. Nothing is cut.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "clips": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "description": "Only these clip ids"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "search_transcript",
+      "description": "Find a phrase in everything said in the project's transcribed media, ignoring case, accents and punctuation. Each hit gives the media, word-accurate source start and end in seconds, the word ids, and every place on the timeline that plays it. `untranscribed` counts media with no transcript yet.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "phrase": {
+            "type": "string",
+            "description": "Words to find, in order"
+          }
+        },
+        "required": [
+          "phrase"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "transcribe_media",
+      "description": "Recognise a media file's speech on this computer (no upload) and cache the words in the project, so `get_transcript`, `search_transcript` and the cutting tools can use them. A cached transcript is returned unless `force`. Speech models over 50 MB install only with the person's consent (Settings > Storage, or `ove models install whisper-base --yes`); without it the call returns `model.consent` with the size.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "media": {
+            "type": "string",
+            "description": "Media id, file name or path"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "text",
+              "words",
+              "json"
+            ],
+            "description": "text, words or json (default json)"
+          },
+          "language": {
+            "type": "string",
+            "description": "ISO 639-1 code (default: detect)"
+          },
+          "model": {
+            "type": "string",
+            "description": "tiny, base (default) or small"
+          },
+          "verbatim": {
+            "type": "boolean",
+            "description": "Keep hesitations (um, uh); cached apart"
+          },
+          "force": {
+            "type": "boolean",
+            "description": "Transcribe again even when cached"
+          }
+        },
+        "required": [
+          "media"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "duck_audio",
+      "description": "Lower music under dialogue as one revision: writes volume keyframes on the music items (ramp down `attack` before each line of speech, `depth` dB during it, back up over `release`; lines closer than `hold` merge). Speech comes from the dialogue's cached transcript, else from its level. `mode` replace (default) rewrites volume keyframes only in the affected range, so running again replaces an earlier duck; merge multiplies with existing ones. `dryRun` returns the planned keyframes per music item without changing anything.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "music": {
+            "type": [
+              "array",
+              "string"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Music item ids or track ids/names (list, or comma-separated)"
+          },
+          "under": {
+            "type": [
+              "array",
+              "string"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Dialogue item ids or track ids/names (list, or comma-separated)"
+          },
+          "depth": {
+            "type": "number",
+            "description": "dB during speech, -60 to 0 (default -12)"
+          },
+          "attack": {
+            "type": "number",
+            "description": "Seconds of ramp down before speech (default 0.2)"
+          },
+          "release": {
+            "type": "number",
+            "description": "Seconds of ramp up after speech (default 0.4)"
+          },
+          "hold": {
+            "type": "number",
+            "description": "Lines closer than this many seconds merge (default 0.5)"
+          },
+          "source": {
+            "type": "string",
+            "description": "transcript, level or auto (default: transcript when cached, else level)"
+          },
+          "mode": {
+            "type": "string",
+            "description": "replace (default) or merge"
+          },
+          "dryRun": {
+            "type": "boolean",
+            "description": "Return the plan without applying it"
+          }
+        },
+        "required": [
+          "music",
+          "under"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "extract_audio",
+      "description": "Extract the sound of a media file (a video, usually) into the project library as a new audio media entry: a 24-bit WAV or FLAC file in the bundle's media folder, added in one revision (undo removes the entry). Refused for media without audio or offline media.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "media": {
+            "type": "string",
+            "description": "Media id, file name or path"
+          },
+          "format": {
+            "type": "string",
+            "description": "wav (default) or flac"
+          }
+        },
+        "required": [
+          "media"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "list_models",
+      "description": "List the AI generation models (id, kind, provider, durations, aspect ratios, list price, whether the person has added the provider's key), with this session's confirmed spend and its cap. Prices are estimates; the provider bills the person.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "image",
+              "video",
+              "voice",
+              "music",
+              "sfx"
+            ],
+            "description": "Only models of this kind"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "generate_image",
+      "description": "Generate a still image and place it as a clip. Spends the person's money in two steps: call without `confirm` to get the plan, the estimate and a quoteId (nothing is spent); then call again with the same arguments and `confirm: <quoteId>`, and a person approves the price in the app or their client. The quote lasts 10 minutes and is valid only for that exact request; a session cannot spend above the person's cap (spend.cap). Approved, a pending placeholder goes on the timeline (one revision you can undo) and the receipt gives its item id, its printed line and the jobId for generation_status.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "prompt": {
+            "type": "string",
+            "description": "What to make"
+          },
+          "model": {
+            "type": "string",
+            "description": "Model id from list_models (default: the kind's default model)"
+          },
+          "aspect": {
+            "type": "string",
+            "enum": [
+              "16:9",
+              "9:16",
+              "1:1",
+              "4:3",
+              "3:4"
+            ],
+            "description": "Default: the project's"
+          },
+          "image": {
+            "type": "string",
+            "description": "Reference image (file path)"
+          },
+          "durationSeconds": {
+            "type": "number",
+            "description": "Clip length on the timeline (default 5)"
+          },
+          "start": {
+            "type": "number",
+            "description": "Timeline start in seconds (default: after the track's last clip)"
+          },
+          "track": {
+            "type": "string",
+            "description": "Track name or id (default: Overlay for pictures, Audio for sound)"
+          },
+          "name": {
+            "type": "string",
+            "description": "Clip name"
+          },
+          "confirm": {
+            "type": "string",
+            "description": "The quoteId from the first call. Spending still needs a person to approve the price; this argument alone never spends."
+          }
+        },
+        "required": [
+          "prompt"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "generate_video",
+      "description": "Generate a video clip from a prompt, or from a first frame (`image`). Spends the person's money in two steps: call without `confirm` to get the plan, the estimate and a quoteId (nothing is spent); then call again with the same arguments and `confirm: <quoteId>`, and a person approves the price in the app or their client. The quote lasts 10 minutes and is valid only for that exact request; a session cannot spend above the person's cap (spend.cap). Approved, a pending placeholder goes on the timeline (one revision you can undo) and the receipt gives its item id, its printed line and the jobId for generation_status.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "prompt": {
+            "type": "string",
+            "description": "What to make"
+          },
+          "model": {
+            "type": "string",
+            "description": "Model id from list_models (default: the kind's default model)"
+          },
+          "durationSeconds": {
+            "type": "number",
+            "description": "Seconds (the model's lengths; list_models)"
+          },
+          "aspect": {
+            "type": "string",
+            "enum": [
+              "16:9",
+              "9:16",
+              "1:1"
+            ],
+            "description": "Default: the project's"
+          },
+          "image": {
+            "type": "string",
+            "description": "First frame (file path)"
+          },
+          "negativePrompt": {
+            "type": "string",
+            "description": "What to avoid"
+          },
+          "seed": {
+            "type": "integer"
+          },
+          "start": {
+            "type": "number",
+            "description": "Timeline start in seconds (default: after the track's last clip)"
+          },
+          "track": {
+            "type": "string",
+            "description": "Track name or id (default: Overlay for pictures, Audio for sound)"
+          },
+          "name": {
+            "type": "string",
+            "description": "Clip name"
+          },
+          "confirm": {
+            "type": "string",
+            "description": "The quoteId from the first call. Spending still needs a person to approve the price; this argument alone never spends."
+          }
+        },
+        "required": [
+          "prompt"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "generate_voice",
+      "description": "Generate speech from text and place it on an audio track. Spends the person's money in two steps: call without `confirm` to get the plan, the estimate and a quoteId (nothing is spent); then call again with the same arguments and `confirm: <quoteId>`, and a person approves the price in the app or their client. The quote lasts 10 minutes and is valid only for that exact request; a session cannot spend above the person's cap (spend.cap). Approved, a pending placeholder goes on the timeline (one revision you can undo) and the receipt gives its item id, its printed line and the jobId for generation_status.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "text": {
+            "type": "string",
+            "description": "What the voice says"
+          },
+          "model": {
+            "type": "string",
+            "description": "Model id from list_models (default: the kind's default model)"
+          },
+          "voice": {
+            "type": "string",
+            "description": "Voice name or id"
+          },
+          "speed": {
+            "type": "number"
+          },
+          "stability": {
+            "type": "number"
+          },
+          "style": {
+            "type": "number"
+          },
+          "start": {
+            "type": "number",
+            "description": "Timeline start in seconds (default: after the track's last clip)"
+          },
+          "track": {
+            "type": "string",
+            "description": "Track name or id (default: Overlay for pictures, Audio for sound)"
+          },
+          "name": {
+            "type": "string",
+            "description": "Clip name"
+          },
+          "confirm": {
+            "type": "string",
+            "description": "The quoteId from the first call. Spending still needs a person to approve the price; this argument alone never spends."
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "generate_music",
+      "description": "Generate music from a description. Spends the person's money in two steps: call without `confirm` to get the plan, the estimate and a quoteId (nothing is spent); then call again with the same arguments and `confirm: <quoteId>`, and a person approves the price in the app or their client. The quote lasts 10 minutes and is valid only for that exact request; a session cannot spend above the person's cap (spend.cap). Approved, a pending placeholder goes on the timeline (one revision you can undo) and the receipt gives its item id, its printed line and the jobId for generation_status.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "prompt": {
+            "type": "string",
+            "description": "Style, mood, instruments"
+          },
+          "model": {
+            "type": "string",
+            "description": "Model id from list_models (default: the kind's default model)"
+          },
+          "durationSeconds": {
+            "type": "number",
+            "description": "Seconds (default 30)"
+          },
+          "instrumental": {
+            "type": "boolean",
+            "description": "No vocals"
+          },
+          "start": {
+            "type": "number",
+            "description": "Timeline start in seconds (default: after the track's last clip)"
+          },
+          "track": {
+            "type": "string",
+            "description": "Track name or id (default: Overlay for pictures, Audio for sound)"
+          },
+          "name": {
+            "type": "string",
+            "description": "Clip name"
+          },
+          "confirm": {
+            "type": "string",
+            "description": "The quoteId from the first call. Spending still needs a person to approve the price; this argument alone never spends."
+          }
+        },
+        "required": [
+          "prompt"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "generate_sfx",
+      "description": "Generate a sound effect from a description. Spends the person's money in two steps: call without `confirm` to get the plan, the estimate and a quoteId (nothing is spent); then call again with the same arguments and `confirm: <quoteId>`, and a person approves the price in the app or their client. The quote lasts 10 minutes and is valid only for that exact request; a session cannot spend above the person's cap (spend.cap). Approved, a pending placeholder goes on the timeline (one revision you can undo) and the receipt gives its item id, its printed line and the jobId for generation_status.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "prompt": {
+            "type": "string",
+            "description": "The sound"
+          },
+          "model": {
+            "type": "string",
+            "description": "Model id from list_models (default: the kind's default model)"
+          },
+          "durationSeconds": {
+            "type": "number",
+            "description": "Seconds (default 5)"
+          },
+          "start": {
+            "type": "number",
+            "description": "Timeline start in seconds (default: after the track's last clip)"
+          },
+          "track": {
+            "type": "string",
+            "description": "Track name or id (default: Overlay for pictures, Audio for sound)"
+          },
+          "name": {
+            "type": "string",
+            "description": "Clip name"
+          },
+          "confirm": {
+            "type": "string",
+            "description": "The quoteId from the first call. Spending still needs a person to approve the price; this argument alone never spends."
+          }
+        },
+        "required": [
+          "prompt"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "generation_status",
+      "description": "A generation job's state (queued, running, done, failed, cancelled), progress, output and error. `wait` waits until it finishes (at most two minutes per call); `cancel` asks it to stop.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The job id (jobId from the generate call)"
+          },
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "wait": {
+            "type": "boolean",
+            "description": "Wait until it finishes (at most 2 minutes)"
+          },
+          "cancel": {
+            "type": "boolean",
+            "description": "Ask it to stop"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "cancel_generation",
+      "description": "Ask a running generation job to stop. Its pending placeholder is removed when it stops; a finished job is left as it is.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The job id"
+          },
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "send_feedback",
+      "description": "Draft a report about OpenVideoEditor itself (a bug, something confusing or missing, an idea) for the person to review. It is stored on this computer only and never sent: the person reads it in Help > Feedback, edits or deletes it, and sends it themselves if they want. Write the summary in your own words: what you tried, what happened, what you expected. Leave out names, file paths, prompts and anything else the person typed or showed. The app and OS versions and this session's last tool names are added. At most 8 reports per session; an exact duplicate is not stored again.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "category": {
+            "type": "string",
+            "enum": [
+              "bug",
+              "confusing",
+              "missing",
+              "idea"
+            ]
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ]
+          },
+          "summary": {
+            "type": "string",
+            "description": "The report, paraphrased (at most 2000 characters)"
+          }
+        },
+        "required": [
+          "category",
+          "severity",
+          "summary"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "job_status",
+      "description": "An export job's state (queued, running, done, failed, cancelled), progress, encoder, output and error. With `wait`, returns once the job has finished.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "description": "The job id export_video returned"
+          },
+          "wait": {
+            "type": "boolean",
+            "description": "Return when the job has finished"
+          }
+        },
+        "required": [
+          "job_id"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "cancel_job",
+      "description": "Cancel a queued or running export job: a running one stops within 2 seconds and leaves no partial file. Refused for a finished job, whose file is kept.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "description": "The job id export_video returned"
+          }
+        },
+        "required": [
+          "job_id"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "list_export_jobs",
+      "description": "List the export queue, oldest first: every queued and running job, and those finished in the last day (all: every job). The app, `ove` and MCP share this queue.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "all": {
+            "type": "boolean",
+            "description": "Include jobs finished more than a day ago"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "save_range_as_media",
+      "description": "Render a range of the timeline into a new media file owned by the project (one revision). With `replace`, the same revision replaces what the range covers on `tracks` (default: every track except audio tracks) with one clip of the new media: a render in place, undone in one step. The file is DNxHR HQ or ProRes 422 HQ in MOV at the project's size (`small`: H.264 MP4).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "start": {
+            "type": "number",
+            "description": "Range start in seconds"
+          },
+          "end": {
+            "type": "number",
+            "description": "Range end in seconds"
+          },
+          "replace": {
+            "type": "boolean",
+            "description": "Also replace the covered items with one clip of the new media"
+          },
+          "tracks": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "description": "Track ids or names to render and replace (default: all but audio tracks)"
+          },
+          "name": {
+            "type": "string",
+            "description": "Name of the new media"
+          },
+          "small": {
+            "type": "boolean",
+            "description": "H.264 in MP4 instead of an intermediate codec (smaller, lossy)"
+          }
+        },
+        "required": [
+          "start",
+          "end"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "list_tasks",
+      "description": "List the app's unfinished background tasks (thumbnails, skim sheets, proxies, captions, export, analysis): id, kind, label, project, priority, state (queued, running, paused with its reason) and progress. Background work runs only in the app: without it the list is empty.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "kind": {
+            "type": "string",
+            "description": "Only this kind (thumbnail, skim, proxy, captions, export, audio-analysis, …)"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "wait_tasks",
+      "description": "Wait until the matching background tasks are done (for example the proxies of a project), or until the time-out: the result says whether they are done and how many remain. Paused tasks (playback, battery) do not finish while paused.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "kind": {
+            "type": "string",
+            "description": "Only this kind (thumbnail, skim, proxy, captions, export, audio-analysis, …)"
+          },
+          "timeoutSeconds": {
+            "type": "number",
+            "description": "Seconds to wait at most (default 30, at most 600)"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "cancel_task",
+      "description": "Cancel one background task by id (from list_tasks). It stops within a second and leaves no partial output; the result reports it cancelled. Derived data (thumbnails, skim sheets, proxies) is queued again the next time it is needed.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "The task id"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "list_skills",
+      "description": "List the installed skills: playbooks for kinds of edits (id, name, description, source). Read one with `read_skill` before following it.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "read_skill",
+      "description": "The whole text of an installed skill, by id. A skill is guidance: it never changes which tools you may use. Refused with skill.unknown, listing the installed ids, for an id that is not installed.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Skill id (from list_skills)"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "inspect_color",
+      "description": "Measure the colour of the exported frame at a time (snapped to the frame grid), or of one item alone with `isolate`: luma mean and 2nd/98th percentiles (percent), clipped-low and clipped-high shares, a 16-bin luma histogram, mean colour of shadows, midtones and highlights (RGB 0..1 and CIELAB), CIELAB a*/b* balance, mean saturation, a saturation-weighted 12-bin hue histogram, the share of colourful pixels and skin-line deviation in degrees. With `reference` (an item, measured alone, or a media file) adds the CIEDE2000 gap per zone and `suggestedOps`: a capped colorGrade patch (wheels and saturation) for the shot, also given as `suggestedEdit`, ready to pass to apply_timeline. Inspect again after applying; repeat until gap.mean is below 2.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "at": {
+            "type": "number",
+            "description": "Timeline time in seconds (default: the item's middle)"
+          },
+          "item": {
+            "type": "string",
+            "description": "Item id: the shot to measure and to grade"
+          },
+          "isolate": {
+            "type": "boolean",
+            "description": "Measure the item alone, without the layers above or below it"
+          },
+          "reference": {
+            "type": "string",
+            "description": "Item id or media id/file name to match"
+          },
+          "referenceAt": {
+            "type": "number",
+            "description": "Seconds: timeline time of a reference item (default its middle), source time of reference media (default 0)"
+          },
+          "strength": {
+            "type": "number",
+            "description": "0..1 share of the fitted correction to suggest (default 1; each step is capped)"
+          },
+          "height": {
+            "type": "integer",
+            "description": "Measuring height in pixels (default 1080, the export default)"
+          },
+          "backend": {
+            "type": "string",
+            "description": "Compositing backend: auto (default; the GPU when its startup self-test matches the CPU reference), cpu or gpu"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "organize_media",
+      "description": "Organise the project's media in one undoable revision: `move` media into a folder (`folder`: a `/`-separated path, empty or null for the top level), `rename` a media item (display name; `src` names in the timeline follow it), `tag` (`add` / `remove` tags), `createFolder`, `renameFolder` (`from`, `to`; media inside and below move with it), `deleteFolder` (its media move to the parent folder), `saveSubclip` (`media`, `name`, `in`, `out` in source seconds), `removeSubclip` (`media`, `id`) and `smartFolder` (`path`, a saved `query` and `scope`). Ops apply in order; `media` takes ids, file names or timeline names. Edits the person makes meanwhile to other fields are kept.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "ops": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 500,
+            "items": {
+              "type": "object",
+              "required": [
+                "op"
+              ],
+              "properties": {
+                "op": {
+                  "type": "string",
+                  "enum": [
+                    "move",
+                    "rename",
+                    "tag",
+                    "createFolder",
+                    "renameFolder",
+                    "deleteFolder",
+                    "saveSubclip",
+                    "removeSubclip",
+                    "smartFolder"
+                  ]
+                },
+                "media": {
+                  "type": [
+                    "string",
+                    "array"
+                  ],
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "folder": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "name": {
+                  "type": "string"
+                },
+                "add": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "remove": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "path": {
+                  "type": "string"
+                },
+                "from": {
+                  "type": "string"
+                },
+                "to": {
+                  "type": "string"
+                },
+                "in": {
+                  "type": "number"
+                },
+                "out": {
+                  "type": "number"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "query": {
+                  "type": "string"
+                },
+                "scope": {
+                  "type": "string",
+                  "enum": [
+                    "all",
+                    "moments",
+                    "spoken",
+                    "timelines",
+                    "files"
+                  ]
+                }
+              }
+            },
+            "description": "The steps, applied in order as one revision"
+          }
+        },
+        "required": [
+          "ops"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "search_media",
+      "description": "Search the project's media by what it shows and what is said, on this computer. Sections: moments (shots ranked by a local image–text model, each with its best frame, shot range, a suggested window of up to 4 s and a confidence 0–1), spoken (ranked phrase search over transcripts; quote a phrase to match it exactly; ranges padded by 150 ms), timelines (clips and titles whose name or text matches) and files (names, folders, tags). Each moment and spoken hit has `clip`: a `<clip …/>` line to paste into a track of timeline.tsx (set `start`/`end` where it goes, keeping the length). `similarTo` (media and time) finds shots that look like that frame. `index` reports what is searchable: visual not installed (with the download size; the person installs it in Settings > Storage, nothing is downloaded here), indexing (n of N files) or ready, and how many files have no transcript.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "query": {
+            "type": "string",
+            "description": "What to find: words, or a quoted phrase for exact spoken matches"
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "all",
+              "moments",
+              "spoken",
+              "timelines",
+              "files"
+            ],
+            "description": "Which sections to search (default all)"
+          },
+          "media": {
+            "type": "string",
+            "description": "Only this media item (id, file name or timeline name)"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Results per section (default 20, at most 50)"
+          },
+          "similarTo": {
+            "type": "object",
+            "properties": {
+              "media": {
+                "type": "string"
+              },
+              "at": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "media",
+              "at"
+            ],
+            "additionalProperties": false,
+            "description": "A frame as the query: {media, at} in source seconds"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "media_transcript",
+      "description": "The transcript of one media file in source seconds: caption-sized lines with their times and the words with word times, from the transcripts already made on this computer (transcribe_media makes one). `from`/`to` limit it to a source range.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "media": {
+            "type": "string",
+            "description": "Media id, file name or timeline name"
+          },
+          "from": {
+            "type": "number",
+            "description": "Source seconds to start at"
+          },
+          "to": {
+            "type": "number",
+            "description": "Source seconds to end at"
+          }
+        },
+        "required": [
+          "media"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "inspect_media",
+      "description": "Look at one media file: its probe facts, shots and index state; with `overview`, one sheet of at most 36 tiles with time labels, one per shot, built from the shot list (sampling seeks to each shot, it does not decode the whole file again).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "media": {
+            "type": "string",
+            "description": "Media id, file name or timeline name"
+          },
+          "overview": {
+            "type": "boolean",
+            "description": "Return the overview sheet"
+          },
+          "tileWidth": {
+            "type": "integer",
+            "description": "Tile width of the sheet in pixels (default 240)"
+          }
+        },
+        "required": [
+          "media"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "sync_items",
+      "description": "Line up recordings of the same moment (a camera and a sound recorder, several cameras) against a reference item, as one revision. mode auto (default) uses source timecode when both media carry it, else the sound: a cross-correlation of the cached onset envelopes, refined below 1 ms, and for overlaps over 150 s a clock-drift fit; 20–500 ppm of drift is corrected by retiming the audio-only target (video items keep their speed). The most confident target is placed first and placed targets anchor the rest; if any item would start before 0 the whole synced group moves right; a move that would overlap another item on its track is refused and names it. Each target reports status (placed, unmatched, refused), method, offset, confidence, drift and the reason it was not placed. Refused with sync.unmatched when no target is placed. `dryRun` returns the plan without changing anything.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "reference": {
+            "type": "string",
+            "description": "Item id of the reference (usually the camera)"
+          },
+          "targets": {
+            "type": [
+              "array",
+              "string"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Item ids or track ids/names to line up (list, or comma-separated)"
+          },
+          "mode": {
+            "type": "string",
+            "description": "auto (default), timecode or audio"
+          },
+          "window": {
+            "type": "number",
+            "description": "Largest offset searched, seconds (default: all)"
+          },
+          "minConfidence": {
+            "type": "number",
+            "description": "Lowest match confidence accepted, 0–1 (default 0.2)"
+          },
+          "drift": {
+            "type": "string",
+            "description": "auto (default: measure and correct) or off"
+          },
+          "dryRun": {
+            "type": "boolean",
+            "description": "Return the plan without applying it"
+          }
+        },
+        "required": [
+          "reference",
+          "targets"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "detect_beats",
+      "description": "Beats, downbeats, bars, meter (beats per bar) and tempo of music, with the local beat model (no network). `target` is a media file (times in source seconds) or an item: then `timelineBeats` and `timelineDownbeats` are timeline seconds with the item's trim, speed and reverse applied, ready for timeline.tsx. Results are cached per media and never written into the project. When the model is not installed the result is `status: modelNotInstalled` with its size; nothing is downloaded. `from` and `to` limit the times returned (timeline seconds for an item).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "target": {
+            "type": "string",
+            "description": "Item id, or media id, file name or path"
+          },
+          "from": {
+            "type": "number",
+            "description": "Only times at or after this many seconds"
+          },
+          "to": {
+            "type": "number",
+            "description": "Only times at or before this many seconds"
+          }
+        },
+        "required": [
+          "target"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "layer_geometry",
+      "description": "Where every visible layer is on screen at a time: for each layer (bottom first) its item id and type, its stacking index, the four corners of its source after transform (quad) and of the part its crop keeps (cropQuad), its rotation and opacity. Corners are canvas pixels from the frame's top-left corner, x right and y down, in the order top-left, top-right, bottom-right, bottom-left of the source. Use it to check framing, safe areas and overlaps.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "at": {
+            "type": "number",
+            "description": "Timeline time in seconds"
+          },
+          "height": {
+            "type": "integer",
+            "description": "Canvas height in pixels the corners are measured on (default: the reference height, the units of transform x and y)"
+          }
+        },
+        "required": [
+          "at"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "list_markers",
+      "description": "List the timeline markers in time order: id, time and duration in seconds, name, colour, note, status (open, review, resolved), assignee, and the ids of the items under each marker. Filter with `status` and `assignee` (for example open markers assigned to `agent`).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "status": {
+            "type": "string",
+            "description": "Only markers with this status: open, review or resolved"
+          },
+          "assignee": {
+            "type": "string",
+            "description": "Only markers assigned to this name (`agent`, `user`, …)"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "add_marker",
+      "description": "Add a marker at `at` seconds (a range with `dur`), as one revision. Status defaults to open. Markers carry review work: an agent never sets `resolved` (refused); see update_marker.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "at": {
+            "type": "number",
+            "description": "Timeline time in seconds"
+          },
+          "dur": {
+            "type": "number",
+            "description": "Duration in seconds (default 0: a point marker)"
+          },
+          "name": {
+            "type": "string",
+            "description": "Short label"
+          },
+          "color": {
+            "type": "string",
+            "description": "red, orange, yellow, green, teal, blue, purple, pink or #rrggbb"
+          },
+          "note": {
+            "type": "string",
+            "description": "Free text, at most 4,000 characters"
+          },
+          "status": {
+            "type": "string",
+            "description": "open (default), review or resolved"
+          },
+          "assignee": {
+            "type": "string",
+            "description": "Who should act on it: `agent`, `user` or a name"
+          }
+        },
+        "required": [
+          "at"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "update_marker",
+      "description": "Change one marker as one revision: time, duration, name, colour, note, status or assignee; `unset` removes name, color, note or assignee. Markers carry review work: list open markers assigned to `agent`, make the edit, check it with `look`, then set the marker's status to `review`. Never set `resolved`: only the person resolves a marker, and the request is refused with `marker.resolveByAgent`.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "id": {
+            "type": "string",
+            "description": "Marker id (from list_markers)"
+          },
+          "at": {
+            "type": "number",
+            "description": "New time in seconds"
+          },
+          "dur": {
+            "type": "number",
+            "description": "New duration in seconds"
+          },
+          "name": {
+            "type": "string",
+            "description": "New label"
+          },
+          "color": {
+            "type": "string",
+            "description": "New colour"
+          },
+          "note": {
+            "type": "string",
+            "description": "New note"
+          },
+          "status": {
+            "type": "string",
+            "description": "open, review or resolved (resolved: people only)"
+          },
+          "assignee": {
+            "type": "string",
+            "description": "New assignee"
+          },
+          "unset": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "description": "Fields to remove: name, color, note, assignee"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "remove_markers",
+      "description": "Remove markers by id as one revision.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "description": "Marker ids (from list_markers)"
+          }
+        },
+        "required": [
+          "ids"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "edit_keyframes",
+      "description": "Set, add or remove the keyframes of one property of one item, as one revision. Properties: x, y, scale, rotation, opacity, gaussianBlur, borderRadius, volume (sound items, 0-200), crop.top, crop.right, crop.bottom, crop.left (percent). Times are seconds from the item's start and must lie inside the item (`keyframe.outOfRange` otherwise). Each keyframe may set `easing` for the segment that starts at it (linear, ease-in, ease-out, ease-in-out, hold: keep the value until the next keyframe). `set` replaces the list (empty removes it), `add` adds or replaces keyframes at their times, `remove` takes times.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "item": {
+            "type": "string",
+            "description": "Item id"
+          },
+          "property": {
+            "type": "string",
+            "description": "The keyframed property, e.g. opacity or crop.left"
+          },
+          "set": {
+            "type": [
+              "array",
+              "string"
+            ],
+            "items": {
+              "type": "object",
+              "properties": {
+                "time": {
+                  "type": "number"
+                },
+                "value": {
+                  "type": "number"
+                },
+                "easing": {
+                  "type": "string",
+                  "enum": [
+                    "linear",
+                    "ease-in",
+                    "ease-out",
+                    "ease-in-out",
+                    "hold"
+                  ]
+                }
+              },
+              "required": [
+                "time",
+                "value"
+              ],
+              "additionalProperties": false
+            },
+            "description": "Every keyframe: [{time, value, easing?}] or \"0:1,2:0\""
+          },
+          "add": {
+            "type": [
+              "array",
+              "string"
+            ],
+            "items": {
+              "type": "object",
+              "properties": {
+                "time": {
+                  "type": "number"
+                },
+                "value": {
+                  "type": "number"
+                },
+                "easing": {
+                  "type": "string",
+                  "enum": [
+                    "linear",
+                    "ease-in",
+                    "ease-out",
+                    "ease-in-out",
+                    "hold"
+                  ]
+                }
+              },
+              "required": [
+                "time",
+                "value"
+              ],
+              "additionalProperties": false
+            },
+            "description": "Keyframes to add: [{time, value, easing?}] or \"1:0.5:hold\""
+          },
+          "remove": {
+            "type": [
+              "array",
+              "string"
+            ],
+            "items": {
+              "type": "number"
+            },
+            "description": "Times of the keyframes to remove (seconds from the item's start)"
+          },
+          "easing": {
+            "type": "string",
+            "description": "The track's easing for segments without their own"
+          },
+          "preview": {
+            "type": "boolean",
+            "description": "Return the plan without applying it"
+          }
+        },
+        "required": [
+          "item",
+          "property"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "save_version",
+      "description": "Save the current revision as a named version (\"client v2\") with an optional note. Versions survive history pruning and can be printed, compared and restored later. A name already in use is refused with `version.exists`.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "name": {
+            "type": "string",
+            "description": "Version name"
+          },
+          "note": {
+            "type": "string",
+            "description": "What this version is"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "list_versions",
+      "description": "List the project's named versions, oldest first: name, revision, time, who saved it, note and the bytes it added.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "print_version",
+      "description": "Print a named version's timeline as its TSX projection (read-only: apply edits to the current timeline, not to a version).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "name": {
+            "type": "string",
+            "description": "Version name"
+          },
+          "from": {
+            "type": "integer",
+            "description": "First line (1-based)"
+          },
+          "lines": {
+            "type": "integer",
+            "description": "Number of lines"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "diff_versions",
+      "description": "Compare two named versions, or a version and the current timeline (omit `to`): the items and markers added, removed, moved, trimmed or otherwise changed, with their old and new times.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "from": {
+            "type": "string",
+            "description": "The older version's name"
+          },
+          "to": {
+            "type": "string",
+            "description": "The newer version's name (default: the current timeline)"
+          }
+        },
+        "required": [
+          "from"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "restore_version",
+      "description": "Make the timeline equal to a named version again, as one new revision (one undo step brings back what was there).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "name": {
+            "type": "string",
+            "description": "Version name"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    }
+  ]
+}

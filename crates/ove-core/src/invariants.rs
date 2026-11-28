@@ -16,10 +16,14 @@
 //! | `value.nonNegative` | times, trims, durations and other non-negative values are ≥ 0 |
 //! | `value.range` | a number is within its documented range |
 //! | `project.format` | the document's format id is this app's |
+//! | `marker.id.unique` | marker ids are unique (enforced when adding) |
+//! | `marker.note.length` | a marker note has at most 4,000 characters |
+//! | `subclip.id.unique` | subclip ids are unique within their media item |
+//! | `subclip.range` | a subclip's `out` is after its `in` |
 
 use std::collections::{BTreeSet, HashSet};
 
-use crate::model::{Document, FORMAT_ID, Item, Track};
+use crate::model::{Document, FORMAT_ID, Item, Marker, Track};
 use crate::schema::{self, Issue, Kind, Severity};
 
 fn err(code: &'static str, path: String, message: String) -> Issue {
@@ -34,6 +38,43 @@ pub fn item_path(id: &str) -> String {
 /// Path prefix used for a track in issues: `tracks[<id>]`.
 pub fn track_path(id: &str) -> String {
     format!("tracks[{id}]")
+}
+
+/// Path prefix used for a marker in issues: `markers[<id>]`.
+pub fn marker_path(id: &str) -> String {
+    format!("markers[{id}]")
+}
+
+/// Checks one marker: non-negative time and duration, a known status, known field types and the note length.
+pub fn check_marker(m: &Marker, out: &mut Vec<Issue>) {
+    let p = marker_path(&m.id);
+    if m.at < 0 {
+        out.push(err("value.nonNegative", format!("{p}.at"), format!("{p}.at must not be negative")));
+    }
+    if m.dur < 0 {
+        out.push(err("value.nonNegative", format!("{p}.dur"), format!("{p}.dur must not be negative")));
+    }
+    if !schema::MARKER_STATUSES.contains(&m.status.as_str()) {
+        out.push(err(
+            "enum.known",
+            format!("{p}.status"),
+            format!("{p}.status must be one of {}, got \"{}\"", schema::MARKER_STATUSES.join(", "), m.status),
+        ));
+    }
+    for (k, v) in &m.fields {
+        if let Some(f) = schema::marker_field(k) {
+            schema::validate(&f.kind, v, &format!("{p}.{k}"), out);
+        }
+    }
+    if let Some(note) = m.str_field("note")
+        && note.chars().count() > schema::MARKER_NOTE_MAX
+    {
+        out.push(err(
+            "marker.note.length",
+            format!("{p}.note"),
+            format!("marker {} has a note longer than {} characters", m.id, schema::MARKER_NOTE_MAX),
+        ));
+    }
 }
 
 /// Checks one item (fields and references). Pushes errors and warnings.
@@ -68,6 +109,7 @@ pub fn check_item(doc: &Document, item: &Item, out: &mut Vec<Issue>) {
             schema::validate(&field.kind, v, &format!("{p}.{k}"), out);
         }
     }
+    effect_keyframes(item, &p, out);
     if let Some(mid) = item.fields.get("mediaItemId").and_then(|v| v.as_str())
         && !doc.project.media.contains_key(mid)
     {
@@ -76,6 +118,46 @@ pub fn check_item(doc: &Document, item: &Item, out: &mut Vec<Issue>) {
             format!("{p}.mediaItemId"),
             format!("item {} references media \"{mid}\", which does not exist", item.id),
         ));
+    }
+}
+
+/// Keyframe tracks on effect parameters (`effects.<entry id>.<parameter>`) must name an effect entry of the item and
+/// one of that effect's numeric parameters.
+fn effect_keyframes(item: &Item, p: &str, out: &mut Vec<Issue>) {
+    let Some(tracks) = item.fields.get("keyframeTracks").and_then(|v| v.as_array()) else { return };
+    let effects = item.fields.get("effects").and_then(|v| v.as_array());
+    for (i, t) in tracks.iter().enumerate() {
+        let Some(prop) = t.get("property").and_then(|v| v.as_str()) else { continue };
+        let Some((id, param)) = crate::effect_params::split_property(prop) else { continue };
+        let path = format!("{p}.keyframeTracks[{i}].property");
+        let entry = effects.and_then(|e| e.iter().find(|e| e.get("id").and_then(|v| v.as_str()) == Some(id)));
+        let Some(entry) = entry else {
+            out.push(err(
+                "keyframe.effect.exists",
+                path,
+                format!("item {} has no effect with id \"{id}\" to animate (keyframes on {prop})", item.id),
+            ));
+            continue;
+        };
+        let kind = entry.get("type").or_else(|| entry.get("template")).and_then(|v| v.as_str()).unwrap_or("");
+        match crate::effect_params::params(kind) {
+            Some(params) if params.contains(&param) => {}
+            Some(params) => out.push(err(
+                "keyframe.effect.param",
+                path,
+                format!(
+                    "effect {kind} (\"{id}\") has no numeric parameter \"{param}\" to animate; it has {}",
+                    params.join(", ")
+                ),
+            )),
+            None => out.push(err(
+                "keyframe.effect.param",
+                path,
+                format!(
+                    "effect \"{id}\" has the unknown type \"{kind}\", so its parameter \"{param}\" cannot be animated"
+                ),
+            )),
+        }
     }
 }
 
@@ -111,6 +193,11 @@ pub fn check_global(doc: &Document, out: &mut Vec<Issue>) {
                 doc.project.aspect_ratio
             ),
         ));
+    }
+    for (k, v) in &doc.project.extra {
+        if let Some(f) = schema::project_field(k) {
+            schema::validate(&f.kind, v, &format!("project.{k}"), out);
+        }
     }
     let mut ids = HashSet::new();
     for (i, t) in doc.project.tracks.iter().enumerate() {
@@ -150,6 +237,33 @@ pub fn check_global(doc: &Document, out: &mut Vec<Issue>) {
                 schema::validate(&Kind::Int { min: None, max: None }, v, &format!("project.media[{id}].{key}"), out);
             }
         }
+        // Organisation fields (add-semantic-media-search).
+        for key in ["name", "folder", "tags", "subclips"] {
+            if let (Some(v), Some(f)) = (m.fields.get(key), schema::MEDIA_ITEM_FIELDS.iter().find(|f| f.name == key)) {
+                schema::validate(&f.kind, v, &format!("project.media[{id}].{key}"), out);
+            }
+        }
+        check_subclips(id, m.fields.get("subclips"), out);
+    }
+}
+
+/// Subclip ids are unique within their media item and each range ends after it starts.
+fn check_subclips(media: &str, v: Option<&serde_json::Value>, out: &mut Vec<Issue>) {
+    let Some(list) = v.and_then(serde_json::Value::as_array) else { return };
+    let mut ids = HashSet::new();
+    for (i, s) in list.iter().enumerate() {
+        let p = format!("project.media[{media}].subclips[{i}]");
+        if let Some(sid) = s.get("id").and_then(serde_json::Value::as_str)
+            && !ids.insert(sid)
+        {
+            out.push(err("subclip.id.unique", format!("{p}.id"), format!("duplicate subclip id {sid}")));
+        }
+        let t = |k: &str| s.get(k).and_then(crate::time::json_to_micros);
+        if let (Some(a), Some(b)) = (t("in"), t("out"))
+            && b <= a
+        {
+            out.push(err("subclip.range", p, "a subclip's out must be after its in".into()));
+        }
     }
 }
 
@@ -162,6 +276,9 @@ pub fn check_document(doc: &Document) -> Vec<Issue> {
     }
     for item in doc.project.items.values() {
         check_item(doc, item, &mut out);
+    }
+    for m in doc.project.markers.values() {
+        check_marker(m, &mut out);
     }
     out
 }

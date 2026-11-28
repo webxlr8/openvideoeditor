@@ -44,6 +44,9 @@ fn kind_schema(k: &Kind) -> Value {
         Kind::Time => json!({"type": "number", "minimum": 0, "description": "seconds, microsecond precision"}),
         Kind::SignedTime => json!({"type": "number", "description": "seconds, microsecond precision"}),
         Kind::Enum(v) => json!({"enum": v}),
+        Kind::KeyframeProperty(v) => {
+            json!({"anyOf": [{"enum": v}, {"type": "string", "pattern": "^effects\\..+\\.[^.]+$"}]})
+        }
         Kind::Arr(e) => json!({"type": "array", "items": kind_schema(e)}),
         Kind::Obj { fields, open: _ } => {
             // Unknown keys are preserved (closed objects only warn), so additionalProperties stays allowed.
@@ -115,6 +118,8 @@ pub fn project_schema() -> Value {
                     "media": {"type": "array", "items": {"$ref": "#/$defs/mediaItem"}},
                     "tracks": {"type": "array", "items": {"$ref": "#/$defs/track"}},
                     "timelineItems": {"type": "array", "items": {"$ref": "#/$defs/item"}},
+                    "markers": {"type": "array", "items": {"$ref": "#/$defs/marker"}},
+                    "folders": schema::project_field("folders").map(field_schema).unwrap_or(Value::Null),
                 },
             },
             "media": {"type": "array", "items": {"$ref": "#/$defs/registryEntry"}},
@@ -128,6 +133,7 @@ pub fn project_schema() -> Value {
                 "properties": props(schema::REGISTRY_FIELDS.iter()),
             },
             "item": {"oneOf": item_variants},
+            "marker": {"type": "object", "required": ["id", "at"], "properties": props(schema::MARKER_FIELDS.iter())},
         }
     })
 }
@@ -152,6 +158,11 @@ fn kind_text(k: &Kind) -> String {
         Kind::Time => "seconds ≥ 0".into(),
         Kind::SignedTime => "seconds".into(),
         Kind::Enum(v) => v.iter().map(|s| format!("`{s}`")).collect::<Vec<_>>().join(" \\| "),
+        Kind::KeyframeProperty(v) => {
+            let mut names: Vec<String> = v.iter().map(|s| format!("`{s}`")).collect();
+            names.push("`effects.<effect id>.<parameter>`".into());
+            names.join(" \\| ")
+        }
         Kind::Arr(e) => format!("array of {}", kind_text(e)),
         Kind::Obj { fields, open } => {
             let keys = fields.iter().map(|f| f.name).collect::<Vec<_>>().join(", ");
@@ -222,6 +233,9 @@ Conventions:\n\
     s.push_str("## Registry entry (`media[]`)\n\n");
     let rf: Vec<&Field> = schema::REGISTRY_FIELDS.iter().collect();
     table(&mut s, &rf, &["mediaId", "nativePath", "ownedByBundle"]);
+    s.push_str("## Marker (`project.markers[]`)\n\nWritten in time order, then id; omitted when there are none.\n\n");
+    let mkf: Vec<&Field> = schema::MARKER_FIELDS.iter().collect();
+    table(&mut s, &mkf, &["id", "at"]);
     s.push_str("## Items\n\nEvery item has these head fields:\n\n");
     let hf: Vec<&Field> = schema::ITEM_HEAD.iter().collect();
     table(&mut s, &hf, &["id", "trackId", "type", "startTime", "endTime"]);

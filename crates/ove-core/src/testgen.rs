@@ -215,3 +215,93 @@ pub fn arb_doc_and_batch() -> impl Strategy<Value = (Document, Vec<Op>)> {
         (Just(doc), ops)
     })
 }
+
+const MARKER_STATUSES: &[&str] = &["open", "review", "resolved"];
+
+/// A random valid marker (without its id): time, duration, status and optional name, colour, note, assignee and an
+/// unknown field.
+pub fn arb_marker_body() -> impl Strategy<Value = Map<String, Value>> {
+    (
+        0i64..30_000,
+        prop_oneof![2 => Just(0i64), 1 => 1i64..5_000],
+        select(MARKER_STATUSES),
+        proptest::option::of("[A-Za-z ]{0,8}"),
+        proptest::option::of(select(&["red", "blue", "#e5484d"][..])),
+        proptest::option::of("[a-z\\\\\"\n ]{0,12}"),
+        proptest::option::of(select(&["user", "agent"][..])),
+        proptest::option::of(any::<bool>()),
+    )
+        .prop_map(|(at, dur, status, name, color, note, assignee, unknown)| {
+            let mut m = Map::new();
+            m.insert("at".into(), secs(at));
+            m.insert("dur".into(), secs(dur));
+            m.insert("status".into(), status.into());
+            if let Some(n) = name {
+                m.insert("name".into(), n.into());
+            }
+            if let Some(c) = color {
+                m.insert("color".into(), c.into());
+            }
+            if let Some(n) = note {
+                m.insert("note".into(), n.into());
+            }
+            if let Some(a) = assignee {
+                m.insert("assignee".into(), a.into());
+            }
+            if let Some(u) = unknown {
+                m.insert("zFlag".into(), u.into());
+            }
+            m
+        })
+}
+
+/// A random valid document with 0–6 markers (`mk0`, `mk1`, …).
+pub fn arb_document_with_markers() -> impl Strategy<Value = Document> {
+    (arb_document(), proptest::collection::vec(arb_marker_body(), 0..=6)).prop_map(|(doc, bodies)| {
+        let ops: Vec<Op> = bodies
+            .into_iter()
+            .enumerate()
+            .map(|(n, mut body)| {
+                body.insert("id".into(), format!("mk{n}").into());
+                Op::AddMarker { marker: Value::Object(body) }
+            })
+            .collect();
+        apply_batch(&doc, &ops).expect("generated markers are valid").doc
+    })
+}
+
+/// One random marker op against a document: add, update one field, unset an optional field or remove.
+pub fn arb_marker_op(doc: &Document) -> BoxedStrategy<Op> {
+    let ids: Vec<String> = doc.project.markers.keys().cloned().collect();
+    let fresh = doc.project.markers.len();
+    let add = arb_marker_body()
+        .prop_map(move |mut body| {
+            body.insert("id".into(), format!("mknew{fresh}").into());
+            Op::AddMarker { marker: Value::Object(body) }
+        })
+        .boxed();
+    if ids.is_empty() {
+        return add;
+    }
+    let update = (
+        select(ids.clone()),
+        prop_oneof![
+            (0i64..30_000).prop_map(|ms| ("at", secs(ms))),
+            (0i64..5_000).prop_map(|ms| ("dur", secs(ms))),
+            select(MARKER_STATUSES).prop_map(|s| ("status", Value::from(s))),
+            "[a-z ]{0,6}".prop_map(|s| ("name", Value::from(s))),
+            select(&["green", "#00ff00"][..]).prop_map(|c| ("color", Value::from(c))),
+            "[a-z ]{0,10}".prop_map(|s| ("note", Value::from(s))),
+            select(&["user", "agent"][..]).prop_map(|a| ("assignee", Value::from(a))),
+        ],
+    )
+        .prop_map(|(id, (k, v))| {
+            let mut set = Map::new();
+            set.insert(k.into(), v);
+            Op::UpdateMarker { id, set, unset: vec![] }
+        });
+    let unset = (select(ids.clone()), select(&["name", "color", "note", "assignee", "zFlag"][..]))
+        .prop_map(|(id, f)| Op::UpdateMarker { id, set: Map::new(), unset: vec![f.into()] });
+    let remove = select(ids).prop_map(|id| Op::RemoveMarkers { ids: vec![id] });
+    prop_oneof![4 => update, 1 => unset, 1 => add, 1 => remove].boxed()
+}

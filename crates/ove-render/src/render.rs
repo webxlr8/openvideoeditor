@@ -9,14 +9,15 @@ use ove_core::model::Document;
 use ove_core::time::Micros;
 use serde_json::{Map, Value};
 
-use crate::canvas::{DrawParams, Place, Rgba, draw, grade};
+use crate::backend::{Backend, CpuBackend, Tex};
+use crate::canvas::{DrawParams, Place, Rgba};
 use crate::captions::{CaptionCache, CaptionPlacement, draw_caption};
-use crate::color::{ColorGrade, Lut, apply_lut};
+use crate::color::{ColorGrade, Lut};
 use crate::eval::{Blend, Layer, LayerKind, Placement, canvas_size, layers_at, reference_size};
 use crate::sources::{Sources, media_path};
 use crate::text::{Align, TextStyle, parse_color, render_words, render_words_partial, words_of};
 use crate::text_anim::{AnimState, TextAnimation, blur, glitch};
-use crate::{effects, layouts, transitions};
+use crate::{effects, layouts};
 
 /// Renders timeline frames. Keeps decoders and rasterised text between frames.
 pub struct Renderer {
@@ -31,6 +32,17 @@ pub struct Renderer {
     grades: HashMap<String, (String, Option<Arc<Lut>>)>,
     luts: HashMap<PathBuf, Option<Arc<Lut>>>,
     frames: u64,
+    /// Empty areas stay transparent instead of black (export with alpha).
+    transparent: bool,
+    /// Where the pixels are composited (design D1).
+    backend: Box<dyn Backend>,
+    /// Why the backend changed while rendering (a lost GPU device), for the diagnostics overlay.
+    fallback: Option<String>,
+    /// Video layers read their media file's proxy when it exists (playback with "Use proxies" on). Export and agent
+    /// frames never set this.
+    use_proxies: bool,
+    /// The proxy found for each media id (`None`: none, the original is read), looked up once per renderer.
+    proxies: HashMap<String, Option<PathBuf>>,
 }
 
 fn num(f: &Map<String, Value>, k: &str) -> Option<f64> {
@@ -97,6 +109,109 @@ pub fn caption_style(f: &Map<String, Value>, k: f32, frame_w: f32, active: Optio
         highlight: active.map(|i| (i, color(f, "captionHighlightColor").unwrap_or([255, 212, 0, 255]))),
         font: None,
     }
+}
+
+/// What a text layer shows at its time: its words, style, typewriter reveal and animation state. Drawing and layer
+/// geometry ([`crate::geometry`]) both start from this, so the geometry matches the drawn text.
+#[derive(Debug, Clone)]
+pub struct TextFrame {
+    pub content: String,
+    pub words: Vec<String>,
+    pub style: TextStyle,
+    /// Characters drawn (`usize::MAX`: all).
+    pub reveal: usize,
+    pub anim: AnimState,
+}
+
+impl TextFrame {
+    /// The text a layer shows with `k` canvas pixels per reference pixel in an area `area_w` pixels wide; `None` when
+    /// it shows nothing (empty text, or an animation that hides it at this time).
+    pub fn of(layer: &Layer, k: f64, area_w: f64) -> Option<TextFrame> {
+        let content = layer.fields.get("textContent").and_then(Value::as_str).unwrap_or("").to_string();
+        if content.trim().is_empty() {
+            return None;
+        }
+        let anim = TextAnimation::from_fields(&layer.fields)
+            .map(|a| a.state(layer.rel_us as f64 / 1e6, layer.dur_us as f64 / 1e6))
+            .unwrap_or_default();
+        if anim.opacity <= 0.0 || anim.reveal <= 0.0 {
+            return None;
+        }
+        let style = text_style(&layer.fields, k as f32, area_w as f32);
+        let words = words_of(&content);
+        let reveal = if anim.reveal < 1.0 {
+            let total: usize = words.iter().map(|w| w.chars().count() + 1).sum();
+            (total as f64 * anim.reveal).floor() as usize
+        } else {
+            usize::MAX
+        };
+        Some(TextFrame { content, words, style, reveal, anim })
+    }
+
+    /// Cache key of the rasterised text (before blur and glitch).
+    pub fn key(&self) -> u64 {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        self.content.hash(&mut hasher);
+        format!("{:?}", self.style).hash(&mut hasher);
+        self.reveal.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    /// The rasterised text, before blur and glitch.
+    pub fn raster(&self) -> Rgba {
+        if self.reveal == usize::MAX {
+            render_words(&self.words, &self.style)
+        } else {
+            render_words_partial(&self.words, &self.style, self.reveal)
+        }
+    }
+
+    /// The raster after the animation's blur and glitch (which pad it).
+    pub fn animated(&self, img: Arc<Rgba>) -> Arc<Rgba> {
+        animate_text(img, &self.anim, self.style.size)
+    }
+
+    /// Where the (animated) text image goes, around `centre` (canvas pixels).
+    pub fn place(&self, layer: &Layer, centre: (f64, f64)) -> Place {
+        let x = &layer.xform;
+        let flip = if x.flip_x { -1.0 } else { 1.0 };
+        let size = self.style.size as f64;
+        let s = x.scale * self.anim.scale;
+        Place {
+            cx: centre.0 + self.anim.dx * size,
+            cy: centre.1 + self.anim.dy * size,
+            sx: s * flip,
+            sy: s,
+            rotation: x.rotation + self.anim.rotation,
+        }
+    }
+}
+
+/// The area a layer is placed in on a `w`×`h` canvas (its layout slot, else the frame), and the centre the layer's
+/// transform puts it at (`k` canvas pixels per reference pixel): `(area x, y, w, h, centre)`.
+pub fn layer_area(layer: &Layer, w: u32, h: u32, k: f64) -> (f64, f64, f64, f64, (f64, f64)) {
+    let (area_x, area_y, area_w, area_h) = match layer.slot {
+        Some(s) => (s[0] as f64 * w as f64, s[1] as f64 * h as f64, s[2] as f64 * w as f64, s[3] as f64 * h as f64),
+        None => (0.0, 0.0, w as f64, h as f64),
+    };
+    let x = &layer.xform;
+    (area_x, area_y, area_w, area_h, (area_x + area_w / 2.0 + x.x * k, area_y + area_h / 2.0 + x.y * k))
+}
+
+/// The size of a code item's composition: its `codeComposition` width and height, else the reference frame.
+pub fn code_size(layer: &Layer, aspect: &str) -> Option<(u32, u32)> {
+    let c = ove_graphics::CodeComposition::from_value(layer.fields.get("codeComposition")?)?;
+    let (rw, rh) = reference_size(aspect);
+    Some((c.width.unwrap_or(rw).clamp(16, 8192), c.height.unwrap_or(rh).clamp(16, 8192)))
+}
+
+/// Where a code layer's composition (`cw`×`ch` composition pixels) goes in its area: the placement with the scale in
+/// canvas pixels per composition pixel.
+pub fn code_place(layer: &Layer, area_w: f64, area_h: f64, centre: (f64, f64), (cw, ch): (u32, u32)) -> Place {
+    let x = &layer.xform;
+    let flip = if x.flip_x { -1.0 } else { 1.0 };
+    let s = (area_w / cw as f64).min(area_h / ch as f64) * x.scale;
+    Place { cx: centre.0, cy: centre.1, sx: s * flip, sy: s, rotation: x.rotation }
 }
 
 /// Blur and glitch for an animated text image (sizes relative to the font size).
@@ -177,7 +292,85 @@ impl Renderer {
             grades: HashMap::new(),
             luts: HashMap::new(),
             frames: 0,
+            transparent: false,
+            backend: Box::new(CpuBackend::new()),
+            fallback: None,
+            use_proxies: false,
+            proxies: HashMap::new(),
         }
+    }
+
+    /// A renderer that composites with `backend` instead of the CPU reference.
+    pub fn with_backend(bundle: Option<&Path>, height: u32, backend: Box<dyn Backend>) -> Self {
+        Renderer { backend, ..Renderer::new(bundle, height) }
+    }
+
+    /// The backend's name (`"cpu"` or `"gpu"`).
+    pub fn backend_name(&self) -> &'static str {
+        self.backend.name()
+    }
+
+    /// Replaces the backend (for example after a GPU device loss); cached frames and text stay.
+    pub fn set_backend(&mut self, backend: Box<dyn Backend>) {
+        self.backend = backend;
+        self.fallback = None;
+    }
+
+    /// Why the renderer left the backend it was given, when it did (`"GPU device lost: …"`).
+    pub fn fallback(&self) -> Option<&str> {
+        self.fallback.as_deref()
+    }
+
+    /// Switches to the CPU backend when the current one can no longer render (design D9: a device loss during
+    /// preview falls back to the CPU and is logged). True when it switched.
+    fn recover(&mut self) -> bool {
+        if self.backend.healthy() {
+            return false;
+        }
+        let from = self.backend.name();
+        tracing::warn!(
+            backend = from,
+            "the {from} backend stopped working (device lost); continuing on the CPU backend"
+        );
+        self.backend = Box::new(CpuBackend::new());
+        self.fallback = Some(format!("{from} device lost: switched to the CPU backend"));
+        true
+    }
+
+    /// Leaves areas no layer covers transparent (alpha 0) instead of opaque black, and keeps the layers' alpha in
+    /// the result: for exports with an alpha channel.
+    pub fn set_transparent(&mut self, on: bool) {
+        self.transparent = on;
+    }
+
+    /// Reads proxies instead of originals for video layers whose proxy exists (`proxies/<contentId>_1080.mp4` in the
+    /// bundle). For playback only: export and agent inspection frames always read the originals.
+    pub fn set_use_proxies(&mut self, on: bool) {
+        if self.use_proxies != on {
+            self.use_proxies = on;
+            self.proxies.clear();
+            // Open decoders read the other files.
+            let mut fresh = Sources::default();
+            fresh.hwaccel = self.sources.hwaccel.clone();
+            fresh.forward_window = self.sources.forward_window;
+            self.sources = fresh;
+        }
+    }
+
+    /// The file a video layer reads: the proxy when proxies are on and it exists, else the original.
+    fn video_path(&mut self, doc: &Document, media_id: &str) -> Option<PathBuf> {
+        if self.use_proxies
+            && let Some(bundle) = self.bundle.as_deref()
+        {
+            let found = self.proxies.entry(media_id.to_string()).or_insert_with(|| {
+                let cid = doc.registry.get(media_id)?.fields.get("contentId")?.as_str()?;
+                ove_media::proxy::existing(bundle, cid)
+            });
+            if let Some(p) = found {
+                return Some(p.clone());
+            }
+        }
+        media_path(doc, self.bundle.as_deref(), media_id)
     }
 
     pub fn size(&self, doc: &Document) -> (u32, u32) {
@@ -226,16 +419,11 @@ impl Renderer {
 
     /// Draws one layer into `target` with the given opacity and blend (the caller handles transitions).
     #[allow(clippy::too_many_arguments)]
-    fn draw_layer(&mut self, doc: &Document, target: &mut Rgba, layer: &Layer, k: f64, opacity: f32, blend: Blend) {
-        let (w, h) = (target.w, target.h);
+    fn draw_layer(&mut self, doc: &Document, target: Tex, layer: &Layer, k: f64, opacity: f32, blend: Blend) {
+        let (w, h) = self.backend.size(target);
         let x = &layer.xform;
-        let flip = if x.flip_x { -1.0 } else { 1.0 };
         // A layout slot replaces the frame as the area the layer is placed in.
-        let (area_x, area_y, area_w, area_h) = match layer.slot {
-            Some(s) => (s[0] as f64 * w as f64, s[1] as f64 * h as f64, s[2] as f64 * w as f64, s[3] as f64 * h as f64),
-            None => (0.0, 0.0, w as f64, h as f64),
-        };
-        let centre = (area_x + area_w / 2.0 + x.x * k, area_y + area_h / 2.0 + x.y * k);
+        let (_, _, area_w, area_h, centre) = layer_area(layer, w, h, k);
         match &layer.kind {
             LayerKind::Video { media_id, .. } | LayerKind::Image { media_id } => {
                 let image = matches!(layer.kind, LayerKind::Image { .. });
@@ -243,119 +431,77 @@ impl Renderer {
                     LayerKind::Video { src_us, .. } => *src_us,
                     _ => 0,
                 };
-                let Some(path) = media_path(doc, self.bundle.as_deref(), media_id) else { return };
+                let path = if image {
+                    media_path(doc, self.bundle.as_deref(), media_id)
+                } else {
+                    self.video_path(doc, media_id)
+                };
+                let Some(path) = path else { return };
                 // Decode at the size it is shown (up to 2× for zoomed layers), never above 2160 lines.
                 let max_h = ((h as f64 * x.scale.abs().clamp(1.0, 2.0)).ceil() as u32).min(2160);
                 let Some(frame) = self.sources.frame(&layer.item_id, &path, src_us, max_h, image) else { return };
                 let cg = self.color_grade(&layer.item_id, &layer.fields);
-                let fx = layer.fields.get("effects").filter(|e| e.as_array().is_some_and(|a| !a.is_empty()));
-                let frame = if layer.grade.is_some() || cg.is_some() || fx.is_some() {
-                    let mut f = (*frame).clone();
-                    if let Some(g) = &layer.grade {
-                        grade(&mut f, g);
-                    }
-                    if let Some(l) = &cg {
-                        apply_lut(&mut f, l, 1.0);
-                    }
-                    if let Some(e) = fx {
-                        effects::apply_stack(&mut f, e, layer.rel_s);
-                    }
-                    Arc::new(f)
-                } else {
-                    frame
-                };
-                let (s, crop) = match layer.slot {
-                    Some(_) => {
-                        let (s, c) = layouts::cover(frame.w as f64, frame.h as f64, area_w, area_h, x.scale);
-                        (s, [0, 1, 2, 3].map(|i| c[i].max(layer.crop[i])))
-                    }
-                    None => {
-                        let base = match layer.placement {
-                            Placement::FillHeight => h as f64 / frame.h as f64,
-                            Placement::Fit => (w as f64 / frame.w as f64).min(h as f64 / frame.h as f64),
-                        };
-                        (base * x.scale, layer.crop)
-                    }
-                };
-                let place = Place { cx: centre.0, cy: centre.1, sx: s * flip, sy: s, rotation: x.rotation };
+                let tex = self.backend.upload(&frame);
+                if let Some(g) = &layer.grade {
+                    self.backend.grade(tex, g);
+                }
+                if let Some(l) = &cg {
+                    self.backend.lut(tex, l, 1.0);
+                }
+                if let Some(e) = layer.fields.get("effects") {
+                    effect_stack(&mut *self.backend, tex, e, layer);
+                }
+                let (place, crop) = media_placement(layer, frame.w, frame.h, w, h, k);
+                let s = place.sy;
                 let params = DrawParams {
                     opacity,
                     blend,
                     crop,
                     radius: (layer.border_radius as f64 * k / s.abs().max(1e-6)) as f32,
                 };
-                draw(target, &frame, place, &params);
+                self.backend.draw(target, tex, place, &params);
+                self.backend.release(tex);
             }
             LayerKind::Text => {
-                let content = layer.fields.get("textContent").and_then(Value::as_str).unwrap_or("").to_string();
-                if content.trim().is_empty() {
-                    return;
-                }
-                let anim = TextAnimation::from_fields(&layer.fields)
-                    .map(|a| a.state(layer.rel_us as f64 / 1e6, layer.dur_us as f64 / 1e6))
-                    .unwrap_or_default();
-                if anim.opacity <= 0.0 || anim.reveal <= 0.0 {
-                    return;
-                }
-                let st = text_style(&layer.fields, k as f32, area_w as f32);
-                let words = words_of(&content);
-                let reveal = if anim.reveal < 1.0 {
-                    let total: usize = words.iter().map(|w| w.chars().count() + 1).sum();
-                    (total as f64 * anim.reveal).floor() as usize
-                } else {
-                    usize::MAX
-                };
-                let mut hasher = std::collections::hash_map::DefaultHasher::new();
-                content.hash(&mut hasher);
-                format!("{st:?}").hash(&mut hasher);
-                reveal.hash(&mut hasher);
-                let key = hasher.finish();
-                let mut img = match self.text.get(&layer.item_id) {
+                let Some(text) = TextFrame::of(layer, k, area_w) else { return };
+                let key = text.key();
+                let img = match self.text.get(&layer.item_id) {
                     Some((hk, img)) if *hk == key => img.clone(),
                     _ => {
-                        let img = Arc::new(if reveal == usize::MAX {
-                            render_words(&words, &st)
-                        } else {
-                            render_words_partial(&words, &st, reveal)
-                        });
+                        let img = Arc::new(text.raster());
                         self.text.insert(layer.item_id.clone(), (key, img.clone()));
                         img
                     }
                 };
-                img = animate_text(img, &anim, st.size);
-                let (dx, dy) = (anim.dx * st.size as f64, anim.dy * st.size as f64);
-                let s = x.scale * anim.scale;
-                let place = Place {
-                    cx: centre.0 + dx,
-                    cy: centre.1 + dy,
-                    sx: s * flip,
-                    sy: s,
-                    rotation: x.rotation + anim.rotation,
-                };
-                draw(
-                    target,
-                    &img,
-                    place,
-                    &DrawParams { opacity: opacity * anim.opacity as f32, blend, ..Default::default() },
-                );
+                let img = animate_text(img, &text.anim, text.style.size);
+                let place = text.place(layer, centre);
+                let tex = self.backend.upload(&img);
+                let params = DrawParams { opacity: opacity * text.anim.opacity as f32, blend, ..Default::default() };
+                self.backend.draw(target, tex, place, &params);
+                self.backend.release(tex);
             }
             LayerKind::Code => {
-                let Some((img, (cw, ch), real)) = self.code_frame(doc, layer, (w, h), x.scale) else { return };
-                let fit = (area_w / cw as f64).min(area_h / ch as f64);
-                let s = fit * x.scale / real;
-                let place = Place { cx: centre.0, cy: centre.1, sx: s * flip, sy: s, rotation: x.rotation };
+                let Some((img, size, real)) = self.code_frame(doc, layer, (w, h), x.scale) else { return };
+                // The image is `real` image pixels per composition pixel.
+                let mut place = code_place(layer, area_w, area_h, centre, size);
+                place.sx /= real;
+                place.sy /= real;
+                let s = place.sy;
                 let params = DrawParams {
                     opacity,
                     blend,
                     crop: layer.crop,
                     radius: (layer.border_radius as f64 * k / s.abs().max(1e-6)) as f32,
                 };
-                draw(target, &img, place, &params);
+                let tex = self.backend.upload(&Arc::new(img));
+                self.backend.draw(target, tex, place, &params);
+                self.backend.release(tex);
             }
             LayerKind::Caption { words, .. } => {
                 // Caption styles: see `captions` and `captions_presets`.
                 let at = CaptionPlacement { k: k as f32, dx: x.x * k, dy: x.y * k, scale: x.scale, opacity };
-                draw_caption(target, &mut self.captions, &layer.fields, words, layer.rel_us, at);
+                let (captions, fields, rel) = (&mut self.captions, &layer.fields, layer.rel_us);
+                self.backend.cpu(target, &mut |img| draw_caption(img, captions, fields, words, rel, at));
             }
             LayerKind::Adjustment => {
                 let cg = self.color_grade(&layer.item_id, &layer.fields);
@@ -363,18 +509,19 @@ impl Renderer {
                 if layer.grade.is_none() && cg.is_none() && fx.is_none() {
                     return;
                 }
-                let before = (opacity < 1.0).then(|| target.clone());
+                let before = (opacity < 1.0).then(|| self.backend.copy(target));
                 if let Some(g) = &layer.grade {
-                    grade(target, g);
+                    self.backend.grade(target, g);
                 }
                 if let Some(l) = &cg {
-                    apply_lut(target, l, 1.0);
+                    self.backend.lut(target, l, 1.0);
                 }
                 if let Some(e) = fx {
-                    effects::apply_stack(target, e, layer.rel_s);
+                    effect_stack(&mut *self.backend, target, e, layer);
                 }
                 if let Some(b) = before {
-                    mix_back(target, &b, opacity);
+                    self.backend.mix(target, b, opacity);
+                    self.backend.release(b);
                 }
             }
             LayerKind::Shader => {
@@ -383,46 +530,149 @@ impl Renderer {
                 let empty = Map::new();
                 let params = comp.get("params").and_then(Value::as_object).unwrap_or(&empty);
                 let amount = effects::shader_strength(comp, layer.rel_s, layer.dur_s) * opacity;
-                effects::apply(target, id, params, amount, layer.rel_s);
+                self.backend.effect(target, id, params, amount, layer.rel_s);
             }
         }
     }
 
-    /// Renders the frame at timeline time `t_us`.
-    pub fn render(&mut self, doc: &Document, t_us: Micros) -> Rgba {
+    /// The mean source colour (before grade and effects, 0..1) of item `item_id` under the canvas rectangle `rect`
+    /// ([x0, y0, x1, y1] as fractions of the frame; a point when both corners are equal: the 3×3 source pixels
+    /// around it) at `t_us`. `Ok(None)` when the rectangle misses the layer; an error when the item is not a visible
+    /// video or image at that time. The key colour sampler uses this.
+    pub fn sample_source(
+        &mut self,
+        doc: &Document,
+        item_id: &str,
+        t_us: Micros,
+        rect: [f64; 4],
+    ) -> Result<Option<[f32; 3]>, String> {
         let (w, h) = self.size(doc);
         let (_, ref_h) = reference_size(&doc.project.aspect_ratio);
         let k = h as f64 / ref_h as f64;
-        let mut canvas = Rgba::filled(w, h, [0, 0, 0, 255]);
+        let layer = layers_at(doc, t_us)
+            .into_iter()
+            .find(|l| l.item_id == item_id)
+            .ok_or_else(|| format!("item {item_id} is not visible at this time"))?;
+        let (media_id, src_us, image) = match &layer.kind {
+            LayerKind::Video { media_id, src_us } => (media_id.clone(), *src_us, false),
+            LayerKind::Image { media_id } => (media_id.clone(), 0, true),
+            _ => return Err(format!("item {item_id} is not a video or image")),
+        };
+        let path = media_path(doc, self.bundle.as_deref(), &media_id).ok_or("the item's media has no file")?;
+        let max_h = ((h as f64 * layer.xform.scale.abs().clamp(1.0, 2.0)).ceil() as u32).min(2160);
+        let frame =
+            self.sources.frame(&layer.item_id, &path, src_us, max_h, image).ok_or("the frame could not be decoded")?;
+        let (place, crop) = media_placement(&layer, frame.w, frame.h, w, h, k);
+        let (sw, sh) = (frame.w as f64, frame.h as f64);
+        let (cl, cr) = (sw * crop[3] as f64 / 100.0, sw - sw * crop[1] as f64 / 100.0);
+        let (ct, cb) = (sh * crop[0] as f64 / 100.0, sh - sh * crop[2] as f64 / 100.0);
+        let (sin, cos) = place.rotation.to_radians().sin_cos();
+        // The source pixel under a canvas pixel centre, when it is inside the cropped source.
+        let source = |x: f64, y: f64| -> Option<(i64, i64)> {
+            let (dx, dy) = (x - place.cx, y - place.cy);
+            let u = (dx * cos + dy * sin) / place.sx + sw / 2.0;
+            let v = (-dx * sin + dy * cos) / place.sy + sh / 2.0;
+            (u >= cl && u < cr && v >= ct && v < cb).then_some((u.floor() as i64, v.floor() as i64))
+        };
+        let [x0, y0, x1, y1] = rect.map(|v| v.clamp(0.0, 1.0));
+        let (x0, x1, y0, y1) =
+            (x0.min(x1) * w as f64, x0.max(x1) * w as f64, y0.min(y1) * h as f64, y0.max(y1) * h as f64);
+        let mut points = Vec::new();
+        if x1 - x0 < 1.0 && y1 - y0 < 1.0 {
+            if let Some((u, v)) = source(x0.floor() + 0.5, y0.floor() + 0.5) {
+                for dy in -1..=1 {
+                    for dx in -1..=1 {
+                        points.push((u + dx, v + dy));
+                    }
+                }
+            }
+        } else {
+            // Every canvas pixel of the rectangle, at most 64 × 64 of them.
+            let (nx, ny) = (((x1 - x0).ceil() as usize).clamp(1, 64), ((y1 - y0).ceil() as usize).clamp(1, 64));
+            for j in 0..ny {
+                for i in 0..nx {
+                    let x = x0 + (i as f64 + 0.5) * (x1 - x0) / nx as f64;
+                    let y = y0 + (j as f64 + 0.5) * (y1 - y0) / ny as f64;
+                    points.extend(source(x, y));
+                }
+            }
+        }
+        if points.is_empty() {
+            return Ok(None);
+        }
+        let mut acc = [0.0f64; 3];
+        for (u, v) in &points {
+            let (u, v) = ((*u).clamp(0, frame.w as i64 - 1) as u32, (*v).clamp(0, frame.h as i64 - 1) as u32);
+            let p = frame.px(u, v);
+            for c in 0..3 {
+                acc[c] += p[c] as f64 / 255.0;
+            }
+        }
+        let n = points.len() as f64;
+        Ok(Some(acc.map(|v| (v / n) as f32)))
+    }
+
+    /// Draws the visible layer of item `item_id` at `t_us` alone on a transparent canvas of the renderer's size, at
+    /// full opacity with the normal blend and without its transition: the layer's own pixels, for hit testing. `None`
+    /// when the item is not visible then.
+    pub fn render_layer(&mut self, doc: &Document, t_us: Micros, item_id: &str) -> Option<Rgba> {
+        self.recover();
+        let (w, h) = self.size(doc);
+        let (_, ref_h) = reference_size(&doc.project.aspect_ratio);
+        let k = h as f64 / ref_h as f64;
+        let layer = layers_at(doc, t_us).into_iter().find(|l| l.item_id == item_id)?;
+        let canvas = self.backend.create(w, h, [0, 0, 0, 0]);
+        self.draw_layer(doc, canvas, &layer, k, 1.0, Blend::Normal);
+        let out = self.backend.read(canvas);
+        self.backend.release(canvas);
+        Some(out)
+    }
+
+    /// The pixel size of the frame a video or image layer draws at `t_us`, decoded (aspect ratio of the source).
+    pub fn source_size(&mut self, doc: &Document, layer: &Layer) -> Option<(u32, u32)> {
+        let (media_id, src_us, image) = match &layer.kind {
+            LayerKind::Video { media_id, src_us } => (media_id, *src_us, false),
+            LayerKind::Image { media_id } => (media_id, 0, true),
+            _ => return None,
+        };
+        let path = media_path(doc, self.bundle.as_deref(), media_id)?;
+        let (_, h) = self.size(doc);
+        let max_h = ((h as f64 * layer.xform.scale.abs().clamp(1.0, 2.0)).ceil() as u32).min(2160);
+        let frame = self.sources.frame(&layer.item_id, &path, src_us, max_h, image)?;
+        Some((frame.w, frame.h))
+    }
+
+    /// Renders the frame at timeline time `t_us`.
+    pub fn render(&mut self, doc: &Document, t_us: Micros) -> Rgba {
+        self.recover();
+        let out = self.render_once(doc, t_us);
+        // A frame made while the device was lost is not trusted: render it again on the CPU.
+        if self.recover() { self.render_once(doc, t_us) } else { out }
+    }
+
+    fn render_once(&mut self, doc: &Document, t_us: Micros) -> Rgba {
+        let (w, h) = self.size(doc);
+        let (_, ref_h) = reference_size(&doc.project.aspect_ratio);
+        let k = h as f64 / ref_h as f64;
+        let canvas = self.backend.create(w, h, if self.transparent { [0, 0, 0, 0] } else { [0, 0, 0, 255] });
         for layer in layers_at(doc, t_us) {
             let Some(st) = layer.trans.clone() else {
-                self.draw_layer(doc, &mut canvas, &layer, k, layer.opacity, layer.blend);
+                self.draw_layer(doc, canvas, &layer, k, layer.opacity, layer.blend);
                 continue;
             };
             let m = st.motion();
             if matches!(layer.kind, LayerKind::Adjustment | LayerKind::Shader) {
-                self.draw_layer(doc, &mut canvas, &layer, k, layer.opacity * m.opacity, layer.blend);
+                self.draw_layer(doc, canvas, &layer, k, layer.opacity * m.opacity, layer.blend);
             } else {
                 // Draw the layer on its own, then mask, move and blur it as the transition says.
-                let mut off = Rgba::new(w, h);
-                self.draw_layer(doc, &mut off, &layer, k, 1.0, Blend::Normal);
-                st.apply_mask(&mut off);
-                if m.blur > 0.5 {
-                    let p = serde_json::json!({ "intensity": m.blur });
-                    effects::apply(&mut off, "zoom-blur", p.as_object().unwrap_or(&Map::new()), 1.0, 0.0);
-                }
-                let place = Place {
-                    cx: w as f64 * (0.5 + m.dx as f64),
-                    cy: h as f64 * (0.5 + m.dy as f64),
-                    sx: m.scale as f64,
-                    sy: m.scale as f64,
-                    rotation: 0.0,
-                };
-                let params =
-                    DrawParams { opacity: layer.opacity * m.opacity, blend: layer.blend, ..Default::default() };
-                draw(&mut canvas, &off, place, &params);
+                let off = self.backend.create(w, h, [0, 0, 0, 0]);
+                self.draw_layer(doc, off, &layer, k, 1.0, Blend::Normal);
+                transition_layer(&mut *self.backend, canvas, off, &st, layer.opacity, layer.blend);
+                self.backend.release(off);
             }
-            transitions::apply_post(&mut canvas, &st, layer.rel_s);
+            if let Some((id, params, amount)) = st.post_effect() {
+                self.backend.effect(canvas, id, &params, amount, layer.rel_s);
+            }
         }
         self.frames += 1;
         if self.frames.is_multiple_of(120) {
@@ -431,17 +681,73 @@ impl Renderer {
                 self.grades.clear();
             }
         }
-        for p in canvas.data.chunks_exact_mut(4) {
-            p[3] = 255;
+        if !self.transparent {
+            self.backend.opaque(canvas);
         }
-        canvas
+        let out = self.backend.read(canvas);
+        self.backend.release(canvas);
+        out
     }
 }
 
-/// `dst = before + (dst − before)·k` (partial-strength adjustment layers).
-fn mix_back(dst: &mut Rgba, before: &Rgba, k: f32) {
-    use rayon::prelude::*;
-    dst.data.par_iter_mut().zip(before.data.par_iter()).for_each(|(d, b)| {
-        *d = (*b as f32 + (*d as f32 - *b as f32) * k).round().clamp(0.0, 255.0) as u8;
-    });
+/// Where a video or image layer's `fw`×`fh` frame goes on a `w`×`h` canvas (`k` canvas pixels per reference
+/// pixel): its placement and its crop (percent of the source per side). Shared by drawing and the key colour sampler.
+pub fn media_placement(layer: &Layer, fw: u32, fh: u32, w: u32, h: u32, k: f64) -> (Place, [f32; 4]) {
+    let x = &layer.xform;
+    let flip = if x.flip_x { -1.0 } else { 1.0 };
+    let (area_x, area_y, area_w, area_h) = match layer.slot {
+        Some(s) => (s[0] as f64 * w as f64, s[1] as f64 * h as f64, s[2] as f64 * w as f64, s[3] as f64 * h as f64),
+        None => (0.0, 0.0, w as f64, h as f64),
+    };
+    let centre = (area_x + area_w / 2.0 + x.x * k, area_y + area_h / 2.0 + x.y * k);
+    let (s, crop) = match layer.slot {
+        Some(_) => {
+            let (s, c) = layouts::cover(fw as f64, fh as f64, area_w, area_h, x.scale);
+            (s, [0, 1, 2, 3].map(|i| c[i].max(layer.crop[i])))
+        }
+        None => {
+            let base = match layer.placement {
+                Placement::FillHeight => h as f64 / fh as f64,
+                Placement::Fit => (w as f64 / fw as f64).min(h as f64 / fh as f64),
+            };
+            (base * x.scale, layer.crop)
+        }
+    };
+    (Place { cx: centre.0, cy: centre.1, sx: s * flip, sy: s, rotation: x.rotation }, crop)
+}
+
+/// Composites a transitioning layer drawn alone on `off` (canvas-sized) onto `canvas`: its reveal mask, then the
+/// transition's motion (offset, scale, opacity, zoom blur). The post effect is the caller's.
+pub fn transition_layer(
+    backend: &mut dyn Backend,
+    canvas: Tex,
+    off: Tex,
+    st: &crate::transitions::TransState,
+    opacity: f32,
+    blend: Blend,
+) {
+    let (w, h) = backend.size(canvas);
+    let m = st.motion();
+    backend.transition_mask(off, st);
+    if m.blur > 0.5 {
+        let p = serde_json::json!({ "intensity": m.blur });
+        backend.effect(off, "zoom-blur", p.as_object().unwrap_or(&Map::new()), 1.0, 0.0);
+    }
+    let place = Place {
+        cx: w as f64 * (0.5 + m.dx as f64),
+        cy: h as f64 * (0.5 + m.dy as f64),
+        sx: m.scale as f64,
+        sy: m.scale as f64,
+        rotation: 0.0,
+    };
+    let params = DrawParams { opacity: opacity * m.opacity, blend, ..Default::default() };
+    backend.draw(canvas, off, place, &params);
+}
+
+/// Runs a layer's effect stack (`effects` field) on the backend, in order, with keyframed parameters at the layer's
+/// time; disabled entries are skipped.
+pub fn effect_stack(backend: &mut dyn Backend, t: Tex, effects: &Value, layer: &Layer) {
+    for (id, values, amount) in effects::stack_entries_at(effects, layer.fields.get("keyframeTracks"), layer.rel_us) {
+        backend.effect(t, id, &values, amount, layer.rel_s);
+    }
 }

@@ -31,7 +31,12 @@ export function shortcutGroups(): { group: string; keys: [string, string][] }[] 
       keys: [
         [k("split"), "Split the selected clip at the playhead"],
         [k("duplicate"), "Duplicate selection"],
-        ["Delete", "Delete selection"],
+        ["Delete", "Delete selection (linked items too)"],
+        ["⇧ Delete", "Ripple delete: the selection, or the marked range"],
+        [`${k("rippleTrimStart")} / ${k("rippleTrimEnd")}`, "Ripple trim the start / end to the playhead"],
+        [`${k("insert")} / ${k("overwrite")}`, "Insert / overwrite with the source clip at the playhead"],
+        [`${k("markIn")} / ${k("markOut")} / ${k("markClip")}`, "Mark in / out / the selected clip"],
+        [k("addMarker"), "Add a marker at the playhead"],
         [`${MOD} C / ${MOD} V`, "Copy / paste at the playhead"],
         [`${MOD} A`, "Select all on the track"],
         [`${MOD} Z / ⇧${MOD} Z`, "Undo / redo"],
@@ -44,7 +49,9 @@ export function shortcutGroups(): { group: string; keys: [string, string][] }[] 
       keys: [
         [`${k("zoomIn")} / ${k("zoomOut")}`, "Zoom in / out"],
         [`${MOD} 0`, "Fit the timeline"],
-        ["Drag an edge", "Trim (the start edge moves the in-point)"],
+        [`${k("toolSelect")} / ${k("toolBlade")} / ${k("toolTrim")}`, "Select, blade and trim tools"],
+        ["Drag an edge", "Trim (the start edge moves the in-point; Alt: this side only)"],
+        ["Trim tool", "Drag a clip to slip, Alt-drag to slide, drag an edit point to roll"],
         ["Right-click", "Clip and lane actions"],
       ],
     },
@@ -53,6 +60,14 @@ export function shortcutGroups(): { group: string; keys: [string, string][] }[] 
       keys: [
         [k("help"), "Show this list"],
         [`${MOD} ⇧ D`, "Playback diagnostics"],
+      ],
+    },
+    {
+      group: "Assistant",
+      keys: [
+        ["@", "Mention a media file, a clip or the marked range: the assistant gets its exact timeline lines and can edit it at once"],
+        ["/", "At the start of a message: pick a skill for the assistant to follow, or a template"],
+        ["↑ / ↓, Enter", "Move in the @ or / list, pick (Esc closes it)"],
       ],
     },
   ];

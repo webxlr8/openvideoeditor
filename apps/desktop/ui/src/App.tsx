@@ -11,10 +11,14 @@ import type {
 } from "./bindings";
 import { commands, events } from "./bridge";
 import { setPendingDraft } from "./ChatPanel";
+import { setTimelineFps } from "./edit";
 import { Editor, type Layout } from "./Editor";
 import { ErrorBoundary } from "./ErrorBoundary";
 import {
   ExportDialog,
+  onOpenExport,
+  openExportsPanel,
+  useActiveExportCount,
   type PreviewMode,
   PreviewModeToggle,
   referenceSize,
@@ -25,6 +29,9 @@ import { Checklist } from "./onboarding/Checklist";
 import type { HelpActions } from "./onboarding/HelpMenu";
 import { useOnboarding } from "./onboarding/useOnboarding";
 import { Welcome } from "./onboarding/Welcome";
+import { SpendCards } from "./spend/SpendCard";
+import { FeedbackQueue } from "./feedback/FeedbackQueue";
+import { TasksButton } from "./tasks/TasksPopover";
 import { EDIT_ACTIONS, keyToAction } from "./keys";
 import {
   templateAspect,
@@ -43,6 +50,7 @@ const EMPTY: PlaybackState = {
   volume: 1,
   muted: false,
   audioAvailable: false,
+  rate: 1,
 };
 
 interface Toast {
@@ -89,6 +97,8 @@ function projectNameFrom(text: string): string {
 export function App() {
   const [route, setRoute] = useState<"home" | "editor">("home");
   const [project, setProject] = useState<ProjectView_Serialize | null>(null);
+  // Edits snap to the open timeline's frame grid.
+  setTimelineFps(project?.fps);
   const [projects, setProjects] = useState<ProjectSummary_Serialize[]>([]);
   const [selection, setSelection] = useState<string[]>([]);
   const [media, setMedia] = useState<MediaInfo_Serialize | null>(null);
@@ -114,6 +124,18 @@ export function App() {
   );
   const [mode, setMode] = useState<PreviewMode>("timeline");
   const [exporting, setExporting] = useState(false);
+  /** Queued and running exports, for the background-tasks button. */
+  const activeExports = useActiveExportCount();
+  /** The range the export dialog was opened for (the timeline's range menu). */
+  const [exportRange, setExportRange] = useState<[number, number] | null>(null);
+  useEffect(
+    () =>
+      onOpenExport((r) => {
+        setExportRange(r);
+        setExporting(true);
+      }),
+    [],
+  );
   const modeRef = useRef(mode);
   /** Frame rate of what the viewer plays (the timeline's while in timeline mode). */
   const fpsRef = useRef(30);
@@ -227,11 +249,13 @@ export function App() {
     [openProjectView, showError],
   );
   const { showWelcome, setChecklistClosed, standAside } = onboarding;
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const help = useMemo<HelpActions>(
     () => ({
       gettingStarted: () => setChecklistClosed(false),
       welcome: showWelcome,
       sample: trySample,
+      feedback: () => setFeedbackOpen(true),
     }),
     [setChecklistClosed, showWelcome, trySample],
   );
@@ -588,10 +612,14 @@ export function App() {
           timelineMode={mode === "timeline"}
           barExtras={
             <>
+              <TasksButton onError={showError} exports={{ count: activeExports, onOpen: openExportsPanel }} />
               <PreviewModeToggle mode={mode} onChange={switchMode} />
               <button
                 className="btn primary xp-open"
-                onClick={() => setExporting(true)}
+                onClick={() => {
+                  setExportRange(null);
+                  setExporting(true);
+                }}
                 data-testid="open-export"
               >
                 Export
@@ -606,6 +634,11 @@ export function App() {
           onClose={() => setChecklistClosed(true)}
         />
       )}
+      {/* An agent asks to spend: the person approves or declines the price. */}
+      <SpendCards />
+      {feedbackOpen && (
+        <FeedbackQueue onClose={() => setFeedbackOpen(false)} onError={showError} />
+      )}
       {exporting && project && (
         <ErrorBoundary
           region="Export"
@@ -615,6 +648,7 @@ export function App() {
           <ExportDialog
             projectName={project.name}
             aspect={project.aspectRatio}
+            range={exportRange}
             onClose={() => setExporting(false)}
             onError={showError}
           />

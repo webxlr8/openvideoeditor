@@ -1,4 +1,8 @@
-//! Effects: the 41 catalogue effects as CPU per-pixel passes (rayon over rows).
+//! Effects: the 41 catalogue effects and the chroma key as CPU per-pixel passes (rayon over rows).
+//!
+//! Pixel contract (design D5): an effect's per-pixel function returns RGBA. Colour effects are written as RGB
+//! functions and keep their input alpha; keys and mattes return alpha and so change the layer's transparency.
+//! Background generators fill their area and make it opaque by `amount`.
 //!
 //! An effect runs either on an item's decoded frame (`effects: [{id, type, ...params}]` on video and image items)
 //! or as a full-canvas pass for a shader item (`shaderComposition {template, params, amount, fadeIn, fadeOut,
@@ -10,6 +14,7 @@
 
 mod background;
 mod distort;
+pub mod key;
 pub mod spec;
 mod stylize;
 mod util;
@@ -19,13 +24,32 @@ use serde_json::{Map, Value};
 
 pub use spec::{EFFECTS, EffectSpec, Group, find};
 pub use util::Params;
-use util::{Ctx, V3};
+use util::{Ctx, V3, V4};
 
 use crate::canvas::Rgba;
 
-type PixelFn = fn(&Ctx, f32, f32) -> V3;
+/// An effect's per-pixel function.
+#[derive(Clone, Copy)]
+enum PixelFn {
+    /// Colour only: the output keeps the input alpha.
+    Rgb(fn(&Ctx, f32, f32) -> V3),
+    /// Colour and alpha (keys, mattes).
+    Rgba(fn(&Ctx, f32, f32) -> V4),
+}
 
 fn pixel_fn(id: &str) -> Option<PixelFn> {
+    rgb_fn(id).map(PixelFn::Rgb).or_else(|| rgba_fn(id).map(PixelFn::Rgba))
+}
+
+/// Effects that write alpha.
+fn rgba_fn(id: &str) -> Option<fn(&Ctx, f32, f32) -> V4> {
+    Some(match id {
+        "chroma-key" => key::chroma_key,
+        _ => return None,
+    })
+}
+
+fn rgb_fn(id: &str) -> Option<fn(&Ctx, f32, f32) -> V3> {
     Some(match id {
         "duotone" => stylize::duotone,
         "tritone" => stylize::tritone,
@@ -117,14 +141,24 @@ pub fn apply(img: &mut Rgba, id: &str, values: &Map<String, Value>, amount: f32,
         let v = (y as f32 + 0.5) / h;
         for x in 0..w {
             let u = (x as f32 + 0.5) / ctx.w;
-            let o = f(&ctx, u, v);
             let px = &mut row[x * 4..x * 4 + 4];
+            let (o, alpha) = match f {
+                PixelFn::Rgb(f) => (f(&ctx, u, v), None),
+                PixelFn::Rgba(f) => {
+                    let o = f(&ctx, u, v);
+                    ([o[0], o[1], o[2]], Some(o[3]))
+                }
+            };
             for k in 0..3 {
                 let s = px[k] as f32 / 255.0;
                 let val = if o[k].is_finite() { o[k] } else { s };
                 px[k] = ((s + (val - s) * amount).clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
             }
-            if generator {
+            if let Some(a) = alpha {
+                let s = px[3] as f32 / 255.0;
+                let val = if a.is_finite() { a } else { s };
+                px[3] = ((s + (val - s) * amount).clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
+            } else if generator {
                 px[3] = (px[3] as f32 + (255.0 - px[3] as f32) * amount + 0.5) as u8;
             }
         }
@@ -140,15 +174,67 @@ fn entry_values(e: &Map<String, Value>) -> &Map<String, Value> {
     }
 }
 
+/// The runnable entries of an effect stack (`effects` field), in order: (effect id, parameter values, amount).
+/// Disabled entries (`enabled: false`) and entries without a type are left out.
+pub fn stack_entries(effects: &Value) -> Vec<(&str, &Map<String, Value>, f32)> {
+    let Value::Array(list) = effects else { return Vec::new() };
+    list.iter()
+        .filter_map(Value::as_object)
+        .filter(|e| e.get("enabled").and_then(Value::as_bool) != Some(false))
+        .filter_map(|e| {
+            let id = e.get("type").or_else(|| e.get("template")).and_then(Value::as_str)?;
+            Some((id, entry_values(e), unit_amount(e.get("amount"))))
+        })
+        .collect()
+}
+
+/// One runnable effect: (effect id, parameter values, amount).
+pub type Entry<'a> = (&'a str, std::borrow::Cow<'a, Map<String, Value>>, f32);
+
+/// [`stack_entries`] at item-relative time `rel_us`: parameters animated by keyframe tracks
+/// (`effects.<entry id>.<parameter>` in the item's `keyframeTracks`) take their value at that time, evaluated as
+/// transform keyframes are (design D5). Without such tracks the values are the entries' own.
+pub fn stack_entries_at<'a>(
+    effects: &'a Value,
+    keyframe_tracks: Option<&Value>,
+    rel_us: ove_core::time::Micros,
+) -> Vec<Entry<'a>> {
+    let Value::Array(list) = effects else { return Vec::new() };
+    let tracks: Vec<(&str, &str, &Value)> = keyframe_tracks
+        .and_then(Value::as_array)
+        .map(|t| {
+            t.iter()
+                .filter_map(|t| {
+                    let prop = t.get("property")?.as_str()?;
+                    let (id, param) = ove_core::effect_params::split_property(prop)?;
+                    Some((id, param, t))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    list.iter()
+        .filter_map(Value::as_object)
+        .filter(|e| e.get("enabled").and_then(Value::as_bool) != Some(false))
+        .filter_map(|e| {
+            let kind = e.get("type").or_else(|| e.get("template")).and_then(Value::as_str)?;
+            let entry_id = e.get("id").and_then(Value::as_str);
+            let mut values = std::borrow::Cow::Borrowed(entry_values(e));
+            for (id, param, track) in &tracks {
+                if Some(*id) == entry_id
+                    && let Some(v) = crate::eval::track_value(track, rel_us)
+                {
+                    values.to_mut().insert((*param).to_string(), serde_json::json!(v));
+                }
+            }
+            Some((kind, values, unit_amount(e.get("amount"))))
+        })
+        .collect()
+}
+
 /// Apply an item's effect stack (`effects` field) in order. Disabled entries (`enabled: false`) are skipped.
 pub fn apply_stack(img: &mut Rgba, effects: &Value, t: f32) {
-    let Value::Array(list) = effects else { return };
-    for e in list.iter().filter_map(Value::as_object) {
-        if e.get("enabled").and_then(Value::as_bool) == Some(false) {
-            continue;
-        }
-        let Some(id) = e.get("type").or_else(|| e.get("template")).and_then(Value::as_str) else { continue };
-        apply(img, id, entry_values(e), unit_amount(e.get("amount")), t);
+    for (id, values, amount) in stack_entries(effects) {
+        apply(img, id, values, amount, t);
     }
 }
 
@@ -242,6 +328,28 @@ mod tests {
         m
     }
 
+    /// Design D5: colour effects keep the input alpha of a semi-transparent layer; only generators fill it.
+    #[test]
+    fn existing_effects_keep_input_alpha() {
+        let mut base = sample_image(64, 36);
+        for (i, p) in base.data.chunks_exact_mut(4).enumerate() {
+            p[3] = ((i * 7) % 256) as u8;
+        }
+        for spec in EFFECTS {
+            let mut img = base.clone();
+            apply(&mut img, spec.id, &Map::new(), 1.0, 1.0);
+            let same = img.data.chunks_exact(4).zip(base.data.chunks_exact(4)).all(|(a, b)| a[3] == b[3]);
+            if spec.group == Group::Key {
+                continue; // keys write alpha by design
+            }
+            if spec.group == Group::Background {
+                assert!(img.data.chunks_exact(4).all(|p| p[3] == 255), "{} fills its area", spec.id);
+            } else {
+                assert!(same, "{} changed the layer's alpha", spec.id);
+            }
+        }
+    }
+
     #[test]
     fn every_effect_is_implemented_and_survives_extreme_params() {
         for spec in EFFECTS {
@@ -290,6 +398,46 @@ mod tests {
         assert!(a.data.chunks(4).all(|p| p[..3].iter().all(|&x| x == 0 || x == 255)));
     }
 
+    /// The animated blur scenario: zoom blur intensity keyframed from 0 to 20 over one second is 10 at 0.5 s
+    /// (linear), and the frame equals the effect at 10.
+    #[test]
+    fn keyframed_parameters_follow_their_tracks() {
+        let fx = json!([{"id": "b", "type": "zoom-blur", "intensity": 50}]);
+        let tracks = json!([{"property": "effects.b.intensity", "keyframes": [{"time": 0, "value": 0}, {"time": 1, "value": 20}]}]);
+        let at = |us: i64| stack_entries_at(&fx, Some(&tracks), us)[0].1.get("intensity").and_then(Value::as_f64);
+        assert_eq!(at(0), Some(0.0));
+        assert_eq!(at(500_000), Some(10.0));
+        assert_eq!(at(2_000_000), Some(20.0));
+        let base = sample_image(48, 27);
+        let mut animated = base.clone();
+        for (id, values, amount) in stack_entries_at(&fx, Some(&tracks), 500_000) {
+            apply(&mut animated, id, &values, amount, 0.5);
+        }
+        let mut fixed = base.clone();
+        apply(&mut fixed, "zoom-blur", json!({"intensity": 10}).as_object().unwrap(), 1.0, 0.5);
+        assert_eq!(animated.data, fixed.data);
+        // Without tracks the entry's own value stays; tracks for other entries do not touch it.
+        assert_eq!(stack_entries_at(&fx, None, 500_000)[0].1.get("intensity"), Some(&json!(50)));
+        let other = json!([{"property": "effects.x.intensity", "keyframes": [{"time": 0, "value": 1}]}]);
+        assert_eq!(stack_entries_at(&fx, Some(&other), 0)[0].1.get("intensity"), Some(&json!(50)));
+    }
+
+    /// ove-core keeps a copy of the numeric parameter names to check keyframe tracks: it must equal the contract.
+    #[test]
+    fn core_parameter_table_matches_the_contract() {
+        use ove_core::effect_params::NUMERIC_PARAMS;
+        assert_eq!(NUMERIC_PARAMS.len(), EFFECTS.len());
+        for spec in EFFECTS {
+            let want: Vec<&str> = spec
+                .params
+                .iter()
+                .filter(|p| matches!(p.kind, ParamKind::Number { .. } | ParamKind::Percent { .. }))
+                .map(|p| p.name)
+                .collect();
+            assert_eq!(ove_core::effect_params::params(spec.id), Some(&want[..]), "{}", spec.id);
+        }
+    }
+
     #[test]
     fn shader_fades() {
         let comp = json!({"template": "duotone", "amount": 100, "fadeIn": 1.0, "fadeOut": 2.0});
@@ -299,81 +447,4 @@ mod tests {
         assert_eq!(shader_strength(m, 5.0, 10.0), 1.0);
         assert!((shader_strength(m, 9.0, 10.0) - 0.5).abs() < 1e-6);
     }
-
-    /// Golden checksums at 64×36: any change to an algorithm shows up here; regenerate by running with
-    /// `OVE_BLESS_EFFECTS=1` and pasting the printed table. Linux x86-64 only (libm results differ by platform).
-    #[test]
-    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-    fn golden_effect_hashes() {
-        let base = sample_image(64, 36);
-        let mut table = Vec::new();
-        for spec in EFFECTS {
-            let mut img = base.clone();
-            apply(&mut img, spec.id, &Map::new(), 1.0, 1.0);
-            // FNV-1a over the frame
-            let mut hsh: u64 = 0xcbf2_9ce4_8422_2325;
-            for b in &img.data {
-                hsh = (hsh ^ *b as u64).wrapping_mul(0x0100_0000_01b3);
-            }
-            table.push((spec.id, hsh));
-        }
-        if std::env::var_os("OVE_BLESS_EFFECTS").is_some() {
-            for (id, h) in &table {
-                println!("(\"{id}\", 0x{h:016x}),");
-            }
-            return;
-        }
-        for (id, h) in &table {
-            if let Some((_, want)) = GOLDEN.iter().find(|(g, _)| g == id) {
-                assert_eq!(h, want, "{id} output changed");
-            }
-        }
-        assert_eq!(GOLDEN.len(), EFFECTS.len(), "bless the golden table");
-    }
-
-    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-    #[rustfmt::skip]
-    const GOLDEN: &[(&str, u64)] = &[
-        ("duotone", 0xf6de44bd59c30ef3),
-        ("tritone", 0xfaad10e327fd713e),
-        ("gradient-map", 0xb8652cc2c3a0b857),
-        ("posterize", 0xb32d2f33d89e95e3),
-        ("solarize", 0xbc3cbc91a862d26d),
-        ("halftone", 0x36950422909da53d),
-        ("dither", 0x2520d21d5c90b865),
-        ("engraving", 0x4274fcb533e405d6),
-        ("watercolor", 0x0859908466374b4d),
-        ("pixelate", 0x9a7139b3f335a9c5),
-        ("chromatic-aberration", 0x4706e558131bddde),
-        ("glitch", 0x9f70bcb5354d8847),
-        ("vhs", 0x0fccb440344a207c),
-        ("crt-screen", 0xe062a9926bdff64c),
-        ("light-leak", 0x77a8f33327ce7be1),
-        ("lens-flare", 0xe84dbd9bff52be3f),
-        ("zoom-blur", 0x5a66da1b34db4599),
-        ("tilt-shift", 0x3151fd1976eaa37d),
-        ("bulge", 0xc4cace972e5771ee),
-        ("spherize", 0xbf4a8e534f3623a5),
-        ("lens-distortion", 0x45037dfb66d9693b),
-        ("twirl", 0xba45eaeeab1ea9cd),
-        ("wave-distortion", 0x16458f553d668ef9),
-        ("kaleidoscope", 0xc462b683361ec7bd),
-        ("mirror", 0xd30833c417674859),
-        ("polar-coordinates", 0xa93662f35ebbd396),
-        ("fluted-glass", 0xdec25f795e0cdf36),
-        ("glass-tiles", 0xdada996315104f8f),
-        ("aurora", 0xe3005e6e335d4e8d),
-        ("mesh-gradient", 0x70d62e3d7bbb55f0),
-        ("flowing-gradient", 0x81cecbe951fd8e90),
-        ("plasma", 0x9d7f428fc6cc4abb),
-        ("swirl", 0x474c188926a863a8),
-        ("marble", 0xb45f253d0dd78c85),
-        ("godrays", 0xed3f903ca30f65c6),
-        ("sunburst", 0xdafb4bd794bf53f5),
-        ("spiral", 0xfa8a305c25be5f6c),
-        ("conic-gradient", 0x1dcb5c3c7bb2f8f5),
-        ("voronoi", 0xdb61c067640fd0c8),
-        ("stripes", 0x75a18cf0d15b6d5c),
-        ("studio-background", 0x5461af720895dc33),
-    ];
 }

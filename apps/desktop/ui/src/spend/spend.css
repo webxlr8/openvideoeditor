@@ -1,0 +1,19 @@
+/* Price cards and the spending limit (unify-agent-tool-layer). */
+.spend-card {
+  max-width: 460px;
+}
+.spend-price {
+  font-size: 1.6em;
+  font-weight: 600;
+  margin: 4px 0 8px;
+}
+.spend-text {
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+.spend-cap {
+  margin-top: 16px;
+}
+.spend-cap input {
+  width: 8em;
+}

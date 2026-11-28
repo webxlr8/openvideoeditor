@@ -51,7 +51,7 @@ describe("keyboard map", () => {
     const input = document.createElement("input");
     expect(keyToAction(key(" ", { target: input }))).toBeNull();
     expect(keyToAction(key("l", { metaKey: true }))).toBeNull();
-    expect(keyToAction(key("x"))).toBeNull();
+    expect(keyToAction(key("g"))).toBeNull();
   });
 
   it("toggles diagnostics with Cmd/Ctrl+Shift+D even in text fields", () => {
@@ -67,17 +67,17 @@ describe("keyboard map", () => {
 describe("rebinding", () => {
   it("moves an action to another key and frees the old one", async () => {
     const { setBinding, resetBindings, bindingOf } = await import("./keys");
-    setBinding("split", "x");
-    expect(keyToAction(key("x"))).toEqual({ type: "split" });
+    setBinding("split", "g");
+    expect(keyToAction(key("g"))).toEqual({ type: "split" });
     expect(keyToAction(key("s"))).toBeNull();
     // Taking a key used by another action unbinds that action.
-    setBinding("duplicate", "x");
-    expect(keyToAction(key("x"))).toEqual({ type: "duplicate" });
+    setBinding("duplicate", "g");
+    expect(keyToAction(key("g"))).toEqual({ type: "duplicate" });
     expect(bindingOf("split")).toBe("");
     // Modified keys and text fields are untouched.
     expect(keyToAction(key("z", { metaKey: true }))).toEqual({ type: "undo" });
     resetBindings();
     expect(keyToAction(key("s"))).toEqual({ type: "split" });
-    expect(keyToAction(key("x"))).toBeNull();
+    expect(keyToAction(key("g"))).toBeNull();
   });
 });

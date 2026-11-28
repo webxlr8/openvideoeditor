@@ -1,0 +1,31 @@
+# Runtime spike bench for add-model-runtime (task 1.2). Not part of the workspace: it pulls in both candidate runtimes
+# only to measure them. Build one runtime at a time:
+#   cargo build --release --features ort    (ONNX Runtime, library loaded at run time)
+#   cargo build --release --features tract  (pure-Rust runtime)
+#   cargo build --release                   (baseline, no runtime: for the binary-size difference)
+[package]
+name = "model-spike-bench"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[features]
+ort = ["dep:ort"]
+tract = ["dep:tract-onnx"]
+
+[dependencies]
+ort = { version = "=2.0.0-rc.15", default-features = false, features = ["std", "load-dynamic", "api-24"], optional = true }
+tract-onnx = { version = "0.23.10", optional = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_System_ProcessStatus", "Win32_System_Threading", "Win32_Foundation"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "debuginfo"

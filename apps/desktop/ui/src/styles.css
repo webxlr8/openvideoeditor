@@ -487,6 +487,12 @@ kbd {
   background: rgba(0, 0, 0, 0.6);
   font-size: 11px;
 }
+.media-tc {
+  padding: 0 8px 6px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+}
 .media-name {
   display: flex;
   align-items: center;
@@ -1760,6 +1766,59 @@ button.preset-card:disabled {
   font-style: normal;
   color: #ffd84d;
 }
+.timeline.tool-blade .clip {
+  cursor: crosshair;
+}
+.timeline.tool-trim .clip {
+  cursor: ew-resize;
+}
+.ruler {
+  position: relative;
+}
+.ruler .range-mark {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(90, 170, 255, 0.25);
+  pointer-events: none;
+}
+.ruler .range-in,
+.ruler .range-out {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: #5aaaff;
+  pointer-events: none;
+}
+.clip-ghost {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  border: 1px dashed rgba(255, 255, 255, 0.7);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  pointer-events: none;
+}
+.clip .link-badge {
+  position: absolute;
+  right: 4px;
+  top: 3px;
+  opacity: 0.8;
+  pointer-events: none;
+}
+.clip .drift-chip {
+  position: absolute;
+  right: 18px;
+  top: 2px;
+  padding: 0 4px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #1a1a1a;
+  background: #ff6b5a;
+  pointer-events: none;
+}
 .zoom-group {
   display: flex;
   align-items: center;
@@ -2532,4 +2591,41 @@ button.preset-card:disabled {
 }
 .field-error {
   color: var(--danger);
+}
+
+/* Snap to beats: the toggle and the beat marks on music clips. */
+.beats-toggle {
+  position: absolute;
+  left: 6px;
+  top: 2px;
+  z-index: 5;
+  font-size: 13px;
+}
+.beat-mark {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.25);
+  pointer-events: none;
+}
+.beat-mark.downbeat {
+  width: 2px;
+  background: rgba(255, 214, 102, 0.8);
+}
+
+/* Synchronise selection: the result summary over the timeline. */
+.sync-summary {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 60%;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: rgba(20, 20, 24, 0.92);
+  font-size: 12px;
+  z-index: 5;
 }

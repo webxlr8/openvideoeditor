@@ -1,0 +1,32 @@
+{
+  "resources": [
+    {
+      "uri": "ove://skills/caption-styling",
+      "name": "caption-styling",
+      "title": "Caption styling",
+      "description": "Give the captions of a video one consistent look by picking one of the editor's 21 caption styles to suit the video's shape and tone, then checking the result on real frames. Use when the person asks to style, restyle, tidy or fix the look of captions or subtitles.",
+      "mimeType": "text/markdown"
+    },
+    {
+      "uri": "ove://skills/colour-matching",
+      "name": "colour-matching",
+      "title": "Colour matching",
+      "description": "Make shots from different cameras or lighting look like they belong together, then build one look on top. Works in four passes (inspect, normalise, match, look) and checks each pass on frames. Use when the person asks to match colour, fix white balance between shots, or grade a sequence.",
+      "mimeType": "text/markdown"
+    },
+    {
+      "uri": "ove://skills/interview-cutting",
+      "name": "interview-cutting",
+      "title": "Interview cutting",
+      "description": "Tighten an interview or talking-head recording by removing dead air and filler words while keeping every sentence ending and the speaker's natural rhythm, then checking the seams. Use when the person asks to clean up, tighten, shorten or remove the ums and pauses from an interview, podcast or talk.",
+      "mimeType": "text/markdown"
+    },
+    {
+      "uri": "ove://skills/tidy-cuts",
+      "name": "tidy-cuts",
+      "title": "Tidy cuts",
+      "description": "Close small gaps on the main track.",
+      "mimeType": "text/markdown"
+    }
+  ]
+}

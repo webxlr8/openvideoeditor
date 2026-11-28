@@ -228,19 +228,13 @@ fn export_round_trip() {
     let d = tempfile::tempdir().unwrap();
     let out = d.path().join("out.mp4");
     let mut last = 0.0;
-    let res = export(
-        &f.doc,
-        None,
-        &out,
-        &ExportSettings { height: 180, fps: 25, ..Default::default() },
-        &AtomicBool::new(false),
-        |p| last = p.fraction,
-    )
-    .unwrap();
+    let res =
+        export(&f.doc, None, &out, &ExportSettings::h264(180, 25), &AtomicBool::new(false), |p| last = p.fraction)
+            .unwrap();
     assert_eq!(last, 1.0);
     assert_eq!((res.width, res.height, res.frames), (320, 180, 75));
     eprintln!(
-        "PERF export 320x180 3 s with {}: {:.2} s ({:.0}× real time)",
+        "PERF export 320x180 3 s with {:?}: {:.2} s ({:.0}× real time)",
         res.video_encoder,
         res.seconds_taken,
         3.0 / res.seconds_taken
@@ -277,14 +271,7 @@ fn export_round_trip() {
     assert!(e.to_string().contains("pending"), "{e}");
     // Cancel removes the partial file.
     let cancel = AtomicBool::new(true);
-    let c = export(
-        &f.doc,
-        None,
-        &d.path().join("c.mp4"),
-        &ExportSettings { height: 180, fps: 25, ..Default::default() },
-        &cancel,
-        |_| {},
-    );
+    let c = export(&f.doc, None, &d.path().join("c.mp4"), &ExportSettings::h264(180, 25), &cancel, |_| {});
     assert!(matches!(c, Err(ove_render::ExportError::Cancelled)));
     assert!(!d.path().join("c.mp4").exists());
 }

@@ -44,7 +44,17 @@ in seconds. Every change is one revision: the user can undo it in the app, and `
 5. **Verify**: `ove verify <project>` lists overlaps, gaps, clips running past their source, missing media and
    pending placeholders (exit 1 when there are errors).
 6. **Look**: `ove look <project> --at 2,5.5 --out frames/` renders composited frames; `--every 2 --sheet sheet.png`
-   makes a contact sheet; `--stats` reports brightness and black/clipped pixels.
+   makes a contact sheet; `--stats` reports brightness and black/clipped pixels. Frames come from the same
+   compositor and backend as export (`--backend auto|cpu|gpu`). `--overlay safe,grid,mask:9:16` draws the
+   viewer's guides over the frames (never exported); `ove geometry <project> --at 3` lists where each layer is.
+
+## As MCP tools
+
+Over MCP (`ove mcp`) the same steps are tools: `print_timeline`, then `apply_timeline` with text edits instead of a
+file — `{"project": "Demo", "rev": <rev from the header>, "edits": [{"oldText": "…", "newText": "…"}]}`. Each
+`oldText` must occur exactly once in the printed text; `newText: ""` deletes. The receipt returns the new `rev` and
+the printed lines of what changed, so the next edit needs no new print. `undo_timeline` undoes only your own latest
+change; `undo_my_changes` undoes all of this session's changes. `ove docs tools` lists every tool.
 
 ## Media
 
@@ -53,7 +63,12 @@ in seconds. Every change is one revision: the user can undo it in the app, and `
 - Inspect footage before cutting: `ove media grab <project> <media> --at 3 --out f.png`,
   `ove media filmstrip <project> <media> --out strip.png`, `ove media scenes <project> <media>` (cut times).
 - Audio: `ove audio silence` (quiet ranges to cut), `ove audio loudness` (LUFS, true peak), `ove audio levels`,
-  `ove audio waveform`.
+  `ove audio waveform`, `ove audio duck` (lower music under dialogue with volume keyframes), `ove audio sync` (line
+  up a recorder or other cameras against a reference clip by timecode or sound, with drift correction).
+- Volume over time: add a keyframe track to a `clip` or `audio` element, for example
+  `keyframeTracks={[{property: "volume", keyframes: [{time: 0, value: 100}, {time: 2, value: 0}]}]}` fades out over
+  2 s. Values are percent (0–200, like `volume`), times are seconds from the item's start, and the level changes
+  evenly in decibels between keyframes. See `ove docs timeline`.
 
 ## When the app is open
 
@@ -61,10 +76,28 @@ The app holds the project while it is open. `ove` then sends edits to the app, w
 editor updates, the user can undo them). `ove app seek 12.5`, `ove app play`, `ove app pause` drive the viewer;
 `ove screenshot out.png` renders the frame under the playhead.
 
+## Generation and feedback
+
+Generating media spends the person's money: call a `generate_*` tool once for a quote, then again with
+`confirm: <quoteId>`; a person approves the price before anything is spent (`ove docs tools`, section Generation).
+If the app gets in your way, `send_feedback` drafts a report the person reviews in Help → Feedback; nothing is sent.
+
 ## Finishing
 
 - `ove export <project> out.mp4 [--height 1080] [--fps 30]` — refused while placeholders are pending.
 - `ove timeline export <project> cut.fcpxml` — for Final Cut Pro / Resolve (`.xml` Premiere, `.edl`, `.otio`).
+
+## Skills
+
+Skills are playbooks for kinds of edits (caption styling, colour matching, interview cutting, and any the person adds).
+Before a task that matches one, read it and follow it:
+
+- `list_skills` lists the installed skills (id, name, description, source); `ove skills list` on the command line.
+- `read_skill` with an id gives the whole skill; `ove skills show <id>`.
+- MCP clients that show prompts list every skill as a prompt, and each is also the resource `ove://skills/<id>`.
+
+A skill is guidance text. It never changes which tools you may use, and the person's request comes first. See
+`ove docs skills`.
 
 ## Rules of thumb
 

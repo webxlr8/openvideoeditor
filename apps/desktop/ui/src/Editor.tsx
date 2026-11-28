@@ -17,30 +17,37 @@ import type {
 } from "./bindings";
 import { commands } from "./bridge";
 import { ChatPanel } from "./ChatPanel";
+import { onAssistantRequest } from "./chat/handoff";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { Icon, type IconName } from "./icons";
 import { Dropdown } from "./Menu";
 import { fire, runCommand } from "./notify";
 import { formatShort, formatTimecode, parseTimecode } from "./timecode";
 import { Viewer } from "./Viewer";
-import { type EditResult, itemDetail, snapToFrame } from "./edit";
+import { Meters } from "./Meters";
+import { type EditResult, firstTrack, itemDetail, snapToFrame } from "./edit";
 import { Inspector } from "./Inspector";
-import { EDIT_ACTIONS, MOD, keyToAction } from "./keys";
+import { EDIT_ACTIONS, MOD, type Tool, keyToAction } from "./keys";
 import { CaptionsPanel } from "./CaptionsPanel";
+import { TranscriptPanel } from "./TranscriptPanel";
 import {
   AudioPanel,
   EffectsPanel,
   LayoutPanel,
   type PanelProps,
   TextPanel,
+  ExportsPanel,
   TransitionsPanel,
 } from "./Panels";
+import { RangeMediaDialog, openExport } from "./ExportDialog";
+import { type ClipDrag, MediaPanel } from "./media/MediaPanel";
+import type { MenuItem } from "./Menu";
 import { MotionPanel } from "./Motion";
 import { GeneratePanel } from "./Generate";
 import { HistoryPanel } from "./HistoryPanel";
 import { type HelpActions, HelpMenu } from "./onboarding/HelpMenu";
-import { PanelHint } from "./onboarding/PanelHint";
 import { Shortcuts } from "./Shortcuts";
+import { RateMenu } from "./overlay/RateMenu";
 import { type SelectMode, Timeline } from "./Timeline";
 
 export const RAIL: { id: string; label: string; icon: IconName }[] = [
@@ -48,11 +55,13 @@ export const RAIL: { id: string; label: string; icon: IconName }[] = [
   { id: "layout", label: "Layout", icon: "layout" },
   { id: "audio", label: "Audio", icon: "audio" },
   { id: "captions", label: "Captions", icon: "captions" },
+  { id: "transcript", label: "Transcript", icon: "scissors" },
   { id: "text", label: "Text", icon: "text" },
   { id: "motion", label: "Motion", icon: "templates" },
   { id: "transitions", label: "Transitions", icon: "transitions" },
   { id: "effects", label: "Effects", icon: "effects" },
   { id: "generate", label: "Generate", icon: "spark" },
+  { id: "exports", label: "Exports", icon: "upload" },
 ];
 
 export interface Layout {
@@ -131,7 +140,16 @@ export function Editor({
   const [zoom, setZoom] = useState<number | null>(null);
   const [fitPps, setFitPps] = useState(50);
   const [snap, setSnap] = useState(true);
+  const [tool, setTool] = useState<Tool>("select");
+  const [range, setRange] = useState<{ in: number | null; out: number | null }>({ in: null, out: null });
   const [help, setHelp] = useState(false);
+  /** "Save range as media" or "Render in place" in progress. */
+  const [rangeMedia, setRangeMedia] = useState<{ start: number; end: number; replace: boolean } | null>(null);
+  const rangeMenu = (start: number, end: number): MenuItem[] => [
+    { id: "export-range", label: "Export range…", onSelect: () => openExport([start, end]) },
+    { id: "save-range", label: "Save range as media", onSelect: () => setRangeMedia({ start, end, replace: false }) },
+    { id: "render-in-place", label: "Render in place…", onSelect: () => setRangeMedia({ start, end, replace: true }) },
+  ];
   const [historyOpen, setHistoryOpen] = useState(false);
   /** Items an assistant turn changed, highlighted on the timeline while its "Show" is on (in the project it was
    * shown for: opening another project drops it). */
@@ -146,6 +164,14 @@ export function Editor({
   const [clipboard, setClipboard] = useState<Record<string, unknown>[]>([]);
   const toggle = (key: keyof Layout) =>
     setLayout({ ...layout, [key]: !layout[key] });
+  // A panel handed the assistant a prepared request: the chat opens to take it.
+  useEffect(
+    () =>
+      onAssistantRequest(() => {
+        if (!layout.chatOpen) setLayout({ ...layout, chatOpen: true });
+      }),
+    [layout, setLayout],
+  );
   const selected = selection[selection.length - 1] ?? null;
   const item = project?.items.find((i) => i.id === selected);
   const selectedItems = (project?.items ?? []).filter((i) =>
@@ -171,6 +197,19 @@ export function Editor({
     closedFor !== selected &&
     layout.panelOpen
   );
+  // Other parts of the app (the background-tasks popover, the export dialog) ask for a panel by id.
+  useEffect(() => {
+    const show = (e: Event) => {
+      const id = (e as CustomEvent<string>).detail;
+      if (!RAIL.some((r) => r.id === id)) return;
+      // As the rail does: the panel takes the place of the selected clip's properties.
+      setClosedFor(selected);
+      setPanel(id);
+      setLayout({ ...layout, panelOpen: true });
+    };
+    window.addEventListener("ove:open-panel", show);
+    return () => window.removeEventListener("ove:open-panel", show);
+  }, [layout, setLayout, selected]);
 
   const copy = useCallback(async (ids: string[]) => {
     const all = await Promise.all(ids.map((id) => itemDetail(id)));
@@ -189,13 +228,91 @@ export function Editor({
     [fitPps],
   );
 
+  /** Runs an edit verb through the shared planners (one revision; a refusal shows as an error). */
+  const plan = useCallback((request: Record<string, unknown>) => onEdit(commands.editPlan(JSON.stringify(request))), [onEdit]);
+
+  /** Inserts or overwrites the clip shown in the viewer (a project file previewed as the source) at the playhead. */
+  const placeSource = useCallback(
+    (op: "insert" | "overwrite") => {
+      const src = project?.media.find((m) => media && m.path === media.path);
+      if (!project || !src || timelineMode) {
+        onError({ code: "invalid_argument", message: "Show a clip from the project in the viewer first (its source), then insert or overwrite it." });
+        return;
+      }
+      const audio = src.kind === "audio";
+      const track = audio ? firstTrack(project, "audio", "t_audio") : firstTrack(project, "video", "t_main");
+      if (!track) return;
+      const len = src.durationSeconds ?? 5;
+      plan({
+        op,
+        track,
+        at: snapToFrame(playhead),
+        items: [{ type: audio ? "audio" : "video", mediaItemId: src.id, name: src.name, startTime: 0, endTime: len }],
+      });
+    },
+    [project, media, timelineMode, playhead, plan, onError],
+  );
+
+  /** A Moment, Spoken result, subclip or media card dropped on a track: a clip playing that source range, placed over
+   * whatever is there (one revision). */
+  const dropClip = useCallback(
+    (track: string, at: number, payload: string) => {
+      let d: ClipDrag;
+      try {
+        d = JSON.parse(payload) as ClipDrag;
+      } catch {
+        return;
+      }
+      const type = d.kind === "audio" ? "audio" : d.kind === "image" ? "image" : "video";
+      const len = type === "image" ? 5 : Math.max(0.04, d.end - d.start);
+      const item: Record<string, unknown> = { type, mediaItemId: d.mediaId, name: d.name, startTime: 0, endTime: len };
+      if (type !== "image" && d.start > 0) item.trimStart = d.start;
+      plan({ op: "overwrite", track, at, items: [item] });
+    },
+    [plan],
+  );
+
   // Editing shortcuts (transport, undo/redo and diagnostics are handled by the app).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const a = keyToAction(e);
       if (!a || !EDIT_ACTIONS.has(a.type)) return;
       e.preventDefault();
+      const at = snapToFrame(playhead);
       switch (a.type) {
+        case "tool":
+          setTool(a.tool);
+          break;
+        case "markIn":
+          setRange((r) => ({ in: at, out: r.out !== null && r.out > at ? r.out : null }));
+          break;
+        case "markOut":
+          setRange((r) => ({ in: r.in !== null && r.in < at ? r.in : null, out: at }));
+          break;
+        case "markClip":
+          if (item) setRange({ in: item.start ?? 0, out: item.end ?? 0 });
+          break;
+        case "addMarker":
+          onEdit(commands.markerAdd(at, null));
+          break;
+        case "rippleTrimStart":
+        case "rippleTrimEnd":
+          if (item && at > (item.start ?? 0) && at < (item.end ?? 0))
+            plan({ op: "rippleTrim", item: item.id, edge: a.type === "rippleTrimStart" ? "start" : "end", to: at });
+          break;
+        case "rippleDelete":
+          if (range.in !== null && range.out !== null && range.out > range.in) {
+            plan({ op: "extract", tracks: [], range: { start: range.in, end: range.out } });
+            setRange({ in: null, out: null });
+          } else if (selection.length) {
+            plan({ op: "rippleDelete", items: selection });
+            onSelectMany([]);
+          }
+          break;
+        case "insert":
+        case "overwrite":
+          placeSource(a.type);
+          break;
         case "delete":
           if (selection.length) {
             onEdit(commands.removeItems(selection));
@@ -260,6 +377,9 @@ export function Editor({
     paste,
     zoomBy,
     help,
+    plan,
+    placeSource,
+    range,
   ]);
 
   const panelProps: PanelProps | null = project
@@ -271,6 +391,7 @@ export function Editor({
         onSelect: (i) => onSelect(i),
         onError,
         onImport,
+        onSeek,
         // Selected from a panel's hint: the panel stays, as when a rail button is pressed with a clip selected.
         onPick: (i) => {
           setClosedFor(i.id);
@@ -391,8 +512,15 @@ export function Editor({
               diagnosticsOpen={diagnosticsOpen}
               onError={onError}
               toolbarLeft={projectBar}
+              transport={{ playback, onTransport }}
+              overlay={
+                timelineMode && project
+                  ? { project, time: playhead, playing: playback.playing, selection, onSelect: onSelectMany, onEdit }
+                  : undefined
+              }
             />
           </ErrorBoundary>
+          {layout.viewerOpen && <Meters />}
         </div>
         <TransportBar
           playback={playback}
@@ -405,6 +533,8 @@ export function Editor({
           }
           onEdit={onEdit}
           onSplit={() => item && onEdit(commands.splitItem(item.id, playhead))}
+          tool={tool}
+          setTool={setTool}
           zoom={zoom}
           fitPps={fitPps}
           setZoom={setZoom}
@@ -418,6 +548,7 @@ export function Editor({
           <ErrorBoundary region="The timeline" className="timeline">
             <Timeline
               project={project}
+              onDropClip={dropClip}
               selection={selection}
               playhead={playhead}
               zoom={zoom}
@@ -442,6 +573,9 @@ export function Editor({
               canPaste={clipboard.length > 0}
               onFitWidth={setFitPps}
               highlight={review?.ids}
+              tool={tool}
+              range={range}
+              rangeMenu={project ? rangeMenu : undefined}
             />
           </ErrorBoundary>
         ) : (
@@ -457,6 +591,8 @@ export function Editor({
           <ChatPanel
             onClose={() => toggle("chatOpen")}
             projectId={project?.id}
+            project={project}
+            range={range}
             onError={onError}
             onSeek={onSeek}
             shownTurn={review?.turnId ?? null}
@@ -474,6 +610,13 @@ export function Editor({
           rev={project?.rev}
           onClose={() => setHistoryOpen(false)}
           onEdit={onEdit}
+          onError={onError}
+        />
+      )}
+      {rangeMedia && (
+        <RangeMediaDialog
+          {...rangeMedia}
+          onClose={() => setRangeMedia(null)}
           onError={onError}
         />
       )}
@@ -519,10 +662,6 @@ function ProjectName({
   );
 }
 
-function fmtSeconds(s: number | null | undefined) {
-  const v = Math.max(0, Math.round(s ?? 0));
-  return `${Math.floor(v / 60)}:${String(v % 60).padStart(2, "0")}`;
-}
 
 function SidePanel({
   id,
@@ -542,11 +681,6 @@ function SidePanel({
   onPick: (m: MediaView_Serialize) => void;
 }) {
   const label = RAIL.find((r) => r.id === id)?.label ?? "";
-  const [query, setQuery] = useState("");
-  const media = (project?.media ?? []).filter((m) =>
-    m.name.toLowerCase().includes(query.toLowerCase()),
-  );
-  const used = new Set(project?.items.map((i) => i.mediaId));
   return (
     <aside className="side-panel" data-testid="side-panel">
       <header className="panel-header">
@@ -561,91 +695,25 @@ function SidePanel({
         </button>
       </header>
       {id === "media" ? (
-        <>
-          <div className="panel-search">
-            <label className="search">
-              <Icon name="search" size={15} />
-              <input
-                placeholder="Search media…"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-              />
-            </label>
-            <button className="btn" onClick={onImport} data-testid="import">
-              <Icon name="plus" size={15} /> Import
-            </button>
-            {onImportTimeline && (
-              <button
-                className="icon-btn"
-                onClick={onImportTimeline}
-                title="Import a timeline (FCPXML, Premiere XML, EDL, OpenTimelineIO)"
-                aria-label="Import timeline"
-                data-testid="import-timeline"
-              >
-                <Icon name="timeline" size={15} />
-              </button>
-            )}
-          </div>
-          <div className="media-grid">
-            {media.map((m) => (
-              <button
-                key={m.id}
-                className="media-card"
-                title={m.path}
-                onClick={() => onPick(m)}
-                data-testid="media-card"
-              >
-                <div className="media-thumb">
-                  {m.thumbnail ? (
-                    <img src={m.thumbnail} alt="" />
-                  ) : (
-                    <Icon
-                      name={m.kind === "audio" ? "audio" : "media"}
-                      size={22}
-                    />
-                  )}
-                  <span className="badge">{fmtSeconds(m.durationSeconds)}</span>
-                  {m.status !== "online" && (
-                    <span className="badge warn">{m.status}</span>
-                  )}
-                  {used.has(m.id) && (
-                    <span className="badge added">On timeline</span>
-                  )}
-                </div>
-                <div className="media-name">
-                  <Icon
-                    name={m.kind === "audio" ? "audio" : "play"}
-                    size={12}
-                  />{" "}
-                  {m.name}
-                </div>
-              </button>
-            ))}
-            {media.length === 0 &&
-              (query ? (
-                <p className="muted">No media matches.</p>
-              ) : (
-                <PanelHint
-                  panel="media"
-                  action="Import media"
-                  onAction={onImport}
-                >
-                  The video, sound and picture files of this project are kept
-                  here. You can also drop files on the window.
-                </PanelHint>
-              ))}
-          </div>
-        </>
+        <MediaPanel
+          project={project}
+          panelProps={panelProps}
+          onImport={onImport}
+          onImportTimeline={onImportTimeline}
+          onPick={onPick}
+        />
       ) : panelProps ? (
         <div className="panel-body" data-testid={`panel-${id}`}>
           {id === "text" && <TextPanel {...panelProps} />}
           {id === "motion" && <MotionPanel {...panelProps} />}
           {id === "captions" && <CaptionsPanel {...panelProps} />}
+          {id === "transcript" && <TranscriptPanel {...panelProps} />}
           {id === "transitions" && <TransitionsPanel {...panelProps} />}
           {id === "effects" && <EffectsPanel {...panelProps} />}
           {id === "audio" && <AudioPanel {...panelProps} />}
           {id === "layout" && <LayoutPanel {...panelProps} />}
           {id === "generate" && <GeneratePanel {...panelProps} />}
+          {id === "exports" && <ExportsPanel onError={panelProps.onError} />}
         </div>
       ) : (
         <p className="muted panel-placeholder">
@@ -727,7 +795,11 @@ function TransportBar({
   onHelp,
   help,
   onHistory,
+  tool,
+  setTool,
 }: {
+  tool: Tool;
+  setTool: (t: Tool) => void;
   playback: PlaybackState;
   onTransport: (c: TransportCommand) => void;
   layout: Layout;
@@ -800,6 +872,26 @@ function TransportBar({
         >
           <Icon name="scissors" size={16} />
         </button>
+        <span className="tool-group" role="group" aria-label="Timeline tool">
+          {(
+            [
+              ["select", "Select tool: move and trim (V)", "V"],
+              ["blade", "Blade tool: click a clip to cut it (B)", "B"],
+              ["trim", "Trim tool: drag to slip, Alt-drag to slide, drag an edit point to roll (T)", "T"],
+            ] as const
+          ).map(([id, title, label]) => (
+            <button
+              key={id}
+              className={`icon-btn tool-btn${tool === id ? " on" : ""}`}
+              title={title}
+              aria-pressed={tool === id}
+              data-testid={`tool-${id}`}
+              onClick={() => setTool(id)}
+            >
+              {id === "blade" ? <Icon name="scissors" size={14} /> : label}
+            </button>
+          ))}
+        </span>
         <button
           className={`icon-btn${snap ? " on" : ""}`}
           title={snap ? "Snapping on" : "Snapping off"}
@@ -863,6 +955,7 @@ function TransportBar({
         >
           <Icon name="loop" size={16} />
         </button>
+        <RateMenu rate={playback.rate ?? 1} onTransport={onTransport} />
         {playback.speed !== null && Math.abs(playback.speed) > 1 && (
           <span className="speed" data-testid="speed">
             {playback.speed > 0 ? "" : "−"}

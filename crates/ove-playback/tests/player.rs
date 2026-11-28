@@ -465,3 +465,68 @@ fn diagnostics_snapshot_serializes() {
     }
     let _ = time.now_us();
 }
+
+/// add-viewer-interaction-and-text-fills task 3.4: at 1.5× the playhead moves 15 s of timeline time in 10 s of wall
+/// time (within one frame), on the system clock and with resampled audio mastering the clock.
+#[test]
+fn one_and_a_half_times_plays_fifteen_seconds_in_ten() {
+    // System clock (no audio device).
+    let time = SimTime::new();
+    let mut p = new_player(FakeSource::cfr(900, FRAME, &time), &time);
+    p.command(Command::SetRate(1.5), time.now_us());
+    p.command(Command::Play, time.now_us());
+    let t0 = p.transport().position;
+    run(&mut p, &time, 10_000_000);
+    let advanced = p.transport().position - t0;
+    assert!((advanced - 15_000_000).abs() <= FRAME, "advanced {advanced} µs in 10 s at 1.5×");
+    assert!(p.transport().audio_audible(), "audio plays (resampled) at rates other than 1×");
+
+    // Audio master: the producer feeds audio resampled for 1.5× (100 ms of device time is 150 ms of media).
+    let time = SimTime::new();
+    let ring = AudioRing::new(48_000, 1);
+    let src = FakeSource::cfr(900, FRAME, &time);
+    let cfg = config(&src);
+    let mut p = Player::new(src, cfg, Some(ring.clone()), 0);
+    run(&mut p, &time, 5_000);
+    p.command(Command::SetRate(1.5), time.now_us());
+    p.command(Command::Play, time.now_us());
+    assert_eq!(ring.speed(), 1.5);
+    // The audio clock starts after the first callback and runs one output latency behind: measure the rate over
+    // the last 8 s of the 10.
+    let mut t0 = 0;
+    let mut buf = vec![0f32; 480];
+    let mut fed_to = None;
+    for step in 0..10_000 {
+        time.advance(TICK);
+        let out = p.tick(time.now_us());
+        if let Some(t) = out.audio_restart {
+            fed_to = Some(t);
+        }
+        if let Some(t) = fed_to.as_mut()
+            && ring.queued_us() < 200_000
+        {
+            ring.push(*t, &[0.25; 4_800]);
+            *t += 150_000;
+        }
+        if step % 10 == 0 {
+            audio_callback(&ring, &time, &mut buf);
+        }
+        if step == 1_999 {
+            t0 = p.transport().position;
+        }
+    }
+    assert_eq!(p.clock_source(), ClockSource::Audio);
+    let advanced = p.transport().position - t0;
+    assert!((advanced - 12_000_000).abs() <= FRAME, "advanced {advanced} µs in 8 s at 1.5× on the audio clock");
+}
+
+#[test]
+fn unsupported_rates_are_refused_and_ignored() {
+    assert_eq!(ove_playback::supported_rate(1.25), Ok(1.25));
+    let e = ove_playback::supported_rate(7.0).unwrap_err();
+    assert!(e.contains("0.5, 1, 1.25, 1.5, 2"), "{e}");
+    let time = SimTime::new();
+    let mut p = new_player(FakeSource::cfr(90, FRAME, &time), &time);
+    p.command(Command::SetRate(7.0), time.now_us());
+    assert_eq!(p.transport().rate, 1.0);
+}

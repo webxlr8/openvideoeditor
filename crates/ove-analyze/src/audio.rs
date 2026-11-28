@@ -8,7 +8,10 @@
 use std::path::Path;
 
 use ove_media::{AudioDecoder, AudioOutputSpec, SampleFormat, Samples};
-use serde::Serialize;
+use ove_render::loudness::{
+    Biquad, TruePeak, channel_weights, integrated, k_weighting, loudness_range, lufs, window_energies,
+};
+use serde::{Deserialize, Serialize};
 
 use crate::image::Image;
 use crate::{Error, Result};
@@ -32,75 +35,8 @@ fn r2(v: f64) -> f64 {
     (v * 100.0).round() / 100.0
 }
 
-/// One biquad section, transposed direct form II.
-#[derive(Debug, Clone, Copy, Default)]
-struct Biquad {
-    b: [f64; 3],
-    a: [f64; 2],
-    z: [f64; 2],
-}
-
-impl Biquad {
-    fn run(&mut self, x: f64) -> f64 {
-        let y = self.b[0] * x + self.z[0];
-        self.z[0] = self.b[1] * x - self.a[0] * y + self.z[1];
-        self.z[1] = self.b[2] * x - self.a[1] * y;
-        y
-    }
-}
-
-/// The two K-weighting stages (high shelf, then high pass) of BS.1770, designed for sample rate `fs`.
-fn k_weighting(fs: f64) -> [Biquad; 2] {
-    use std::f64::consts::PI;
-    // Stage 1: high shelf, +4 dB above ~1.7 kHz.
-    let (f0, g, q) = (1_681.974_450_955_533, 3.999_843_853_973_347, 0.707_175_236_955_419_6);
-    let k = (PI * f0 / fs).tan();
-    let vh = 10f64.powf(g / 20.0);
-    let vb = vh.powf(0.499_666_774_154_541_6);
-    let a0 = 1.0 + k / q + k * k;
-    let shelf = Biquad {
-        b: [(vh + vb * k / q + k * k) / a0, 2.0 * (k * k - vh) / a0, (vh - vb * k / q + k * k) / a0],
-        a: [2.0 * (k * k - 1.0) / a0, (1.0 - k / q + k * k) / a0],
-        z: [0.0; 2],
-    };
-    // Stage 2: high pass at ~38 Hz.
-    let (f0, q) = (38.135_470_876_024_44, 0.500_327_037_323_877_3);
-    let k = (PI * f0 / fs).tan();
-    let a0 = 1.0 + k / q + k * k;
-    let hp = Biquad { b: [1.0, -2.0, 1.0], a: [2.0 * (k * k - 1.0) / a0, (1.0 - k / q + k * k) / a0], z: [0.0; 2] };
-    [shelf, hp]
-}
-
-/// BS.1770 channel weights for the default FFmpeg layouts (LFE excluded, surrounds +1.5 dB).
-fn channel_weights(ch: usize) -> Vec<f64> {
-    match ch {
-        6 => vec![1.0, 1.0, 1.0, 0.0, 1.41, 1.41],
-        8 => vec![1.0, 1.0, 1.0, 0.0, 1.41, 1.41, 1.41, 1.41],
-        n => vec![1.0; n],
-    }
-}
-
-/// 4× oversampling interpolator for true peak: 12-tap Hann-windowed sinc per phase.
-const TP_TAPS: usize = 12;
-
-fn tp_kernel() -> [[f64; TP_TAPS]; 3] {
-    use std::f64::consts::PI;
-    let mut k = [[0.0; TP_TAPS]; 3];
-    for (p, row) in k.iter_mut().enumerate() {
-        let frac = (p + 1) as f64 / 4.0;
-        for (j, v) in row.iter_mut().enumerate() {
-            // Distance from the interpolated point (between taps 5 and 6) to tap j.
-            let d = 5.0 + frac - j as f64;
-            let sinc = if d.abs() < 1e-12 { 1.0 } else { (PI * d).sin() / (PI * d) };
-            let w = if d.abs() < 6.5 { 0.5 * (1.0 + (PI * d / 6.5).cos()) } else { 0.0 };
-            *v = sinc * w;
-        }
-    }
-    k
-}
-
 /// Everything the public functions need, from one decode.
-struct Pass {
+pub(crate) struct Pass {
     channels: usize,
     weights: Vec<f64>,
     filters: Vec<[Biquad; 2]>,
@@ -116,13 +52,12 @@ struct Pass {
     win_n: usize,
     sample_peak: f64,
     true_peak: f64,
-    history: Vec<[f64; TP_TAPS]>,
-    kernel: [[f64; TP_TAPS]; 3],
+    peaks: Vec<TruePeak>,
     frames: u64,
 }
 
 impl Pass {
-    fn new(channels: usize) -> Pass {
+    pub(crate) fn new(channels: usize) -> Pass {
         Pass {
             channels,
             weights: channel_weights(channels),
@@ -136,13 +71,12 @@ impl Pass {
             win_n: 0,
             sample_peak: 0.0,
             true_peak: 0.0,
-            history: vec![[0.0; TP_TAPS]; channels],
-            kernel: tp_kernel(),
+            peaks: vec![TruePeak::default(); channels],
             frames: 0,
         }
     }
 
-    fn push_frame(&mut self, frame: &[f32]) {
+    pub(crate) fn push_frame(&mut self, frame: &[f32]) {
         let sub_len = (RATE / 10) as usize;
         for (c, &s) in frame.iter().enumerate().take(self.channels) {
             let x = s as f64;
@@ -150,14 +84,7 @@ impl Pass {
             self.win_peak = self.win_peak.max(a);
             self.win_sq += x * x;
             self.sample_peak = self.sample_peak.max(a);
-            // True peak: shift the history and interpolate three points between the two middle taps.
-            let h = &mut self.history[c];
-            h.copy_within(1.., 0);
-            h[TP_TAPS - 1] = x;
-            for phase in &self.kernel {
-                let y: f64 = phase.iter().zip(h.iter()).map(|(k, v)| k * v).sum();
-                self.true_peak = self.true_peak.max(y.abs());
-            }
+            self.true_peak = self.true_peak.max(self.peaks[c].push(x));
             let [s1, s2] = &mut self.filters[c];
             let z = s2.run(s1.run(x));
             self.sub_acc[c] += z * z;
@@ -176,7 +103,7 @@ impl Pass {
         }
     }
 
-    fn close_window(&mut self) {
+    pub(crate) fn close_window(&mut self) {
         if self.win_n > 0 {
             let ms = self.win_sq / (self.win_n * self.channels) as f64;
             self.windows.push((self.win_peak as f32, ms as f32));
@@ -197,6 +124,7 @@ fn analyse(path: &Path) -> Result<Pass> {
     let info = ove_media::probe(path)?;
     let src = info.audio.as_ref().ok_or_else(|| Error::NoAudio(path.display().to_string()))?;
     let channels = src.channels.clamp(1, 8) as u16;
+    crate::analysis::note_decode();
     let mut dec = AudioDecoder::open(path, AudioOutputSpec { sample_rate: RATE, channels, format: SampleFormat::F32 })?;
     let mut pass = Pass::new(channels as usize);
     while let Some(chunk) = dec.next_chunk()? {
@@ -298,7 +226,7 @@ pub fn silence(path: &Path, threshold_db: f64, min_seconds: f64) -> Result<Vec<R
 }
 
 /// Loudness per BS.1770-4 / EBU R128.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Loudness {
     /// Integrated loudness (LUFS); `None` when every block is below the −70 LUFS gate (silence or too short).
@@ -314,59 +242,13 @@ pub struct Loudness {
     pub duration: f64,
 }
 
-fn lufs(e: f64) -> f64 {
-    -0.691 + 10.0 * e.log10()
-}
-
-/// Energies of windows of `len` sub-blocks stepped by one sub-block (100 ms).
-fn window_energies(subs: &[f64], len: usize) -> Vec<f64> {
-    if subs.len() < len {
-        return vec![];
-    }
-    let mut out = Vec::with_capacity(subs.len() - len + 1);
-    let mut acc: f64 = subs[..len].iter().sum();
-    out.push(acc / len as f64);
-    for i in len..subs.len() {
-        acc += subs[i] - subs[i - len];
-        out.push(acc.max(0.0) / len as f64);
-    }
-    out
-}
-
-/// Integrated loudness of momentary-block energies (absolute −70 LUFS gate, then relative −10 LU gate).
-pub(crate) fn integrated(blocks: &[f64]) -> Option<f64> {
-    let abs: Vec<f64> = blocks.iter().copied().filter(|e| *e > 0.0 && lufs(*e) > -70.0).collect();
-    if abs.is_empty() {
-        return None;
-    }
-    let gate = lufs(abs.iter().sum::<f64>() / abs.len() as f64) - 10.0;
-    let rel: Vec<f64> = abs.into_iter().filter(|e| lufs(*e) > gate).collect();
-    (!rel.is_empty()).then(|| lufs(rel.iter().sum::<f64>() / rel.len() as f64))
-}
-
-/// Loudness range of short-term energies (absolute −70 LUFS, relative −20 LU gate; 95th − 10th percentile).
-pub(crate) fn loudness_range(short: &[f64]) -> f64 {
-    let abs: Vec<f64> = short.iter().copied().filter(|e| *e > 0.0 && lufs(*e) > -70.0).collect();
-    if abs.is_empty() {
-        return 0.0;
-    }
-    let gate = lufs(abs.iter().sum::<f64>() / abs.len() as f64) - 20.0;
-    let mut l: Vec<f64> = abs.into_iter().map(lufs).filter(|v| *v > gate).collect();
-    if l.len() < 2 {
-        return 0.0;
-    }
-    l.sort_by(f64::total_cmp);
-    let pct = |p: f64| {
-        let x = p * (l.len() - 1) as f64;
-        let (i, f) = (x.floor() as usize, x.fract());
-        l[i] + (l[(i + 1).min(l.len() - 1)] - l[i]) * f
-    };
-    pct(0.95) - pct(0.10)
-}
-
 /// Loudness of a file's audio.
 pub fn loudness(path: &Path) -> Result<Loudness> {
-    let pass = analyse(path)?;
+    Ok(loudness_of(&analyse(path)?))
+}
+
+/// The loudness summary of a finished pass.
+pub(crate) fn loudness_of(pass: &Pass) -> Loudness {
     let blocks = window_energies(&pass.subs, 4);
     let short = window_energies(&pass.subs, 30);
     let max_short = short
@@ -375,7 +257,7 @@ pub fn loudness(path: &Path) -> Result<Loudness> {
         .filter(|e| *e > 0.0)
         .map(lufs)
         .fold(None, |m: Option<f64>, v| Some(m.map_or(v, |m| m.max(v))));
-    Ok(Loudness {
+    Loudness {
         integrated_lufs: integrated(&blocks).map(r2),
         loudness_range_lu: r2(loudness_range(&short)),
         max_short_term_lufs: max_short.map(r2),
@@ -383,7 +265,7 @@ pub fn loudness(path: &Path) -> Result<Loudness> {
         true_peak_dbtp: r2(db(pass.true_peak.max(pass.sample_peak))),
         channels: pass.channels,
         duration: (pass.duration() * 1000.0).round() / 1000.0,
-    })
+    }
 }
 
 #[cfg(test)]

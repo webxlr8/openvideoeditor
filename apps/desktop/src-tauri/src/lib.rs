@@ -1,29 +1,54 @@
 //! Desktop shell: window, single instance and open-file routing, typed bridge, logs and crash
 //! containment, the native viewer, and playback through ove-media / ove-playback (change 1).
 
+pub mod activity;
 pub mod agents;
 pub mod assistant;
+pub mod audio_intel;
+pub mod background;
 pub mod captions;
 pub mod commands;
+pub mod compositing;
+pub mod connectors;
 pub mod control;
+pub mod ducking;
 pub mod edits;
 pub mod engine;
 pub mod error;
 pub mod exporting;
+pub mod exports;
+pub mod feedback;
 pub mod fx;
 pub mod generation;
+pub mod history;
 pub mod interchange;
+pub mod keyframes;
 pub mod logging;
+pub mod markers;
 pub mod media;
+pub mod meters;
+pub mod models;
 pub mod motion;
 pub mod onboarding;
+pub mod overlay;
 pub mod projects;
+pub mod proxies;
 pub mod sample;
+pub mod scopes;
 pub mod scripted_dialogs;
+pub mod scrub;
+pub mod search;
+pub mod skills;
+pub mod spend;
+pub mod storage;
 pub mod support;
+pub mod tasks;
 pub mod timeline;
+pub mod transcript;
 pub mod transport;
+pub mod versions;
 pub mod viewer;
+pub mod waveforms;
 pub mod window_state;
 pub mod worker;
 
@@ -83,6 +108,8 @@ pub struct AppState {
     pub ui_ready: AtomicBool,
     pub gpu_summary: Arc<Mutex<Option<String>>>,
     pub log_dir: Option<PathBuf>,
+    /// Background work: probes, thumbnails, captions, export.
+    pub tasks: ove_tasks::Scheduler,
 }
 
 impl AppState {
@@ -144,6 +171,10 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             support::check_for_updates,
             support::open_url,
             support::feedback_info,
+            // Help → Feedback: reports agents drafted, kept on this computer (unify-agent-tool-layer).
+            feedback::feedback_drafts,
+            feedback::save_feedback_draft,
+            feedback::delete_feedback_draft,
             // AI generation with the user's provider keys (change 14).
             generation::generation_catalog,
             generation::set_provider_key,
@@ -154,6 +185,10 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             generation::generation_jobs,
             generation::cancel_generation,
             generation::list_voices,
+            // Agents spend only after a person approves the price (unify-agent-tool-layer).
+            spend::answer_spend,
+            spend::spend_cap,
+            spend::set_spend_cap,
             interchange::timeline_formats,
             interchange::export_timeline,
             interchange::import_timeline,
@@ -161,6 +196,29 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             exporting::open_timeline,
             exporting::export_project,
             exporting::cancel_export,
+            // The export queue: dialog, Exports panel, save range as media (extend-export-formats-and-queue).
+            exports::export_options,
+            exports::check_export,
+            exports::queue_export,
+            exports::export_jobs,
+            exports::cancel_export_job,
+            exports::export_again,
+            exports::clear_finished_exports,
+            exports::save_range_as_media,
+            tasks::request_skim,
+            proxies::set_use_proxies,
+            background::list_tasks,
+            background::cancel_task,
+            background::pause_tasks,
+            background::run_anyway,
+            storage::storage_usage,
+            storage::clear_cache,
+            waveforms::peak_range,
+            scrub::scrub_audio,
+            ducking::duck_preview,
+            ducking::duck_audio,
+            audio_intel::sync_items,
+            audio_intel::timeline_beats,
             exporting::choose_export_path,
             exporting::reveal_path,
             edits::item_detail,
@@ -170,6 +228,16 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             edits::duplicate_items,
             edits::paste_items,
             edits::trim_item,
+            edits::edit_plan,
+            markers::marker_add,
+            markers::marker_update,
+            markers::marker_remove,
+            keyframes::keyframes_set,
+            versions::version_list,
+            versions::version_save,
+            versions::version_diff,
+            versions::version_restore,
+            edits::edit_preview,
             edits::add_track,
             edits::rename_track,
             edits::reorder_tracks,
@@ -181,6 +249,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             assistant::agent_chats,
             assistant::agent_chat,
             assistant::agent_send,
+            assistant::agent_send_context,
+            history::undo_agent_changes,
             assistant::agent_stop,
             assistant::agent_answer,
             assistant::agent_set_limits,
@@ -206,10 +276,48 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             fx::import_lut,
             fx::match_color,
             fx::color_scopes,
+            fx::sample_key_color,
+            scopes::set_scope,
+            scopes::scope_frame,
+            compositing::compositing_status,
+            compositing::set_gpu_compositing,
             // Onboarding: the welcome and checklist state, and the sample project.
             onboarding::onboarding_state,
             onboarding::onboarding_update,
             sample::create_sample_project,
+            // Settings → Storage: local machine-learning models (add-model-runtime).
+            models::local_models,
+            models::remove_local_model,
+            models::install_local_model,
+            models::cancel_local_model_install,
+            // The Transcript panel (add-transcript-editing).
+            transcript::transcript_query,
+            transcript::transcript_cut,
+            // Settings → Skills (add-agent-skills-and-connectors).
+            skills::skills_view,
+            skills::skill_text,
+            skills::skill_save,
+            skills::skill_remove,
+            skills::skills_set_catalog,
+            skills::skills_catalog,
+            skills::skill_install_preview,
+            skills::skill_install,
+            skills::skill_update_offer,
+            skills::skill_update_accept,
+            skills::skill_export,
+            skills::skill_draft,
+            // Settings → Agents: Claude Desktop and Cursor (add-agent-skills-and-connectors).
+            connectors::connectors,
+            connectors::connector_connect,
+            connectors::connector_disconnect,
+            search::media_search,
+            search::media_organize,
+            search::media_index_status,
+            // The viewer overlay: geometry, click to select, drag previews (add-viewer-interaction-and-text-fills).
+            overlay::viewer_geometry,
+            overlay::viewer_pick,
+            overlay::viewer_preview,
+            overlay::viewer_fullscreen,
         ])
         .events(collect_events![
             PlaybackChanged,
@@ -220,9 +328,17 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             projects::ProjectChanged,
             control::RemoteOpened,
             generation::GenerationUpdated,
+            spend::SpendRequested,
+            spend::SpendSettled,
             exporting::ExportProgress,
             assistant::AgentUiEvent,
+            activity::AgentActivity,
             captions::CaptionJobProgress,
+            models::LocalModelsChanged,
+            waveforms::AudioAnalysisChanged,
+            meters::AudioMeter,
+            models::LocalModelInstallProgress,
+            background::TasksChanged,
         ])
         .error_handling(tauri_specta::ErrorHandlingMode::Result)
 }
@@ -500,6 +616,15 @@ pub fn run() -> ExitCode {
         .register_uri_scheme_protocol("ove-frame", |ctx, _request| {
             ctx.app_handle().state::<Arc<viewer::stream::StreamSink>>().response()
         })
+        // Hover-skim sheets of the open project, read from its cache (no decoding, no per-frame IPC).
+        .register_uri_scheme_protocol("ove-skim", |ctx, request| {
+            let bundle = ctx
+                .app_handle()
+                .try_state::<AppState>()
+                .map(|s| relock(&s.projects.media).bundle().to_path_buf())
+                .unwrap_or_default();
+            tasks::skim_response(&bundle, request.uri().path())
+        })
         .setup(move |app| {
             builder.mount_events(app);
             let handle = app.handle().clone();
@@ -547,8 +672,13 @@ pub fn run() -> ExitCode {
             }
 
             let engine = engine::spawn(handle.clone(), viewer_tx.clone())?;
+            // Exports a closed app or a crash left running go back in the queue, and a worker picks them up.
+            exports::recover_on_start();
 
             app.manage(stream);
+            let background = tasks::new_scheduler();
+            tasks::follow_playback(&handle, &background);
+            background::follow(&handle, &background);
             app.manage(AppState {
                 engine,
                 projects: projects::Projects::default(),
@@ -561,10 +691,14 @@ pub fn run() -> ExitCode {
                 ui_ready: AtomicBool::new(false),
                 gpu_summary,
                 log_dir,
+                tasks: background,
             });
 
+            app.manage(spend::SpendCards::default());
+            app.manage(proxies::Proxies::default());
             // The command line / MCP server reach the app through the control link.
             control::start(&handle);
+            compositing::init(&handle);
             app.manage(generation::Generation::default());
             app.manage(onboarding::Onboarding::new(app.path().app_config_dir().ok()));
 

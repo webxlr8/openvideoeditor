@@ -1,8 +1,22 @@
+import { KeySamplerOverlay } from "./KeySampler";
+import { ViewerOverlay } from "./overlay/ViewerOverlay";
+import "./overlay/overlay.css";
+import { FullscreenControls } from "./overlay/FullscreenControls";
+import { GuideLayer, GuidesMenu } from "./overlay/GuideLayer";
+import { type Guides, type Preset, loadGuides, loadPresets, saveGuides, savePresets } from "./overlay/guides";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { Diagnostics_Serialize, MediaInfo_Serialize, ViewerBackend, ViewerRect } from "./bindings";
+import type {
+  Diagnostics_Serialize,
+  MediaInfo_Serialize,
+  PlaybackState,
+  TransportCommand,
+  ViewerBackend,
+  ViewerRect,
+} from "./bindings";
 import { commands, events, frameUrl, isTauri, type Result } from "./bridge";
 import { COMING_LATER, ContextMenu, Dropdown, type MenuItem } from "./Menu";
 import { useViewerRectSync } from "./viewerRect";
+import { Icon } from "./icons";
 import { fire, logError, runCommand, unlisten } from "./notify";
 import type { AppError } from "./bindings";
 
@@ -58,6 +72,8 @@ export function Viewer({
   diagnosticsOpen,
   onError,
   toolbarLeft,
+  overlay,
+  transport,
 }: {
   media: MediaInfo_Serialize | null;
   frame: number;
@@ -66,7 +82,45 @@ export function Viewer({
   diagnosticsOpen: boolean;
   onError: (e: AppError) => void;
   toolbarLeft?: React.ReactNode;
+  /** Click to select and handles over the composited timeline (absent: the viewer shows a single file). */
+  overlay?: Omit<React.ComponentProps<typeof ViewerOverlay>, "width" | "height" | "onError">;
+  /** Playback state and commands for the full-screen controls. */
+  transport?: { playback: PlaybackState; onTransport: (c: TransportCommand) => void };
 }) {
+  const projectId = overlay?.project.id ?? null;
+  // Guides are per project view state, kept in this browser (never in the document).
+  const [guideState, setGuideState] = useState<{ id: string | null; guides: Guides }>(() => ({
+    id: projectId,
+    guides: loadGuides(projectId),
+  }));
+  const guides = guideState.id === projectId ? guideState.guides : loadGuides(projectId);
+  const setGuides = (g: Guides) => {
+    saveGuides(projectId, g);
+    setGuideState({ id: projectId, guides: g });
+  };
+  const [presets, setPresetList] = useState<Preset[]>(loadPresets);
+  const setPresets = (p: Preset[]) => {
+    savePresets(p);
+    setPresetList(p);
+  };
+  const [full, setFull] = useState(false);
+  const [activity, setActivity] = useState(0);
+  const setFullscreen = useCallback(
+    (on: boolean) => {
+      setFull(on);
+      runCommand(commands.viewerFullscreen(on), undefined, onError);
+    },
+    [onError],
+  );
+  // Esc leaves full screen (a handle drag takes Esc first and cancels itself).
+  useEffect(() => {
+    if (!full) return;
+    const key = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setFullscreen(false);
+    };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, [full, setFullscreen]);
   const areaRef = useRef<HTMLElement>(null);
   const rectRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -139,7 +193,7 @@ export function Viewer({
   }, [stream, frame, media]);
 
   const aspect = media && media.width > 0 && media.height > 0 ? media.width / media.height : 16 / 9;
-  const box = fitBox(area.w, area.h, aspect, zoom.scale);
+  const box = fitBox(area.w, area.h, aspect, full ? 1 : zoom.scale);
 
   const contextItems: MenuItem[] = [
     { id: "fit", label: "Zoom to fit", onSelect: () => setZoom(ZOOMS[0]) },
@@ -150,10 +204,12 @@ export function Viewer({
   if (!visible) return null;
   return (
     <section
-      className={`viewer-area ${stream ? "is-stream" : "is-native"}`}
+      className={`viewer-area ${stream ? "is-stream" : "is-native"}${full ? " is-full" : ""}`}
       ref={areaRef}
       data-testid="viewer-area"
       data-backend={backend}
+      data-full={full ? "true" : "false"}
+      onPointerMove={full ? () => setActivity((n) => n + 1) : undefined}
     >
       <div
         className="viewer-rect"
@@ -167,9 +223,30 @@ export function Viewer({
       >
         {stream && <canvas ref={canvasRef} className="viewer-canvas" data-testid="viewer-canvas" />}
         {!media && <div className="viewer-empty">Import media to see it here.</div>}
+        <GuideLayer guides={guides} presets={presets} width={box.width} height={box.height} />
+        {overlay && media && <ViewerOverlay {...overlay} width={box.width} height={box.height} onError={onError} />}
+        <KeySamplerOverlay onError={onError} />
       </div>
-      {toolbarLeft && <div className="viewer-tools-left">{toolbarLeft}</div>}
-      <div className="viewer-tools">
+      {toolbarLeft && !full && <div className="viewer-tools-left">{toolbarLeft}</div>}
+      {full && transport && (
+        <FullscreenControls
+          playback={transport.playback}
+          onTransport={transport.onTransport}
+          onExit={() => setFullscreen(false)}
+          activity={activity}
+          guidesMenu={<GuidesMenu guides={guides} presets={presets} onChange={setGuides} onPresets={setPresets} testId="fs-guides" />}
+        />
+      )}
+      <div className="viewer-tools" hidden={full}>
+        <GuidesMenu guides={guides} presets={presets} onChange={setGuides} onPresets={setPresets} />
+        <button
+          className="pill"
+          data-testid="viewer-fullscreen"
+          title="Full screen (Esc leaves)"
+          onClick={() => setFullscreen(true)}
+        >
+          <Icon name="expand" size={14} />
+        </button>
         <Dropdown
           testId="viewer-zoom"
           label={zoom.label}

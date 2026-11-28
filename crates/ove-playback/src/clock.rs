@@ -160,7 +160,9 @@ impl PlaybackClock {
     }
 
     pub fn source(&self) -> ClockSource {
-        if self.running && self.audio_enabled && self.audio.is_some() && self.speed == 1.0 {
+        // Audio masters forward playback at any rate: the ring is fed resampled, so a device second is `speed`
+        // media seconds.
+        if self.running && self.audio_enabled && self.audio.is_some() && self.speed > 0.0 {
             ClockSource::Audio
         } else {
             ClockSource::System
@@ -173,7 +175,7 @@ impl PlaybackClock {
             return self.anchor_media;
         }
         let t = match (self.source(), self.audio) {
-            (ClockSource::Audio, Some(a)) => a.heard_at(wall).max(self.anchor_media),
+            (ClockSource::Audio, Some(a)) => self.heard(a, wall).max(self.anchor_media),
             _ => self.anchor_media + ((wall - self.anchor_wall) as f64 * self.speed).round() as Micros,
         };
         let t = match self.last {
@@ -189,7 +191,16 @@ impl PlaybackClock {
     pub fn audio_drift(&self, wall: Micros) -> Option<Micros> {
         let a = self.audio?;
         let sys = self.anchor_media + ((wall - self.anchor_wall) as f64 * self.speed).round() as Micros;
-        Some(a.heard_at(wall) - sys)
+        Some(self.heard(a, wall) - sys)
+    }
+
+    /// Media time being heard at `wall`: device time (latency and time since the callback) runs `speed` times
+    /// slower than media time when the audio is resampled for a rate.
+    fn heard(&self, a: AudioPosition, wall: Micros) -> Micros {
+        if self.speed == 1.0 {
+            return a.heard_at(wall);
+        }
+        a.media_us + ((wall - a.at_wall_us - a.latency_us) as f64 * self.speed).round() as Micros
     }
 }
 
@@ -239,9 +250,10 @@ mod tests {
     }
 
     #[test]
-    fn audio_ignored_off_1x_or_when_disabled() {
+    fn audio_ignored_in_reverse_or_when_disabled() {
+        // The player enables audio only when it is heard (forward, at a playback rate); reverse never masters.
         let mut c = PlaybackClock::default();
-        c.start(0, 0, 2.0);
+        c.start(0, 0, -1.0);
         c.set_audio_enabled(true);
         c.on_audio_position(AudioPosition { media_us: 5, at_wall_us: 0, latency_us: 0 });
         assert_eq!(c.source(), ClockSource::System);
@@ -249,6 +261,17 @@ mod tests {
         c.start(0, 0, 1.0);
         c.on_audio_position(AudioPosition { media_us: 5, at_wall_us: 0, latency_us: 0 });
         assert_eq!(c.source(), ClockSource::System);
+    }
+
+    #[test]
+    fn resampled_audio_masters_at_its_rate() {
+        let mut c = PlaybackClock::default();
+        c.start(0, 0, 1.5);
+        c.set_audio_enabled(true);
+        c.on_audio_position(AudioPosition { media_us: 30_000, at_wall_us: 10_000, latency_us: 4_000 });
+        assert_eq!(c.source(), ClockSource::Audio);
+        // 30 ms of media were written; 6 ms of device time later (minus 4 ms latency) is 3 ms of media at 1.5x.
+        assert_eq!(c.media_time(20_000), 39_000);
     }
 
     #[test]

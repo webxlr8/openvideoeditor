@@ -10,25 +10,28 @@ mod analyze;
 mod app;
 mod common;
 mod docs;
+mod edit;
+mod export;
 mod generate;
+mod markers;
 mod mcp;
 mod media;
+mod model_worker;
+mod models;
 mod project;
+mod skills;
+mod versions;
 
-use std::collections::BTreeSet;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand, ValueEnum};
 use ove_core::revision::Source;
-use ove_projection::verify::{Context, Registry, has_errors};
-use ove_projection::{ApplyInput, BaseError, Plan, Prefer, Refusal};
-use ove_store::media::{MediaState, media_status};
-use ove_store::project::{PROJECTION_FILE, Project};
-use serde_json::{Value, json};
+use ove_store::project::PROJECTION_FILE;
+use serde_json::json;
 
-use common::{Ctx, Fail, Out, edit, via};
+use common::{Ctx, Fail, Out};
 
 #[derive(Parser)]
 #[command(name = "ove", version, about = "Edit projects from the command line")]
@@ -84,6 +87,34 @@ enum Cmd {
         /// Mean brightness and black / clipped pixel shares per frame.
         #[arg(long)]
         stats: bool,
+        /// Compositing backend: auto (the GPU when its self-test passes), cpu or gpu.
+        #[arg(long)]
+        backend: Option<String>,
+        /// result (default) or matte: every chroma key shows its matte.
+        #[arg(long)]
+        view: Option<String>,
+        /// waveform, parade or vectorscope: write that scope instead of the frame (--out: a .png for one time, or a
+        /// folder).
+        #[arg(long)]
+        scope: Option<String>,
+        /// Viewer guides over the frames: safe, grid, grid:<2-5>, thirds, centre, mask:<2.39:1|1.85:1|1:1|9:16|4:5>.
+        #[arg(long)]
+        overlay: Option<String>,
+    },
+    /// Where each visible layer is on screen at a time: corners after transform and crop, stacking order.
+    Geometry {
+        project: String,
+        /// Timeline time in seconds.
+        #[arg(long)]
+        at: f64,
+        /// Canvas height the corners are measured on (default: the reference height, the units of transforms).
+        #[arg(long)]
+        height: Option<u32>,
+    },
+    /// Colour readouts for matching shots: inspect.
+    Color {
+        #[command(subcommand)]
+        cmd: ColorCmd,
     },
     /// Render the frame under the running app's playhead.
     Screenshot {
@@ -106,43 +137,147 @@ enum Cmd {
         #[command(subcommand)]
         cmd: SourceCmd,
     },
+    /// Edit verbs: split, trim, ripple-trim, ripple-delete, delete, insert, overwrite, lift, extract, close-gap, slip,
+    /// slide, roll, move. One revision each; --dry-run prints the plan only.
+    Edit(Box<edit::EditArgs>),
     /// Report problems: overlaps, gaps, clips past their source, missing media, pending items.
     Verify { project: String },
+    /// Timeline markers: list (by status and assignee), add, update, remove.
+    Markers {
+        #[command(subcommand)]
+        cmd: markers::MarkersCmd,
+    },
+    /// Named versions: save, list, print, diff, restore.
+    Version {
+        #[command(subcommand)]
+        cmd: versions::VersionCmd,
+    },
     /// List revisions, oldest first.
     History { project: String },
-    /// Revert the latest revision, or return to revision REV, as a new revision.
-    Undo { project: String, rev: Option<i64> },
-    /// Render the timeline to an MP4 file (H.264 + AAC). With --json, progress is printed as JSON lines.
-    Export {
+    /// The words said on the timeline (with word ids and timeline times), transcript search, fillers and
+    /// transcription. `ove transcript <project>` prints the words.
+    Transcript(TranscriptArgs),
+    /// Revert the latest revision, or return to revision REV, as a new revision. With --any and --session (or
+    /// --turn), revert only that agent session's (or turn's) changes, keeping everyone else's.
+    Undo {
         project: String,
-        out: PathBuf,
-        /// Output height in pixels; the width follows the aspect ratio.
-        #[arg(long, default_value_t = 1080)]
-        height: u32,
-        #[arg(long, default_value_t = 30)]
-        fps: u32,
+        rev: Option<i64>,
+        /// Undo another actor's changes: the session (and turn) named by --session / --turn.
+        #[arg(long, requires = "session")]
+        any: bool,
+        #[arg(long)]
+        session: Option<String>,
+        #[arg(long)]
+        turn: Option<String>,
+        /// The session's actor kind (mcp, assistant, cli).
+        #[arg(long)]
+        kind: Option<String>,
     },
+    /// Render the timeline (or a range) to a video or audio file: a preset, or a format with codec options (see
+    /// `ove docs export`). With --json, progress is printed as JSON lines. `ove render` is the same command.
+    #[command(alias = "render")]
+    Export(export::ExportCmd),
     /// Exchange the timeline with other editors (FCPXML, Premiere/FCP7 XML, EDL, OpenTimelineIO).
     Timeline {
         #[command(subcommand)]
         cmd: TimelineCmd,
     },
+    /// Background tasks of the running app (thumbnails, skim sheets, proxies, captions, export): list, wait, cancel.
+    Tasks {
+        #[command(subcommand)]
+        cmd: TasksCmd,
+    },
     /// Built-in documentation (`ove docs agents` is the guide for agents).
     Docs { topic: Option<String> },
     /// Check the library, media support, encoders, the running app and agent setup.
     Doctor,
-    /// Agent skills for Claude Code and Codex.
+    /// Skills: playbooks agents read (the library's skill store), and the editing guide for Claude Code and Codex.
     Skills {
         #[command(subcommand)]
-        cmd: SkillsCmd,
+        cmd: skills::SkillsCmd,
     },
     /// The supported AI agents installed on this computer (Claude, Codex, OpenCode, Hermes, Kimi, Grok).
     Agents {
         #[command(subcommand)]
         cmd: Option<AgentsCmd>,
     },
+    /// Local machine-learning models: list, install (models over 50 MB need --yes), remove.
+    Models {
+        #[command(subcommand)]
+        cmd: models::ModelsCmd,
+    },
+    /// Runs models for the app in a separate process (started by the app; binary protocol on stdin/stdout).
+    #[command(hide = true)]
+    ModelWorker {
+        /// Exit after this many seconds without a job.
+        #[arg(long, default_value_t = 120)]
+        idle_secs: u64,
+    },
     /// Serve the commands as MCP tools on stdin/stdout (`claude mcp add openvideoeditor -- ove mcp`).
-    Mcp,
+    Mcp {
+        /// Bind the session to this project: every tool works on it, and calls naming another are refused.
+        #[arg(long)]
+        project: Option<String>,
+        /// Record this turn id on every revision the session makes (for `undo_my_changes` scope turn).
+        #[arg(long)]
+        turn: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum ColorCmd {
+    /// Measure the colour of the exported frame at a time (or of one item alone), optionally against a reference
+    /// item or media frame with a suggested grade patch.
+    Inspect {
+        project: String,
+        /// Timeline time in seconds (snapped to the frame grid; default: the item's middle).
+        #[arg(long)]
+        at: Option<f64>,
+        /// The shot to measure and to grade.
+        #[arg(long)]
+        item: Option<String>,
+        /// Measure the item alone, without the layers above or below it.
+        #[arg(long)]
+        isolate: bool,
+        /// Item id or media id/file name to match.
+        #[arg(long)]
+        reference: Option<String>,
+        /// Timeline time of a reference item (default its middle), or source time of reference media (default 0).
+        #[arg(long)]
+        reference_at: Option<f64>,
+        /// Share of the fitted correction to suggest, 0..1 (each step is capped).
+        #[arg(long)]
+        strength: Option<f64>,
+        /// Measuring height in pixels (default 1080, the export default).
+        #[arg(long)]
+        height: Option<u32>,
+        /// Compositing backend: auto (the GPU when its self-test passes), cpu or gpu.
+        #[arg(long)]
+        backend: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum TasksCmd {
+    /// Unfinished background tasks, running first (none when the app is not running).
+    List {
+        /// Only this project's tasks.
+        project: Option<String>,
+        /// Only this kind (thumbnail, skim, proxy, captions, export, audio-analysis, …).
+        #[arg(long)]
+        kind: Option<String>,
+    },
+    /// Wait until the matching tasks are done, or the time-out; prints whether they are done and how many remain.
+    Wait {
+        project: Option<String>,
+        #[arg(long)]
+        kind: Option<String>,
+        /// Seconds to wait at most (at most 600).
+        #[arg(long, default_value_t = 30.0)]
+        timeout: f64,
+    },
+    /// Cancel a task by id (from `ove tasks list`).
+    Cancel { id: i64 },
 }
 
 #[derive(Subcommand)]
@@ -151,15 +286,6 @@ enum AgentsCmd {
     List,
     /// Give an installed agent the editing guide and this program's MCP server (`ove agents connect claude`).
     Connect { agent: String },
-}
-
-#[derive(Subcommand)]
-enum SkillsCmd {
-    /// Write the openvideoeditor skill into the Claude Code / Codex skills folders (or --dir).
-    Install {
-        #[arg(long)]
-        dir: Vec<PathBuf>,
-    },
 }
 
 #[derive(Subcommand)]
@@ -184,14 +310,6 @@ enum TimelineCmd {
         #[arg(long, default_value_t = 30.0)]
         fps: f64,
     },
-}
-
-fn interchange_format(file: &std::path::Path, format: &Option<String>) -> Result<ove_interchange::Format, Fail> {
-    match format {
-        Some(f) => ove_interchange::Format::parse(f),
-        None => ove_interchange::Format::from_path(file),
-    }
-    .map_err(|e| Fail::new("format.unknown", e.to_string()))
 }
 
 #[derive(Subcommand)]
@@ -228,319 +346,131 @@ enum Side {
     Editor,
 }
 
-impl From<Side> for Prefer {
-    fn from(s: Side) -> Prefer {
-        match s {
-            Side::File => Prefer::File,
-            Side::Editor => Prefer::Editor,
-        }
-    }
-}
-
 fn read_input(bundle: &Path, file: Option<&str>) -> Result<String, Fail> {
     let read = |p: &Path| {
-        std::fs::read_to_string(p).map_err(|e| Fail {
-            code: "file.unreadable".into(),
-            message: format!("could not read {}: {e}", p.display()),
-            details: Value::Null,
-        })
+        std::fs::read_to_string(p)
+            .map_err(|e| Fail::new("file.unreadable", format!("could not read {}: {e}", p.display())))
     };
     match file {
         None => read(&bundle.join(PROJECTION_FILE)),
         Some("-") => {
             let mut s = String::new();
-            std::io::stdin().read_to_string(&mut s).map_err(|e| Fail {
-                code: "file.unreadable".into(),
-                message: format!("could not read stdin: {e}"),
-                details: Value::Null,
-            })?;
+            std::io::stdin()
+                .read_to_string(&mut s)
+                .map_err(|e| Fail::new("file.unreadable", format!("could not read stdin: {e}")))?;
             Ok(s)
         }
         Some(f) => read(Path::new(f)),
     }
 }
 
-fn plan_for(p: &Project, text: &str, prefer: Prefer) -> Result<Plan, Refusal> {
-    let base_for = |rev: i64| {
-        p.doc_at(rev).map_err(|e| BaseError {
-            code: match e.code() {
-                "revision.missing" => "rev.pruned".into(),
-                "revision.newer" => "rev.newer".into(),
-                c => c.to_string(),
-            },
-            message: format!("the projection's base revision {rev} is not available ({e})"),
-        })
-    };
-    ove_projection::plan(&ApplyInput {
-        text,
-        current: p.doc(),
-        base_for: &base_for,
-        bundle: Some(p.bundle()),
-        prefer,
-        now_ms: ove_core::Clock::now_ms(&ove_core::SystemClock),
-    })
-}
-
-fn plan_json(p: &Plan) -> Value {
-    json!({
-        "baseRev": p.base_rev,
-        "added": p.counts.added,
-        "updated": p.counts.updated,
-        "removed": p.removed.len(),
-        "removedItems": p.removed,
-        "conflicts": p.conflicts,
-        "warnings": p.warnings,
-    })
-}
-
-fn plan_text(p: &Plan) -> String {
-    let mut s = p.summary();
-    for c in &p.conflicts {
-        s.push_str(&format!(
-            "\nconflict: {} (kept the {} value)",
-            c.message,
-            match c.kept {
-                Prefer::File => "file",
-                Prefer::Editor => "editor",
-            }
-        ));
+fn side(s: Side) -> &'static str {
+    match s {
+        Side::File => "file",
+        Side::Editor => "editor",
     }
-    for w in &p.warnings {
-        s.push_str(&format!("\n{w}"));
-    }
-    s
 }
 
-/// Runs a parsed command. `source` records where edits come from (cli or mcp).
+/// Runs a parsed command. `source` records where edits come from.
 fn run(cli: &Cli, source: Source) -> Out {
     // Commands that need no library.
     match &cli.cmd {
-        Cmd::Docs { topic } => return docs::docs(topic.as_deref()),
+        Cmd::Docs { topic } => {
+            let r = ove_tools::tools::docs::page(topic.as_deref())?;
+            return Ok((r.json, r.text));
+        }
         Cmd::Doctor => return docs::doctor(cli.library.as_deref()),
-        Cmd::Skills { cmd: SkillsCmd::Install { dir } } => return docs::install_skills(dir),
+        Cmd::Skills { cmd } => return skills::run(cmd, cli.library.as_deref(), source),
         Cmd::Agents { cmd: None | Some(AgentsCmd::List) } => return docs::agents_list(),
         Cmd::Agents { cmd: Some(AgentsCmd::Connect { agent }) } => return docs::agents_connect(agent),
-        Cmd::Mcp => return Err(Fail::new("mcp.nested", "already serving MCP")),
+        Cmd::Models { cmd } => return models::run(cmd, source),
+        Cmd::Export(c) if c.args.worker => return export::worker(),
+        Cmd::ModelWorker { .. } => return Err(Fail::new("argument.invalid", "the model worker is started by the app")),
+        Cmd::Mcp { .. } => return Err(Fail::new("mcp.nested", "already serving MCP")),
         _ => {}
     }
-    let ctx = Ctx::open(cli.library.as_deref(), source, cli.json)?;
+    let ctx = Ctx::open(cli.library.as_deref(), source, cli.json, true)?;
     match &cli.cmd {
         Cmd::Project { cmd } => project::run(&ctx, cmd),
         Cmd::Media { cmd } => media::run(&ctx, cmd),
         Cmd::App { cmd } => app::run(&ctx, cmd),
         Cmd::Audio { cmd } => analyze::audio(&ctx, cmd),
         Cmd::Generate { cmd } => generate::run(&ctx, cmd),
-        Cmd::Look { project, at, every, count, width, out, sheet, columns, stats } => analyze::look(
-            &ctx,
-            project,
-            &analyze::LookOpts {
-                at: at.as_deref(),
-                every: *every,
-                count: *count,
-                width: *width,
-                out: out.as_deref(),
-                sheet: sheet.as_deref(),
-                columns: *columns,
-                stats: *stats,
-            },
+        Cmd::Look { project, at, every, count, width, out, sheet, columns, stats, backend, view, scope, overlay } => {
+            ctx.tool(
+                "look",
+                json!({"project": project, "at": at, "every": every, "count": count, "width": width, "out": out,
+                       "sheet": sheet, "columns": columns, "stats": stats, "backend": backend, "view": view,
+                       "scope": scope, "overlay": overlay}),
+            )
+        }
+        Cmd::Color {
+            cmd: ColorCmd::Inspect { project, at, item, isolate, reference, reference_at, strength, height, backend },
+        } => ctx.tool(
+            "inspect_color",
+            json!({"project": project, "at": at, "item": item, "isolate": isolate, "reference": reference,
+                   "referenceAt": reference_at, "strength": strength, "height": height, "backend": backend}),
         ),
-        Cmd::Screenshot { out, width } => analyze::screenshot(&ctx, out, *width),
+        Cmd::Geometry { project, at, height } => {
+            ctx.tool("layer_geometry", json!({"project": project, "at": at, "height": height}))
+        }
+        Cmd::Screenshot { out, width } => ctx.tool("screenshot", json!({"out": out, "width": width})),
         Cmd::Source { cmd: SourceCmd::Print { project, from, lines } } => {
-            let p = ctx.read(project)?;
-            let full = p.projection();
-            let text = ove_projection::print::slice_lines(&full, from.unwrap_or(1), *lines);
-            Ok((json!({"rev": p.rev(), "text": text}), text.trim_end_matches('\n').to_string()))
+            ctx.tool("print_timeline", json!({"project": project, "from": from, "lines": lines}))
         }
         Cmd::Source { cmd: SourceCmd::Check { project, file, prefer } } => {
-            let p = ctx.read(project)?;
-            let text = read_input(p.bundle(), file.as_deref())?;
-            let plan = plan_for(&p, &text, (*prefer).into())?;
-            let mut v = plan_json(&plan);
-            v["ok"] = json!(true);
-            Ok((v, format!("ok: {}", plan_text(&plan))))
+            let text = read_input(&ctx.find(project)?, file.as_deref())?;
+            ctx.tool("check_timeline", json!({"project": project, "source": text, "prefer": side(*prefer)}))
         }
-        Cmd::Source { cmd: SourceCmd::Apply { project, file, prefer } } => edit(&ctx, project, |w| {
-            let text = read_input(w.bundle(), file.as_deref())?;
-            let plan = plan_for(w.project(), &text, (*prefer).into())?;
-            let mut v = plan_json(&plan);
-            let changed = !plan.ops.is_empty();
-            if changed {
-                let summary = format!("source apply: {}", plan.summary());
-                w.apply(plan.ops.clone(), ctx.source, summary)?;
-            }
-            w.set_diagnostics(plan.warnings.iter().map(|w| w.to_string()).collect())?;
-            v["rev"] = json!(w.rev());
-            v["changed"] = json!(changed);
-            v["viaApp"] = json!(w.via_app());
-            let text = if changed {
-                format!("rev {}: {}{}", w.rev(), plan_text(&plan), via(w))
+        Cmd::Source { cmd: SourceCmd::Apply { project, file, prefer } } => {
+            let text = read_input(&ctx.find(project)?, file.as_deref())?;
+            ctx.tool("apply_timeline", json!({"project": project, "source": text, "prefer": side(*prefer)}))
+        }
+        Cmd::Edit(a) => edit::run(&ctx, a),
+        Cmd::Markers { cmd } => markers::run(&ctx, cmd),
+        Cmd::Version { cmd } => versions::run(&ctx, cmd),
+        Cmd::Verify { project } => ctx.tool("verify_timeline", json!({"project": project})),
+        Cmd::History { project } => ctx.tool("timeline_history", json!({"project": project})),
+        Cmd::Transcript(t) => t.run(&ctx),
+        Cmd::Undo { project, rev, any, session, turn, kind } => {
+            if session.is_some() || turn.is_some() {
+                if !any {
+                    return Err(Fail::new(
+                        "argument.invalid",
+                        "--session and --turn undo another actor's changes: add --any",
+                    ));
+                }
+                ctx.tool(
+                    "undo_my_changes",
+                    json!({"project": project, "scope": "any", "session": session, "turn": turn, "kind": kind}),
+                )
             } else {
-                format!("no changes (rev {})", w.rev())
-            };
-            Ok((v, text))
-        }),
-        Cmd::Verify { project } => {
-            let p = ctx.read(project)?;
-            let offline: BTreeSet<String> = media_status(p.bundle(), p.doc())
-                .into_iter()
-                .filter(|m| m.state == MediaState::Offline)
-                .map(|m| m.media_id)
-                .collect();
-            let findings = Registry::default().run(&Context { doc: p.doc(), offline: &offline });
-            let text = if findings.is_empty() {
-                "0 findings".to_string()
-            } else {
-                findings
-                    .iter()
-                    .map(|f| {
-                        format!(
-                            "{}\t{}\t{}",
-                            match f.severity {
-                                ove_projection::verify::Level::Error => "error",
-                                _ => "warning",
-                            },
-                            f.lint,
-                            f.message
-                        )
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            };
-            let v = json!({"rev": p.rev(), "findings": findings, "count": findings.len()});
-            if has_errors(&findings) {
-                return Err(Fail::new("verify.failed", text).details(v));
+                ctx.tool("undo_timeline", json!({"project": project, "rev": rev}))
             }
-            Ok((v, text))
         }
-        Cmd::History { project } => {
-            let p = ctx.read(project)?;
-            let h = p.history()?;
-            let text = h
-                .iter()
-                .map(|e| format!("{}\t{}\t{}", e.rev, e.source.as_str(), e.summary))
-                .collect::<Vec<_>>()
-                .join("\n");
-            Ok((json!({"rev": p.rev(), "revisions": h}), text))
+        Cmd::Export(a) => export::run(&ctx, a),
+        Cmd::Tasks { cmd: TasksCmd::List { project, kind } } => {
+            ctx.tool("list_tasks", json!({"project": project, "kind": kind}))
         }
-        Cmd::Undo { project, rev } => edit(&ctx, project, |w| {
-            let target = match rev {
-                Some(r) => *r,
-                None => match w.project().latest_record()?.filter(|r| r.rev == w.rev()) {
-                    Some(r) => r.parent,
-                    None => return Err(Fail::new("undo.nothing", "nothing to undo")),
-                },
-            };
-            let c = w.restore(target, Source::Undo)?;
-            let v = json!({"rev": w.rev(), "changed": c.is_some(), "target": target, "viaApp": w.via_app()});
-            let text = match c {
-                Some((r, summary)) => format!("rev {r}: {summary}{}", via(w)),
-                None => format!("already at the state of revision {target}"),
-            };
-            Ok((v, text))
-        }),
-        Cmd::Export { project, out, height, fps } => export(&ctx, project, out, *height, *fps),
+        Cmd::Tasks { cmd: TasksCmd::Wait { project, kind, timeout } } => {
+            ctx.tool("wait_tasks", json!({"project": project, "kind": kind, "timeoutSeconds": timeout}))
+        }
+        Cmd::Tasks { cmd: TasksCmd::Cancel { id } } => ctx.tool("cancel_task", json!({"id": id})),
         Cmd::Timeline { cmd: TimelineCmd::Export { project, file, format, fps } } => {
-            let f = interchange_format(file, format)?;
-            let p = ctx.read(project)?;
-            let out = ove_interchange::export_with_report(
-                p.doc(),
-                Some(p.bundle()),
-                f,
-                ove_interchange::Rate::from_fps(*fps),
-            );
-            std::fs::write(file, &out.text)
-                .map_err(|e| Fail::new("file.unwritable", format!("could not write {}: {e}", file.display())))?;
-            let mut text = format!("wrote {} ({})", file.display(), f.label());
-            for line in out.report.lines() {
-                text.push_str(&format!("\n  {line}"));
-            }
-            Ok((
-                json!({"path": file, "format": f.extension(), "bytes": out.text.len(), "report": out.report.to_json()}),
-                text,
-            ))
+            ctx.tool("export_timeline_file", json!({"project": project, "file": file, "format": format, "fps": fps}))
         }
         Cmd::Timeline { cmd: TimelineCmd::Import { project, file, format, fps } } => {
-            let f = interchange_format(file, format)?;
-            let text = std::fs::read_to_string(file)
-                .map_err(|e| Fail::new("file.unreadable", format!("could not read {}: {e}", file.display())))?;
-            let tl = ove_interchange::read(&text, f, ove_interchange::Rate::from_fps(*fps))
-                .map_err(|e| Fail::new("import.invalid", format!("{}: {e}", file.display())))?;
-            edit(&ctx, project, |w| {
-                let (ops, summary) = ove_interchange::to_ops(w.doc(), &tl, common::now_ms());
-                if ops.is_empty() {
-                    return Err(Fail::new("import.empty", format!("{} has no clips", file.display())));
-                }
-                let name = file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-                let rev = w.apply(ops, ctx.source, format!("import {name} ({} clips)", summary.clips))?;
-                let v = json!({"rev": rev, "tracks": summary.tracks, "clips": summary.clips, "mediaAdded": summary.media_added, "missing": summary.missing});
-                let text = format!(
-                    "rev {rev}: imported {} clips on {} tracks ({} new media{}){}",
-                    summary.clips,
-                    summary.tracks,
-                    summary.media_added,
-                    if summary.missing.is_empty() {
-                        String::new()
-                    } else {
-                        format!("; missing: {}", summary.missing.join(", "))
-                    },
-                    via(w)
-                );
-                Ok((v, text))
-            })
+            ctx.tool("import_timeline_file", json!({"project": project, "file": file, "format": format, "fps": fps}))
         }
         // Answered before the library is opened.
-        Cmd::Docs { .. } | Cmd::Doctor | Cmd::Skills { .. } | Cmd::Agents { .. } | Cmd::Mcp => {
-            Err(Fail::new("internal", "this command does not use a library"))
-        }
+        Cmd::Docs { .. }
+        | Cmd::Doctor
+        | Cmd::Skills { .. }
+        | Cmd::Agents { .. }
+        | Cmd::Models { .. }
+        | Cmd::ModelWorker { .. }
+        | Cmd::Mcp { .. } => Err(Fail::new("internal", "this command does not use a library")),
     }
-}
-
-#[cfg(feature = "media")]
-fn export(ctx: &Ctx, project: &str, out: &Path, height: u32, fps: u32) -> Out {
-    use std::io::Write;
-    let p = ctx.read(project)?;
-    let settings = ove_render::ExportSettings { height, fps, ..Default::default() };
-    let cancel = std::sync::atomic::AtomicBool::new(false);
-    let mut last = -1i64;
-    let show = common::progress_enabled();
-    let res = ove_render::export(p.doc(), Some(p.bundle()), out, &settings, &cancel, |pr| {
-        let pct = (pr.fraction * 100.0) as i64;
-        if pct != last && show {
-            last = pct;
-            if ctx.json {
-                println!("{}", json!({"progress": pr}));
-            } else {
-                eprint!("\rexporting {pct}%");
-            }
-            let _ = std::io::stdout().flush();
-        }
-    })
-    .map_err(|e| {
-        Fail::new(
-            match e {
-                ove_render::ExportError::Refused(_) => "export.refused",
-                ove_render::ExportError::Cancelled => "export.cancelled",
-                ove_render::ExportError::Ffmpeg(_) => "export.failed",
-            },
-            e.to_string(),
-        )
-    })?;
-    if !ctx.json && show {
-        eprintln!();
-    }
-    let mut text = format!(
-        "exported {} ({}x{}, {:.1} s, {}) in {:.1} s",
-        res.path, res.width, res.height, res.duration_seconds, res.video_encoder, res.seconds_taken
-    );
-    if let Some(w) = &res.encoder_warning {
-        text.push_str(&format!("\nwarning: {w}"));
-    }
-    Ok((serde_json::to_value(&res).unwrap_or(Value::Null), text))
-}
-
-#[cfg(not(feature = "media"))]
-fn export(_: &Ctx, _: &str, _: &Path, _: u32, _: u32) -> Out {
-    Err(Fail::new("export.unavailable", "this build of ove has no export; build it with `--features media`"))
 }
 
 /// Exit code for a refusal: 3 when the app is needed but not running, else 1.
@@ -550,22 +480,14 @@ fn exit_code(f: &Fail) -> u8 {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
-    if matches!(cli.cmd, Cmd::Mcp) {
-        let library = cli.library.clone();
-        let runner = move |args: Vec<String>| -> Out {
-            let mut argv = vec!["ove".to_string(), "--json".to_string()];
-            if let Some(l) = &library {
-                argv.push("--library".into());
-                argv.push(l.display().to_string());
-            }
-            argv.extend(args);
-            let parsed = Cli::try_parse_from(&argv).map_err(|e| Fail::new("argument.invalid", e.to_string()))?;
-            if matches!(parsed.cmd, Cmd::Mcp) {
-                return Err(Fail::new("mcp.nested", "already serving MCP"));
-            }
-            run(&parsed, Source::Mcp)
-        };
-        return match mcp::serve(&runner) {
+    // Queued exports and other renders pick the compositing backend through this (design D9).
+    #[cfg(feature = "media")]
+    ove_tools::tools::backend::install_provider();
+    if let Cmd::ModelWorker { idle_secs } = cli.cmd {
+        return model_worker::main(idle_secs);
+    }
+    if let Cmd::Mcp { project, turn } = &cli.cmd {
+        return match mcp::serve(cli.library.as_deref(), project.as_deref(), turn.as_deref()) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
                 eprintln!("error: {e}");
@@ -594,6 +516,80 @@ fn main() -> ExitCode {
                 eprintln!("error: {}", f.message);
             }
             ExitCode::from(exit_code(&f))
+        }
+    }
+}
+
+/// `ove transcript …` (add-transcript-editing).
+#[derive(clap::Args)]
+#[command(args_conflicts_with_subcommands = true)]
+struct TranscriptArgs {
+    #[command(subcommand)]
+    cmd: Option<TranscriptCmd>,
+    /// The project.
+    project: Option<String>,
+    /// Only these clip ids (comma separated).
+    #[arg(long, value_delimiter = ',')]
+    clips: Vec<String>,
+    /// Sentences instead of words.
+    #[arg(long)]
+    segments: bool,
+    /// First word of the page.
+    #[arg(long)]
+    offset: Option<i64>,
+    /// Words per page (at most 10000).
+    #[arg(long)]
+    limit: Option<i64>,
+}
+
+#[derive(clap::Subcommand)]
+enum TranscriptCmd {
+    /// Find a phrase in everything said in the project's transcribed media.
+    Search { project: String, phrase: String },
+    /// Filler candidates for review (nothing is cut).
+    Fillers { project: String },
+    /// Recognise a media file's speech on this computer and cache it in the project.
+    Transcribe {
+        project: String,
+        media: String,
+        /// tiny, base (default) or small.
+        #[arg(long)]
+        model: Option<String>,
+        /// ISO 639-1 code (default: detect).
+        #[arg(long)]
+        language: Option<String>,
+        /// Keep hesitations (um, uh).
+        #[arg(long)]
+        verbatim: bool,
+        /// Transcribe again even when cached.
+        #[arg(long)]
+        force: bool,
+    },
+}
+
+impl TranscriptArgs {
+    fn run(&self, ctx: &common::Ctx) -> common::Out {
+        match &self.cmd {
+            Some(TranscriptCmd::Search { project, phrase }) => {
+                ctx.tool("search_transcript", json!({"project": project, "phrase": phrase}))
+            }
+            Some(TranscriptCmd::Fillers { project }) => ctx.tool("find_fillers", json!({"project": project})),
+            Some(TranscriptCmd::Transcribe { project, media, model, language, verbatim, force }) => ctx.tool(
+                "transcribe_media",
+                json!({"project": project, "media": media, "model": model, "language": language,
+                    "verbatim": verbatim, "force": force}),
+            ),
+            None => {
+                let project = self.project.clone().ok_or_else(|| {
+                    common::Fail::new("argument.missing", "`ove transcript` needs a project (or `search`, `fillers`)")
+                })?;
+                let mut a =
+                    json!({"project": project, "segments": self.segments, "offset": self.offset, "limit": self.limit});
+                if !self.clips.is_empty() {
+                    a["clips"] = json!(self.clips);
+                }
+                ctx.tool("get_transcript", a)
+            }
         }
     }
 }

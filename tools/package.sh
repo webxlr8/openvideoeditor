@@ -3,6 +3,7 @@
 #   macOS arm64 → .app + .dmg      Windows x64 → .msi + NSIS .exe      Linux x64 (dev) → .deb
 #   Linux x64 host with --target windows-x64-gnu → NSIS -setup.exe for Windows x64 (cross build with MinGW-w64; no
 #   .msi, which needs WiX on Windows)
+#   macOS and Windows also get openvideoeditor-<darwin|win32>.mcpb, the desktop-extension package (tools/mcpb).
 #
 #   tools/package.sh [--skip-ffmpeg] [--debug] [--target windows-x64-gnu]
 #
@@ -53,9 +54,10 @@ OUT_DIR="${CARGO_TARGET_DIR:-$ROOT/target}${CROSS:+/$CROSS}/$CLI_PROFILE"
 TARGET_ARGS=(); [ -z "$CROSS" ] || TARGET_ARGS=(--target "$CROSS")
 
 shipped() {
-  # The shipped FFmpeg libraries for this target (real files, not symlinks; never libavfilter or the CLI).
+  # The shipped FFmpeg libraries for this target, with dav1d and OpenH264 (real files, not symlinks; never libavfilter
+  # or the CLI).
   find "$LIB/lib" "$LIB/bin" -maxdepth 1 -type f \( -name '*.dylib' -o -name '*.dll' -o -name '*.so.*' \) 2>/dev/null \
-    | grep -E 'avcodec|avformat|avutil|swscale|swresample|dav1d' | sort
+    | grep -E 'avcodec|avformat|avutil|swscale|swresample|dav1d|openh264' | sort
 }
 
 case "$TARGET" in
@@ -154,6 +156,36 @@ if [ "$TARGET" = macos-arm64 ]; then
   # Every library the app and `ove` load must be inside the app or part of macOS.
   for app in "$BUNDLE_DIR"/macos/*.app; do python3 "$ROOT/tools/macos/bundle-libs.py" --check "$app"; done
 fi
+
+# The desktop-extension package (add-agent-skills-and-connectors D8): `ove` started as `ove mcp` (binary server, no
+# other runtime), with the libraries it loads and the third-party notices, for clients that install `.mcpb` files.
+# One package per platform. Unsigned until the distribution change signs the binaries.
+MCPB_SERVER="$OUT_DIR/mcpb/server"
+rm -rf "$OUT_DIR/mcpb"
+mkdir -p "$MCPB_SERVER/licenses"
+MCPB_PLATFORM=""
+case "$TARGET" in
+  windows-x64|windows-x64-gnu)
+    MCPB_PLATFORM=win32
+    cp "$OUT_DIR/ove.exe" "$MCPB_SERVER/"
+    for l in $(shipped); do cp "$l" "$MCPB_SERVER/"; done
+    ;;
+  macos-arm64)
+    MCPB_PLATFORM=darwin
+    app="$(ls -d "$BUNDLE_DIR"/macos/*.app | head -1)"
+    # The app's layout, so `ove`'s @executable_path/../Frameworks rpath finds the libraries.
+    mkdir -p "$MCPB_SERVER/MacOS" "$MCPB_SERVER/Frameworks"
+    cp "$app/Contents/MacOS/ove" "$MCPB_SERVER/MacOS/"
+    cp "$app"/Contents/Frameworks/*.dylib "$MCPB_SERVER/Frameworks/"
+    ;;
+esac
+if [ -n "$MCPB_PLATFORM" ]; then
+  cp -R "$ROOT/apps/desktop/src-tauri/licenses/." "$MCPB_SERVER/licenses/"
+  version="$(node -p 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).version' \
+    "$ROOT/apps/desktop/src-tauri/tauri.conf.json")"
+  node "$ROOT/tools/mcpb/pack.mjs" --platform "$MCPB_PLATFORM" --version "$version" --server "$MCPB_SERVER" \
+    --out "$BUNDLE_DIR/openvideoeditor-$MCPB_PLATFORM.mcpb"
+fi
 echo
 echo "Artefacts:"
 status=0
@@ -163,5 +195,5 @@ while read -r f; do
   over=""
   if [ "$size" -gt $((60 * 1048576)) ]; then over="  ← over the 60 MB budget"; status=1; fi
   echo "  $mb MB  $f$over"
-done < <(find "$BUNDLE_DIR" -maxdepth 2 -type f \( -name '*.dmg' -o -name '*.msi' -o -name '*.exe' -o -name '*.deb' -o -name '*.AppImage' \))
+done < <(find "$BUNDLE_DIR" -maxdepth 2 -type f \( -name '*.dmg' -o -name '*.msi' -o -name '*.exe' -o -name '*.deb' -o -name '*.AppImage' -o -name '*.mcpb' \))
 exit $status

@@ -49,11 +49,13 @@ describe("hints in empty panels", () => {
       layout: "Import media",
       audio: "Import media",
       captions: "Import media",
+      transcript: "Import media",
       text: "Add a title",
       motion: "",
       transitions: "Import media",
       effects: "Import media",
       generate: "Try an example",
+      exports: "Export…",
     });
   });
 

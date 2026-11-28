@@ -27,6 +27,9 @@ pub enum Record {
         #[serde(default)]
         is_error: bool,
     },
+    /// PNG images (base64) a tool returned with its result, sent to the model as image blocks inside that result.
+    #[serde(rename_all = "camelCase")]
+    ToolImages { tool_use_id: String, images: Vec<String> },
     #[serde(rename_all = "camelCase")]
     Question { id: String, questions: Vec<QuestionItem> },
     /// The end of a turn: its cost and token usage (`thread_usage` is the turn's own), and the note it stopped
@@ -51,6 +54,10 @@ pub enum Record {
     /// "Undo this turn" reverted the revisions of `turn` as project revision `rev`.
     #[serde(rename_all = "camelCase")]
     TurnUndone { turn: String, rev: i64 },
+    /// What the person mentioned in the message of user record `turn` (change add-agent-chat-context-and-activity):
+    /// frozen excerpts with their revision, sent with that message. Logs written before mentions existed have none.
+    #[serde(rename_all = "camelCase")]
+    Mentions { turn: String, mentions: Vec<crate::mention::Mention> },
     /// The conversation before the `first_kept`-th user record (0-based) is sent as this summary instead of in
     /// full. The records stay in the log, so the chat still shows everything.
     #[serde(rename_all = "camelCase")]
@@ -277,6 +284,10 @@ pub fn transcript(records: &[Record], max_chars: usize) -> String {
             Record::ToolResult { text, is_error, .. } => {
                 lines.push(format!("{}: {}", if *is_error { "Tool error" } else { "Tool result" }, clip(text, 300)))
             }
+            Record::Mentions { mentions, .. } => lines.push(format!(
+                "User mentioned: {}",
+                mentions.iter().map(|m| format!("{} {}", m.kind, m.label)).collect::<Vec<_>>().join(", ")
+            )),
             Record::Summary { text, .. } => lines.push(format!("Earlier summary: {text}")),
             _ => {}
         }
@@ -374,6 +385,28 @@ pub fn messages(records: &[Record]) -> Vec<Value> {
                     b["is_error"] = json!(true);
                 }
                 push_user(&mut msgs, b);
+            }
+            Record::Mentions { mentions, .. } => {
+                for b in crate::mention::blocks(mentions) {
+                    push_user(&mut msgs, b);
+                }
+            }
+            Record::ToolImages { tool_use_id, images } => {
+                // Into the result it belongs to: its content becomes the text plus the images.
+                let block = msgs.last_mut().and_then(|m| m["content"].as_array_mut()).and_then(|c| {
+                    c.iter_mut().rev().find(|b| b["type"] == "tool_result" && b["tool_use_id"] == *tool_use_id)
+                });
+                if let Some(b) = block {
+                    let mut content = match b["content"].take() {
+                        Value::String(t) => vec![json!({"type": "text", "text": t})],
+                        Value::Array(a) => a,
+                        _ => vec![],
+                    };
+                    content.extend(images.iter().map(|d| {
+                        json!({"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": d}})
+                    }));
+                    b["content"] = Value::Array(content);
+                }
             }
             _ => {}
         }
@@ -525,6 +558,36 @@ mod tests {
         .unwrap();
         assert_eq!(spend_of(std::slice::from_ref(&old), 1).turns, 0);
         assert_eq!(spend_of(&[old], 0).turns, 1);
+    }
+
+    #[test]
+    fn mentions_round_trip_and_follow_their_message() {
+        let d = tempfile::tempdir().unwrap();
+        let store = ChatStore::for_bundle(d.path());
+        let c = store.create("move it", "m").unwrap();
+        let m = crate::mention::Mention {
+            kind: "item".into(),
+            ids: vec!["i_1".into()],
+            rev: Some(4),
+            label: "Title".into(),
+            excerpt: "      <text id=\"i_1\" />".into(),
+            range: None,
+            more: 0,
+            image: Some("AAAA".into()),
+        };
+        store.append(&c.id, &Record::User { id: "u1".into(), text: "move it up".into(), time: 1 }).unwrap();
+        store.append(&c.id, &Record::Mentions { turn: "u1".into(), mentions: vec![m.clone()] }).unwrap();
+        let recs = store.records(&c.id);
+        assert_eq!(recs[2], Record::Mentions { turn: "u1".into(), mentions: vec![m] });
+        let msgs = messages(&recs);
+        validate_messages(&msgs).unwrap();
+        let blocks = msgs[0]["content"].as_array().unwrap();
+        assert_eq!(blocks[0]["text"], "move it up");
+        assert!(blocks[1]["text"].as_str().unwrap().contains("<text id=\"i_1\" />"));
+        assert_eq!(blocks[2]["type"], "image");
+        // A log written before mentions existed reads the same as before.
+        let old: Record = serde_json::from_str(r#"{"type":"user","id":"u","text":"hi","time":0}"#).unwrap();
+        assert_eq!(messages(&[old]).len(), 1);
     }
 
     #[test]

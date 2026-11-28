@@ -31,6 +31,10 @@ pub enum TransportCommand {
     SetLoop {
         enabled: bool,
     },
+    /// Playback rate: 0.5, 1, 1.25, 1.5 or 2 (others are refused). Audio plays resampled.
+    SetRate {
+        rate: f64,
+    },
 }
 
 /// Snapshot of the transport, sent with every change.
@@ -49,6 +53,8 @@ pub struct PlaybackState {
     pub muted: bool,
     /// False when no audio output device is available (video then runs on the system clock).
     pub audio_available: bool,
+    /// Playback rate (0.5, 1, 1.25, 1.5 or 2): multiplies the speed.
+    pub rate: f64,
 }
 
 impl Default for PlaybackState {
@@ -77,6 +83,7 @@ impl Default for Transport {
                 volume: 1.0,
                 muted: false,
                 audio_available: false,
+                rate: 1.0,
             },
         }
     }
@@ -104,8 +111,10 @@ impl Transport {
 
     pub fn apply(&mut self, cmd: TransportCommand) {
         if !self.state.has_media {
-            if let TransportCommand::SetLoop { enabled } = cmd {
-                self.state.looping = enabled;
+            match cmd {
+                TransportCommand::SetLoop { enabled } => self.state.looping = enabled,
+                TransportCommand::SetRate { rate } => self.set_rate(rate),
+                _ => {}
             }
             return;
         }
@@ -147,6 +156,13 @@ impl Transport {
             }
             TransportCommand::SeekFrame { frame } => self.state.frame = frame.min(self.last()),
             TransportCommand::SetLoop { enabled } => self.state.looping = enabled,
+            TransportCommand::SetRate { rate } => self.set_rate(rate),
+        }
+    }
+
+    fn set_rate(&mut self, rate: f64) {
+        if let Ok(r) = ove_playback::supported_rate(rate) {
+            self.state.rate = r;
         }
     }
 
@@ -186,7 +202,7 @@ impl Transport {
 
     /// Interval between ticks at the current speed.
     pub fn tick_interval(&self) -> std::time::Duration {
-        let rate = self.state.frame_rate.max(1.0) * self.state.speed.abs().max(1.0);
+        let rate = self.state.frame_rate.max(1.0) * self.state.speed.abs().max(1.0) * self.state.rate;
         std::time::Duration::from_secs_f64(1.0 / rate)
     }
 }

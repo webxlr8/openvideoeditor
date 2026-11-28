@@ -1,0 +1,31 @@
+//! Tool handlers, grouped by what they work on.
+
+pub mod analyze;
+pub mod app;
+pub mod audio;
+pub mod audio_intel;
+pub mod backend;
+pub mod code;
+pub mod color;
+pub mod deadair;
+pub mod docs;
+pub mod edit;
+pub mod exchange;
+pub mod export;
+pub mod export_queue;
+pub mod export_range;
+pub mod feedback;
+pub mod generate;
+pub mod geometry;
+pub mod keyframes;
+pub mod markers;
+pub mod media;
+pub mod models;
+pub mod organize;
+pub mod project;
+pub mod search;
+pub mod skills;
+pub mod tasks;
+pub mod timeline;
+pub mod transcript;
+pub mod versions;

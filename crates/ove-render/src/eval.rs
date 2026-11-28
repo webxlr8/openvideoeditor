@@ -19,6 +19,8 @@ use ove_core::time::{Micros, json_to_micros};
 use serde_json::{Map, Value};
 
 use crate::layouts;
+// Layer geometry (on-screen corners and stacking of each visible layer) lives in `crate::geometry`.
+pub use crate::geometry::{FrameGeometry, LayerGeometry, layer_geometry};
 use crate::transitions::{Role, TransState, is_opacity_only, joins, split};
 
 /// Reference frame size of an aspect ratio: the pixel space of transforms, font sizes and borders.
@@ -64,24 +66,49 @@ pub enum Placement {
     Fit,
 }
 
+/// Layer blend modes: the 16 schema modes (W3C Compositing and Blending Level 1 formulas) plus `add`, a legacy
+/// alias kept for documents written before the full set existed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Blend {
     Normal,
     Multiply,
     Screen,
+    Overlay,
     Darken,
     Lighten,
+    ColorDodge,
+    ColorBurn,
+    HardLight,
+    SoftLight,
+    Difference,
+    Exclusion,
+    Hue,
+    Saturation,
+    Color,
+    Luminosity,
     Add,
 }
 
 impl Blend {
+    /// Maps a `blendMode` value; `None` and unknown values are Normal (the schema rejects unknown values on apply).
     pub fn parse(s: Option<&str>) -> Blend {
         match s {
             Some("multiply") => Blend::Multiply,
             Some("screen") => Blend::Screen,
+            Some("overlay") => Blend::Overlay,
             Some("darken") => Blend::Darken,
             Some("lighten") => Blend::Lighten,
-            Some("color-dodge") | Some("add") => Blend::Add,
+            Some("color-dodge") => Blend::ColorDodge,
+            Some("color-burn") => Blend::ColorBurn,
+            Some("hard-light") => Blend::HardLight,
+            Some("soft-light") => Blend::SoftLight,
+            Some("difference") => Blend::Difference,
+            Some("exclusion") => Blend::Exclusion,
+            Some("hue") => Blend::Hue,
+            Some("saturation") => Blend::Saturation,
+            Some("color") => Blend::Color,
+            Some("luminosity") => Blend::Luminosity,
+            Some("add") => Blend::Add,
             _ => Blend::Normal,
         }
     }
@@ -224,45 +251,23 @@ fn apply_transition(l: &mut Layer, tr: &Transition, q: f32, role: Role) {
 
 /// Easing curve value for progress `p` in 0..1.
 pub fn ease(name: &str, p: f64) -> f64 {
-    let p = p.clamp(0.0, 1.0);
-    match name {
-        "ease-in" => p * p,
-        "ease-out" => 1.0 - (1.0 - p) * (1.0 - p),
-        "ease-in-out" => {
-            if p < 0.5 {
-                2.0 * p * p
-            } else {
-                1.0 - (-2.0 * p + 2.0).powi(2) / 2.0
-            }
-        }
-        _ => p,
-    }
+    // One definition with split/trim retiming, so cut keyframes match what renders.
+    ove_core::retime::ease(name, p)
 }
 
 /// Value of a keyframed property at item-relative time `rel_us`, if the item animates it.
 pub fn keyframe_value(item: &Item, property: &str, rel_us: Micros) -> Option<f64> {
     let tracks = item.fields.get("keyframeTracks")?.as_array()?;
     let track = tracks.iter().find(|t| t.get("property").and_then(Value::as_str) == Some(property))?;
-    let easing = track.get("easing").and_then(Value::as_str).unwrap_or("linear");
-    let mut kfs: Vec<(Micros, f64)> = track
-        .get("keyframes")?
-        .as_array()?
-        .iter()
-        .filter_map(|k| Some((k.get("time").and_then(json_to_micros)?, k.get("value")?.as_f64()?)))
-        .collect();
-    kfs.sort_by_key(|k| k.0);
-    let (&first, &last) = (kfs.first()?, kfs.last()?);
-    if rel_us <= first.0 {
-        return Some(first.1);
-    }
-    if rel_us >= last.0 {
-        return Some(last.1);
-    }
-    // first.0 < rel_us < last.0, so the position is found and is at least 1.
-    let i = kfs.iter().position(|k| k.0 > rel_us)?;
-    let (a, b) = (kfs[i - 1], kfs[i]);
-    let p = (rel_us - a.0) as f64 / (b.0 - a.0).max(1) as f64;
-    Some(a.1 + (b.1 - a.1) * ease(easing, p))
+    track_value(track, rel_us)
+}
+
+/// Value of one keyframe track (`{property, keyframes, easing}`) at item-relative time `rel_us`: transform, opacity,
+/// volume and effect-parameter keyframes all use this.
+pub fn track_value(track: &Value, rel_us: Micros) -> Option<f64> {
+    // Per-keyframe easing and `hold` (add-markers-keyframe-lanes-and-versions D6) are shared with the audio mix and
+    // the edit planners.
+    ove_core::retime::track_value(track, rel_us)
 }
 
 /// Source time of a video/audio item at timeline time `t_us` (trim, speed, reverse).
@@ -374,7 +379,12 @@ fn layer_for(doc: &Document, item: &Item, t_us: Micros, opacity_mul: f32) -> Opt
         Placement::FillHeight
     };
     let c = f.get("crop").and_then(Value::as_object);
-    let cv = |k: &str| num(c.and_then(|c| c.get(k)), 0.0).clamp(0.0, 100.0) as f32;
+    // Crop edges animate with `crop.<edge>` keyframes (percent, like the field).
+    let cv = |k: &str| {
+        keyframe_value(item, &format!("crop.{k}"), rel)
+            .unwrap_or_else(|| num(c.and_then(|c| c.get(k)), 0.0))
+            .clamp(0.0, 100.0) as f32
+    };
     Some(Layer {
         item_id: item.id.clone(),
         kind,
@@ -383,7 +393,9 @@ fn layer_for(doc: &Document, item: &Item, t_us: Micros, opacity_mul: f32) -> Opt
         placement,
         crop: [cv("top"), cv("right"), cv("bottom"), cv("left")],
         blend: Blend::parse(f.get("blendMode").and_then(Value::as_str)),
-        border_radius: num(f.get("borderRadius"), 0.0).max(0.0) as f32,
+        border_radius: keyframe_value(item, "borderRadius", rel)
+            .unwrap_or_else(|| num(f.get("borderRadius"), 0.0))
+            .max(0.0) as f32,
         grade: Grade::from_fields(f),
         fields: f.clone(),
         rel_us: rel,

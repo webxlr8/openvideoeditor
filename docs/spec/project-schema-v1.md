@@ -29,9 +29,12 @@ Conventions:
 | `updatedAt` | integer |  |  | ms since the epoch. |
 | `stateUpdatedAt` | integer ≥ 0 |  | yes | Current revision (rev), ms-based. |
 | `aspectRatio` | `16:9` \| `4:3` \| `3:4` \| `9:16` \| `1:1` \| `4:5` |  | yes | Frame aspect ratio. |
+| `fps` | number [1..240] | `30` |  | Timeline frame rate; edits snap to its frame grid. |
 | `media` | any |  |  | Media items. |
 | `timelineItems` | any |  |  | Items. |
 | `tracks` | any |  |  | Tracks. |
+| `markers` | any |  |  | Timeline markers (see Marker). |
+| `folders` | array of object {path, query, scope} |  |  | Media panel folders that hold no media yet, and smart folders (saved queries). |
 
 Other project fields (`cast`, `temp`, `mediaBaseDirectory`, …) are preserved and changed with `updateProject`.
 
@@ -46,6 +49,7 @@ Other project fields (`cast`, `temp`, `mediaBaseDirectory`, …) are preserved a
 | `locked` | boolean | `false` |  | Locked tracks cannot be edited in the GUI. |
 | `visible` | boolean | `true` |  | Hidden tracks render nothing. |
 | `muted` | boolean | `false` |  | Muted tracks play no audio. |
+| `syncLock` | boolean | `true` |  | Ripple edits on other tracks shift this track's items too. |
 
 ## Media item (`project.media[]`)
 
@@ -55,6 +59,10 @@ Other project fields (`cast`, `temp`, `mediaBaseDirectory`, …) are preserved a
 | `createdAt` | integer |  |  | ms since the epoch. |
 | `addedAt` | integer |  |  | ms since the epoch. |
 | `data` | any |  |  | type, fileName, format, size, duration, width, height, frameRate, hasAudio, statuses, … |
+| `name` | string |  |  | Display name set by a rename; absent means the file name without its extension. |
+| `folder` | string |  |  | Media panel folder, `/`-separated (`Interviews/Day 1`); absent means the top level. |
+| `tags` | array of string |  |  | Tags, in the order they were added. |
+| `subclips` | array of object {id, name, in, out} |  |  | Saved source ranges of this media, shown under it and dragged like media. |
 
 ## Registry entry (`media[]`)
 
@@ -66,6 +74,22 @@ Other project fields (`cast`, `temp`, `mediaBaseDirectory`, …) are preserved a
 | `probeStatus` | `awaiting-probe` \| `probed` \| `failed` | `"awaiting-probe"` |  | Probe state. |
 | `size` | integer ≥ 0 |  |  | Last known file size in bytes. |
 | `modifiedAt` | integer |  |  | Last known modification time, ms since the epoch. |
+| `contentId` | string |  |  | Content identity: hash of the size and sampled content; derived data is keyed by it. |
+
+## Marker (`project.markers[]`)
+
+Written in time order, then id; omitted when there are none.
+
+| field | type / range | default | required | meaning |
+|---|---|---|---|---|
+| `id` | string |  | yes | Marker id. |
+| `at` | seconds ≥ 0 |  | yes | Timeline time of the marker, in seconds. |
+| `dur` | seconds ≥ 0 | `0` |  | Duration in seconds; 0 for a point marker. |
+| `name` | string |  |  | Short label. |
+| `color` | string |  |  | A named colour (red, orange, yellow, green, teal, blue, purple, pink) or #rrggbb. |
+| `status` | `open` \| `review` \| `resolved` | `"open"` |  | Review status: open, review or resolved. |
+| `assignee` | string |  |  | Who should act on it: `user`, `agent` or a name. |
+| `note` | string |  |  | Free text, at most 4,000 characters. |
 
 ## Items
 
@@ -91,6 +115,7 @@ Fields in projection attribute order:
 | `mediaItemId` | string |  |  | Id of the media item the item plays. |
 | `pending` | boolean | `false` |  | Placeholder awaiting generated or supplied media. |
 | `pendingDescription` | string |  |  | What the pending placeholder should become. |
+| `link` | string |  |  | Link group: items with the same value move, trim, slip and delete together. |
 | `transform` | object {x, y, scale, rotation, flipX} |  |  | Position, scale, rotation, flip. |
 | `crop` | object {top, right, bottom, left} |  |  | Crop in percent per edge. |
 | `opacity` | number [0..1] | `1` |  | Opacity. |
@@ -114,6 +139,7 @@ Fields in projection attribute order:
 | `audioFadeOut` | object {duration, easing} |  |  | Audio fade at the end. |
 | `playbackSpeed` | number [0.01..100] | `1` |  | Playback speed factor. |
 | `playbackDirection` | `forward` \| `reverse` | `"forward"` |  | Playback direction. |
+| `denoise` | number [0..100] | `0` |  | Speech clean-up amount in percent: the sound is this blend of a cleaned copy and the original. |
 
 ### `image`
 
@@ -127,6 +153,7 @@ Fields in projection attribute order:
 | `mediaItemId` | string |  |  | Id of the media item the item plays. |
 | `pending` | boolean | `false` |  | Placeholder awaiting generated or supplied media. |
 | `pendingDescription` | string |  |  | What the pending placeholder should become. |
+| `link` | string |  |  | Link group: items with the same value move, trim, slip and delete together. |
 | `transform` | object {x, y, scale, rotation, flipX} |  |  | Position, scale, rotation, flip. |
 | `crop` | object {top, right, bottom, left} |  |  | Crop in percent per edge. |
 | `opacity` | number [0..1] | `1` |  | Opacity. |
@@ -157,6 +184,7 @@ Fields in projection attribute order:
 | `mediaItemId` | string |  |  | Id of the media item the item plays. |
 | `pending` | boolean | `false` |  | Placeholder awaiting generated or supplied media. |
 | `pendingDescription` | string |  |  | What the pending placeholder should become. |
+| `link` | string |  |  | Link group: items with the same value move, trim, slip and delete together. |
 | `transform` | object {x, y, scale, rotation, flipX} |  |  | Position, scale, rotation, flip. |
 | `crop` | object {top, right, bottom, left} |  |  | Crop in percent per edge. |
 | `opacity` | number [0..1] | `1` |  | Opacity. |
@@ -178,6 +206,7 @@ Fields in projection attribute order:
 | `audioFadeOut` | object {duration, easing} |  |  | Audio fade at the end. |
 | `playbackSpeed` | number [0.01..100] | `1` |  | Playback speed factor. |
 | `playbackDirection` | `forward` \| `reverse` | `"forward"` |  | Playback direction. |
+| `denoise` | number [0..100] | `0` |  | Speech clean-up amount in percent: the sound is this blend of a cleaned copy and the original. |
 
 ### `text`
 
@@ -191,6 +220,7 @@ Fields in projection attribute order:
 | `mediaItemId` | string |  |  | Id of the media item the item plays. |
 | `pending` | boolean | `false` |  | Placeholder awaiting generated or supplied media. |
 | `pendingDescription` | string |  |  | What the pending placeholder should become. |
+| `link` | string |  |  | Link group: items with the same value move, trim, slip and delete together. |
 | `textContent` | string |  |  | The text. |
 | `fontFamily` | string |  |  | Font family. |
 | `fontSize` | number [0..] |  |  | Font size in pixels. |
@@ -238,6 +268,7 @@ Fields in projection attribute order:
 | `mediaItemId` | string |  |  | Id of the media item the item plays. |
 | `pending` | boolean | `false` |  | Placeholder awaiting generated or supplied media. |
 | `pendingDescription` | string |  |  | What the pending placeholder should become. |
+| `link` | string |  |  | Link group: items with the same value move, trim, slip and delete together. |
 | `captionText` | string |  |  | Full caption text. |
 | `captionSegments` | array of object {id, text, startTime, endTime, wordTimings} |  |  | Timed segments with word timings. |
 | `captionPresetId` | string |  |  | Caption style preset. |
@@ -274,6 +305,7 @@ Fields in projection attribute order:
 | `mediaItemId` | string |  |  | Id of the media item the item plays. |
 | `pending` | boolean | `false` |  | Placeholder awaiting generated or supplied media. |
 | `pendingDescription` | string |  |  | What the pending placeholder should become. |
+| `link` | string |  |  | Link group: items with the same value move, trim, slip and delete together. |
 | `codeComposition` | object {source, template, props, width, height, assets} |  |  | Motion-graphics composition (pure JSX of {time, width, height, assets}). |
 | `transform` | object {x, y, scale, rotation, flipX} |  |  | Position, scale, rotation, flip. |
 | `crop` | object {top, right, bottom, left} |  |  | Crop in percent per edge. |
@@ -303,6 +335,7 @@ Fields in projection attribute order:
 | `mediaItemId` | string |  |  | Id of the media item the item plays. |
 | `pending` | boolean | `false` |  | Placeholder awaiting generated or supplied media. |
 | `pendingDescription` | string |  |  | What the pending placeholder should become. |
+| `link` | string |  |  | Link group: items with the same value move, trim, slip and delete together. |
 | `adjustmentKind` | string |  |  | Kind of adjustment layer. |
 | `lutPresetId` | string |  |  | LUT preset id. |
 | `lutIntensity` | number [0..1] | `1` |  | LUT blend amount. |
@@ -336,6 +369,7 @@ Fields in projection attribute order:
 | `mediaItemId` | string |  |  | Id of the media item the item plays. |
 | `pending` | boolean | `false` |  | Placeholder awaiting generated or supplied media. |
 | `pendingDescription` | string |  |  | What the pending placeholder should become. |
+| `link` | string |  |  | Link group: items with the same value move, trim, slip and delete together. |
 | `shaderComposition` | object {source, template, params, controls, amount, fadeIn, fadeOut, region, defaults} |  |  | Shader layer definition. |
 | `transform` | object {x, y, scale, rotation, flipX} |  |  | Position, scale, rotation, flip. |
 | `crop` | object {top, right, bottom, left} |  |  | Crop in percent per edge. |
@@ -378,9 +412,9 @@ Fields in projection attribute order:
 
 | field | type / range | default | required | meaning |
 |---|---|---|---|---|
-| `property` | `x` \| `y` \| `scale` \| `rotation` \| `opacity` \| `gaussianBlur` \| `borderRadius` |  |  | Animated property. |
-| `keyframes` | array of object {time, value} |  |  | Keyframes in time order. |
-| `easing` | `linear` \| `ease-in` \| `ease-out` \| `ease-in-out` | `"linear"` |  | Interpolation between keyframes. |
+| `property` | `x` \| `y` \| `scale` \| `rotation` \| `opacity` \| `gaussianBlur` \| `borderRadius` \| `volume` \| `crop.top` \| `crop.right` \| `crop.bottom` \| `crop.left` \| `effects.<effect id>.<parameter>` |  |  | Animated property, or an effect parameter as `effects.<effect id>.<parameter>`. |
+| `keyframes` | array of object {time, value, easing} |  |  | Keyframes in time order. |
+| `easing` | `linear` \| `ease-in` \| `ease-out` \| `ease-in-out` \| `hold` | `"linear"` |  | Interpolation between keyframes. |
 
 #### `keyframes`
 
@@ -388,6 +422,7 @@ Fields in projection attribute order:
 |---|---|---|---|---|
 | `time` | seconds ≥ 0 |  |  | Seconds from the item's start. |
 | `value` | number |  |  | Property value at that time. |
+| `easing` | `linear` \| `ease-in` \| `ease-out` \| `ease-in-out` \| `hold` |  |  | Easing of the segment that starts here (overrides the track easing). |
 
 #### `transitionIn`
 

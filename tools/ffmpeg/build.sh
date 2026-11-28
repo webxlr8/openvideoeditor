@@ -3,11 +3,15 @@
 #
 #   tools/ffmpeg/build.sh [--ci] [--jobs N] [--out DIR] [--keep-src] [--target windows-x64-gnu]
 #
-# Output: tools/ffmpeg/out/<target>/{include,lib,bin} plus buildconf.txt, license.txt and sizes.txt.
+# Output: tools/ffmpeg/out/<target>/{include,lib,bin} plus buildconf.txt, license.txt, sizes.txt and encoders.txt.
 # Targets: macOS arm64 (VideoToolbox), Windows x64 (D3D11VA; run from an MSYS2 shell with MSVC on PATH), and Linux
-# x64 for development (no hardware decoder). Prerequisites: a C toolchain, make, nasm, pkg-config, and dav1d
-# (BSD-2-Clause; the only software AV1 decoder) — `brew install dav1d nasm pkg-config`, `vcpkg install dav1d`, or
-# `apt install libdav1d-dev nasm`.
+# x64 for development (no hardware decoder). Prerequisites: a C toolchain, make, nasm, pkg-config, cmake, meson,
+# ninja, dav1d (BSD-2-Clause; the only software AV1 decoder), and libvpx and opus (BSD-3; VP9 and Opus export) —
+# `brew install dav1d libvpx opus nasm pkg-config cmake meson ninja`, `vcpkg install dav1d libvpx opus`, or
+# `apt install libdav1d-dev libvpx-dev libopus-dev nasm cmake meson ninja-build`.
+# Export encoders built from pinned, checksummed sources (fix-render-and-edit-correctness D5): OpenH264 (BSD-2-Clause,
+# shared library, all targets) and, on Windows, the NVIDIA (NVENC), AMD (AMF) and Intel (QSV through the oneVPL
+# dispatcher) hardware encoders. Their headers and the dispatcher are MIT; the drivers ship with the GPU.
 # Cross build for Windows x64 on a Linux x64 host (--target windows-x64-gnu, or OVE_FFMPEG_TARGET=windows-x64-gnu):
 # MinGW-w64 GCC, same components as the native Windows build; dav1d (shared) and zlib (static) are cross-built from
 # pinned sources — `apt install gcc-mingw-w64-x86-64 mingw-w64-tools nasm meson ninja-build pkg-config`.
@@ -25,6 +29,21 @@ DAV1D_URL="https://downloads.videolan.org/pub/videolan/dav1d/${DAV1D_VERSION}/da
 ZLIB_VERSION="1.3.1"
 ZLIB_SHA256="9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23"
 ZLIB_URL="https://github.com/madler/zlib/releases/download/v${ZLIB_VERSION}/zlib-${ZLIB_VERSION}.tar.gz"
+# Software H.264 encoder (BSD-2-Clause), built as a shared library next to FFmpeg's.
+OPENH264_VERSION="2.7.0"
+OPENH264_SHA256="5178775c8b440073e70920e97d195efff721c0e56d0a78cc82c919e95d54924d"
+OPENH264_URL="https://github.com/cisco/openh264/archive/refs/tags/v${OPENH264_VERSION}.tar.gz"
+# Windows hardware encoders: NVENC headers (MIT; n12.1 needs NVIDIA driver 530 or later, and on an older driver the
+# encoder fails to open and export tries the next one), AMF headers (MIT), the oneVPL dispatcher for QSV (MIT, static).
+NVHEADERS_VERSION="12.1.14.0"
+NVHEADERS_SHA256="2fefaa227d2a3b4170797796425a59d1dd2ed5fd231db9b4244468ba327acd0b"
+NVHEADERS_URL="https://github.com/FFmpeg/nv-codec-headers/archive/refs/tags/n${NVHEADERS_VERSION}.tar.gz"
+AMF_VERSION="1.5.3"
+AMF_SHA256="0f521ad98041f8001147cded4a660127f18b1c27a801a5cd691bda1fa48381be"
+AMF_URL="https://github.com/GPUOpen-LibrariesAndSDKs/AMF/releases/download/v${AMF_VERSION}/AMF-headers-v${AMF_VERSION}.tar.gz"
+VPL_VERSION="2.17.0"
+VPL_SHA256="4de3e2faf1e8307fb282e4a43f443191810f6a6b0a484fffa7995ba1c814c6ec"
+VPL_URL="https://github.com/intel/libvpl/archive/refs/tags/v${VPL_VERSION}.tar.gz"
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 CI=0
@@ -60,7 +79,8 @@ OUT="${OUT:-$HERE/out/$TARGET}"
 WORK="$HERE/.work"
 mkdir -p "$WORK" "$OUT"
 
-FLAGS_SHA="$(printf '%s\n' "$(sed -n '/^DEMUXERS=/,/^esac/p' "$0")" "$TARGET" "$DAV1D_SHA256" "$ZLIB_SHA256" | (sha256sum 2>/dev/null || shasum -a 256) | cut -c1-16)"
+FLAGS_SHA="$(printf '%s\n' "$(sed -n '/^DEMUXERS=/,/^esac/p' "$0")" "$TARGET" "$DAV1D_SHA256" "$ZLIB_SHA256" \
+  "$OPENH264_SHA256" "$NVHEADERS_SHA256" "$AMF_SHA256" "$VPL_SHA256" | (sha256sum 2>/dev/null || shasum -a 256) | cut -c1-16)"
 if [ -f "$OUT/buildconf.txt" ] && grep -q "version ${FFMPEG_VERSION}" "$OUT/buildconf.txt" && grep -q "flags ${FLAGS_SHA}" "$OUT/buildconf.txt"; then
   echo "FFmpeg ${FFMPEG_VERSION} already built in $OUT"
   "$HERE/check-license.sh" "$OUT/buildconf.txt"
@@ -68,9 +88,9 @@ if [ -f "$OUT/buildconf.txt" ] && grep -q "version ${FFMPEG_VERSION}" "$OUT/buil
 fi
 
 # --- source -----------------------------------------------------------------------------------------------------------
-fetch() { # url sha256 → verified tarball in $WORK, unpacked there
+fetch() { # url sha256 [name] → verified tarball in $WORK (saved as name), unpacked there
   local tarball got
-  tarball="$WORK/$(basename "$1")"
+  tarball="$WORK/${3:-$(basename "$1")}"
   if [ ! -f "$tarball" ]; then
     curl -sSfL --retry 5 --retry-all-errors -o "$tarball.part" "$1"
     mv "$tarball.part" "$tarball"
@@ -92,7 +112,7 @@ fetch "$FFMPEG_URL" "$FFMPEG_SHA256"
 DEPS="$WORK/deps-$TARGET"
 if [ "$TARGET" = windows-x64-gnu ]; then
   XP=x86_64-w64-mingw32
-  for tool in "$XP-gcc" "$XP-ar" "$XP-windres" nasm meson ninja pkg-config; do
+  for tool in "$XP-gcc" "$XP-g++" "$XP-ar" "$XP-windres" nasm meson ninja cmake make pkg-config; do
     command -v "$tool" >/dev/null || { echo "missing $tool (see the prerequisites at the top of $0)" >&2; exit 2; }
   done
   rm -rf "$DEPS" && mkdir -p "$DEPS/include" "$DEPS/lib"
@@ -109,6 +129,7 @@ if [ "$TARGET" = windows-x64-gnu ]; then
   cat > "$WORK/meson-$TARGET.ini" <<EOF
 [binaries]
 c = '$XP-gcc'
+cpp = '$XP-g++'
 ar = '$XP-ar'
 strip = '$XP-strip'
 windres = '$XP-windres'
@@ -140,10 +161,12 @@ fi
 # pinned source as the cross build and linked statically, so FFmpeg's DLLs need no zlib DLL.
 if [ "$TARGET" = windows-x64 ]; then
   VCPKG_DEPS="${OVE_VCPKG_INSTALLED:-$(cygpath -u "${VCPKG_INSTALLATION_ROOT:-${VCPKG_ROOT:-C:/vcpkg}}")/installed/x64-windows}"
-  if [ ! -f "$VCPKG_DEPS/lib/pkgconfig/dav1d.pc" ]; then
-    echo "dav1d is needed in $VCPKG_DEPS: vcpkg install dav1d:x64-windows" >&2
-    exit 2
-  fi
+  for pc in dav1d vpx opus; do
+    if [ ! -f "$VCPKG_DEPS/lib/pkgconfig/$pc.pc" ]; then
+      echo "$pc is needed in $VCPKG_DEPS: vcpkg install dav1d libvpx opus --triplet x64-windows" >&2
+      exit 2
+    fi
+  done
   export PKG_CONFIG_PATH="$VCPKG_DEPS/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
   command -v nmake >/dev/null || { echo "nmake is needed (run inside the MSVC developer environment)" >&2; exit 2; }
   rm -rf "$DEPS" "$WORK/zlib-${ZLIB_VERSION}" && mkdir -p "$DEPS/include" "$DEPS/lib"
@@ -162,18 +185,97 @@ if [ "$TARGET" = windows-x64 ]; then
     --extra-ldflags=-LIBPATH:"$(cygpath -m "$DEPS/lib")" --extra-ldflags=-LIBPATH:"$(cygpath -m "$VCPKG_DEPS/lib")")
 fi
 
+# --- export encoder dependencies (all targets: OpenH264; Windows: NVENC, AMF, QSV) ------------------------------------
+# Installed into $ENC (headers, libraries, pkg-config files). OpenH264's shared library is copied next to FFmpeg's so
+# the app finds it at run time. Nothing here is GPL or nonfree; check-license.sh checks the result.
+ENC="$WORK/enc-$TARGET"
+rm -rf "$ENC" && mkdir -p "$ENC/include" "$ENC/lib/pkgconfig"
+export PKG_CONFIG_PATH="$ENC/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+if [ "$TARGET" = windows-x64-gnu ]; then export PKG_CONFIG_LIBDIR="$ENC/lib/pkgconfig:$PKG_CONFIG_LIBDIR"; fi
+MESON_CROSS=()
+if [ "$TARGET" = windows-x64-gnu ]; then MESON_CROSS=(--cross-file "$WORK/meson-$TARGET.ini"); fi
+
+rm -rf "$WORK/openh264-${OPENH264_VERSION}" "$WORK/openh264-build"
+fetch "$OPENH264_URL" "$OPENH264_SHA256" "openh264-${OPENH264_VERSION}.tar.gz"
+# The encoder library only, no tests. MSVC builds use meson's Visual Studio detection (cl on PATH).
+meson setup "$WORK/openh264-build" "$WORK/openh264-${OPENH264_VERSION}" ${MESON_CROSS[@]+"${MESON_CROSS[@]}"} --prefix="$ENC" \
+  --libdir=lib --buildtype=release --default-library=shared -Dtests=disabled > "$OUT/openh264.log" 2>&1 \
+  || { tail -40 "$OUT/openh264.log"; exit 1; }
+ninja -C "$WORK/openh264-build" -j "$JOBS" install >> "$OUT/openh264.log" 2>&1 || { tail -40 "$OUT/openh264.log"; exit 1; }
+rm -rf "$WORK/openh264-build"
+
+case "$TARGET" in
+  windows-x64|windows-x64-gnu)
+    # NVENC: headers only; FFmpeg loads the driver's nvEncodeAPI64.dll at run time.
+    rm -rf "$WORK/nv-codec-headers-n${NVHEADERS_VERSION}"
+    fetch "$NVHEADERS_URL" "$NVHEADERS_SHA256" "nv-codec-headers-n${NVHEADERS_VERSION}.tar.gz"
+    make -C "$WORK/nv-codec-headers-n${NVHEADERS_VERSION}" PREFIX="$ENC" install > "$OUT/nvheaders.log" 2>&1 \
+      || { tail -20 "$OUT/nvheaders.log"; exit 1; }
+    # AMF: headers only; FFmpeg loads the driver's amfrt64.dll at run time.
+    rm -rf "$WORK/amf-headers-v${AMF_VERSION}"
+    fetch "$AMF_URL" "$AMF_SHA256"
+    cp -R "$WORK/amf-headers-v${AMF_VERSION}/AMF" "$ENC/include/"
+    # QSV: the oneVPL dispatcher, linked statically; it finds the Intel runtime that the graphics driver installs.
+    rm -rf "$WORK/libvpl-${VPL_VERSION}" "$WORK/libvpl-build"
+    fetch "$VPL_URL" "$VPL_SHA256" "libvpl-${VPL_VERSION}.tar.gz"
+    VPL_CMAKE=(-DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DBUILD_TESTS=OFF
+      -DCMAKE_INSTALL_PREFIX="$ENC" -DCMAKE_INSTALL_LIBDIR=lib)
+    if [ "$TARGET" = windows-x64-gnu ]; then
+      VPL_CMAKE+=(-DCMAKE_SYSTEM_NAME=Windows -DCMAKE_C_COMPILER="$XP-gcc" -DCMAKE_CXX_COMPILER="$XP-g++"
+        -DCMAKE_RC_COMPILER="$XP-windres")
+    else
+      # The same C runtime as FFmpeg's MSVC build (-MD).
+      VPL_CMAKE+=(-G Ninja -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DUSE_MSVC_STATIC_RUNTIME=OFF)
+    fi
+    cmake -S "$WORK/libvpl-${VPL_VERSION}" -B "$WORK/libvpl-build" "${VPL_CMAKE[@]}" > "$OUT/libvpl.log" 2>&1 \
+      || { tail -40 "$OUT/libvpl.log"; exit 1; }
+    cmake --build "$WORK/libvpl-build" --config Release -j "$JOBS" --target install >> "$OUT/libvpl.log" 2>&1 \
+      || { tail -40 "$OUT/libvpl.log"; exit 1; }
+    rm -rf "$WORK/libvpl-build"
+    ;;
+esac
+# Licence texts of the encoder sources, shipped with the app's notices (tools/notices.sh copies out/<target>/licenses).
+mkdir -p "$OUT/licenses"
+cp "$WORK/openh264-${OPENH264_VERSION}/LICENSE" "$OUT/licenses/openh264-BSD-2-Clause.txt"
+case "$TARGET" in
+  windows-x64|windows-x64-gnu)
+    cp "$WORK/libvpl-${VPL_VERSION}/LICENSE" "$OUT/licenses/libvpl-MIT.txt"
+    # Neither header package has a separate licence file: the MIT text is the comment at the top of the headers.
+    sed -n '1,/^ *\*\//p' "$WORK/nv-codec-headers-n${NVHEADERS_VERSION}/include/ffnvcodec/nvEncodeAPI.h" \
+      > "$OUT/licenses/nv-codec-headers-MIT.txt"
+    sed -n '/MIT license/,/THE SOFTWARE\./p' "$WORK/amf-headers-v${AMF_VERSION}/AMF/core/Version.h" \
+      | sed 's|^// \{0,1\}||' > "$OUT/licenses/amf-headers-MIT.txt"
+    ;;
+esac
+
+# configure compiles its checks against these headers.
+if [ "$TARGET" = windows-x64 ]; then ENC_INC="$(cygpath -m "$ENC/include")"; else ENC_INC="$ENC/include"; fi
+ENC_FLAGS=(--extra-cflags=-I"$ENC_INC")
+
 # --- configuration ----------------------------------------------------------------------------------------------------
 # Only what the preview and export pipeline reads (docs/spec formats for change 1): MP4/MOV/MXF/MKV/WebM containers and
 # audio-only files; H.264, HEVC, ProRes, DNxHD/HR, AV1 (dav1d), VP9 video; AAC, ALAC, Opus, PCM, MP3, FLAC audio.
-DEMUXERS="mov,matroska,mxf,wav,w64,aiff,ogg,mp3,flac,aac"
+# Still images (imported pictures, generated images): image2 by extension, plus the PNG and JPEG pipe probes.
+DEMUXERS="mov,matroska,mxf,wav,w64,aiff,ogg,mp3,flac,aac,image2,png_pipe,jpeg_pipe"
 DECODERS="h264,hevc,prores,dnxhd,libdav1d,vp9,vp8,mjpeg,png"
 DECODERS+=",aac,aac_fixed,alac,opus,mp3float,mp3,flac,vorbis"
 DECODERS+=",pcm_s16le,pcm_s16be,pcm_s24le,pcm_s24be,pcm_s32le,pcm_s32be,pcm_f32le,pcm_f32be,pcm_f64le,pcm_u8"
 PARSERS="h264,hevc,av1,vp9,vp8,aac,opus,flac,mpegaudio,dnxhd,prores,mjpeg,png,vorbis"
-# Export (change 6): MP4/MOV out; AAC audio; platform H.264/HEVC encoders (below); ProRes and MPEG-4 Part 2 as
-# software fallbacks that stay LGPL (no x264/x265).
-EXPORT_MUXERS="mp4,mov"
-EXPORT_ENCODERS="aac,prores_ks,mpeg4,png,mjpeg"
+# Export (change 6, extend-export-formats-and-queue): MP4, MOV, Matroska, WebM, M4A (ipod), WAV and FLAC out; AAC,
+# FLAC, PCM and Opus (libopus, BSD-3) audio; ProRes (prores_ks), DNxHR (dnxhd) and VP9 (libvpx, BSD-3) in software;
+# H.264 from OpenH264 and the platform and GPU vendors' encoders, HEVC and AV1 only from the latter (below). MPEG-4
+# Part 2 is the last H.264 fallback. No x264, x265, SVT-AV1 or libaom: GPL, or not yet cleared by the licence review.
+EXPORT_MUXERS="mp4,mov,ipod,matroska,webm,wav,flac"
+EXPORT_ENCODERS="aac,prores_ks,dnxhd,libvpx_vp9,libopus,flac,pcm_s24le,mpeg4,png,mjpeg,libopenh264"
+# VP9 and Opus encoders for WebM export (BSD-3; found through pkg-config like dav1d). Required for the shipped
+# targets; the Linux development and cross builds go without them when the libraries are missing (VP9, Opus and
+# WebM export then report that this build cannot write them).
+EXPORT_LIBS=(--enable-libvpx --enable-libopus)
+if [ "$TARGET" != macos-arm64 ] && [ "$TARGET" != windows-x64 ] && ! pkg-config --exists vpx opus 2>/dev/null; then
+  echo "warning: libvpx or opus not found; this build will not export VP9, Opus or WebM" >&2
+  EXPORT_ENCODERS="${EXPORT_ENCODERS/,libvpx_vp9,libopus/}"
+  EXPORT_LIBS=()
+fi
 
 FLAGS=(
   --prefix="$OUT"
@@ -190,6 +292,8 @@ FLAGS=(
   --enable-parser="$PARSERS"
   --enable-zlib
   --enable-libdav1d
+  --enable-libopenh264
+  ${EXPORT_LIBS[@]+"${EXPORT_LIBS[@]}"}
   # Reference CLI for the decode tests (framemd5 / PCM output from the same libraries the app links). Packaging copies
   # only libavcodec, libavformat, libavutil, libswscale and libswresample; the CLI and libavfilter are test-only.
   --enable-ffmpeg --enable-avfilter
@@ -218,12 +322,17 @@ case "$TARGET" in
     FLAGS+=(--enable-d3d11va --enable-hwaccel=h264_d3d11va,h264_d3d11va2,hevc_d3d11va,hevc_d3d11va2,vp9_d3d11va,vp9_d3d11va2,av1_d3d11va,av1_d3d11va2)
     # Media Foundation encoders use the GPU vendor's hardware encoder MFT when present, else Microsoft's software one.
     FLAGS+=(--enable-mediafoundation --enable-encoder=h264_mf,hevc_mf)
+    # Vendor encoders, tried by export before Media Foundation; each fails to open on a machine without that GPU.
+    # AV1 export uses only these hardware encoders (no SVT-AV1 or libaom).
+    FLAGS+=(--enable-ffnvcodec --enable-nvenc --enable-encoder=h264_nvenc,hevc_nvenc,av1_nvenc)
+    FLAGS+=(--enable-amf --enable-encoder=h264_amf,hevc_amf,av1_amf)
+    FLAGS+=(--enable-libvpl --enable-encoder=h264_qsv,hevc_qsv,av1_qsv)
     ;;
   linux-x64) ;;
 esac
 
 cd "$SRC"
-./configure "${FLAGS[@]}" > "$OUT/configure.log" 2>&1 || { tail -40 "$OUT/configure.log"; echo "--- ffbuild/config.log: the dependency checks"; grep -n -A40 -E "^(check_lib|require_pkg_config) (zlib|libdav1d)" ffbuild/config.log 2>/dev/null | head -150; echo "--- (end)"; tail -30 ffbuild/config.log 2>/dev/null; exit 1; }
+./configure "${FLAGS[@]}" "${ENC_FLAGS[@]}" > "$OUT/configure.log" 2>&1 || { tail -40 "$OUT/configure.log"; echo "--- ffbuild/config.log: the dependency checks"; grep -n -A40 -E "^(check_lib|require_pkg_config) (zlib|libdav1d)" ffbuild/config.log 2>/dev/null | head -150; echo "--- (end)"; tail -30 ffbuild/config.log 2>/dev/null; exit 1; }
 
 # Licence gate on the configured result before spending time compiling.
 grep -E '^#define (FFMPEG_CONFIGURATION|FFMPEG_LICENSE|CONFIG_GPL|CONFIG_NONFREE|CONFIG_VERSION3) ' config.h > "$OUT/license.txt"
@@ -233,10 +342,36 @@ make -j"$JOBS" > "$OUT/make.log" 2>&1 || { tail -40 "$OUT/make.log"; exit 1; }
 make install > /dev/null
 if [ "$TARGET" = windows-x64 ]; then
   # FFmpeg's DLLs import dav1d's.
-  cp "$VCPKG_DEPS/bin/dav1d.dll" "$OUT/bin/"
+  for dll in dav1d vpx opus; do
+    if [ -f "$VCPKG_DEPS/bin/$dll.dll" ]; then cp "$VCPKG_DEPS/bin/$dll.dll" "$OUT/bin/"; fi
+  done
   # The MSVC toolchain installs the import libraries (avutil.lib, ...) next to the DLLs; the Rust bindings link
   # from lib/.
   cp "$OUT"/bin/*.lib "$OUT/lib/"
+fi
+
+# OpenH264's shared library goes next to FFmpeg's and is packaged with them.
+case "$TARGET" in
+  windows-x64) cp "$ENC"/bin/*openh264*.dll "$OUT/bin/" ;;
+  windows-x64-gnu) cp "$ENC"/bin/*openh264*.dll "$OUT/bin/" && "$XP-strip" --strip-unneeded "$OUT"/bin/*openh264*.dll ;;
+  macos-arm64) cp -P "$ENC"/lib/libopenh264*.dylib "$OUT/lib/" ;;
+  linux-x64) cp -P "$ENC"/lib/libopenh264.so* "$OUT/lib/" ;;
+esac
+
+# The export encoders this target must have (fix-render-and-edit-correctness task 3.1), as the built CLI lists them.
+WANT_ENCODERS="libopenh264 aac prores_ks mpeg4"
+case "$TARGET" in
+  macos-arm64) WANT_ENCODERS+=" h264_videotoolbox hevc_videotoolbox" ;;
+  windows-x64|windows-x64-gnu) WANT_ENCODERS+=" h264_mf hevc_mf h264_nvenc hevc_nvenc h264_amf hevc_amf h264_qsv hevc_qsv" ;;
+esac
+if [ "$TARGET" = windows-x64-gnu ]; then
+  echo "cross build: run 'bin/ffmpeg.exe -hide_banner -encoders' on Windows to list the encoders" > "$OUT/encoders.txt"
+else
+  PATH="$OUT/bin:$PATH" DYLD_LIBRARY_PATH="$OUT/lib" LD_LIBRARY_PATH="$OUT/lib" "$OUT/bin/ffmpeg" -hide_banner -encoders     > "$OUT/encoders.txt" 2>&1 || { cat "$OUT/encoders.txt"; exit 1; }
+  for e in $WANT_ENCODERS; do
+    grep -Eq "^ [A-Z.]{6} $e " "$OUT/encoders.txt" || { echo "encoder $e is missing from the build" >&2; exit 1; }
+  done
+  echo "encoders present: $WANT_ENCODERS"
 fi
 
 # --- records ----------------------------------------------------------------------------------------------------------
@@ -264,6 +399,8 @@ fi
 cat "$OUT/buildconf.txt" "$OUT/sizes.txt"
 
 cd "$HERE"
-[ "$KEEP_SRC" = 1 ] || rm -rf "$SRC" "$WORK/dav1d-${DAV1D_VERSION}" "$WORK/zlib-${ZLIB_VERSION}"
+[ "$KEEP_SRC" = 1 ] || rm -rf "$SRC" "$WORK/dav1d-${DAV1D_VERSION}" "$WORK/zlib-${ZLIB_VERSION}" \
+  "$WORK/openh264-${OPENH264_VERSION}" "$WORK/nv-codec-headers-n${NVHEADERS_VERSION}" "$WORK/amf-headers-v${AMF_VERSION}" \
+  "$WORK/libvpl-${VPL_VERSION}" "$ENC"
 [ "$CI" = 1 ] && echo "artefacts: $OUT/{buildconf.txt,license.txt,sizes.txt}"
 exit 0

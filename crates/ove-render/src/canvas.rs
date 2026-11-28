@@ -65,15 +65,101 @@ impl Default for DrawParams {
     }
 }
 
+/// Separable blend of one channel (backdrop `d`, source `s`, both 0..1).
 #[inline]
 fn blend_ch(mode: Blend, d: f32, s: f32) -> f32 {
     match mode {
-        Blend::Normal => s,
         Blend::Multiply => d * s,
         Blend::Screen => 1.0 - (1.0 - d) * (1.0 - s),
+        Blend::Overlay => hard_light(s, d),
         Blend::Darken => d.min(s),
         Blend::Lighten => d.max(s),
+        Blend::ColorDodge => {
+            if d <= 0.0 {
+                0.0
+            } else if s >= 1.0 {
+                1.0
+            } else {
+                (d / (1.0 - s)).min(1.0)
+            }
+        }
+        Blend::ColorBurn => {
+            if d >= 1.0 {
+                1.0
+            } else if s <= 0.0 {
+                0.0
+            } else {
+                1.0 - ((1.0 - d) / s).min(1.0)
+            }
+        }
+        Blend::HardLight => hard_light(d, s),
+        Blend::SoftLight => {
+            if s <= 0.5 {
+                d - (1.0 - 2.0 * s) * d * (1.0 - d)
+            } else {
+                let g = if d <= 0.25 { ((16.0 * d - 12.0) * d + 4.0) * d } else { d.sqrt() };
+                d + (2.0 * s - 1.0) * (g - d)
+            }
+        }
+        Blend::Difference => (d - s).abs(),
+        Blend::Exclusion => d + s - 2.0 * d * s,
         Blend::Add => (d + s).min(1.0),
+        Blend::Normal | Blend::Hue | Blend::Saturation | Blend::Color | Blend::Luminosity => s,
+    }
+}
+
+#[inline]
+fn hard_light(d: f32, s: f32) -> f32 {
+    if s <= 0.5 { d * 2.0 * s } else { 1.0 - (1.0 - d) * (1.0 - (2.0 * s - 1.0)) }
+}
+
+#[inline]
+fn lum(c: [f32; 3]) -> f32 {
+    0.3 * c[0] + 0.59 * c[1] + 0.11 * c[2]
+}
+
+fn clip_color(c: [f32; 3]) -> [f32; 3] {
+    let l = lum(c);
+    let n = c[0].min(c[1]).min(c[2]);
+    let x = c[0].max(c[1]).max(c[2]);
+    let mut o = c;
+    for v in &mut o {
+        if n < 0.0 && l - n > 1e-6 {
+            *v = l + (*v - l) * l / (l - n);
+        }
+        if x > 1.0 && x - l > 1e-6 {
+            *v = l + (*v - l) * (1.0 - l) / (x - l);
+        }
+    }
+    o
+}
+
+fn set_lum(c: [f32; 3], l: f32) -> [f32; 3] {
+    let d = l - lum(c);
+    clip_color([c[0] + d, c[1] + d, c[2] + d])
+}
+
+fn sat(c: [f32; 3]) -> f32 {
+    c[0].max(c[1]).max(c[2]) - c[0].min(c[1]).min(c[2])
+}
+
+fn set_sat(c: [f32; 3], s: f32) -> [f32; 3] {
+    let n = c[0].min(c[1]).min(c[2]);
+    let x = c[0].max(c[1]).max(c[2]);
+    if x - n <= 1e-6 {
+        return [0.0; 3];
+    }
+    c.map(|v| (v - n) * s / (x - n))
+}
+
+/// Blends a source colour onto a backdrop colour (both straight RGB in 0..1).
+fn blend_rgb(mode: Blend, d: [f32; 3], s: [f32; 3]) -> [f32; 3] {
+    match mode {
+        Blend::Hue => set_lum(set_sat(s, sat(d)), lum(d)),
+        Blend::Saturation => set_lum(set_sat(d, sat(s)), lum(d)),
+        Blend::Color => set_lum(s, lum(d)),
+        Blend::Luminosity => set_lum(d, lum(s)),
+        _ => [blend_ch(mode, d[0], s[0]), blend_ch(mode, d[1], s[1]), blend_ch(mode, d[2], s[2])],
     }
 }
 
@@ -87,9 +173,11 @@ fn put(dst: &mut [u8], s: [f32; 3], a: f32, mode: Blend) {
     // Straight-alpha "over": on an opaque destination this is d·(1−a) + b·a; on a transparent one (offscreen
     // layers) the colour stays unpremultiplied.
     let oa = a + da * (1.0 - a);
+    let backdrop = [dst[0] as f32 / 255.0, dst[1] as f32 / 255.0, dst[2] as f32 / 255.0];
+    let blended = if mode == Blend::Normal { s } else { blend_rgb(mode, backdrop, s) };
     for c in 0..3 {
-        let d = dst[c] as f32 / 255.0;
-        let b = if mode == Blend::Normal { s[c] } else { blend_ch(mode, d, s[c]) };
+        let d = backdrop[c];
+        let b = blended[c];
         // Over a transparent destination the blend mode has nothing to act on: use the source colour.
         let b = b * da + s[c] * (1.0 - da);
         dst[c] = (((d * da * (1.0 - a) + b * a) / oa.max(1e-6)) * 255.0 + 0.5).clamp(0.0, 255.0) as u8;
@@ -242,22 +330,7 @@ pub fn draw(dst: &mut Rgba, src: &Rgba, place: Place, p: &DrawParams) {
 
 /// Applies a colour grade in place (all pixels).
 pub fn grade(img: &mut Rgba, g: &Grade) {
-    // Per-channel tone curve as a lookup table: exposure, brightness, contrast, gamma, shadows/highlights.
-    let mut lut = [[0u8; 256]; 3];
-    let gain = 2f32.powf(g.exposure);
-    let warm = [1.0 + 0.12 * g.temperature, 1.0 - 0.10 * g.tint, 1.0 - 0.12 * g.temperature];
-    let gamma = 1.0 / (1.0 + g.gamma).max(0.1);
-    for (c, table) in lut.iter_mut().enumerate() {
-        for (i, out) in table.iter_mut().enumerate() {
-            let mut v = i as f32 / 255.0;
-            v *= gain * warm[c];
-            v += g.brightness * 0.5;
-            v = (v - 0.5) * (1.0 + g.contrast) + 0.5;
-            v += g.shadows * 0.25 * (1.0 - v).max(0.0).powi(2) + g.highlights * 0.25 * v.max(0.0).powi(2);
-            v = v.clamp(0.0, 1.0).powf(gamma);
-            *out = (v * 255.0 + 0.5) as u8;
-        }
-    }
+    let lut = grade_tables(g);
     let sat = 1.0 + g.saturation;
     let vib = g.vibrance;
     img.data.par_chunks_exact_mut(4).for_each(|p| {
@@ -276,6 +349,28 @@ pub fn grade(img: &mut Rgba, g: &Grade) {
             p[c] = (rgb[c] + 0.5).clamp(0.0, 255.0) as u8;
         }
     });
+}
+
+/// A grade's per-channel tone curves as lookup tables (exposure, temperature and tint, brightness, contrast,
+/// shadows and highlights, gamma); saturation and vibrance are applied after them. Shared with GPU backends.
+pub fn grade_tables(g: &Grade) -> [[u8; 256]; 3] {
+    // Per-channel tone curve as a lookup table: exposure, brightness, contrast, gamma, shadows/highlights.
+    let mut lut = [[0u8; 256]; 3];
+    let gain = 2f32.powf(g.exposure);
+    let warm = [1.0 + 0.12 * g.temperature, 1.0 - 0.10 * g.tint, 1.0 - 0.12 * g.temperature];
+    let gamma = 1.0 / (1.0 + g.gamma).max(0.1);
+    for (c, table) in lut.iter_mut().enumerate() {
+        for (i, out) in table.iter_mut().enumerate() {
+            let mut v = i as f32 / 255.0;
+            v *= gain * warm[c];
+            v += g.brightness * 0.5;
+            v = (v - 0.5) * (1.0 + g.contrast) + 0.5;
+            v += g.shadows * 0.25 * (1.0 - v).max(0.0).powi(2) + g.highlights * 0.25 * v.max(0.0).powi(2);
+            v = v.clamp(0.0, 1.0).powf(gamma);
+            *out = (v * 255.0 + 0.5) as u8;
+        }
+    }
+    lut
 }
 
 #[cfg(test)]
@@ -335,6 +430,37 @@ mod tests {
         let p = DrawParams { blend: Blend::Screen, ..Default::default() };
         draw(&mut dst, &src, Place { cx: 1.0, cy: 1.0, sx: 1.0, sy: 1.0, rotation: 0.0 }, &p);
         assert_eq!(dst.px(0, 0), [255, 160, 128, 255]);
+    }
+
+    #[test]
+    fn every_schema_blend_mode_is_rendered() {
+        for &name in ove_core::schema::BLEND_MODES {
+            let mode = Blend::parse(Some(name));
+            assert_eq!(mode == Blend::Normal, name == "normal", "{name} must not fall back to normal");
+        }
+    }
+
+    #[test]
+    fn blend_formulas() {
+        let (d, s) = ([0.8, 0.4, 0.1], [0.5, 0.25, 0.9]);
+        let near = |a: [f32; 3], b: [f32; 3]| a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-4);
+        assert!(near(blend_rgb(Blend::Difference, d, s), [0.3, 0.15, 0.8]));
+        assert!(near(blend_rgb(Blend::Exclusion, d, s), [0.5, 0.45, 0.82]));
+        // Overlay is hard light with the layers swapped.
+        assert!(near(blend_rgb(Blend::Overlay, d, s), blend_rgb(Blend::HardLight, s, d)));
+        assert!(near(blend_rgb(Blend::HardLight, d, s), [0.8, 0.2, 1.0 - 0.9 * 0.2]));
+        // Colour dodge and burn are distinct from add.
+        assert!(near(blend_rgb(Blend::ColorDodge, d, s), [1.0, 0.4 / 0.75, 1.0]));
+        assert!(near(blend_rgb(Blend::ColorBurn, d, s), [1.0 - 0.4, 0.0, 1.0 - (0.9f32 / 0.9).min(1.0)]));
+        // Soft light at 0.5 leaves the backdrop unchanged.
+        assert!(near(blend_rgb(Blend::SoftLight, d, [0.5; 3]), d));
+        // Luminosity keeps the source luminance; colour keeps the backdrop luminance.
+        assert!((lum(blend_rgb(Blend::Luminosity, d, s)) - lum(s)).abs() < 1e-4);
+        assert!((lum(blend_rgb(Blend::Color, d, s)) - lum(d)).abs() < 1e-4);
+        assert!((lum(blend_rgb(Blend::Hue, d, s)) - lum(d)).abs() < 1e-4);
+        // Saturation of a grey source makes the result grey.
+        let g = blend_rgb(Blend::Saturation, d, [0.5; 3]);
+        assert!((g[0] - g[1]).abs() < 1e-4 && (g[1] - g[2]).abs() < 1e-4);
     }
 
     #[test]

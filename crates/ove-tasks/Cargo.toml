@@ -1,0 +1,33 @@
+[package]
+name = "ove-tasks"
+description = "Background task scheduler: priorities, resource classes, memory budget, pause rules, cancellation"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-foundation = { version = "0.3", features = ["NSProcessInfo"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_System_Power",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

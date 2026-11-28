@@ -153,6 +153,17 @@ jobs:
           pnpm run lint
           pnpm run test
           pnpm run licenses
+      # The desktop-extension package (add-agent-skills-and-connectors 4.1): the packer's own round trip, and both
+      # platforms' manifests against the published manifest schema.
+      - name: desktop extension (.mcpb) manifest
+        run: |
+          node tools/mcpb/pack.mjs --self-test
+          for p in win32 darwin; do
+            # The committed copy (which the app's own manifest is tested against) must be what the packer writes.
+            node tools/mcpb/pack.mjs --platform "$p" --version 0.0.0 --manifest "tools/mcpb/manifest-$p.json"
+            npx -y @anthropic-ai/mcpb@2.1.2 validate "tools/mcpb/manifest-$p.json"
+          done
+          git diff --exit-code -- tools/mcpb
       # Tests make fixtures with a full ffmpeg CLI (lavfi, libx264): the one test media was generated with, named
       # explicitly because env.sh puts the LGPL build's folder (whose test CLI has neither) first on PATH on Windows.
       - name: fixture ffmpeg
@@ -168,11 +179,47 @@ jobs:
           source tools/ffmpeg/env.sh
           cargo clippy --workspace --all-targets --all-features -- -D warnings
       # Every test runs even when one fails, so one run shows everything that is wrong on a platform.
+      # The timing-sensitive tests listed in docs/flaky-tests.md are skipped here and run in the serial step below.
       - name: test (whole workspace, every crate)
         if: ${{ !cancelled() }}
         run: |
           source tools/ffmpeg/env.sh
-          cargo test --workspace --all-features --no-fail-fast
+          cargo test --workspace --all-features --no-fail-fast -- \
+            --skip two_sessions_are_told_apart_and_each_undoes_only_its_own_change \
+            --skip stop_cancels_mid_stream_and_keeps_history_valid \
+            --skip wait_times_out_with_the_remaining_count \
+            --skip scrub_latency_and_edits
+      # Serial lane: the timing-sensitive tests (docs/flaky-tests.md), one at a time, after the parallel run, so other
+      # tests do not load the machine while they measure. They still gate the build. Keep this list and the skips
+      # above in step with that note.
+      - name: test (timing-sensitive, serial)
+        if: ${{ !cancelled() }}
+        run: |
+          source tools/ffmpeg/env.sh
+          # Each test runs even when an earlier one fails. The step fails if any fails, or if a name no longer
+          # matches exactly one test (a renamed test must not drop out of CI without notice).
+          status=0
+          serial() { # package, target (--test <file> or --lib), full test name
+            out="$(cargo test -p "$1" --all-features $2 -- --test-threads=1 --exact "$3" 2>&1)" || status=1
+            echo "$out"
+            grep -q "test result: ok. 1 passed" <<< "$out" || { echo "::error::$1 $2 $3 did not pass exactly once"; status=1; }
+          }
+          serial ove-cli "--test mcp_edits" two_sessions_are_told_apart_and_each_undoes_only_its_own_change
+          serial ove-agent "--test agent" stop_cancels_mid_stream_and_keeps_history_valid
+          serial ove-tasks "--test scheduler" wait_times_out_with_the_remaining_count
+          serial ove-desktop "--lib" scrub::tests::scrub_latency_and_edits
+          exit "$status"
+      # add-gpu-compositor-and-scopes 2.3: CPU/GPU parity on the software adapter (WARP on Windows, lavapipe on
+      # Linux; macOS runners have a Metal device). Fails, naming the case, when a shader leaves the tolerance.
+      - name: GPU parity (software adapter)
+        if: ${{ !cancelled() }}
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ] && command -v apt-get >/dev/null && sudo -n true 2>/dev/null; then
+            sudo apt-get install -y mesa-vulkan-drivers
+          fi
+          source tools/ffmpeg/env.sh
+          if [ "$RUNNER_OS" != "macOS" ]; then export OVE_GPU_SOFTWARE=1; fi
+          OVE_REQUIRE_GPU=1 OVE_PARITY_HEIGHT=540 cargo test -p ove-gpu --test parity --test render_parity -- --nocapture
       - name: bindings drift
         if: ${{ !cancelled() }}
         run: |

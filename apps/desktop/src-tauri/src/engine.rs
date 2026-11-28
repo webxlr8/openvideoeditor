@@ -19,7 +19,7 @@ use tauri_specta::Event;
 
 use crate::error::{AppError, AppResult, ErrorCode};
 use crate::media::{self, MediaInfo};
-use crate::timeline::{TIMELINE_FPS, TimelineFrame, TimelineSource};
+use crate::timeline::{TimelineFrame, TimelineSource};
 use crate::transport::{PlaybackState, TransportCommand};
 use crate::viewer::ViewerMsg;
 use crate::worker::relock;
@@ -34,6 +34,9 @@ pub enum EngineMsg {
     OpenTimeline(Arc<Document>, PathBuf, Sender<AppResult<MediaInfo>>),
     /// The open project changed: re-render the timeline (keeps position and play state).
     UpdateDoc(Arc<Document>, PathBuf),
+    /// A transient document (a handle drag in the viewer): re-render the current frame with it, keeping the
+    /// renderer and decoders. Nothing is saved; the next `UpdateDoc` replaces it.
+    PreviewDoc(Arc<Document>, PathBuf),
     Close,
     Transport(TransportCommand),
     Volume(f64, bool),
@@ -174,7 +177,7 @@ enum Feed {
     /// A file's own audio track.
     Decoder(AudioDecoder),
     /// The timeline's mixdown.
-    Mix(ove_render::audio::Mixer, Arc<Document>),
+    Mix(Box<ove_render::audio::Mixer>, Arc<Document>),
 }
 
 /// A file (decode worker) or the composited timeline.
@@ -345,7 +348,7 @@ impl Session {
         reuse: Option<AudioOutput>,
         audio_ok: &mut bool,
     ) -> Session {
-        let fps = TIMELINE_FPS;
+        let fps = doc.fps();
         let interval = (1_000_000.0 / fps).round() as i64;
         let duration_us = doc.duration().max(interval);
         let out = match reuse {
@@ -361,7 +364,7 @@ impl Session {
         *audio_ok = out.is_some();
         let audio = out.map(|out| Audio {
             out,
-            feed: Feed::Mix(ove_render::audio::Mixer::new(Some(&bundle)), doc.clone()),
+            feed: Feed::Mix(Box::new(ove_render::audio::Mixer::new(Some(&bundle))), doc.clone()),
             filled_to: 0,
             eof: false,
         });
@@ -393,12 +396,14 @@ impl Session {
     }
 
     /// Keeps the ring filled ahead of the play head.
-    fn feed_audio(&mut self) {
+    fn feed_audio(&mut self, meters: &mut crate::meters::Meters) {
         let Some(a) = self.audio.as_mut() else { return };
         if a.eof {
             return;
         }
         let ring = a.out.ring().clone();
+        // The ring knows the rate it plays at; audio is resampled for it (a playback rate other than 1×).
+        let speed = ring.speed();
         let mut budget = 16;
         while ring.queued_us() < AUDIO_AHEAD_US && budget > 0 {
             budget -= 1;
@@ -409,7 +414,8 @@ impl Session {
                             Samples::F32(v) => v,
                             Samples::S16(v) => v.into_iter().map(|s| s as f32 / 32768.0).collect(),
                         };
-                        ring.push(chunk.pts_us, &samples);
+                        let (_, channels) = ring.format();
+                        ring.push(chunk.pts_us, &ove_playback::retime(&samples, channels as usize, speed));
                         a.filled_to = chunk.pts_us;
                     }
                     Ok(None) => {
@@ -428,10 +434,14 @@ impl Session {
                         a.eof = true;
                         break;
                     }
-                    let mixed = mixer.mix(doc, a.filled_to, BLOCK);
+                    // `speed` blocks of timeline audio per block of device time.
+                    let frames = ((BLOCK as f64) * speed).round().max(1.0) as usize;
+                    let mixed = mixer.mix(doc, a.filled_to, frames);
+                    meters.tap(a.filled_to, &mixed);
                     let (rate, channels) = ring.format();
-                    ring.push(a.filled_to, &to_device(&mixed, rate, channels));
-                    a.filled_to += (BLOCK as i64 * 1_000_000) / ove_render::audio::RATE as i64;
+                    let retimed = ove_playback::retime(&mixed, 2, speed);
+                    ring.push(a.filled_to, &to_device(&retimed, rate, channels));
+                    a.filled_to += (frames as i64 * 1_000_000) / ove_render::audio::RATE as i64;
                 }
             }
         }
@@ -450,7 +460,7 @@ impl Session {
 }
 
 /// Converts 48 kHz stereo to the device format (nearest-sample rate change, channel up/down-mix).
-fn to_device(stereo: &[f32], rate: u32, channels: u16) -> Vec<f32> {
+pub(crate) fn to_device(stereo: &[f32], rate: u32, channels: u16) -> Vec<f32> {
     let src_rate = ove_render::audio::RATE;
     if rate == src_rate && channels == 2 {
         return stereo.to_vec();
@@ -491,6 +501,7 @@ fn map_command(cmd: TransportCommand, s: &Session) -> Vec<Command> {
             vec![Command::Seek(t)]
         }
         TransportCommand::SetLoop { enabled } => vec![Command::SetLoop(enabled)],
+        TransportCommand::SetRate { rate } => vec![Command::SetRate(rate)],
     }
 }
 
@@ -524,6 +535,7 @@ fn snapshot(s: Option<&Session>, volume: f64, muted: bool, audio_available: bool
             volume,
             muted,
             audio_available,
+            rate: 1.0,
         },
         Some(s) => {
             let t = s.player.transport();
@@ -539,6 +551,7 @@ fn snapshot(s: Option<&Session>, volume: f64, muted: bool, audio_available: bool
                 volume,
                 muted,
                 audio_available,
+                rate: t.rate,
             }
         }
     }
@@ -590,6 +603,7 @@ fn run(app: AppHandle, viewer: Sender<ViewerMsg>, rx: Receiver<EngineMsg>, share
     let mut last_sent: Option<PlaybackState> = None;
     // Frames still to step (positive forward, negative back); any other transport command cancels them.
     let mut pending_steps: i64 = 0;
+    let mut meters = crate::meters::Meters::default();
     loop {
         shared.beat();
         let busy = pending_steps != 0
@@ -646,6 +660,16 @@ fn run(app: AppHandle, viewer: Sender<ViewerMsg>, rx: Receiver<EngineMsg>, share
                     session = Some(s);
                 }
             }
+            Ok(EngineMsg::PreviewDoc(doc, bundle)) => {
+                if let Some(s) = session.as_mut().filter(|s| s.timeline.as_ref() == Some(&bundle))
+                    && !s.player.transport().is_playing()
+                    && let AnySource::Timeline(src) = s.player.source_mut()
+                {
+                    src.set_doc(doc);
+                    let at = s.player.transport().position;
+                    s.player.command(Command::Seek(at), time.now_us());
+                }
+            }
             Ok(EngineMsg::Close) => {
                 session = None;
                 pending_steps = 0;
@@ -661,7 +685,7 @@ fn run(app: AppHandle, viewer: Sender<ViewerMsg>, rx: Receiver<EngineMsg>, share
                             }
                             pending_steps += i64::from(frames);
                         }
-                        TransportCommand::SetLoop { .. } => {}
+                        TransportCommand::SetLoop { .. } | TransportCommand::SetRate { .. } => {}
                         _ => pending_steps = 0,
                     }
                     for c in map_command(cmd, s) {
@@ -689,8 +713,11 @@ fn run(app: AppHandle, viewer: Sender<ViewerMsg>, rx: Receiver<EngineMsg>, share
             let out = s.player.tick(time.now_us());
             if let Some(t) = out.audio_restart {
                 s.restart_audio(t);
+                meters.restart();
             }
-            s.feed_audio();
+            s.feed_audio(&mut meters);
+            let position = s.audio.as_ref().and_then(|a| a.out.ring().position());
+            meters.emit(&app, time.now_us(), position, s.player.transport().is_playing());
             let shown = match out.present {
                 Some(AnyFrame::Media(f)) => to_gpu_frame(f),
                 Some(AnyFrame::Timeline(f)) => Some(crate::timeline::to_viewer(&f)),
@@ -720,7 +747,8 @@ fn run(app: AppHandle, viewer: Sender<ViewerMsg>, rx: Receiver<EngineMsg>, share
             let path = match s.player.source_mut() {
                 AnySource::Media(w) => w.decode_path().to_string(),
                 AnySource::Timeline(t) => format!(
-                    "timeline compositor (CPU, {} ms/frame)",
+                    "timeline compositor ({}; {} ms/frame)",
+                    crate::worker::relock(&t.backend),
                     t.render_ms.load(std::sync::atomic::Ordering::Relaxed)
                 ),
             };

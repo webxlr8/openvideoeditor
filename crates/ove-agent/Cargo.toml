@@ -9,10 +9,10 @@ publish.workspace = true
 
 [dependencies]
 ove-core = { path = "../ove-core" }
-ove-graphics = { path = "../ove-graphics" }
 ove-guard = { path = "../ove-guard" }
 ove-projection = { path = "../ove-projection" }
 ove-store = { path = "../ove-store" }
+ove-tools = { path = "../ove-tools", features = ["graphics"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
 thiserror = "2"
@@ -29,6 +29,7 @@ keyring = { version = "3.6", features = ["windows-native"] }
 keyring = { version = "3.6", features = ["linux-native-sync-persistent", "crypto-rust"] }
 
 [dev-dependencies]
+ove-transcribe = { path = "../ove-transcribe", default-features = false }
 tempfile = "3"
 
 [lints]

@@ -28,4 +28,6 @@ cp "$nm/@tauri-apps/api/LICENSE-MIT" "$OUT/js/tauri-api-MIT.txt"
 cp "$nm/@tauri-apps/api/LICENSE-APACHE-2.0" "$OUT/js/tauri-api-Apache-2.0.txt"
 
 cp "$ROOT/tools/ffmpeg/out/$TARGET/buildconf.txt" "$OUT/ffmpeg-buildconf.txt"
+# Licences of the export encoder sources built with FFmpeg (OpenH264; on Windows the NVENC/AMF headers and oneVPL).
+if [ -d "$ROOT/tools/ffmpeg/out/$TARGET/licenses" ]; then cp "$ROOT/tools/ffmpeg/out/$TARGET/licenses/"* "$OUT/"; fi
 echo "notices: $(find "$OUT" -type f | wc -l) files in $OUT"

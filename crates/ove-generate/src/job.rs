@@ -71,6 +71,10 @@ pub struct Job {
     pub estimate_usd: Option<f64>,
     /// Provider request id (fal), for cancel and diagnostics.
     pub remote_id: Option<String>,
+    /// The submitted fal request, saved before polling starts so another worker can resume it (see
+    /// [`reap_stale_jobs`]) instead of losing a paid result.
+    #[serde(default)]
+    pub remote: Option<RemoteRef>,
     /// Output file, relative to the bundle.
     pub output: Option<String>,
     pub error: Option<String>,
@@ -81,6 +85,29 @@ pub struct Job {
     /// Provider-specific details (seconds generated, voice used, …).
     #[serde(default)]
     pub details: Value,
+    /// Who asked for it (an agent session): the revision that fills the placeholder is recorded as theirs, so their
+    /// undo reverts placeholder and fill together. Absent in jobs started by a person and in older job files.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actor: Option<ove_core::revision::Actor>,
+}
+
+/// A request already queued at the provider (fal): where to poll, read the result and cancel. The URLs come from the
+/// provider's reply and are checked again before the key is sent to them on resume.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteRef {
+    pub status_url: String,
+    pub response_url: String,
+    #[serde(default)]
+    pub cancel_url: Option<String>,
+    /// The endpoint the request was submitted to (for the job's details).
+    #[serde(default)]
+    pub endpoint: String,
+    #[serde(default)]
+    pub request_id: Option<String>,
+    /// When it was submitted (ms since the epoch); the provider timeout is measured from here, so resuming never
+    /// extends it.
+    pub submitted_at: i64,
 }
 
 pub fn jobs_dir(bundle: &Path) -> PathBuf {
@@ -204,18 +231,65 @@ pub fn process_alive(pid: u32) -> bool {
     }
 }
 
-/// Marks unfinished jobs that will never finish as failed: a running job whose worker process is gone (after
-/// [`DEAD_WORKER_GRACE_MS`] without an update), and any queued or running job not updated for [`STALE_AFTER_MS`].
-/// Returns them, so the caller removes their pending placeholders ([`crate::place::failed_ops`]).
-pub fn reap_stale_jobs(bundle: &Path, now_ms: i64) -> Vec<Job> {
-    let mut reaped = Vec::new();
+/// What [`reap_stale_jobs`] changed.
+#[derive(Debug, Default)]
+pub struct Reaped {
+    /// Given up: the caller removes their pending placeholders ([`crate::place::failed_ops`]).
+    pub failed: Vec<Job>,
+    /// Their worker is gone but the provider request is still queued ([`Job::remote`]): set back to queued with the
+    /// placeholder kept; the caller starts a worker for each, which resumes polling without a second submit.
+    pub resumable: Vec<Job>,
+}
+
+impl Reaped {
+    pub fn is_empty(&self) -> bool {
+        self.failed.is_empty() && self.resumable.is_empty()
+    }
+}
+
+/// Claims a dead worker's job for resuming, so two processes reaping at the same moment do not both start a worker.
+/// The claim is per dead worker; a later death of the resumed worker can be claimed again.
+fn claim_resume(bundle: &Path, id: &str, dead_pid: u32) -> bool {
+    let path = jobs_dir(bundle).join(format!("{id}.resume-{dead_pid}"));
+    std::fs::OpenOptions::new().write(true).create_new(true).open(path).is_ok()
+}
+
+/// Removes a finished job's resume claims.
+pub(crate) fn clear_resume_claims(bundle: &Path, id: &str) {
+    let prefix = format!("{id}.resume-");
+    if let Ok(rd) = std::fs::read_dir(jobs_dir(bundle)) {
+        for e in rd.flatten() {
+            if e.file_name().to_str().is_some_and(|n| n.starts_with(&prefix)) {
+                let _ = std::fs::remove_file(e.path());
+            }
+        }
+    }
+}
+
+/// Settles unfinished jobs that their worker will never finish: a running job whose worker process is gone (after
+/// [`DEAD_WORKER_GRACE_MS`] without an update) becomes resumable when its provider request is still queued
+/// ([`Job::remote`]) and failed otherwise; any queued or running job not updated for [`STALE_AFTER_MS`] fails.
+pub fn reap_stale_jobs(bundle: &Path, now_ms: i64) -> Reaped {
+    let mut reaped = Reaped::default();
     for mut job in list(bundle).into_iter().filter(|j| !j.status.done()) {
         let idle = now_ms - job.updated_at;
-        let dead = job.status == Status::Running
-            && idle > DEAD_WORKER_GRACE_MS
-            && job.worker_pid.is_some_and(|p| !process_alive(p));
+        let dead_pid = job.worker_pid.filter(|_| job.status == Status::Running && idle > DEAD_WORKER_GRACE_MS);
+        let dead = dead_pid.is_some_and(|p| !process_alive(p));
         let stale = idle > STALE_AFTER_MS;
         if !(dead || stale) {
+            continue;
+        }
+        if dead && !stale && job.remote.is_some() {
+            if !claim_resume(bundle, &job.id, dead_pid.unwrap_or_default()) {
+                continue;
+            }
+            job.status = Status::Queued;
+            job.worker_pid = None;
+            job.updated_at = now_ms;
+            if save(bundle, &job).is_ok() {
+                tracing::info!(job = %job.id, "generation worker gone; the queued provider request will be resumed");
+                reaped.resumable.push(job);
+            }
             continue;
         }
         job.status = Status::Failed;
@@ -227,7 +301,7 @@ pub fn reap_stale_jobs(bundle: &Path, now_ms: i64) -> Vec<Job> {
         job.updated_at = now_ms;
         if save(bundle, &job).is_ok() {
             tracing::warn!(job = %job.id, "generation job given up: {}", job.error.as_deref().unwrap_or(""));
-            reaped.push(job);
+            reaped.failed.push(job);
         }
     }
     reaped
@@ -248,12 +322,14 @@ mod tests {
             item_id: None,
             estimate_usd: None,
             remote_id: None,
+            remote: None,
             output: None,
             error: None,
             created_at: 0,
             updated_at: 0,
             worker_pid: None,
             details: Value::Null,
+            actor: None,
         }
     }
 
@@ -317,7 +393,9 @@ mod tests {
         put("g_queued_forever", Status::Queued, None, STALE_AFTER_MS + 1);
         put("g_done", Status::Succeeded, Some(gone), STALE_AFTER_MS + 1);
 
-        let mut reaped: Vec<String> = reap_stale_jobs(bundle, now).into_iter().map(|j| j.id).collect();
+        let r = reap_stale_jobs(bundle, now);
+        assert!(r.resumable.is_empty());
+        let mut reaped: Vec<String> = r.failed.into_iter().map(|j| j.id).collect();
         reaped.sort();
         assert_eq!(reaped, ["g_alive_but_silent", "g_dead", "g_queued_forever"]);
         let dead = load(bundle, "g_dead").unwrap();
@@ -327,5 +405,58 @@ mod tests {
         assert_eq!(load(bundle, "g_dead_but_just_started").unwrap().status, Status::Running);
         assert_eq!(load(bundle, "g_done").unwrap().status, Status::Succeeded);
         assert!(reap_stale_jobs(bundle, now).is_empty(), "reaping is idempotent");
+    }
+    #[test]
+    fn dead_worker_with_a_queued_remote_request_is_resumable() {
+        let d = tempfile::tempdir().unwrap();
+        let bundle = d.path();
+        let now = 10 * STALE_AFTER_MS;
+        let gone = dead_pid();
+        let remote = RemoteRef {
+            status_url: "https://queue.fal.run/fal-ai/x/requests/r1/status".into(),
+            response_url: "https://queue.fal.run/fal-ai/x/requests/r1".into(),
+            cancel_url: None,
+            endpoint: "fal-ai/x".into(),
+            request_id: Some("r1".into()),
+            submitted_at: now - 2 * 60_000,
+        };
+        let put = |id: &str, remote: Option<RemoteRef>, idle_ms: i64| {
+            let mut j = job(id);
+            j.status = Status::Running;
+            j.worker_pid = Some(gone);
+            j.item_id = Some(format!("i_{id}"));
+            j.remote = remote;
+            j.updated_at = now - idle_ms;
+            save(bundle, &j).unwrap();
+        };
+        put("g_remote", Some(remote.clone()), 2 * 60_000);
+        put("g_local", None, 2 * 60_000);
+        put("g_remote_stale", Some(remote.clone()), STALE_AFTER_MS + 1);
+
+        let r = reap_stale_jobs(bundle, now);
+        let ids = |v: &[Job]| {
+            let mut v: Vec<String> = v.iter().map(|j| j.id.clone()).collect();
+            v.sort();
+            v
+        };
+        assert_eq!(ids(&r.resumable), ["g_remote"]);
+        assert_eq!(ids(&r.failed), ["g_local", "g_remote_stale"]);
+        let resumed = load(bundle, "g_remote").unwrap();
+        assert_eq!(resumed.status, Status::Queued);
+        assert_eq!(resumed.worker_pid, None);
+        assert_eq!(resumed.remote, Some(remote));
+        assert_eq!(resumed.item_id.as_deref(), Some("i_g_remote"), "the placeholder is kept");
+        assert!(resumed.error.is_none());
+        assert_eq!(load(bundle, "g_local").unwrap().status, Status::Failed);
+        assert!(reap_stale_jobs(bundle, now).is_empty(), "a resumable job is handed out once");
+
+        // Two processes reaping the same death: only one claims it.
+        let mut j = load(bundle, "g_remote").unwrap();
+        j.status = Status::Running;
+        j.worker_pid = Some(gone);
+        save(bundle, &j).unwrap();
+        assert!(reap_stale_jobs(bundle, now + 2 * 60_000).is_empty(), "already claimed for this worker");
+        clear_resume_claims(bundle, "g_remote");
+        assert_eq!(reap_stale_jobs(bundle, now + 2 * 60_000).resumable.len(), 1);
     }
 }

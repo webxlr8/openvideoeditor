@@ -1,0 +1,39 @@
+{
+  "format": "ove-project",
+  "version": 1,
+  "project": {
+    "id": "p_denoise",
+    "name": "Denoise amounts",
+    "createdAt": 1,
+    "updatedAt": 2,
+    "stateUpdatedAt": 2,
+    "aspectRatio": "16:9",
+    "media": [
+      {
+        "id": "m_talk",
+        "createdAt": 1,
+        "addedAt": 1,
+        "data": {"type": "video", "fileName": "interview.mov", "duration": 20, "frameRate": 25, "hasAudio": true}
+      },
+      {
+        "id": "m_rec",
+        "createdAt": 1,
+        "addedAt": 1,
+        "data": {"type": "audio", "fileName": "recorder.wav", "duration": 20, "hasAudio": true}
+      }
+    ],
+    "tracks": [
+      {"id": "t_v", "name": "Main", "order": 0, "type": "video"},
+      {"id": "t_a", "name": "Audio", "order": 1, "type": "audio"}
+    ],
+    "timelineItems": [
+      {"id": "i_v", "trackId": "t_v", "type": "video", "startTime": 0, "endTime": 10, "mediaItemId": "m_talk", "denoise": 70},
+      {"id": "i_a", "trackId": "t_a", "type": "audio", "startTime": 0, "endTime": 10, "mediaItemId": "m_rec", "denoise": 100},
+      {"id": "i_off", "trackId": "t_a", "type": "audio", "startTime": 10, "endTime": 12, "mediaItemId": "m_rec", "denoise": 0}
+    ]
+  },
+  "media": [
+    {"mediaId": "m_talk", "nativePath": "/footage/interview.mov", "ownedByBundle": false, "probeStatus": "probed"},
+    {"mediaId": "m_rec", "nativePath": "/footage/recorder.wav", "ownedByBundle": false, "probeStatus": "probed"}
+  ]
+}

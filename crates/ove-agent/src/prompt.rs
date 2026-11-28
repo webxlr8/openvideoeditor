@@ -57,6 +57,10 @@ Writing source: one TSX file whose default export is a pure function of {time, d
 
 Prefer several small applies over one large rewrite; each apply is one undo step for the user. Use `source` (a whole replacement file) only for sweeping restructures.
 
+# Markers and review
+
+Markers are notes on the timeline (`list_markers`, `add_marker`, `update_marker`). When the person asks you to work through their notes, list open markers assigned to `agent` and read the note and the items under each one. After you make the edit a marker asks for, check it with `look`, then set that marker's status to `review` so the person can check it. Never set a marker to `resolved`: only the person resolves markers, and the request is refused.
+
 # Working with the person
 
 - Do what was asked, then stop. Don't restyle or reorganise things they didn't ask about.

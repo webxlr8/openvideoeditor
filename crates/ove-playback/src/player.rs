@@ -211,7 +211,7 @@ impl<S: FrameSource> Player<S> {
             // Reverse fetches frames by position; the sequential lookahead is not valid.
             self.next = None;
         }
-        self.clock.start(from, wall, self.transport.speed.factor());
+        self.clock.start(from, wall, self.transport.factor());
         self.update_audio(wall, true);
     }
 
@@ -222,6 +222,7 @@ impl<S: FrameSource> Player<S> {
             if audible {
                 if restart {
                     let t = self.clock.media_time(wall);
+                    a.set_speed(self.transport.rate);
                     a.clear();
                     self.audio_restart = Some(t);
                 }

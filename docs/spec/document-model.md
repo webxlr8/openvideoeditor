@@ -30,7 +30,8 @@ fallback "Untitled Project") and never change on rename.
 
 ```
 { format, version,
-  project: { id, name, createdAt, updatedAt, stateUpdatedAt(ms, = rev), aspectRatio, temp?, mediaBaseDirectory?,
+  project: { id, name, createdAt, updatedAt, stateUpdatedAt(ms, = rev), aspectRatio, fps? (default 30), temp?,
+             mediaBaseDirectory?,
              media: [MediaItem], timelineItems: [Item], tracks (field name inferred), cast?: [CastMember] },
   media:   [{ mediaId, nativePath, ownedByBundle }] }
 ```
@@ -39,13 +40,16 @@ MediaItem `{ id, createdAt, addedAt, data: { type, src?, filePath?, fileName, fo
 frameRate, hasAudio, thumbnailIds, waveformId, albumArtId, *GenerationStatus, conversionStatus, transcriptStatus,
 transcriptLanguage, generation?, presetId?, content?, code? } }`.
 
-Track `{ id, name, order, type: video|audio|caption|adjustment|layout, locked, visible, muted }`. First track = top layer.
+Track `{ id, name, order, type: video|audio|caption|adjustment|layout, locked, visible, muted, syncLock (default
+true) }`. First track = top layer. `fps` is the timeline frame rate: edit commands snap times to its grid; times off
+the grid are allowed and reported by verify.
 
 ## Items
 
-Common: `id, trackId, type, name, startTime, endTime, trimStart, trimEnd, mediaItemId, pending, transform{x,y,scale,
+Common: `id, trackId, type, name, startTime, endTime, trimStart, trimEnd, mediaItemId, pending, link (link group
+value: items sharing it edit together), transform{x,y,scale,
 rotation,flipX}` (pixels from frame centre), `crop{top,right,bottom,left}` (%), `opacity, hidden, zIndex, blendMode,
-keyframeTracks[{property: x|y|scale|rotation|opacity|gaussianBlur|borderRadius, keyframes[{time (item-relative), value}],
+keyframeTracks[{property: x|y|scale|rotation|opacity|gaussianBlur|borderRadius|volume, keyframes[{time (item-relative), value}],
 easing}], transitionIn/Out{type|presetId, duration, …}, effects[{id,type,…}], borderRadius, gaussianBlur,
 captionComposition{mode: front|behind-subject, fallback: front|hide}, autoReframe`.
 
@@ -86,10 +90,16 @@ Aspects: 16:9, 4:3, 3:4, 9:16, 1:1, 4:5.
 2. Diff against the revision named by `rev` → ops. 10 op kinds: `addTrack, updateTrack, removeTrack, reorderTracks,
    unsetTrackFields, addItem, updateItem, removeItems, unsetItemFields, setAspectRatio`.
 3. Rebase ops onto the current document item by item; GUI edits to other items survive. Same-item conflicts: file wins
-   by default, `--prefer editor` keeps GUI values; conflicts are reported.
+   by default, `--prefer editor` keeps GUI values; conflicts are reported. An edit to an item deleted in the editor:
+   `ove source apply` re-creates it by default (file wins). An agent's `apply_timeline` without `prefer` refuses it
+   with `edit.conflict` and applies nothing; the message names each item (name and id) and asks the agent to ask the
+   person. The agent passes `prefer: "file"` only after the person chooses to bring the items back. This rule is
+   advisory (tool text only): the apply does not check it, and an agent can pass `prefer: "file"` at once.
 4. Items without `id` are new; items missing from the file are removed (reported as "removed N items"); a changed id
    means replace (loses undo trail).
-5. New revision written to `.revs/`; open app applies live (~200 ms) as one undo step.
+5. New revision written to `.revs/`; open app applies live (~200 ms) as one undo step. A ripple revision also
+   records a time map (`timeMap`: per track, steps `{at, delta}` in microseconds); a file printed before a ripple
+   has the times of the items it changed rebased through those maps before step 3.
 6. `pending` items render nothing, block export, and are counted by verify; filling keeps the id.
 
 MCP variant: `apply_timeline({project, rev, edits:[{oldText,newText}]})` — each oldText unique in the printed file,
@@ -98,7 +108,8 @@ non-overlapping; `newText: ""` deletes; anchor + new JSX inserts.
 ## Verify (lint)
 
 Overlaps, gaps, off-screen text, clips past their source (holds last frame), missing media, pending items, invalid
-compositions.
+compositions, item edges off the frame grid (`time.offFrame`), single-member link groups (`link.single`) and link
+groups whose members drifted apart (`link.offset`, in frames).
 
 ## Chat log records (`agent/chats/<id>.jsonl`)
 

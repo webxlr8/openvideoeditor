@@ -2,11 +2,14 @@
 // project the native side holds (through the UI's own bridge), files in the bundle, files written by exports.
 // The first flow is the exception: it starts where a new person does, on the welcome.
 import assert from "node:assert/strict";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
+import net from "node:net";
 import path from "node:path";
+import readline from "node:readline";
 
-import { Key, sleep } from "./lib/session.mjs";
-import { WINDOWS, bundleItems, captureScreen, ffprobe, makeSpeech, revisionFiles } from "./lib/support.mjs";
+import { By, Key, sleep } from "./lib/session.mjs";
+import { WINDOWS, bundleItems, captureScreen, ffprobe, makeSpeech, revisionFiles, ssim, which } from "./lib/support.mjs";
 
 // ---------------------------------------------------------------------------------------------------------------
 // Shared steps
@@ -148,6 +151,138 @@ function shape(view) {
       .map((i) => ({ id: i.id, track: i.trackId, kind: i.kind, start: i.start, end: i.end, trim: i.trimStart, text: i.text }))
       .sort((a, b) => a.id.localeCompare(b.id)),
   };
+}
+
+/**
+ * An `ove mcp` session on the app's library, spoken to over stdio (JSON-RPC, one message per line), as an external
+ * agent would. `request` returns the result; `call` runs a tool and returns its result.
+ */
+function startMcp(ctx, args, env = {}) {
+  assert.ok(fs.existsSync(ctx.ove), `the ove command line is needed: ${ctx.ove} (cargo build -p ove-cli)`);
+  const child = spawn(ctx.ove, ["--library", ctx.library, "mcp", ...args], { env: { ...ctx.env, ...env }, stdio: ["pipe", "pipe", "ignore"] });
+  const lines = readline.createInterface({ input: child.stdout });
+  const waiting = [];
+  lines.on("line", (l) => waiting.shift()?.(l));
+  let id = 0;
+  const request = (method, params) =>
+    new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`no reply to ${method}`)), 60000);
+      waiting.push((l) => {
+        clearTimeout(timer);
+        const m = JSON.parse(l);
+        if (m.error) reject(new Error(`${method}: ${JSON.stringify(m.error)}`));
+        else resolve(m.result);
+      });
+      id += 1;
+      child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`);
+    });
+  return {
+    request,
+    call: (name, args) => request("tools/call", { name, arguments: args }),
+    close: () => {
+      child.stdin.end();
+      child.kill();
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Export queue (extend-export-formats-and-queue): presets, the Exports panel, range renders
+
+/** Streams of a media file as ffprobe reports them (codec, profile, pixel and sample formats), plus its duration. */
+function probeFile(file) {
+  const bin = process.env.OVE_E2E_FFPROBE || which("ffprobe");
+  if (!bin) return null;
+  const out = execFileSync(
+    bin,
+    [
+      "-v", "error",
+      "-show_entries",
+      "stream=codec_type,codec_name,profile,pix_fmt,width,height,sample_fmt,sample_rate,bits_per_raw_sample,bits_per_sample:format=duration,format_name",
+      "-of", "json", file,
+    ],
+    { encoding: "utf8" },
+  );
+  const j = JSON.parse(out);
+  const streams = j.streams ?? [];
+  return {
+    video: streams.find((s) => s.codec_type === "video") ?? null,
+    audio: streams.find((s) => s.codec_type === "audio") ?? null,
+    duration: Number(j.format?.duration ?? 0),
+    format: j.format?.format_name ?? "",
+  };
+}
+
+/** Decodes every frame and sample with a full FFmpeg (as a player would); returns the errors it printed. */
+function decodeErrors(file) {
+  const bin = process.env.OVE_FIXTURE_FFMPEG || which("ffmpeg");
+  if (!bin) return null;
+  const r = spawnSync(bin, ["-v", "error", "-i", file, "-f", "null", "-"], { encoding: "utf8" });
+  return r.status === 0 ? (r.stderr ?? "").trim() : `exit ${r.status}: ${(r.stderr ?? "").slice(-400)}`;
+}
+
+/** Integrated loudness (LUFS) of a file, measured with a full FFmpeg's EBU R128 filter. */
+function integratedLoudness(file) {
+  const bin = process.env.OVE_FIXTURE_FFMPEG || which("ffmpeg");
+  if (!bin) return null;
+  const r = spawnSync(bin, ["-hide_banner", "-nostats", "-i", file, "-af", "ebur128", "-f", "null", "-"], { encoding: "utf8" });
+  const m = [...(r.stderr ?? "").matchAll(/I:\s+(-?[\d.]+) LUFS/g)].pop();
+  return m ? Number(m[1]) : null;
+}
+
+/** Opens the export dialog with its presets loaded. */
+async function openExportDialog(app) {
+  await app.click("open-export");
+  await app.find("export-dialog");
+  await app.find("export-presets", 30000);
+}
+
+/** The dialog's summary of the current settings, once checked. */
+async function exportSummary(app) {
+  return app.waitFor(async () => {
+    if (await app.exists("export-invalid")) throw new Error(`refused: ${await app.text("export-invalid")}`);
+    return (await app.exists("export-summary")) ? (await app.text("export-summary")) || null : null;
+  }, "the export settings to be checked");
+}
+
+/** Exports the open project with a preset through the dialog; waits for the job to finish and returns the file
+ * (moved to the artefacts folder as `name`), the dialog's result line and the summary. */
+async function exportWithPreset(ctx, project, preset, ext, name, timeout = 6 * 60 * 1000) {
+  const { app } = ctx;
+  await openExportDialog(app);
+  await app.click(`export-preset-${preset}`);
+  const summary = await exportSummary(app);
+  await app.click("export-start");
+  const done = await app.find("export-done", timeout);
+  const line = (await app.textOf(done)).split("\n")[0];
+  await app.clickText("Done", "export-dialog");
+  await app.waitGone("export-dialog");
+  const written = path.join(ctx.dialogs, "save", `${project}.${ext}`);
+  assert.ok(fs.existsSync(written), `${written} exists`);
+  const to = path.join(ctx.out, name);
+  fs.renameSync(written, to);
+  return { file: to, line, summary };
+}
+
+/** Seconds an export took, from the dialog's or panel's result line ("… in 12.3 s"). */
+const secondsIn = (line) => Number(/in ([\d.]+) s/.exec(line)?.[1] ?? NaN);
+
+/** Opens the Exports panel from the rail and returns its job rows by status. */
+async function exportRows(app) {
+  if (!(await app.exists("exports-panel"))) await app.click("rail-exports");
+  await app.find("exports-panel");
+  const rows = [];
+  for (const el of await app.all("export-job"))
+    rows.push({ el, id: await el.getAttribute("data-id"), status: await el.getAttribute("data-status"), text: await app.textOf(el) });
+  return rows;
+}
+
+/** Right-clicks the marked range in the ruler and picks a menu entry. */
+async function rangeMenu(app, entry) {
+  const range = await app.find("range");
+  await app.scrollIntoView(range);
+  await app.driver.actions({ async: true }).contextClick(range).perform();
+  await app.click(`menu-${entry}`);
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -665,15 +800,87 @@ export const FLOWS = [
   },
 
   {
+    // fix-render-and-edit-correctness task 2.4.
+    name: "split export: a sped-up clip with fades exports the same frames after a split (SSIM >= 0.99)",
+    timeoutMs: 10 * 60 * 1000,
+    async run(ctx) {
+      const { app, media } = ctx;
+      const project = "Split Export E2E";
+      await newProject(app, project);
+      let view = await importWithButton(ctx, [media.video]);
+      const [clip] = mainClips(view);
+
+      // Double speed from the Inspector's speed chips.
+      await clickClip(app, clip.id, 0.5);
+      await app.find("inspector");
+      await app.clickText("2×", "inspector");
+      await app.waitFor(async () => (await detail(app, clip.id)).playbackSpeed === 2, "speed 2×");
+      // A fade at each edge from the Transitions panel (0.5 s). Selecting a clip opens the Inspector, so the panel
+      // is opened after the selection.
+      await app.click("rail-transitions");
+      await app.setRange("transition-duration", 0.5);
+      await app.clickText("In", "transition-fade");
+      await app.waitFor(async () => (await detail(app, clip.id)).transitionIn?.type === "fade", "a fade in");
+      await app.clickText("Out", "transition-fade");
+      await app.waitFor(async () => (await detail(app, clip.id)).transitionOut?.type === "fade", "a fade out");
+      view = await app.project();
+      const sped = mainClips(view)[0];
+      ctx.log(`    clip ${sped.start}–${sped.end} s at 2×, fades in and out`);
+
+      const exportTo = async (name) => {
+        await openExportDialog(app);
+        await app.click("export-preset-social-720p");
+        await exportSummary(app);
+        await app.click("export-start");
+        await app.find("export-done", 6 * 60 * 1000);
+        await app.clickText("Done", "export-dialog");
+        await app.waitGone("export-dialog");
+        const written = path.join(ctx.dialogs, "save", `${project}.mp4`);
+        assert.ok(fs.existsSync(written), `${written} exists`);
+        const to = path.join(ctx.out, name);
+        fs.renameSync(written, to);
+        return to;
+      };
+      const uncut = await exportTo("split-uncut.mp4");
+
+      // Split a quarter of the way in (the click moves the playhead there), where the source still moves on both
+      // sides of the cut.
+      await clickClip(app, sped.id, 0.25);
+      await app.click("split");
+      view = await app.waitFor(async () => {
+        const p = await app.project();
+        return mainClips(p).length === 2 ? p : null;
+      }, "the split");
+      const [left, right] = mainClips(view);
+      const at = left.end;
+      assert.ok(Math.abs(at - right.start) < 1e-6, "the parts meet");
+      const [dl, dr] = [await detail(app, left.id), await detail(app, right.id)];
+      assert.equal(dl.transitionIn?.type, "fade", "the fade in stays on the left part");
+      assert.equal(dl.transitionOut, undefined, "the left part has no fade out");
+      assert.equal(dr.transitionIn, undefined, "the right part has no fade in");
+      assert.equal(dr.transitionOut?.type, "fade", "the fade out moves to the right part");
+      assert.equal(dr.playbackSpeed, 2, "the right part keeps the speed");
+      const cut = await exportTo("split-cut.mp4");
+
+      // The frames either side of the cut, and the whole export, match the uncut export.
+      const near = ssim(uncut, cut, Math.max(0, at - 0.4), at + 0.4);
+      const whole = ssim(uncut, cut, 0, sped.end);
+      ctx.log(`    split at ${at.toFixed(3)} s: SSIM ${near.toFixed(5)} within 0.4 s of the cut, ${whole.toFixed(5)} overall`);
+      assert.ok(near >= 0.99, `SSIM around the cut ${near}`);
+      assert.ok(whole >= 0.99, `SSIM over the export ${whole}`);
+    },
+  },
+
+  {
     name: "export: MP4 via the Export dialog; FCPXML with the 'what won't carry over' step",
     timeoutMs: 8 * 60 * 1000,
     async run(ctx) {
       const { app, media } = ctx;
       await newProject(app, "Export E2E");
       await importWithButton(ctx, [media.video]);
-      await app.click("open-export");
-      await app.find("export-dialog");
-      await app.clickText("720p", "export-dialog");
+      await openExportDialog(app);
+      await app.click("export-preset-social-720p");
+      await exportSummary(app);
       await app.click("export-start");
       const done = await app.find("export-done", 6 * 60 * 1000);
       ctx.log(`    ${(await app.textOf(done)).split("\n")[0]}`);
@@ -712,6 +919,277 @@ export const FLOWS = [
       assert.match(xml, /h264_longgop/);
       await app.clickText("Done", "export-dialog");
       await app.waitGone("export-dialog");
+    },
+  },
+
+  {
+    // extend-export-formats-and-queue task 6.1 (Windows half) and the encode speeds of 6.2.
+    name: "export formats: ProRes 422 HQ, ProRes 4444 with alpha, H.264 1080p and 24-bit WAV from presets probe and decode",
+    timeoutMs: 25 * 60 * 1000,
+    async run(ctx) {
+      const { app, media } = ctx;
+      const project = "Export Formats E2E";
+      await newProject(app, project);
+      await importWithButton(ctx, [media.video]);
+
+      // Presets this computer has no encoder for are listed but cannot be chosen.
+      await openExportDialog(app);
+      const off = [];
+      for (const p of await app.all('[data-testid^="export-preset-"]')) {
+        if (!(await p.isEnabled())) off.push(`${(await app.textOf(p)).split("\n")[0]} (${await p.getAttribute("title")})`);
+      }
+      ctx.log(`    not on this computer: ${off.join("; ") || "none"}`);
+      await app.clickText("Close", "export-dialog");
+      await app.waitGone("export-dialog");
+
+      const cases = [
+        {
+          preset: "prores-422-hq-master",
+          ext: "mov",
+          ok: (p) =>
+            p.video?.codec_name === "prores" && /HQ/i.test(p.video.profile) && p.video.pix_fmt === "yuv422p10le" &&
+            p.video.width === 1920 && p.video.height === 1080 && p.audio?.codec_name === "pcm_s24le",
+        },
+        {
+          preset: "prores-4444-with-alpha",
+          ext: "mov",
+          ok: (p) => p.video?.codec_name === "prores" && /4444/.test(p.video.profile) && /^yuva444p/.test(p.video.pix_fmt),
+        },
+        {
+          preset: "youtube-1080p",
+          ext: "mp4",
+          ok: (p) => p.video?.codec_name === "h264" && p.video.height === 1080 && p.audio?.codec_name === "aac",
+        },
+        {
+          preset: "audio-wav-24-bit",
+          ext: "wav",
+          ok: (p) => !p.video && p.audio?.codec_name === "pcm_s24le" && Number(p.audio.sample_rate) === 48000,
+        },
+      ];
+      const speeds = [];
+      for (const c of cases) {
+        const r = await exportWithPreset(ctx, project, c.preset, c.ext, `formats-${c.preset}.${c.ext}`);
+        const p = probeFile(r.file);
+        assert.ok(p, "ffprobe is needed for this flow");
+        const v = p.video ? `${p.video.codec_name} ${p.video.profile ?? ""} ${p.video.pix_fmt} ${p.video.width}x${p.video.height}` : "no video";
+        const a = p.audio ? `${p.audio.codec_name} ${p.audio.sample_rate} Hz` : "no audio";
+        const seconds = secondsIn(r.line);
+        const speed = p.duration / seconds;
+        speeds.push({ preset: c.preset, summary: r.summary, duration: p.duration, seconds, speed });
+        ctx.log(`    ${c.preset}: ${v}; ${a}; ${p.duration.toFixed(2)} s in ${seconds} s (${speed.toFixed(2)}× realtime)`);
+        assert.ok(c.ok(p), `${c.preset} probes as expected: ${JSON.stringify(p)}`);
+        assert.ok(Math.abs(p.duration - 4) < 0.5, `${c.preset} duration ${p.duration}`);
+        const errors = decodeErrors(r.file);
+        assert.equal(errors, "", `${c.preset} decodes without errors`);
+      }
+      fs.writeFileSync(path.join(ctx.out, "export-speeds.json"), JSON.stringify(speeds, null, 2));
+    },
+  },
+
+  {
+    // extend-export-formats-and-queue tasks 5.1 and 6.2 (Windows half).
+    name: "export queue: three exports, one cancelled in the Exports panel, a sound-only WAV at -14 LUFS; quit and reopen, all finish",
+    timeoutMs: 25 * 60 * 1000,
+    async run(ctx) {
+      const { media } = ctx;
+      const project = "Export Queue E2E";
+      await newProject(ctx.app, project);
+      await importWithButton(ctx, [media.video, media.video2]);
+      const queue = async (setup) => {
+        const app = ctx.app;
+        await openExportDialog(app);
+        await setup(app);
+        const summary = await exportSummary(app);
+        await app.click("export-start");
+        await app.find("export-progress", 30000);
+        await app.click("export-show-exports");
+        await app.waitGone("export-dialog");
+        return summary;
+      };
+      ctx.log(`    queued: ${await queue((app) => app.click("export-preset-prores-422-hq-master"))}`);
+      ctx.log(`    queued: ${await queue((app) => app.click("export-preset-youtube-1080p"))}`);
+      ctx.log(
+        `    queued: ${await queue(async (app) => {
+          await app.click("export-audio-only");
+          await app.select("export-loudness", "-14");
+        })}`,
+      );
+      const save = (ext) => path.join(ctx.dialogs, "save", `${project}.${ext}`);
+      const ours = async () => {
+        const rows = await exportRows(ctx.app);
+        const by = (ext) => rows.find((r) => r.text.includes(`${project}.${ext}`));
+        return { mov: by("mov"), mp4: by("mp4"), wav: by("wav") };
+      };
+      let rows = await ctx.app.waitFor(async () => {
+        const r = await ours();
+        return r.mov && r.mp4 && r.wav ? r : null;
+      }, "the three exports in the Exports panel");
+      ctx.log(`    panel: mov ${rows.mov.status}, mp4 ${rows.mp4.status}, wav ${rows.wav.status}`);
+      assert.ok(["queued", "running"].includes(rows.mp4.status), `the second export waits or runs: ${rows.mp4.status}`);
+
+      // Cancel the second one from the panel.
+      const t0 = Date.now();
+      await ctx.app.click(await rows.mp4.el.findElement(By.css('[data-testid="export-job-cancel"]')));
+      rows = await ctx.app.waitFor(async () => {
+        const r = await ours();
+        return r.mp4?.status === "cancelled" ? r : null;
+      }, "the second export to be cancelled", 10000);
+      ctx.log(`    cancelled in the panel after ${Date.now() - t0} ms; mov ${rows.mov.status}, wav ${rows.wav.status}`);
+
+      // Quit while the exports go on; they belong to the queue's worker, not to the window.
+      const pending = Object.entries(rows).filter(([, r]) => ["queued", "running"].includes(r.status)).map(([k]) => k);
+      ctx.log(`    quitting with ${pending.join(", ") || "nothing"} still to finish`);
+      await ctx.restart();
+      await openFromHome(ctx.app, project);
+      rows = await ctx.app.waitFor(
+        async () => {
+          const r = await ours();
+          return r.mov?.status === "done" && r.wav?.status === "done" ? r : null;
+        },
+        "the ProRes and WAV exports to finish after reopening",
+        15 * 60 * 1000,
+        1000,
+      );
+      assert.equal(rows.mp4.status, "cancelled", "the cancelled export stays cancelled");
+      // A finished row: file and status, what was written, then the encoder and time taken.
+      ctx.log(`    mov: ${rows.mov.text.split("\n")[2]}`);
+      ctx.log(`    wav: ${rows.wav.text.split("\n")[2]}`);
+
+      assert.ok(!fs.existsSync(save("mp4")), "the cancelled export left no file");
+      for (const f of fs.readdirSync(path.join(ctx.dialogs, "save"))) assert.ok(!f.endsWith(".partial"), `no partial file: ${f}`);
+      const mov = probeFile(save("mov"));
+      assert.equal(mov.video?.codec_name, "prores");
+      assert.equal(decodeErrors(save("mov")), "", "the ProRes file decodes");
+      const wav = probeFile(save("wav"));
+      assert.ok(!wav.video && wav.audio?.codec_name === "pcm_s24le", `sound-only 24-bit WAV: ${JSON.stringify(wav)}`);
+      const lufs = integratedLoudness(save("wav"));
+      ctx.log(`    WAV integrated loudness ${lufs} LUFS (target -14)`);
+      assert.ok(lufs !== null && Math.abs(lufs + 14) <= 1, `loudness ${lufs}`);
+      for (const ext of ["mov", "wav"]) fs.renameSync(save(ext), path.join(ctx.out, `queue.${ext}`));
+    },
+  },
+
+  {
+    // extend-export-formats-and-queue task 5.2 in the built app.
+    name: "range: save a marked range as media, render it in place, one undo restores the clips",
+    timeoutMs: 10 * 60 * 1000,
+    async run(ctx) {
+      const { app, media } = ctx;
+      const project = "Range Media E2E";
+      await newProject(app, project);
+      let view = await importWithButton(ctx, [media.video]);
+      const [clip] = mainClips(view);
+      // X marks the selected clip as the range.
+      await clickClip(app, clip.id, 0.5);
+      await app.keys("x");
+      const range = await app.find("range");
+      const [a, b] = [Number(await range.getAttribute("data-in")), Number(await range.getAttribute("data-out"))];
+      ctx.log(`    marked ${a.toFixed(3)}–${b.toFixed(3)} s of a ${clip.start}–${clip.end} s clip`);
+      assert.ok(b > a, "a range is marked");
+
+      const before = shape(await app.project());
+      const mediaBefore = (await app.project()).media.length;
+      await rangeMenu(app, "save-range");
+      ctx.log(`    ${(await app.textOf(await app.find("range-done", 5 * 60 * 1000))).split("\n")[0]}`);
+      await app.clickText("Done", "range-media-dialog");
+      view = await app.waitFor(async () => {
+        const p = await app.project();
+        return p.media.length === mediaBefore + 1 ? p : null;
+      }, "the rendered range in the media");
+      const saved = view.media[view.media.length - 1];
+      assert.deepEqual(shape(view).items, before.items, "saving as media leaves the clips as they were");
+      const rendered = path.join(view.bundle, "media", "rendered");
+      const files = fs.readdirSync(rendered);
+      assert.equal(files.length, 1, `one rendered file: ${files}`);
+      const p = probeFile(path.join(rendered, files[0]));
+      ctx.log(`    ${files[0]}: ${p.video?.codec_name} ${p.video?.profile} ${p.video?.width}x${p.video?.height}, ${p.duration.toFixed(3)} s`);
+      assert.ok(Math.abs(p.duration - (b - a)) < 0.1, `the file lasts the range: ${p.duration}`);
+      assert.equal(p.video?.width, 1920);
+      assert.equal(saved.status, "online");
+
+      await rangeMenu(app, "render-in-place");
+      await app.click("range-confirm");
+      ctx.log(`    ${(await app.textOf(await app.find("range-done", 5 * 60 * 1000))).split("\n")[0]}`);
+      await app.clickText("Done", "range-media-dialog");
+      view = await app.waitFor(async () => {
+        const v = await app.project();
+        return v.items.some((i) => i.mediaId && i.mediaId !== clip.mediaId && Math.abs(i.start - a) < 1e-3) ? v : null;
+      }, "a clip of the rendered range in place");
+      const placed = view.items.find((i) => i.mediaId !== clip.mediaId && Math.abs(i.start - a) < 1e-3);
+      ctx.log(`    in place: ${placed.trackId} ${placed.start.toFixed(3)}–${placed.end.toFixed(3)} s; main ${mainClips(view).map((i) => `${i.start.toFixed(2)}–${i.end.toFixed(2)}`).join(", ")}`);
+      assert.ok(Math.abs(placed.end - b) < 1e-3, "the clip covers the range");
+      for (const i of view.items.filter((x) => x.id !== placed.id && x.trackId !== "t_audio")) {
+        assert.ok(i.end <= a + 1e-3 || i.start >= b - 1e-3, `nothing else covers the range: ${JSON.stringify(i)}`);
+      }
+
+      const placedRev = (await app.project()).rev;
+      await app.click("undo");
+      let last;
+      try {
+        await app.waitFor(async () => {
+          last = await app.project();
+          return JSON.stringify(shape(last).items) === JSON.stringify(before.items);
+        }, "one undo to restore the clips");
+      } catch (e) {
+        const h = await app.invoke("project_history");
+        ctx.log(`    history: ${h.slice(0, 6).map((r) => `${r.rev} ${r.source} ${r.summary}`).join(" | ")}`);
+        ctx.log(`    placed at rev ${placedRev}; after undo rev ${last?.rev}: ${JSON.stringify(shape(last).items)}
+    before: ${JSON.stringify(before.items)}`);
+        throw e;
+      }
+      assert.ok(fs.readdirSync(rendered).length >= 1, "the rendered files stay in the bundle");
+    },
+  },
+
+  {
+    // extend-export-formats-and-queue task 6.3 (Windows half).
+    name: "agent export: an MCP client queues an export and waits on job_status, cancels a second; the Exports panel shows both",
+    timeoutMs: 10 * 60 * 1000,
+    async run(ctx) {
+      const { app, media } = ctx;
+      const project = "Agent Export E2E";
+      await newProject(app, project);
+      await importWithButton(ctx, [media.video]);
+      const mcp = startMcp(ctx, []);
+      const out1 = path.join(ctx.out, "agent-1.mov");
+      const out2 = path.join(ctx.out, "agent-2.mp4");
+      let job1;
+      let job2;
+      try {
+        await mcp.request("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "e2e-agent", version: "1.0" } });
+        const r1 = await mcp.call("export_video", { project, out: out1, preset: "ProRes 422 HQ master" });
+        assert.equal(r1.isError, false, JSON.stringify(r1));
+        job1 = r1.structuredContent.jobId;
+        const r2 = await mcp.call("export_video", { project, out: out2, preset: "YouTube 1080p" });
+        job2 = r2.structuredContent.jobId;
+        ctx.log(`    queued ${job1} (${r1.structuredContent.status}) and ${job2} (${r2.structuredContent.status})`);
+        const t0 = Date.now();
+        const c = await mcp.call("cancel_job", { job_id: job2 });
+        assert.equal(c.isError, false, JSON.stringify(c));
+        assert.equal(c.structuredContent.status, "cancelled");
+        ctx.log(`    cancel_job: ${c.structuredContent.status} in ${Date.now() - t0} ms`);
+        const s = await mcp.call("job_status", { job_id: job1, wait: true });
+        assert.equal(s.structuredContent.status, "done", JSON.stringify(s.structuredContent));
+        ctx.log(`    job_status: ${s.content?.[0]?.text ?? s.structuredContent.status}`);
+        const unknown = await mcp.call("job_status", { job_id: "x_0_00000000" });
+        assert.equal(unknown.isError, true, "an unknown job id is an error");
+        assert.match(JSON.stringify(unknown), /job\.unknown/);
+      } finally {
+        mcp.close();
+      }
+      assert.equal(probeFile(out1).video?.codec_name, "prores");
+      assert.ok(!fs.existsSync(out2), "the cancelled job wrote nothing");
+      // The app shows the agent's jobs in the same queue.
+      const rows = await app.waitFor(async () => {
+        const r = await exportRows(app);
+        const one = r.find((x) => x.id === job1);
+        const two = r.find((x) => x.id === job2);
+        return one && two ? { one, two } : null;
+      }, "the agent's jobs in the Exports panel");
+      assert.equal(rows.one.status, "done");
+      assert.equal(rows.two.status, "cancelled");
+      assert.match(rows.one.text, /by e2e-agent/);
+      ctx.log(`    panel: ${rows.one.text.split("\n")[1]}`);
     },
   },
 
@@ -797,6 +1275,249 @@ export const FLOWS = [
       await app.waitFor(async () => (await app.textOf(start)) === "Generate", "back to Generate");
       assert.deepEqual(JSON.parse(await app.invoke("generation_jobs")), [], "no job was started");
       assert.equal(await app.count("gen-job"), 0);
+    },
+  },
+
+  {
+    // fix-render-and-edit-correctness task 4.3, app path.
+    name: "generate resume: the app is killed while a generation runs; reopened, it resumes with one submission",
+    timeoutMs: 8 * 60 * 1000,
+    async run(ctx) {
+      const { fal } = ctx;
+      const project = "Generate Resume E2E";
+      await newProject(ctx.app, project);
+      await ctx.app.click("rail-generate");
+      await ctx.app.find("generate-panel");
+      await ctx.app.type("gen-prompt", "A harbour at night, wide shot");
+      await ctx.app.find("gen-estimate", 20000);
+      const start = await ctx.app.find("gen-start");
+      await ctx.app.click("gen-start");
+      await ctx.app.waitFor(async () => /^Confirm: spend/.test(await ctx.app.textOf(start)), "the confirmation step");
+      await ctx.app.click("gen-start");
+      const postsBefore = fal.posts();
+      const jobs = async () => JSON.parse(await ctx.app.invoke("generation_jobs"));
+      // Running at the provider: submitted once, the handle saved, polling.
+      const job = await ctx.app.waitFor(async () => {
+        const [j] = await jobs();
+        return j && j.status === "running" && j.remote && fal.statusPolls() >= 2 ? j : null;
+      }, "the job to run at the stand-in provider", 60000);
+      assert.equal(fal.posts(), postsBefore + 1, "one submission");
+      assert.ok(job.itemId, "the job has a placeholder");
+      ctx.log(`    job ${job.id} running (placeholder ${job.itemId}); killing the app`);
+
+      await ctx.kill();
+      fal.finish(); // the provider finishes while the app is gone
+      await ctx.relaunch();
+      const view = await openFromHome(ctx.app, project);
+      assert.ok(view.items.some((i) => i.id === job.itemId), "the placeholder survived the kill");
+      // The app gives a worker up after a minute without progress, then resumes its queued request.
+      const t0 = Date.now();
+      const done = await ctx.app.waitFor(async () => {
+        const j = (await jobs()).find((x) => x.id === job.id);
+        return j && (j.status === "succeeded" || j.status === "failed") ? j : null;
+      }, "the job to resume and finish", 4 * 60 * 1000);
+      ctx.log(`    resumed and ${done.status} ${((Date.now() - t0) / 1000).toFixed(0)} s after reopening`);
+      assert.equal(done.status, "succeeded", done.error ?? "");
+      assert.equal(fal.posts(), postsBefore + 1, "resuming did not submit again");
+      const filled = await ctx.app.waitFor(async () => {
+        const d = await detail(ctx.app, job.itemId).catch(() => null);
+        return d && !d.pending && d.mediaItemId ? d : null;
+      }, "the placeholder to be filled");
+      ctx.log(`    placeholder filled with media ${filled.mediaItemId}`);
+    },
+  },
+
+  {
+    // unify-agent-tool-layer task 4.2.
+    name: "mcp not in front: a session edits project P while the window shows Q; P's history gains it, Q is untouched",
+    timeoutMs: 5 * 60 * 1000,
+    async run(ctx) {
+      const { app } = ctx;
+      const [P, Q] = ["Behind P E2E", "Front Q E2E"];
+      const addTitle = async () => {
+        await app.click("rail-text");
+        await app.click("text-preset-headline");
+        return app.waitFor(async () => (await app.project()).items.find((i) => i.kind === "text"), "a title");
+      };
+      await newProject(app, P);
+      const title = await addTitle();
+      await newProject(app, Q);
+      await addTitle();
+      const front = await app.project();
+      assert.equal(front.name, Q);
+
+      const mcp = startMcp(ctx, ["--project", P, "--turn", "e2e-turn"]);
+      try {
+        await mcp.request("initialize", {
+          protocolVersion: "2025-06-18",
+          capabilities: {},
+          clientInfo: { name: "e2e-client", version: "1.0" },
+        });
+        const printed = await mcp.call("print_timeline", {});
+        const text = printed.structuredContent?.text ?? "";
+        // The title's element from its id to its name attribute (one line, or one attribute per line).
+        const lines = text.split("\n");
+        const at = lines.findIndex((l) => l.includes(`id="${title.id}"`));
+        assert.ok(at >= 0, `P's title is printed: ${text}`);
+        const end = lines.findIndex((l, i) => i >= at && /name="[^"]*"/.test(l));
+        assert.ok(end >= at && end - at < 20, `P's title has a name: ${text}`);
+        const line = lines.slice(at, end + 1).join("\n");
+        const renamed = line.replace(/name="[^"]*"/, 'name="Edited by MCP"');
+        const before = (await mcp.call("timeline_history", {})).structuredContent.revisions.length;
+        const r = await mcp.call("apply_timeline", { rev: printed.structuredContent.rev, edits: [{ oldText: line, newText: renamed }] });
+        assert.equal(r.isError, false, JSON.stringify(r));
+        const history = (await mcp.call("timeline_history", {})).structuredContent.revisions;
+        assert.equal(history.length, before + 1, "P's history gains one revision");
+        const last = history[history.length - 1];
+        ctx.log(`    P rev ${last.rev}: ${last.source} ${last.summary} (${last.actor?.client ?? "no client"})`);
+        assert.equal(last.source, "mcp");
+        assert.equal(last.actor?.client, "e2e-client");
+      } finally {
+        mcp.close();
+      }
+
+      // The window still shows Q, unchanged.
+      const after = await app.project();
+      assert.equal(after.name, Q, "Q is still in front");
+      assert.equal(after.rev, front.rev, "Q has no new revision");
+      assert.deepEqual(shape(after), shape(front), "Q's items are unchanged");
+      // P shows the edit when the person opens it.
+      await openFromHome(app, P);
+      await app.waitFor(async () => (await detail(app, title.id)).name === "Edited by MCP", "P's title renamed in the app");
+    },
+  },
+
+  {
+    // unify-agent-tool-layer task 6.2 (and 8.2's timings on Windows).
+    name: "agent spend: an MCP agent's request shows a price card; declining spends nothing, approving starts the job",
+    timeoutMs: 5 * 60 * 1000,
+    async run(ctx) {
+      const { app, fal } = ctx;
+      fal.finish(); // the stand-in completes every request at once
+      const project = "Price Card E2E";
+      await newProject(app, project);
+      const mcp = startMcp(ctx, ["--project", project]);
+      try {
+        await mcp.request("initialize", {
+          protocolVersion: "2025-06-18",
+          capabilities: {},
+          clientInfo: { name: "e2e-agent", version: "1.0" },
+        });
+        const args = { prompt: "A lighthouse at dusk (price card e2e)" };
+        const quote = async () => {
+          const q = await mcp.call("generate_image", args);
+          assert.equal(q.isError, false, JSON.stringify(q));
+          return q.structuredContent.quoteId;
+        };
+        const postsBefore = fal.posts();
+        const revBefore = (await app.project()).rev;
+
+        // The agent confirms its quote; the person sees the card and declines.
+        const declined = mcp.call("generate_image", { ...args, confirm: await quote() });
+        const card = await app.find("spend-card", 30000);
+        const text = await app.textOf(card);
+        ctx.log(`    card: ${text.replace(/\s+/g, " ").slice(0, 160)}`);
+        assert.match(text, /e2e-agent/);
+        assert.match(text, /\$0\.025/);
+        assert.match(text, /price card e2e/);
+        await app.click("spend-decline");
+        const d = await declined;
+        assert.equal(d.structuredContent?.error?.code, "confirm.declined", JSON.stringify(d));
+        assert.equal(fal.posts(), postsBefore, "nothing submitted after a decline");
+        assert.equal((await app.project()).rev, revBefore, "no placeholder after a decline");
+
+        // Approved: the placeholder appears at once and the worker fills it.
+        const approved = mcp.call("generate_image", { ...args, confirm: await quote() });
+        await app.find("spend-card", 30000);
+        const t0 = Date.now();
+        await app.click("spend-approve");
+        const r = await approved;
+        const tApproved = Date.now() - t0;
+        assert.equal(r.isError, false, JSON.stringify(r));
+        const { jobId, itemId, line } = r.structuredContent;
+        assert.ok(line.includes(itemId) && /pending/.test(line), line);
+        const placed = await app.waitFor(async () => {
+          const p = await app.project();
+          return p.items.find((i) => i.id === itemId) ? p : null;
+        }, "the placeholder on the timeline");
+        const filled = await app.waitFor(async () => {
+          const it = await detail(app, itemId).catch(() => null);
+          return it && !it.pending && it.mediaItemId ? it : null;
+        }, "the placeholder to be filled", 90000);
+        const tFilled = Date.now() - t0;
+        ctx.log(`    approve → tool result ${tApproved} ms; → filled ${tFilled} ms (job ${jobId}, media ${filled.mediaItemId}, rev ${placed.rev})`);
+        assert.equal(fal.posts(), postsBefore + 1, "one submission");
+
+        // The agent's undo removes placeholder and fill together.
+        const u = await mcp.call("undo_my_changes", {});
+        assert.equal(u.isError, false, JSON.stringify(u));
+        await app.waitFor(async () => !(await app.project()).items.some((i) => i.id === itemId), "the clip to be undone");
+      } finally {
+        mcp.close();
+      }
+    },
+  },
+
+  {
+    // unify-agent-tool-layer task 7.1.
+    name: "feedback: an agent's send_feedback appears in Help > Feedback to edit, copy and delete; no network request",
+    timeoutMs: 3 * 60 * 1000,
+    async run(ctx) {
+      const { app, fal } = ctx;
+      // Every way out the command line knows (proxies, provider and update addresses) leads to this trap.
+      let connections = 0;
+      const trap = net.createServer((s) => {
+        connections += 1;
+        s.destroy();
+      });
+      await new Promise((r) => trap.listen(0, "127.0.0.1", r));
+      const trapUrl = `http://127.0.0.1:${trap.address().port}`;
+      const blocked = Object.fromEntries(
+        ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "OVE_FAL_QUEUE_URL", "OVE_OPENAI_URL", "OVE_ELEVENLABS_URL", "OVE_ANTHROPIC_BASE_URL", "OVE_UPDATE_URL"].map((k) => [k, trapUrl]),
+      );
+      const falBefore = fal.posts() + fal.statusPolls();
+      const summary = "The apply_timeline receipt does not say which track a moved item ended on (feedback e2e).";
+      const mcp = startMcp(ctx, [], blocked);
+      try {
+        await mcp.request("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "e2e-agent", version: "1.0" } });
+        const r = await mcp.call("send_feedback", { category: "confusing", severity: "low", summary });
+        assert.equal(r.isError, false, JSON.stringify(r));
+        assert.equal(r.structuredContent.stored, true);
+        assert.equal(r.structuredContent.sent, false);
+        const again = await mcp.call("send_feedback", { category: "confusing", severity: "low", summary });
+        assert.equal(again.structuredContent.duplicate, true, "an exact duplicate is not stored again");
+      } finally {
+        mcp.close();
+        trap.close();
+      }
+      assert.equal(connections, 0, "the MCP session made no network connection");
+
+      await goHome(app);
+      await app.click("help");
+      await app.click("help-feedback");
+      await app.find("feedback-queue");
+      const rows = await app.waitFor(async () => {
+        const list = (await app.invoke("feedback_drafts"));
+        return list.length ? list : null;
+      }, "the report in the queue");
+      const mine = rows.find((d) => d.summary === summary);
+      assert.ok(mine, JSON.stringify(rows));
+      assert.equal(mine.from, "e2e-agent");
+      const row = await app.find("feedback-draft");
+      assert.match(await app.textOf(row), /e2e-agent/);
+      // Edit and save it, then delete it.
+      await app.type("feedback-draft-text", `${summary} Seen twice.`);
+      await app.click("feedback-draft-save");
+      await app.waitFor(async () => {
+        const d = (await app.invoke("feedback_drafts")).find((x) => x.id === mine.id);
+        return d && d.edited && /Seen twice\.$/.test(d.summary);
+      }, "the edit to be saved");
+      await app.click("feedback-draft-delete");
+      await app.waitFor(async () => !(await app.invoke("feedback_drafts")).some((x) => x.id === mine.id), "the report to be deleted");
+      await app.clickText("Close", "feedback-queue");
+      await app.waitFor(async () => !(await app.exists("feedback-queue")), "the Feedback window to close");
+      assert.equal(fal.posts() + fal.statusPolls(), falBefore, "nothing reached a provider");
+      ctx.log(`    report ${mine.id} queued, edited and deleted; 0 network connections`);
     },
   },
 
@@ -907,6 +1628,105 @@ export const FLOWS = [
       await app.waitFor(async () => mainClips(await app.project()).length === 2, "an edit after the relaunch");
       assert.ok(revisionFiles(view.bundle).length > revs, "the edit is a new revision on disk");
       assert.ok(fs.existsSync(path.join(view.bundle, ".lock.holder")), "this app holds the lock now");
+    },
+  },
+  {
+    // add-viewer-interaction-and-text-fills groups 1-3 in the built app.
+    name: "viewer: overlay lines up with the frame, click selects, a handle drag is one revision, guides, full screen, rates",
+    async run(ctx) {
+      const { app, media } = ctx;
+      await newProject(app, "Viewer E2E");
+      const view = await importWithButton(ctx, [media.video]);
+      const [clip] = mainClips(view);
+      const overlay = await app.find("viewer-overlay");
+
+      // 2.1: the overlay covers the frame within 1 screen pixel (stream backend: the canvas; native: the viewer box).
+      const backend = (await app.invoke("app_info")).viewerBackend;
+      const frameEl = backend === "stream" ? await app.find("viewer-canvas") : await app.find("viewer-rect");
+      const [o, f] = [await app.rect(overlay), await app.rect(frameEl)];
+      const off = Math.max(
+        Math.abs(o.x - f.x),
+        Math.abs(o.y - f.y),
+        Math.abs(o.x + o.width - (f.x + f.width)),
+        Math.abs(o.y + o.height - (f.y + f.height)),
+      );
+      ctx.log(`    overlay vs frame (${backend}): ${off.toFixed(2)} px`);
+      assert.ok(off <= 1, `overlay lines up with the frame within 1 px (off by ${off})`);
+
+      // 1.3: a click on the picture selects the clip; the handles appear while paused.
+      await app.clickAt(overlay, 0, 0);
+      await app.waitFor(
+        async () => (await (await app.find(`[data-testid="clip"][data-id="${clip.id}"]`)).getAttribute("class")).includes("selected"),
+        "the clip to be selected by a click in the viewer",
+      );
+      await app.find("overlay-handles");
+
+      // 2.2: scale it down with a corner handle, then move it: one revision each, and undo restores.
+      // Revisions are counted in the history (revision numbers are not consecutive).
+      const changes = async () => (await app.invoke("project_history")).length;
+      const rev0 = await changes();
+      await app.drag(await app.find("handle-scale-2"), -Math.round(o.width / 4), -Math.round(o.height / 4));
+      await app.waitFor(async () => (await changes()) === rev0 + 1, "one revision for the scale drag");
+      const scaled = (await detail(app, clip.id)).transform;
+      assert.ok(scaled.scale < 0.8, `scaled down (${JSON.stringify(scaled)})`);
+      const started = Date.now();
+      await app.drag(overlay, Math.round(o.width / 8), 0);
+      await app.waitFor(async () => (await changes()) === rev0 + 2, "one revision for the move");
+      ctx.log(`    move drag to revision: ${Date.now() - started} ms (WebDriver pointer actions, 8 steps)`);
+      const movedT = (await detail(app, clip.id)).transform;
+      assert.ok(movedT.x > 50, `moved right (${JSON.stringify(movedT)})`);
+      await app.click("undo");
+      await app.waitFor(async () => ((await detail(app, clip.id)).transform?.x ?? 0) === (scaled.x ?? 0), "undo restores the position");
+
+      const afterUndo = await changes();
+      // Drag preview latency: a transient preview to the next presented frame.
+      const presented = async () => (await app.invoke("diagnostics")).viewer.presentedFrames;
+      const lat = [];
+      for (const x of [100, -100, 200, -200, 0]) {
+        const before = await presented();
+        const t0 = Date.now();
+        await app.invoke("viewer_preview", { preview: { itemId: clip.id, setJson: JSON.stringify({ transform: { ...scaled, x } }) } });
+        await app.waitFor(async () => (await presented()) > before, "a preview frame", 10000, 5);
+        lat.push(Date.now() - t0);
+      }
+      await app.invoke("viewer_preview", { preview: null });
+      lat.sort((a, b) => a - b);
+      ctx.log(`    drag preview to frame: median ${lat[2]} ms, max ${lat[4]} ms`);
+      assert.equal(await changes(), afterUndo, "previews make no revision");
+
+      // 3.1: guides are view state only.
+      await app.click("guides-button");
+      await app.click("guides-title");
+      await app.select("guides-mask", "9:16");
+      await app.find("guide-layer");
+      await app.keys(Key.ESCAPE);
+      assert.equal(await changes(), afterUndo, "guides change nothing in the project");
+
+      // 3.3: full screen and back with Esc.
+      await app.click("viewer-fullscreen");
+      await app.waitFor(async () => (await (await app.find("viewer-area")).getAttribute("data-full")) === "true", "full screen");
+      await app.find("fullscreen-controls");
+      await sleep(500);
+      const full = await app.rect(await app.find("viewer-area"));
+      const win = await app.driver.executeScript("return { w: window.innerWidth, h: window.innerHeight };");
+      assert.ok(full.width >= win.w - 1 && full.height >= win.h - 1, `the viewer fills the window (${JSON.stringify(full)} vs ${JSON.stringify(win)})`);
+      await app.keys(Key.ESCAPE);
+      await app.waitFor(async () => (await (await app.find("viewer-area")).getAttribute("data-full")) === "false", "back from full screen");
+      await app.find("timeline");
+
+      // 3.4: the rate menu sets 1.5x; 7x is refused with the supported rates.
+      await app.click("rate-button");
+      await app.click(`[data-testid="rate-item-1.5"]`);
+      await app.waitFor(async () => (await app.invoke("playback_state")).rate === 1.5, "rate 1.5");
+      // The 1.5x timing itself is measured on the simulated clock (crates/ove-playback/tests/player.rs): a debug build
+      // composites far below real time, so wall-clock timing here would measure the compositor, not the rate.
+      assert.equal((await app.invoke("playback_state")).rate, 1.5);
+      await assert.rejects(
+        app.invoke("transport", { command: { kind: "setRate", rate: 7 } }),
+        /supported rates: 0.5, 1, 1.25, 1.5, 2/,
+      );
+      await app.click("rate-button");
+      await app.click("rate-item-1");
     },
   },
 ];

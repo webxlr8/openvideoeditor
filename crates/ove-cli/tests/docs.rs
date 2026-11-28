@@ -43,6 +43,15 @@ fn setup() -> (tempfile::TempDir, std::path::PathBuf) {
     p.close().unwrap();
     std::fs::write(d.path().join("edited.tsx"), text.replacen("name=\"Title\"", "name=\"Title card\"", 1)).unwrap();
     std::fs::write(d.path().join("broken.tsx"), text.replacen("start={2}", "start={1 + 1}", 1)).unwrap();
+    // Volume keyframes (docs/cli/timeline.md): a fade from 100 % to 0 % over the clip's first second, and a value
+    // over the 200 % limit, which is refused.
+    let fade = r#"pendingDescription="wide shot" keyframeTracks={[{property: "volume", keyframes: [{time: 0, value: 100}, {time: 1, value: 0}]}]}"#;
+    std::fs::write(d.path().join("fade.tsx"), text.replacen("pendingDescription=\"wide shot\"", fade, 1)).unwrap();
+    std::fs::write(
+        d.path().join("loud.tsx"),
+        text.replacen("pendingDescription=\"wide shot\"", &fade.replace("value: 0}", "value: 250}"), 1),
+    )
+    .unwrap();
     (d, lib)
 }
 
@@ -87,6 +96,12 @@ fn documented_examples_run_with_documented_exit_codes() {
 }
 
 #[test]
+fn color_examples() {
+    let (d, lib) = setup();
+    assert_eq!(run_examples("color.md", &lib, d.path()), 3);
+}
+
+#[test]
 fn project_examples() {
     let (d, lib) = setup();
     assert_eq!(run_examples("project.md", &lib, d.path()), 7);
@@ -99,6 +114,64 @@ fn project_examples() {
     if out.status.success() {
         assert_eq!(ove(&lib, d.path(), &["project", "show", "Draft"]).status.code(), Some(1));
     }
+}
+
+/// docs/cli/geometry.md: layer geometry at a time, and the refusal past the end (needs the renderer).
+#[cfg(feature = "media")]
+#[test]
+fn geometry_examples() {
+    let (d, lib) = setup();
+    assert_eq!(run_examples("geometry.md", &lib, d.path()), 3);
+    let out = ove(&lib, d.path(), &["geometry", "Demo", "--at", "3", "--json"]);
+    let v: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!((v["width"].as_u64(), v["height"].as_u64()), (Some(1920), Some(1080)));
+    let layers = v["layers"].as_array().unwrap();
+    assert_eq!(layers.len(), 1, "the placeholder ends at 2 s: {v}");
+    assert_eq!((layers[0]["itemId"].as_str(), layers[0]["itemType"].as_str()), (Some("b"), Some("text")));
+    // The title is centred: its corners are symmetric about the frame centre.
+    let q = &layers[0]["quad"];
+    let (x0, x1) = (q[0][0].as_f64().unwrap(), q[1][0].as_f64().unwrap());
+    assert!((x0 + x1 - 1920.0).abs() < 1.0, "{q}");
+    let late = ove(&lib, d.path(), &["geometry", "Demo", "--at", "60"]);
+    assert_eq!(late.status.code(), Some(1));
+    let err = String::from_utf8_lossy(&late.stderr);
+    assert!(err.contains("which is 4 s long"), "{err}");
+}
+
+/// docs/cli/tasks.md: `ove tasks` without the app (no background work exists outside it).
+#[test]
+fn tasks_examples() {
+    let (d, lib) = setup();
+    assert_eq!(run_examples("tasks.md", &lib, d.path()), 4);
+}
+
+#[test]
+fn skills_examples() {
+    let (d, lib) = setup();
+    assert_eq!(run_examples("skills.md", &lib, d.path()), 5);
+    // A reviewed draft is saved with `add`, and keeps its drafted source.
+    let draft = d.path().join("draft.md");
+    let text = "---\nname: Calm captions\ndescription: Caption a talk calmly.\nsource: drafted\n---\n\n1. Step.\n";
+    std::fs::write(&draft, text).unwrap();
+    let out = ove(&lib, d.path(), &["skills", "add", draft.to_str().unwrap(), "--json"]);
+    let v: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!((v["id"].as_str(), v["origin"]["kind"].as_str()), (Some("calm-captions"), Some("drafted")));
+    assert_eq!(
+        ove(&lib, d.path(), &["skills", "add", draft.to_str().unwrap(), "--id", "calm-captions"]).status.code(),
+        Some(1)
+    );
+    let out = ove(&lib, d.path(), &["skills", "list", "--json"]);
+    let v: Value = serde_json::from_slice(&out.stdout).unwrap();
+    let ids: Vec<&str> = v["skills"].as_array().unwrap().iter().map(|s| s["id"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["caption-styling", "colour-matching", "interview-cutting", "calm-captions"]);
+    let out = ove(&lib, d.path(), &["skills", "show", "nope", "--json"]);
+    let e: Value = serde_json::from_slice(&out.stderr).unwrap();
+    assert_eq!(e["error"]["code"], "skill.unknown");
+    // The guide written by `ove skills install` names the skill tools.
+    let guide = d.path().join("guide");
+    assert!(ove(&lib, d.path(), &["skills", "install", "--dir", guide.to_str().unwrap()]).status.success());
+    let text = std::fs::read_to_string(guide.join("openvideoeditor/SKILL.md")).unwrap();
+    assert!(text.contains("read_skill") && text.contains("list_skills"));
 }
 
 #[test]
@@ -189,4 +262,68 @@ fn verify_reports_pending_and_exits_1() {
     assert_eq!(out.status.code(), Some(1));
     let e: Value = serde_json::from_slice(&out.stderr).unwrap();
     assert_eq!(e["error"]["details"]["findings"][0]["lint"], "pending");
+}
+
+#[test]
+fn tool_examples() {
+    let (d, lib) = setup();
+    assert_eq!(run_examples("tools.md", &lib, d.path()), 5);
+}
+
+/// add-transcript-editing 1.5: the transcript page's examples, and the documented JSON shape, on a project whose one
+/// clip (source 2–8 s at 2× from timeline 10 s) has a cached transcript.
+#[test]
+fn transcript_examples_and_json_shape() {
+    let d = tempfile::tempdir().unwrap();
+    let lib = d.path().join("lib");
+    let library = ove_store::Library::open(&lib, std::sync::Arc::new(ove_core::SystemClock)).unwrap();
+    let mut p = library.create("Interview").unwrap();
+    let media = d.path().join("talk.wav");
+    std::fs::write(&media, vec![1u8; 4096]).unwrap();
+    let ops: Vec<ove_core::ops::Op> = serde_json::from_value(json!([
+        {"op": "addTrack", "track": {"id": "t_main", "name": "Main", "order": 0, "type": "video"}},
+        {"op": "addMedia", "media": {"id": "m_talk", "data": {"type": "audio", "fileName": "talk.wav", "duration": 60, "hasAudio": true}},
+         "entry": {"mediaId": "m_talk", "nativePath": media.to_string_lossy(), "ownedByBundle": false, "contentId": "c0ffee"}},
+        {"op": "addItem", "item": {"id": "v1", "trackId": "t_main", "type": "audio", "startTime": 10, "endTime": 13,
+         "mediaItemId": "m_talk", "trimStart": 2, "playbackSpeed": 2}}
+    ]))
+    .unwrap();
+    p.apply(ops, ove_core::revision::Source::Gui, None).unwrap();
+    let bundle = p.bundle().to_path_buf();
+    p.close().unwrap();
+    let w = |t: &str, s: f64, e: f64| ove_transcribe::Word {
+        text: t.into(),
+        start_us: (s * 1e6) as i64,
+        end_us: (e * 1e6) as i64,
+        confidence: 0.9,
+    };
+    let t = ove_transcribe::Transcript {
+        language: "en".into(),
+        model: "base".into(),
+        words: vec![w("Hello", 2.5, 3.0), w("there.", 3.0, 3.5), w("Um", 4.0, 4.4), w("next", 6.0, 6.5)],
+        duration_us: 60_000_000,
+    };
+    ove_transcribe::cache::store(&bundle, &ove_transcribe::cache::transcript_key("c0ffee", "base", None, false), &t);
+
+    let out = ove(&lib, d.path(), &["transcript", "Interview", "--json"]);
+    let v: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert!(v["rev"].as_i64().is_some());
+    assert_eq!(v["totalWords"], 4);
+    assert_eq!(v["untranscribed"], json!([]));
+    let first = &v["words"][0];
+    for k in ["id", "text", "start", "end", "clipId", "mediaId", "sourceStart", "sourceEnd", "filler"] {
+        assert!(first.get(k).is_some(), "missing {k}: {first}");
+    }
+    assert_eq!(first["id"], "m_talk@2500");
+    assert_eq!(first["start"], 10.25);
+    assert_eq!(v["words"][2]["filler"], true);
+    let out = ove(&lib, d.path(), &["transcript", "Interview", "--segments", "--json"]);
+    let v: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["segments"][0]["text"], "Hello there.");
+    assert_eq!(v["segments"][1]["wordIds"], json!(["m_talk@4000", "m_talk@6000"]));
+    let out = ove(&lib, d.path(), &["transcript", "Interview", "--limit", "2", "--json"]);
+    let v: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["nextOffset"], 2);
+    // Last: the examples include one cut.
+    assert_eq!(run_examples("transcript.md", &lib, d.path()), 11);
 }

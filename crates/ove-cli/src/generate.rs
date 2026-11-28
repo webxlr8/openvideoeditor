@@ -232,23 +232,12 @@ fn start(ctx: &Ctx, kind: Kind, a: &GenArgs) -> Out {
     let (job, bundle, how) = edit(ctx, &a.project, |w| {
         let plan = ove_generate::plan(w.doc(), kind, &req, &item_id).map_err(|e| Fail::new("generate.invalid", e))?;
         let job = ove_generate::new_job(&plan, &req, &ove_generate::job::new_id(now_ms()), now_ms());
-        w.apply(plan.ops.clone(), ctx.source, format!("generate {}: placeholder", kind.as_str()))?;
+        w.apply(plan.ops.clone(), format!("generate {}: placeholder", kind.as_str()))?;
         ove_generate::job::save(w.bundle(), &job).map_err(|e| Fail::new("file.unwritable", e.to_string()))?;
         Ok((job, w.bundle().to_path_buf(), via(w)))
     })?;
     if a.no_wait {
-        let exe = std::env::current_exe().map_err(|e| Fail::new("worker.failed", e.to_string()))?;
-        std::process::Command::new(exe)
-            .arg("--library")
-            .arg(&ctx.root)
-            .args(["generate", "_run"])
-            .arg(&bundle)
-            .arg(&job.id)
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .map_err(|e| Fail::new("worker.failed", format!("could not start the background worker: {e}")))?;
+        spawn_worker(ctx, &bundle, &job.id)?;
         let mut v = job_json(&job);
         v["started"] = json!(true);
         return Ok((
@@ -264,86 +253,43 @@ fn start(ctx: &Ctx, kind: Kind, a: &GenArgs) -> Out {
     Ok((job_json(&done), format!("{text}{how}")))
 }
 
-#[cfg(feature = "media")]
-fn probe(path: &Path) -> ove_generate::Probed {
-    match ove_media::probe(path) {
-        Ok(i) => ove_generate::Probed {
-            duration_us: i.duration_us,
-            width: i.video.as_ref().map(|v| v.width),
-            height: i.video.as_ref().map(|v| v.height),
-            has_audio: i.audio.is_some(),
-        },
-        Err(_) => Default::default(),
-    }
+/// Starts a background worker (`ove generate _run`) for a saved job.
+fn spawn_worker(ctx: &Ctx, bundle: &Path, id: &str) -> Result<(), Fail> {
+    spawn_worker_in(&ctx.root, bundle, id)
 }
 
-#[cfg(not(feature = "media"))]
-fn probe(_: &Path) -> ove_generate::Probed {
-    Default::default()
+/// The generation worker that agent tools start (`ove generate _run` in the background), for the library at `root`.
+pub fn runner(root: PathBuf) -> ove_tools::bundle::Runner {
+    std::sync::Arc::new(move |bundle: &Path, id: &str| spawn_worker_in(&root, bundle, id))
 }
 
-/// Runs a saved job and applies its result (or marks the placeholder when it failed).
+fn spawn_worker_in(root: &Path, bundle: &Path, id: &str) -> Result<(), Fail> {
+    let exe = std::env::current_exe().map_err(|e| Fail::new("worker.failed", e.to_string()))?;
+    std::process::Command::new(exe)
+        .arg("--library")
+        .arg(root)
+        .args(["generate", "_run"])
+        .arg(bundle)
+        .arg(id)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| Fail::new("worker.failed", format!("could not start the background worker: {e}")))
+}
+
+/// Runs a saved job and applies its result (or removes the placeholder when it failed). The finishing edit is
+/// recorded as the job's actor: the agent that asked for it, when an agent did.
 pub fn run_job(ctx: &Ctx, bundle: &Path, id: &str) -> Result<Job, Fail> {
-    let mut job =
-        ove_generate::job::load(bundle, id).ok_or_else(|| Fail::new("job.notFound", format!("no job {id}")))?;
-    let res = ove_generate::execute(bundle, &mut job, &OsKeyStore, &|| false);
-    let project = bundle.display().to_string();
-    match res {
-        Ok(()) => {
-            let rel = job.output.clone().unwrap_or_default();
-            let file = bundle.join(&rel);
-            let probed = probe(&file);
-            if job.kind != Kind::Image || probed.width.is_some() {
-                crate::media::thumbnail(bundle, &format!("m_{}", job.id.trim_start_matches("g_")), &file);
-            }
-            edit(ctx, &project, |w| {
-                let ops = ove_generate::finish_ops(w.doc(), &job, &rel, &probed, now_ms());
-                w.apply(
-                    ops,
-                    ctx.source,
-                    format!(
-                        "generate {}: {}",
-                        job.kind.as_str(),
-                        job.request.prompt.chars().take(60).collect::<String>()
-                    ),
-                )
-            })?;
-        }
-        Err(_) => {
-            let _ = edit(ctx, &project, |w| {
-                let ops = ove_generate::place::failed_ops(w.doc(), &job);
-                if ops.is_empty() {
-                    return Ok(0);
-                }
-                w.apply(
-                    ops,
-                    ctx.source,
-                    format!(
-                        "generate {}: {}",
-                        job.kind.as_str(),
-                        if job.status == Status::Cancelled { "cancelled" } else { "failed" }
-                    ),
-                )
-            });
-        }
-    }
-    Ok(job)
+    ove_tools::tools::generate::run_job(&mut *ctx.tools.borrow_mut(), bundle, id, &OsKeyStore)
 }
 
-/// Fails the project's jobs whose worker is gone (or that stopped making progress) and removes their pending
-/// placeholders, so they neither show as running forever nor block export.
+/// Settles the project's jobs whose worker is gone (or that stopped making progress): a fal request still queued at
+/// the provider gets a new background worker that resumes it (no second submit); the rest fail and their pending
+/// placeholders are removed, so they neither show as running forever nor block export.
 fn reap(ctx: &Ctx, bundle: &Path) {
-    let reaped = ove_generate::job::reap_stale_jobs(bundle, now_ms());
-    if reaped.is_empty() {
-        return;
-    }
-    let _ = edit(ctx, &bundle.display().to_string(), |w| {
-        let ops: Vec<_> = reaped.iter().flat_map(|j| ove_generate::place::failed_ops(w.doc(), j)).collect();
-        if ops.is_empty() {
-            return Ok(0);
-        }
-        w.apply(ops, ctx.source, format!("generate: {} stopped job(s)", reaped.len()))
-    });
+    ove_tools::tools::generate::reap(&mut *ctx.tools.borrow_mut(), bundle);
 }
 
 fn bundles(ctx: &Ctx) -> Vec<PathBuf> {

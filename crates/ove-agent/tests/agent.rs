@@ -353,13 +353,12 @@ fn stop_cancels_mid_stream_and_keeps_history_valid() {
     let mut host = TestHost::new(project(d.path()), vec![]);
     let store = ChatStore::for_bundle(host.project.bundle());
     let chat = store.create("long", "m").unwrap();
+    // Stop once the reply is streaming (at the first text delta), and time from that moment: the rest of the
+    // stream takes about 3 s (150 chunks, 20 ms apart, and longer on a loaded machine), so a turn that ends well
+    // inside that bound was stopped mid-stream rather than run to the end.
     let cancel = Arc::new(AtomicBool::new(false));
     let c2 = cancel.clone();
-    std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(300));
-        c2.store(true, Ordering::SeqCst);
-    });
-    let started = std::time::Instant::now();
+    let mut cancelled_at: Option<std::time::Instant> = None;
     let out = run_turn(
         &fast_client(&server.url),
         &store,
@@ -368,11 +367,20 @@ fn stop_cancels_mid_stream_and_keeps_history_valid() {
         &mut host,
         &TurnConfig::default(),
         &cancel,
-        &mut |_| {},
+        &mut |e| {
+            if matches!(e, AgentEvent::TextDelta { .. }) && cancelled_at.is_none() {
+                c2.store(true, Ordering::SeqCst);
+                cancelled_at = Some(std::time::Instant::now());
+            }
+        },
     )
     .unwrap();
     assert!(out.stopped);
-    assert!(started.elapsed() < Duration::from_secs(2));
+    let after_cancel = cancelled_at.expect("the reply streamed text before the stop").elapsed();
+    assert!(
+        after_cancel < Duration::from_millis(1500),
+        "the turn ended {after_cancel:?} after the stop; the uncancelled stream runs about 3 s"
+    );
     // Resume: the next turn sends the earlier user message too.
     let out = run_turn(
         &fast_client(&server.url),

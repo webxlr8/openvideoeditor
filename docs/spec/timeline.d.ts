@@ -9,7 +9,29 @@ type TrackKind = "video" | "audio" | "caption" | "adjustment" | "layout";
 
 interface TimelineProps {
   aspect?: Aspect;
+  /** Timeline frame rate; edits snap to its frame grid. */
+  fps?: number;
   children?: unknown;
+}
+
+interface MarkerProps {
+  /** Marker id; omit for a new marker. */
+  id?: string;
+  /** Timeline time of the marker, in seconds. */
+  at: Seconds;
+  /** Duration in seconds; 0 for a point marker. */
+  dur?: Seconds;
+  /** Short label. */
+  name?: string;
+  /** A named colour (red, orange, yellow, green, teal, blue, purple, pink) or #rrggbb. */
+  color?: string;
+  /** Review status: open, review or resolved. */
+  status?: "open" | "review" | "resolved";
+  /** Who should act on it: `user`, `agent` or a name. */
+  assignee?: string;
+  /** Free text, at most 4,000 characters. */
+  note?: string;
+  [attribute: string]: unknown;
 }
 
 interface TrackProps {
@@ -23,6 +45,8 @@ interface TrackProps {
   visible?: boolean;
   /** Muted tracks play no audio. */
   muted?: boolean;
+  /** Ripple edits on other tracks shift this track's items too. */
+  syncLock?: boolean;
   children?: unknown;
   [attribute: string]: unknown;
 }
@@ -50,6 +74,8 @@ interface ClipProps extends ItemBase {
   pending?: boolean;
   /** What the pending placeholder should become. */
   pendingDescription?: string;
+  /** Link group: items with the same value move, trim, slip and delete together. */
+  link?: string;
   /** Position, scale, rotation, flip. */
   transform?: { x?: number; y?: number; scale?: number; rotation?: number; flipX?: boolean; [key: string]: unknown };
   /** Crop in percent per edge. */
@@ -67,7 +93,7 @@ interface ClipProps extends ItemBase {
   /** Blur radius in pixels. */
   gaussianBlur?: number;
   /** Animated properties. */
-  keyframeTracks?: { property?: "x" | "y" | "scale" | "rotation" | "opacity" | "gaussianBlur" | "borderRadius"; keyframes?: { time?: Seconds; value?: number; [key: string]: unknown }[]; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; [key: string]: unknown }[];
+  keyframeTracks?: { property?: "x" | "y" | "scale" | "rotation" | "opacity" | "gaussianBlur" | "borderRadius" | "volume" | "crop.top" | "crop.right" | "crop.bottom" | "crop.left" | `effects.${string}.${string}`; keyframes?: { time?: Seconds; value?: number; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "hold"; [key: string]: unknown }[]; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "hold"; [key: string]: unknown }[];
   /** Transition at the start. */
   transitionIn?: { type?: string; presetId?: string; duration?: Seconds; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; direction?: "left" | "right" | "up" | "down"; [key: string]: unknown };
   /** Transition at the end. */
@@ -96,6 +122,8 @@ interface ClipProps extends ItemBase {
   playbackSpeed?: number;
   /** Playback direction. */
   playbackDirection?: "forward" | "reverse";
+  /** Speech clean-up amount in percent: the sound is this blend of a cleaned copy and the original. */
+  denoise?: number;
 }
 
 interface ImageProps extends ItemBase {
@@ -109,6 +137,8 @@ interface ImageProps extends ItemBase {
   pending?: boolean;
   /** What the pending placeholder should become. */
   pendingDescription?: string;
+  /** Link group: items with the same value move, trim, slip and delete together. */
+  link?: string;
   /** Position, scale, rotation, flip. */
   transform?: { x?: number; y?: number; scale?: number; rotation?: number; flipX?: boolean; [key: string]: unknown };
   /** Crop in percent per edge. */
@@ -126,7 +156,7 @@ interface ImageProps extends ItemBase {
   /** Blur radius in pixels. */
   gaussianBlur?: number;
   /** Animated properties. */
-  keyframeTracks?: { property?: "x" | "y" | "scale" | "rotation" | "opacity" | "gaussianBlur" | "borderRadius"; keyframes?: { time?: Seconds; value?: number; [key: string]: unknown }[]; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; [key: string]: unknown }[];
+  keyframeTracks?: { property?: "x" | "y" | "scale" | "rotation" | "opacity" | "gaussianBlur" | "borderRadius" | "volume" | "crop.top" | "crop.right" | "crop.bottom" | "crop.left" | `effects.${string}.${string}`; keyframes?: { time?: Seconds; value?: number; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "hold"; [key: string]: unknown }[]; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "hold"; [key: string]: unknown }[];
   /** Transition at the start. */
   transitionIn?: { type?: string; presetId?: string; duration?: Seconds; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; direction?: "left" | "right" | "up" | "down"; [key: string]: unknown };
   /** Transition at the end. */
@@ -156,6 +186,8 @@ interface AudioProps extends ItemBase {
   pending?: boolean;
   /** What the pending placeholder should become. */
   pendingDescription?: string;
+  /** Link group: items with the same value move, trim, slip and delete together. */
+  link?: string;
   /** Position, scale, rotation, flip. */
   transform?: { x?: number; y?: number; scale?: number; rotation?: number; flipX?: boolean; [key: string]: unknown };
   /** Crop in percent per edge. */
@@ -173,7 +205,7 @@ interface AudioProps extends ItemBase {
   /** Blur radius in pixels. */
   gaussianBlur?: number;
   /** Animated properties. */
-  keyframeTracks?: { property?: "x" | "y" | "scale" | "rotation" | "opacity" | "gaussianBlur" | "borderRadius"; keyframes?: { time?: Seconds; value?: number; [key: string]: unknown }[]; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; [key: string]: unknown }[];
+  keyframeTracks?: { property?: "x" | "y" | "scale" | "rotation" | "opacity" | "gaussianBlur" | "borderRadius" | "volume" | "crop.top" | "crop.right" | "crop.bottom" | "crop.left" | `effects.${string}.${string}`; keyframes?: { time?: Seconds; value?: number; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "hold"; [key: string]: unknown }[]; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "hold"; [key: string]: unknown }[];
   /** Transition at the start. */
   transitionIn?: { type?: string; presetId?: string; duration?: Seconds; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; direction?: "left" | "right" | "up" | "down"; [key: string]: unknown };
   /** Transition at the end. */
@@ -198,6 +230,8 @@ interface AudioProps extends ItemBase {
   playbackSpeed?: number;
   /** Playback direction. */
   playbackDirection?: "forward" | "reverse";
+  /** Speech clean-up amount in percent: the sound is this blend of a cleaned copy and the original. */
+  denoise?: number;
 }
 
 interface TextProps extends ItemBase {
@@ -211,6 +245,8 @@ interface TextProps extends ItemBase {
   pending?: boolean;
   /** What the pending placeholder should become. */
   pendingDescription?: string;
+  /** Link group: items with the same value move, trim, slip and delete together. */
+  link?: string;
   /** The text. */
   textContent?: string;
   /** Font family. */
@@ -266,7 +302,7 @@ interface TextProps extends ItemBase {
   /** Blur radius in pixels. */
   gaussianBlur?: number;
   /** Animated properties. */
-  keyframeTracks?: { property?: "x" | "y" | "scale" | "rotation" | "opacity" | "gaussianBlur" | "borderRadius"; keyframes?: { time?: Seconds; value?: number; [key: string]: unknown }[]; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; [key: string]: unknown }[];
+  keyframeTracks?: { property?: "x" | "y" | "scale" | "rotation" | "opacity" | "gaussianBlur" | "borderRadius" | "volume" | "crop.top" | "crop.right" | "crop.bottom" | "crop.left" | `effects.${string}.${string}`; keyframes?: { time?: Seconds; value?: number; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "hold"; [key: string]: unknown }[]; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "hold"; [key: string]: unknown }[];
   /** Transition at the start. */
   transitionIn?: { type?: string; presetId?: string; duration?: Seconds; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; direction?: "left" | "right" | "up" | "down"; [key: string]: unknown };
   /** Transition at the end. */
@@ -292,6 +328,8 @@ interface CaptionProps extends ItemBase {
   pending?: boolean;
   /** What the pending placeholder should become. */
   pendingDescription?: string;
+  /** Link group: items with the same value move, trim, slip and delete together. */
+  link?: string;
   /** Full caption text. */
   captionText?: string;
   /** Timed segments with word timings. */
@@ -325,7 +363,7 @@ interface CaptionProps extends ItemBase {
   /** Blur radius in pixels. */
   gaussianBlur?: number;
   /** Animated properties. */
-  keyframeTracks?: { property?: "x" | "y" | "scale" | "rotation" | "opacity" | "gaussianBlur" | "borderRadius"; keyframes?: { time?: Seconds; value?: number; [key: string]: unknown }[]; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; [key: string]: unknown }[];
+  keyframeTracks?: { property?: "x" | "y" | "scale" | "rotation" | "opacity" | "gaussianBlur" | "borderRadius" | "volume" | "crop.top" | "crop.right" | "crop.bottom" | "crop.left" | `effects.${string}.${string}`; keyframes?: { time?: Seconds; value?: number; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "hold"; [key: string]: unknown }[]; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "hold"; [key: string]: unknown }[];
   /** Transition at the start. */
   transitionIn?: { type?: string; presetId?: string; duration?: Seconds; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; direction?: "left" | "right" | "up" | "down"; [key: string]: unknown };
   /** Transition at the end. */
@@ -351,6 +389,8 @@ interface CodeProps extends ItemBase {
   pending?: boolean;
   /** What the pending placeholder should become. */
   pendingDescription?: string;
+  /** Link group: items with the same value move, trim, slip and delete together. */
+  link?: string;
   /** Motion-graphics composition (pure JSX of {time, width, height, assets}). */
   codeComposition?: { source?: string; template?: string; props?: unknown; width?: number; height?: number; assets?: unknown; [key: string]: unknown };
   /** Position, scale, rotation, flip. */
@@ -370,7 +410,7 @@ interface CodeProps extends ItemBase {
   /** Blur radius in pixels. */
   gaussianBlur?: number;
   /** Animated properties. */
-  keyframeTracks?: { property?: "x" | "y" | "scale" | "rotation" | "opacity" | "gaussianBlur" | "borderRadius"; keyframes?: { time?: Seconds; value?: number; [key: string]: unknown }[]; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; [key: string]: unknown }[];
+  keyframeTracks?: { property?: "x" | "y" | "scale" | "rotation" | "opacity" | "gaussianBlur" | "borderRadius" | "volume" | "crop.top" | "crop.right" | "crop.bottom" | "crop.left" | `effects.${string}.${string}`; keyframes?: { time?: Seconds; value?: number; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "hold"; [key: string]: unknown }[]; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "hold"; [key: string]: unknown }[];
   /** Transition at the start. */
   transitionIn?: { type?: string; presetId?: string; duration?: Seconds; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; direction?: "left" | "right" | "up" | "down"; [key: string]: unknown };
   /** Transition at the end. */
@@ -396,6 +436,8 @@ interface AdjustmentProps extends ItemBase {
   pending?: boolean;
   /** What the pending placeholder should become. */
   pendingDescription?: string;
+  /** Link group: items with the same value move, trim, slip and delete together. */
+  link?: string;
   /** Kind of adjustment layer. */
   adjustmentKind?: string;
   /** LUT preset id. */
@@ -419,7 +461,7 @@ interface AdjustmentProps extends ItemBase {
   /** Blur radius in pixels. */
   gaussianBlur?: number;
   /** Animated properties. */
-  keyframeTracks?: { property?: "x" | "y" | "scale" | "rotation" | "opacity" | "gaussianBlur" | "borderRadius"; keyframes?: { time?: Seconds; value?: number; [key: string]: unknown }[]; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; [key: string]: unknown }[];
+  keyframeTracks?: { property?: "x" | "y" | "scale" | "rotation" | "opacity" | "gaussianBlur" | "borderRadius" | "volume" | "crop.top" | "crop.right" | "crop.bottom" | "crop.left" | `effects.${string}.${string}`; keyframes?: { time?: Seconds; value?: number; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "hold"; [key: string]: unknown }[]; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "hold"; [key: string]: unknown }[];
   /** Transition at the start. */
   transitionIn?: { type?: string; presetId?: string; duration?: Seconds; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; direction?: "left" | "right" | "up" | "down"; [key: string]: unknown };
   /** Transition at the end. */
@@ -449,6 +491,8 @@ interface ShaderProps extends ItemBase {
   pending?: boolean;
   /** What the pending placeholder should become. */
   pendingDescription?: string;
+  /** Link group: items with the same value move, trim, slip and delete together. */
+  link?: string;
   /** Shader layer definition. */
   shaderComposition?: { source?: string; template?: string; params?: unknown; controls?: unknown; amount?: number; fadeIn?: Seconds; fadeOut?: Seconds; region?: "all" | "subject" | "background"; defaults?: unknown; [key: string]: unknown };
   /** Position, scale, rotation, flip. */
@@ -468,7 +512,7 @@ interface ShaderProps extends ItemBase {
   /** Blur radius in pixels. */
   gaussianBlur?: number;
   /** Animated properties. */
-  keyframeTracks?: { property?: "x" | "y" | "scale" | "rotation" | "opacity" | "gaussianBlur" | "borderRadius"; keyframes?: { time?: Seconds; value?: number; [key: string]: unknown }[]; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; [key: string]: unknown }[];
+  keyframeTracks?: { property?: "x" | "y" | "scale" | "rotation" | "opacity" | "gaussianBlur" | "borderRadius" | "volume" | "crop.top" | "crop.right" | "crop.bottom" | "crop.left" | `effects.${string}.${string}`; keyframes?: { time?: Seconds; value?: number; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "hold"; [key: string]: unknown }[]; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "hold"; [key: string]: unknown }[];
   /** Transition at the start. */
   transitionIn?: { type?: string; presetId?: string; duration?: Seconds; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; direction?: "left" | "right" | "up" | "down"; [key: string]: unknown };
   /** Transition at the end. */
@@ -488,6 +532,7 @@ declare global {
     interface Element {}
     interface IntrinsicElements {
       timeline: TimelineProps;
+      marker: MarkerProps;
       track: TrackProps;
       clip: ClipProps;
       image: ImageProps;

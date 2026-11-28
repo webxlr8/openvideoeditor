@@ -116,6 +116,8 @@ pub struct FfmpegVideoDecoder {
     last_pts: Option<Micros>,
     frames_out: u64,
     reads_since_check: u32,
+    /// Frames the decoder produced (decode work, for derivative tasks that try to do little of it).
+    frames_decoded: u64,
 }
 
 impl FfmpegVideoDecoder {
@@ -182,12 +184,55 @@ impl FfmpegVideoDecoder {
             last_pts: None,
             frames_out: 0,
             reads_since_check: 0,
+            frames_decoded: 0,
         })
     }
 
     /// Why the hardware path is not in use, if it is not.
     pub fn hw_fallback_reason(&self) -> Option<&str> {
         self.hw_fallback_reason.as_deref()
+    }
+
+    /// For derivative work (skim sheets): skip decoding frames no other frame refers to (most B-frames). Their
+    /// output is dropped, so the decoder does less work; frames it still returns are unchanged.
+    pub fn skip_non_reference(&mut self, skip: bool) {
+        let discard = if skip { ffi::AVDiscard::NONREF } else { ffi::AVDiscard::DEFAULT };
+        // SAFETY: `self.dec` owns an open AVCodecContext for as long as `self` lives; `skip_frame` is a plain-data
+        // field the decoder reads per frame and the user may change between frames.
+        unsafe { (*self.dec.as_mut_ptr()).skip_frame = discard };
+    }
+
+    /// Frames decoded so far (including any a seek decoded on the way to its target).
+    pub fn frames_decoded(&self) -> u64 {
+        self.frames_decoded
+    }
+
+    /// The time of the keyframe at or before `t_us`, from the container's index (`None` when the container has no
+    /// index entry there).
+    pub fn keyframe_before(&mut self, t_us: Micros) -> Option<Micros> {
+        let ts = self.start_ts + us_to_ts(t_us, self.tb);
+        // SAFETY: `self.input` owns an open AVFormatContext and `stream_index` is one of its streams, so the stream
+        // pointer is valid; the index functions only read the stream's index and return null or a pointer into it,
+        // read before anything can change it.
+        unsafe {
+            let st = *(*self.input.as_mut_ptr()).streams.add(self.stream_index);
+            let i = ffi::av_index_search_timestamp(st, ts, ffi::AVSEEK_FLAG_BACKWARD);
+            if i < 0 {
+                return None;
+            }
+            let e = ffi::avformat_index_get_entry(st, i);
+            if e.is_null() {
+                return None;
+            }
+            Some(ts_to_us((*e).timestamp - self.start_ts, self.tb))
+        }
+    }
+
+    /// Jumps to the keyframe at or before `t_us` without decoding up to `t_us` (unlike [`VideoDecoder::seek`]): the
+    /// next frame returned is that keyframe or a frame shortly after it.
+    pub fn seek_keyframe(&mut self, t_us: Micros) -> Result<()> {
+        let ts = self.start_ts + us_to_ts(t_us.max(0), self.tb);
+        self.seek_container(ts)
     }
 
     fn hw_or_decode(&self, e: AvError) -> MediaError {
@@ -248,6 +293,7 @@ impl FfmpegVideoDecoder {
             let mut f = AvFrame::empty();
             match self.dec.receive_frame(&mut f) {
                 Ok(()) => {
+                    self.frames_decoded += 1;
                     // SAFETY: `receive_frame` succeeded, so `f` owns a valid AVFrame; these are plain-data reads.
                     let (best, dur, fmt) = unsafe {
                         let p = f.as_ptr();

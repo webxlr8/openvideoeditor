@@ -12,7 +12,7 @@ use crate::chat::{
     ChatStore, QuestionItem, QuestionOption, Record, estimate_tokens, messages, summary_cut, transcript, user_indices,
 };
 use crate::prompt::SYSTEM_PROMPT;
-use crate::tools::{ToolHost, definitions, dispatch, label};
+use crate::tools::{ToolHost, definitions, dispatch_full, label};
 
 /// Default spend cap per turn, in US dollars.
 pub const DEFAULT_TURN_CAP_USD: f64 = 2.0;
@@ -49,6 +49,10 @@ pub struct TurnConfig {
     pub compact_at_tokens: Option<u64>,
     /// The model that writes those summaries.
     pub summary_model: String,
+    /// The installed skills' index (`ove_tools::skills::index_text`), sent as a second system block after the fixed
+    /// prompt, with its own cache breakpoint: a change to the skills misses the cache from that block on, and the
+    /// fixed prompt and tools stay cached. `None`: no skills block.
+    pub skill_index: Option<String>,
 }
 
 impl Default for TurnConfig {
@@ -63,6 +67,7 @@ impl Default for TurnConfig {
             project_cap: None,
             compact_at_tokens: None,
             summary_model: SUMMARY_MODEL.into(),
+            skill_index: None,
         }
     }
 }
@@ -265,14 +270,24 @@ pub struct TurnSummary {
     pub revs: Vec<i64>,
 }
 
-/// The request body for the current conversation. Tools and system prompt come first and never change, so the
-/// cached prefix stays valid; the history is append-only.
+/// The system blocks: the fixed prompt (byte-identical in every request), then the skill index when there is one,
+/// each with a cache breakpoint (design D2 of add-agent-skills-and-connectors).
+pub fn system_blocks(cfg: &TurnConfig) -> Value {
+    let mut blocks = vec![json!({"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}})];
+    if let Some(index) = cfg.skill_index.as_deref().filter(|s| !s.trim().is_empty()) {
+        blocks.push(json!({"type": "text", "text": index, "cache_control": {"type": "ephemeral"}}));
+    }
+    Value::Array(blocks)
+}
+
+/// The request body for the current conversation. Tools and the fixed system prompt come first and never change, so
+/// the cached prefix stays valid; the skill index follows them, and the history is append-only.
 pub fn request_body(cfg: &TurnConfig, msgs: &[Value]) -> Value {
     let mut body = json!({
         "model": cfg.model,
         "max_tokens": 64000,
         "stream": true,
-        "system": [{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
+        "system": system_blocks(cfg),
         "tools": definitions(),
         "messages": msgs,
         "thinking": {"type": "adaptive", "display": "summarized"},
@@ -305,7 +320,7 @@ fn summarize_result(name: &str, ok: bool, out: &str) -> String {
             .unwrap_or_default(),
         "list_media" => serde_json::from_str::<Value>(out)
             .ok()
-            .and_then(|v| v.as_array().map(|a| format!("{} files", a.len())))
+            .and_then(|v| v["count"].as_u64().map(|n| format!("{n} files")))
             .unwrap_or_default(),
         _ => out.chars().take(160).collect(),
     }
@@ -323,9 +338,27 @@ pub fn run_turn(
     cancel: &AtomicBool,
     emit: &mut dyn FnMut(AgentEvent),
 ) -> Result<TurnSummary, ApiError> {
+    run_turn_with(client, store, chat_id, user_text, &[], host, cfg, cancel, emit)
+}
+
+/// [`run_turn`] with what the person mentioned in the message (items, ranges, media and skills, resolved when it
+/// was sent; see [`crate::mention`]). They are logged after the user record and sent with the message.
+#[allow(clippy::too_many_arguments)]
+pub fn run_turn_with(
+    client: &Client,
+    store: &ChatStore,
+    chat_id: &str,
+    user_text: &str,
+    mentions: &[crate::mention::Mention],
+    host: &mut dyn ToolHost,
+    cfg: &TurnConfig,
+    cancel: &AtomicBool,
+    emit: &mut dyn FnMut(AgentEvent),
+) -> Result<TurnSummary, ApiError> {
     let started = Instant::now();
     let io = |e: std::io::Error| ApiError::new("chat.io", format!("Couldn't save the conversation: {e}"));
     let turn_id = new_turn_id();
+    host.begin_turn(chat_id, &turn_id);
     store
         .append(
             chat_id,
@@ -336,6 +369,9 @@ pub fn run_turn(
             },
         )
         .map_err(io)?;
+    if !mentions.is_empty() {
+        store.append(chat_id, &Record::Mentions { turn: turn_id.clone(), mentions: mentions.to_vec() }).map_err(io)?;
+    }
     store.touch(chat_id, &cfg.model);
     emit(AgentEvent::TurnStarted { chat_id: chat_id.into() });
 
@@ -455,6 +491,7 @@ pub fn run_turn(
                     .map_err(io)?;
                 continue;
             }
+            let mut images: Vec<String> = Vec::new();
             let (ok, out) = if let Some((_, raw)) = resp.invalid_tool_inputs.iter().find(|(i, _)| *i == id) {
                 (false, json!({"INVALID_JSON": raw}).to_string())
             } else if truncated {
@@ -479,13 +516,21 @@ pub fn run_turn(
                     store.append(chat_id, &Record::Question { id: id.clone(), questions: vec![item] }).map_err(io)?;
                     emit(AgentEvent::Question { id: id.clone(), question: q, options: opts });
                 }
-                match dispatch(host, &id, &name, &call["input"]) {
-                    Ok(s) => (true, s),
+                match dispatch_full(host, &id, &name, &call["input"]) {
+                    Ok(o) => {
+                        images = o.images.iter().map(|p| ove_tools::receipt::base64(&p.bytes)).collect();
+                        (true, o.text)
+                    }
                     Err(e) => (false, e),
                 }
             };
             emit(AgentEvent::ToolResult { id: id.clone(), ok, summary: summarize_result(&name, ok, &out) });
-            store.append(chat_id, &Record::ToolResult { tool_use_id: id, text: out, is_error: !ok }).map_err(io)?;
+            store
+                .append(chat_id, &Record::ToolResult { tool_use_id: id.clone(), text: out, is_error: !ok })
+                .map_err(io)?;
+            if !images.is_empty() {
+                store.append(chat_id, &Record::ToolImages { tool_use_id: id, images }).map_err(io)?;
+            }
             let made = host.take_revisions();
             if !made.is_empty() {
                 store.append(chat_id, &Record::Revisions { turn: turn_id.clone(), revs: made.clone() }).map_err(io)?;

@@ -45,17 +45,25 @@ export const commands = {
 	projectView: () => typedError<ProjectView_Serialize | null, AppError>(__TAURI_INVOKE("project_view")),
 	importMedia: (paths: string[]) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("import_media", { paths })),
 	importMediaDialog: () => typedError<ProjectView_Serialize | null, AppError>(__TAURI_INVOKE("import_media_dialog")),
-	/**  Moves an item to a new start time (and optionally another track), keeping its duration. */
-	moveItem: (id: string, start: number | null, trackId: string | null) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("move_item", { id, start, trackId })),
+	/**
+	 *  Moves an item to a new start time (and optionally another track), keeping its duration. Linked items move with
+	 *  it unless `linked` is false (Alt in the timeline). Landing on another item is allowed (the overlap plays as a
+	 *  crossfade).
+	 */
+	moveItem: (id: string, start: number | null, trackId: string | null, linked: boolean | null) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("move_item", { id, start, trackId, linked })),
 	removeItems: (ids: string[]) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("remove_items", { ids })),
-	/**  Splits a clip at a timeline time (seconds): the left part keeps the id, the right part is a new item. */
+	/**
+	 *  Splits a clip at a timeline time (seconds): the left part keeps the id, the right part is a new item. Linked
+	 *  items are split at the same time. Speed, reverse playback, keyframes, caption segments, fades and transitions are
+	 *  carried over so both parts look and sound exactly like the uncut clip.
+	 */
 	splitItem: (id: string, at: number | null) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("split_item", { id, at })),
 	setAspectRatio: (aspect: string) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("set_aspect_ratio", { aspect })),
 	renameProject: (name: string) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("rename_project", { name })),
 	setTrackFlag: (id: string, flag: string, value: boolean) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("set_track_flag", { id, flag, value })),
 	undo: () => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("undo")),
 	/**  The open project's revisions, newest first (the history panel). */
-	projectHistory: () => typedError<HistoryRow[], AppError>(__TAURI_INVOKE("project_history")),
+	projectHistory: () => typedError<HistoryRow_Serialize[], AppError>(__TAURI_INVOKE("project_history")),
 	/**  "Restore to before this": one new revision with the project as it was before `rev`. */
 	restoreBefore: (rev: number | null) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("restore_before", { rev })),
 	redo: () => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("redo")),
@@ -71,6 +79,12 @@ export const commands = {
 	openUrl: (url: string) => typedError<null, AppError>(__TAURI_INVOKE("open_url", { url })),
 	/**  The environment block for a feedback report, and where to send it. */
 	feedbackInfo: () => typedError<FeedbackInfo_Serialize, AppError>(__TAURI_INVOKE("feedback_info")),
+	/**  The drafted reports, newest first. */
+	feedbackDrafts: () => typedError<FeedbackDraft_Serialize[], AppError>(__TAURI_INVOKE("feedback_drafts")),
+	/**  Saves the person's edit of a report's summary. */
+	saveFeedbackDraft: (id: string, summary: string) => typedError<FeedbackDraft_Serialize, AppError>(__TAURI_INVOKE("save_feedback_draft", { id, summary })),
+	/**  Deletes a report. */
+	deleteFeedbackDraft: (id: string) => typedError<null, AppError>(__TAURI_INVOKE("delete_feedback_draft", { id })),
 	/**  Models and key status, as JSON `{models, keys}`. */
 	generationCatalog: () => __TAURI_INVOKE<string>("generation_catalog"),
 	setProviderKey: (provider: string, key: string) => typedError<string, AppError>(__TAURI_INVOKE("set_provider_key", { provider, key })),
@@ -92,6 +106,15 @@ export const commands = {
 	cancelGeneration: (id: string) => typedError<null, AppError>(__TAURI_INVOKE("cancel_generation", { id })),
 	/**  Voices in the ElevenLabs account (JSON array). */
 	listVoices: () => typedError<string, AppError>(__TAURI_INVOKE("list_voices")),
+	/**  The person's answer to a price card. */
+	answerSpend: (quoteId: string, approved: boolean) => typedError<null, AppError>(__TAURI_INVOKE("answer_spend", { quoteId, approved })),
+	/**  The most an agent session may spend on generation (USD). */
+	spendCap: () => __TAURI_INVOKE<number | null>("spend_cap"),
+	/**
+	 *  Sets the per-session spend cap; returns it as saved (rounded to cents). Running sessions use it from their next
+	 *  request.
+	 */
+	setSpendCap: (usd: number | null) => typedError<number | null, AppError>(__TAURI_INVOKE("set_spend_cap", { usd })),
 	timelineFormats: () => __TAURI_INVOKE<TimelineFormat[]>("timeline_formats"),
 	/**
 	 *  Writes the open project's timeline. `path: None` asks with a save dialog. `preview: true` writes nothing and only
@@ -111,8 +134,77 @@ export const commands = {
 	 */
 	exportProject: (request: ExportRequest) => typedError<null, AppError>(__TAURI_INVOKE("export_project", { request })),
 	cancelExport: () => typedError<null, AppError>(__TAURI_INVOKE("cancel_export")),
-	/**  Save dialog for the export destination. `None` when cancelled. */
-	chooseExportPath: (defaultName: string) => typedError<string | null, AppError>(__TAURI_INVOKE("choose_export_path", { defaultName })),
+	/**  The presets, containers and codecs the export dialog offers. */
+	exportOptions: () => typedError<ExportOptions_Serialize, AppError>(__TAURI_INVOKE("export_options")),
+	/**  Checks the dialog's settings against the open timeline (range inside it) and this computer's encoders. */
+	checkExport: (form: ExportForm_Deserialize) => typedError<ExportCheck_Serialize, AppError>(__TAURI_INVOKE("check_export", { form })),
+	/**
+	 *  Queues an export of the open project. Refused at once (nothing queued) for impossible settings, offline media or
+	 *  pending placeholders. The job renders the project as it is now, even if editing goes on.
+	 */
+	queueExport: (form: ExportForm_Deserialize, path: string) => typedError<ExportJobView_Serialize, AppError>(__TAURI_INVOKE("queue_export", { form, path })),
+	/**
+	 *  The export queue: every queued and running job, and the jobs finished in the last day, oldest first. Also puts
+	 *  back jobs whose worker died and starts a worker when jobs wait.
+	 */
+	exportJobs: () => typedError<ExportJobView_Serialize[], AppError>(__TAURI_INVOKE("export_jobs")),
+	/**  Cancels a queued or running export. */
+	cancelExportJob: (id: string) => typedError<ExportJobView_Serialize, AppError>(__TAURI_INVOKE("cancel_export_job", { id })),
+	/**  Queues a finished job again with the same settings and file, rendering the open project as it is now. */
+	exportAgain: (id: string) => typedError<ExportJobView_Serialize, AppError>(__TAURI_INVOKE("export_again", { id })),
+	/**  Removes finished jobs from the list (their files stay). Returns how many. */
+	clearFinishedExports: () => typedError<number, AppError>(__TAURI_INVOKE("clear_finished_exports")),
+	/**
+	 *  Renders the range `start`–`end` (seconds) into a new media file owned by the project. With `replace`, the same
+	 *  revision replaces what the range covers on the video tracks with one clip of it (one undo restores the items).
+	 */
+	saveRangeAsMedia: (start: number | null, end: number | null, replace: boolean) => typedError<SavedRange_Serialize, AppError>(__TAURI_INVOKE("save_range_as_media", { start, end, replace })),
+	/**
+	 *  The pointer is over a media thumbnail whose skim sheet is not built yet: its task moves to interactive priority.
+	 *  Sent once per hover, never per pointer move.
+	 */
+	requestSkim: (mediaId: string) => typedError<null, AppError>(__TAURI_INVOKE("request_skim", { mediaId })),
+	/**
+	 *  Turns the project's "Use proxies" setting on or off (one revision, through the document pipeline). Turning it
+	 *  off cancels queued proxy tasks; finished proxies stay on disk (Settings → Storage clears them).
+	 */
+	setUseProxies: (on: boolean) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("set_use_proxies", { on })),
+	listTasks: () => typedError<TasksView_Serialize, AppError>(__TAURI_INVOKE("list_tasks")),
+	/**  Cancels one task; false when it already finished. */
+	cancelTask: (id: number) => typedError<boolean, AppError>(__TAURI_INVOKE("cancel_task", { id })),
+	/**  Pauses or resumes all background work (except export). */
+	pauseTasks: (paused: boolean) => typedError<null, AppError>(__TAURI_INVOKE("pause_tasks", { paused })),
+	/**  "Run anyway" for one pause reason (`battery`, `lowPower`, `thermal`, `playback`, `export`), or undoes it. */
+	runAnyway: (reason: string, on: boolean) => typedError<null, AppError>(__TAURI_INVOKE("run_anyway", { reason, on })),
+	storageUsage: () => typedError<StorageView_Serialize, AppError>(__TAURI_INVOKE("storage_usage")),
+	/**  Clears one kind of derived data of the open project: cancels its tasks, then removes its files. */
+	clearCache: (kind: string) => typedError<ClearResult_Serialize, AppError>(__TAURI_INVOKE("clear_cache", { kind })),
+	/**
+	 *  Peaks of a media file's source range (seconds) in `bins` columns, from the analysis cache. Never decodes: while
+	 *  the analysis is not ready the status is `pending`, and its task is moved to interactive priority.
+	 */
+	peakRange: (mediaId: string, start: number | null, end: number | null, bins: number) => typedError<PeakRangeView_Serialize, AppError>(__TAURI_INVOKE("peak_range", { mediaId, start, end, bins })),
+	/**
+	 *  Plays the grain of the open project's timeline mix at `t` seconds. Called up to 60 times a second while the play
+	 *  head is dragged; it returns at once (the worker plays only the latest).
+	 */
+	scrubAudio: (t: number | null) => typedError<null, AppError>(__TAURI_INVOKE("scrub_audio", { t })),
+	/**  What a duck would change, without changing anything. */
+	duckPreview: (request: DuckRequest) => typedError<DuckPreview, AppError>(__TAURI_INVOKE("duck_preview", { request })),
+	/**  Ducks the music under the dialogue as one revision. */
+	duckAudio: (request: DuckRequest) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("duck_audio", { request })),
+	/**  Lines up the targets against the reference as one revision. */
+	syncItems: (request: SyncRequest) => typedError<SyncOutcome_Serialize, AppError>(__TAURI_INVOKE("sync_items", { request })),
+	/**
+	 *  The beats of every audio item in timeline seconds: cached results, else detected with the local beat model (never
+	 *  downloaded). Nothing is written into the project.
+	 */
+	timelineBeats: () => typedError<TimelineBeats, AppError>(__TAURI_INVOKE("timeline_beats")),
+	/**
+	 *  Save dialog for the export destination; `extension` is the container's (`mp4` when `None`). `None` when
+	 *  cancelled.
+	 */
+	chooseExportPath: (defaultName: string, extension: string | null) => typedError<string | null, AppError>(__TAURI_INVOKE("choose_export_path", { defaultName, extension })),
 	/**  Shows a file in the system file manager. */
 	revealPath: (path: string) => typedError<null, AppError>(__TAURI_INVOKE("reveal_path", { path })),
 	/**  Full JSON of an item (every field, document names) for the inspector. */
@@ -130,8 +222,41 @@ export const commands = {
 	 *  relative timing and tracks. Items whose track no longer exists go to the first track of the same kind.
 	 */
 	pasteItems: (itemsJson: string, at: number | null) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("paste_items", { itemsJson, at })),
-	/**  Trims an item's start or end edge to `time` (seconds on the timeline). */
-	trimItem: (id: string, edge: string, time: number | null) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("trim_item", { id, edge, time })),
+	/**
+	 *  Trims an item's start or end edge to `time` (seconds on the timeline), keeping the source in sync and within the
+	 *  source. Linked items trim with it unless `linked` is false (Alt in the timeline: a J or L cut). The trimmed edge
+	 *  may overlap a neighbour (an overlap plays as a crossfade).
+	 */
+	trimItem: (id: string, edge: string, time: number | null, linked: boolean | null) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("trim_item", { id, edge, time, linked })),
+	/**
+	 *  Applies one edit verb (an `ove-edit` request as JSON: `{"op": "rippleDelete", "items": ["…"]}`, times in seconds)
+	 *  as one revision. A refusal is the error and changes nothing.
+	 */
+	editPlan: (request: string) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("edit_plan", { request })),
+	/**
+	 *  Adds a marker at `at` seconds (the M key adds a point marker at the playhead). `fields_json` may set dur, name,
+	 *  color, note, status and assignee.
+	 */
+	markerAdd: (at: number | null, fieldsJson: string | null) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("marker_add", { at, fieldsJson })),
+	/**  Changes a marker (`set_json`: at, dur, name, color, note, status, assignee) and removes optional fields. */
+	markerUpdate: (id: string, setJson: string, unset: string[]) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("marker_update", { id, setJson, unset })),
+	/**  Removes markers. */
+	markerRemove: (ids: string[]) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("marker_remove", { ids })),
+	/**
+	 *  Replaces the keyframes of one property of an item (`keys_json`: `[{time, value, easing?}]`, seconds from the
+	 *  item's start; an empty list removes the property's keyframes) as one revision.
+	 */
+	keyframesSet: (item: string, property: string, keysJson: string, summary: string | null) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("keyframes_set", { item, property, keysJson, summary })),
+	/**  The open project's versions, newest first. */
+	versionList: () => typedError<VersionView_Serialize[], AppError>(__TAURI_INVOKE("version_list")),
+	/**  Saves the current revision as a named version and returns the list, newest first. */
+	versionSave: (name: string, note: string | null) => typedError<VersionView_Serialize[], AppError>(__TAURI_INVOKE("version_save", { name, note })),
+	/**  The changes from version `from` to version `to`, or to the current timeline when `to` is absent. */
+	versionDiff: (from: string, to: string | null) => typedError<VersionChange[], AppError>(__TAURI_INVOKE("version_diff", { from, to })),
+	/**  Makes the timeline equal to a version again, as one new revision that Undo reverts. */
+	versionRestore: (name: string) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("version_restore", { name })),
+	/**  Plans an edit verb without applying it (no revision): what a drag would do while it is held. */
+	editPreview: (request: string) => typedError<EditPreview_Serialize, AppError>(__TAURI_INVOKE("edit_preview", { request })),
 	/**  Adds a track. Video/caption/adjustment/layout tracks go on top, audio tracks at the bottom. */
 	addTrack: (kind: string, name: string) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("add_track", { kind, name })),
 	renameTrack: (id: string, name: string) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("rename_track", { id, name })),
@@ -146,7 +271,18 @@ export const commands = {
 	agentChats: () => typedError<ChatSummaryView[], AppError>(__TAURI_INVOKE("agent_chats")),
 	agentChat: (id: string) => typedError<ChatItem_Serialize[], AppError>(__TAURI_INVOKE("agent_chat", { id })),
 	/**  Starts a turn in a chat (a new chat when `chat_id` is empty). Progress arrives as `agentUiEvent`. */
-	agentSend: (chatId: string | null, text: string) => typedError<SendResult, AppError>(__TAURI_INVOKE("agent_send", { chatId, text })),
+	agentSend: (chatId: string | null, text: string) => typedError<SendResult_Serialize, AppError>(__TAURI_INVOKE("agent_send", { chatId, text })),
+	/**
+	 *  [`agent_send`] with what the message mentions (items, ranges, media, skills). Each mention is resolved now, as
+	 *  the exact printed lines with their revision, and kept in the chat log.
+	 */
+	agentSendContext: (chatId: string | null, text: string, mentions: MentionInput_Deserialize[]) => typedError<SendResult_Serialize, AppError>(__TAURI_INVOKE("agent_send_context", { chatId, text, mentions })),
+	/**
+	 *  History → "Undo this agent's changes": every revision of that agent's session (or of one assistant turn), as one
+	 *  new revision that can itself be undone. Refused when later edits by others changed the same fields: nothing
+	 *  changes, and the conflicting items are listed.
+	 */
+	undoAgentChanges: (kind: string, session: string, turn: string | null) => typedError<AgentUndo_Serialize, AppError>(__TAURI_INVOKE("undo_agent_changes", { kind, session, turn })),
 	agentStop: () => typedError<null, AppError>(__TAURI_INVOKE("agent_stop")),
 	agentAnswer: (questionId: string, answer: string) => typedError<null, AppError>(__TAURI_INVOKE("agent_answer", { questionId, answer })),
 	/**  Saves the spend caps and per-turn limits (Settings → Assistant). They apply from the next turn. */
@@ -214,30 +350,182 @@ export const commands = {
 	matchColor: (itemId: string, referenceTime: number | null, strength: number | null) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("match_color", { itemId, referenceTime, strength })),
 	/**  Histograms (red, green, blue, luma; 64 bins, 0..1) of the timeline frame at `time` seconds. */
 	colorScopes: (time: number | null) => typedError<((number | null)[])[], AppError>(__TAURI_INVOKE("color_scopes", { time })),
+	/**
+	 *  Sets the key colour of chroma key `effect_id` on `item_id` to the mean source colour (before grading) under a
+	 *  viewer point or rectangle (`rect`: x0, y0, x1, y1 as fractions of the frame) at `time` seconds: one revision.
+	 *  A point or rectangle that misses the layer changes nothing and reports `outside`.
+	 */
+	sampleKeyColor: (itemId: string, effectId: string, time: number | null, rect: (number | null)[]) => typedError<KeySample_Serialize, AppError>(__TAURI_INVOKE("sample_key_color", { itemId, effectId, time, rect })),
+	/**  Which scope the colour panel shows (`waveform`, `parade`, `vectorscope`), or none to stop binning. */
+	setScope: (scope: string | null) => typedError<null, AppError>(__TAURI_INVOKE("set_scope", { scope })),
+	/**  The latest scope grid, when newer than `since` (its `seq`). */
+	scopeFrame: (since: number | null) => typedError<ScopeFrame | null, AppError>(__TAURI_INVOKE("scope_frame", { since })),
+	/**  The current compositing status. */
+	compositingStatus: () => typedError<CompositingStatus_Serialize, AppError>(__TAURI_INVOKE("compositing_status")),
+	/**
+	 *  Allows or forbids the GPU for compositing. Applies to timeline previews built (the timeline is rebuilt on every
+	 *  edit and on open) and exports started after the change.
+	 */
+	setGpuCompositing: (enabled: boolean) => typedError<CompositingStatus_Serialize, AppError>(__TAURI_INVOKE("set_gpu_compositing", { enabled })),
 	/**  The onboarding state (a first run when there is none yet). */
 	onboardingState: () => typedError<OnboardingState_Serialize, AppError>(__TAURI_INVOKE("onboarding_state")),
 	/**  Changes the onboarding state and returns it as it is now. */
 	onboardingUpdate: (change: OnboardingChange_Deserialize) => typedError<OnboardingState_Serialize, AppError>(__TAURI_INVOKE("onboarding_update", { change })),
 	/**  "Try the sample": copies the sample project into the library and opens it in the editor. */
 	createSampleProject: () => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("create_sample_project")),
+	/**  Every known model, with what is installed. Speech models saved by earlier versions are recorded on first look. */
+	localModels: () => typedError<LocalModels_Serialize, AppError>(__TAURI_INVOKE("local_models")),
+	/**
+	 *  Deletes an installed model's files. When a running job uses it, returns `waiting` and removes it when the job
+	 *  ends, then sends `localModelsChanged`.
+	 */
+	removeLocalModel: (id: string) => typedError<LocalModelsChanged_Serialize, AppError>(__TAURI_INVOKE("remove_local_model", { id })),
+	/**
+	 *  Downloads a model or the inference runtime after the person asked for it in Settings → Storage (this is their
+	 *  consent). Returns at once; `localModelInstallProgress` reports the host and progress, and the end.
+	 */
+	installLocalModel: (id: string) => typedError<null, AppError>(__TAURI_INVOKE("install_local_model", { id })),
+	/**  Cancels a download started with `install_local_model`. Returns false when none was running. */
+	cancelLocalModelInstall: (id: string) => typedError<boolean, AppError>(__TAURI_INVOKE("cancel_local_model_install", { id })),
+	/**  Runs a read-only transcript tool (or a cutting tool with `apply: false`, a dry run) and returns its JSON result. */
+	transcriptQuery: (tool: string, args: string) => typedError<string, AppError>(__TAURI_INVOKE("transcript_query", { tool, args })),
+	/**  Runs a cutting tool (`remove_words`, `remove_silence`) on the open project as one revision. */
+	transcriptCut: (tool: string, args: string) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("transcript_cut", { tool, args })),
+	/**  Every skill in the store, with the catalog address and the export targets. */
+	skillsView: () => typedError<SkillsView_Serialize, AppError>(__TAURI_INVOKE("skills_view")),
+	/**  A skill's whole file (also for invalid skills, so the person can fix them). */
+	skillText: (id: string) => typedError<string, AppError>(__TAURI_INVOKE("skill_text", { id })),
+	/**  Saves the editor: a new skill (no id: one is made from its name) or the person's edit of one. */
+	skillSave: (id: string | null, text: string, drafted: boolean) => typedError<SkillRow_Serialize, AppError>(__TAURI_INVOKE("skill_save", { id, text, drafted })),
+	skillRemove: (id: string) => typedError<null, AppError>(__TAURI_INVOKE("skill_remove", { id })),
+	/**  Sets the catalog address (HTTPS); empty clears it. Fetches nothing. */
+	skillsSetCatalog: (url: string) => typedError<null, AppError>(__TAURI_INVOKE("skills_set_catalog", { url })),
+	/**
+	 *  Fetches the catalog (the person opened or refreshed the Community list). Refused, with no request, when no
+	 *  address is set.
+	 */
+	skillsCatalog: () => typedError<CatalogView, AppError>(__TAURI_INVOKE("skills_catalog")),
+	/**  Fetches and verifies a catalog skill for the person to read before installing. Installs nothing. */
+	skillInstallPreview: (id: string) => typedError<SkillInstallPreview, AppError>(__TAURI_INVOKE("skill_install_preview", { id })),
+	/**
+	 *  Installs a catalog skill the person confirmed: `sha256` is the pin of the text they read in the preview, and the
+	 *  install is refused when the catalog now pins anything else.
+	 */
+	skillInstall: (id: string, installAs: string, sha256: string) => typedError<SkillRow_Serialize, AppError>(__TAURI_INVOKE("skill_install", { id, installAs, sha256 })),
+	/**  The differences an update would make. Installs nothing. */
+	skillUpdateOffer: (id: string) => typedError<SkillUpdateOffer, AppError>(__TAURI_INVOKE("skill_update_offer", { id })),
+	/**  Installs an update the person accepted; `sha256` is the one they saw. */
+	skillUpdateAccept: (id: string, sha256: string) => typedError<SkillRow_Serialize, AppError>(__TAURI_INVOKE("skill_update_accept", { id, sha256 })),
+	/**  Exports a skill to the chosen agents. `overwrite`: the person confirmed replacing copies they changed there. */
+	skillExport: (id: string, targets: string[], overwrite: boolean) => typedError<SkillExportOutcome_Serialize[], AppError>(__TAURI_INVOKE("skill_export", { id, targets, overwrite })),
+	/**
+	 *  Drafts a skill from the open project with the assistant (the person clicked Draft). Returns the draft for the
+	 *  editor; nothing is saved until the person saves it. `with_chat` includes the project's latest chat.
+	 */
+	skillDraft: (withChat: boolean) => typedError<string, AppError>(__TAURI_INVOKE("skill_draft", { withChat })),
+	/**  Claude Desktop and Cursor on this computer: installed, connected, and the manual configuration. */
+	connectors: () => typedError<ConnectorInfo_Serialize[], AppError>(__TAURI_INVOKE("connectors")),
+	/**  Connect: opens the client's install path (the person clicked Connect). The client then asks the person to confirm. */
+	connectorConnect: (id: string) => typedError<ConnectorOpened, AppError>(__TAURI_INVOKE("connector_connect", { id })),
+	/**
+	 *  Disconnect: removes the editor's server from the client's configuration file (a copy of the old file is kept). A
+	 *  Claude Desktop extension is removed in Claude Desktop's settings.
+	 */
+	connectorDisconnect: (id: string) => typedError<boolean, AppError>(__TAURI_INVOKE("connector_disconnect", { id })),
+	/**
+	 *  Searches the open project's media (`search_media`): runs off the project turn, so a first query that starts the
+	 *  model worker does not hold up editing.
+	 */
+	mediaSearch: (args: string) => typedError<string, AppError>(__TAURI_INVOKE("media_search", { args })),
+	/**  Organises media (`organize_media`): folders, tags, renames and subclips, as one revision. */
+	mediaOrganize: (ops: string) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("media_organize", { ops })),
+	/**  The index state of the open project: model installed or its size, indexed files of all, indexing tasks. */
+	mediaIndexStatus: () => typedError<MediaIndexStatus, AppError>(__TAURI_INVOKE("media_index_status")),
+	/**  Where each visible layer is at `time` seconds on the open project's timeline. */
+	viewerGeometry: (time: number | null) => typedError<ViewerGeometry, AppError>(__TAURI_INVOKE("viewer_geometry", { time })),
+	/**
+	 *  The item whose layer is topmost under the point (`x`, `y`: fractions of the frame) at `time` seconds, judged by
+	 *  the layer's own pixels: a click on a transparent part of a title selects what is below it. `None`: nothing is
+	 *  drawn there.
+	 */
+	viewerPick: (time: number | null, x: number | null, y: number | null) => typedError<string | null, AppError>(__TAURI_INVOKE("viewer_pick", { time, x, y })),
+	/**
+	 *  Shows `preview` in the viewer without changing the project (no revision), or, with `None`, the project as it is
+	 *  (after a cancelled drag). The viewer re-renders the current frame with it while paused.
+	 */
+	viewerPreview: (preview: ViewerPreview | null) => typedError<null, AppError>(__TAURI_INVOKE("viewer_preview", { preview })),
+	/**
+	 *  Puts the app window in (or out of) full screen for the full-screen viewer. The viewer itself fills the window in
+	 *  the UI; the native surface follows the viewer rectangle as always.
+	 */
+	viewerFullscreen: (on: boolean) => typedError<null, AppError>(__TAURI_INVOKE("viewer_fullscreen", { on })),
 };
 
 /** Events */
 export const events = {
+	agentActivity: makeEvent<AgentActivity_Serialize, AgentActivity_Deserialize>("agent-activity"),
 	agentUiEvent: makeEvent<AgentUiEvent_Serialize, AgentUiEvent_Deserialize>("agent-ui-event"),
 	appErrorRaised: makeEvent<AppErrorRaised, AppErrorRaised>("app-error-raised"),
+	audioAnalysisChanged: makeEvent<AudioAnalysisChanged, AudioAnalysisChanged>("audio-analysis-changed"),
+	audioMeter: makeEvent<AudioMeter_Serialize, AudioMeter_Deserialize>("audio-meter"),
 	captionJobProgress: makeEvent<CaptionJobProgress_Serialize, CaptionJobProgress_Deserialize>("caption-job-progress"),
 	exportProgress: makeEvent<ExportProgress_Serialize, ExportProgress_Deserialize>("export-progress"),
 	generationUpdated: makeEvent<GenerationUpdated, GenerationUpdated>("generation-updated"),
+	localModelInstallProgress: makeEvent<LocalModelInstallProgress_Serialize, LocalModelInstallProgress_Deserialize>("local-model-install-progress"),
+	localModelsChanged: makeEvent<LocalModelsChanged_Serialize, LocalModelsChanged_Deserialize>("local-models-changed"),
 	openPathsRequested: makeEvent<OpenPathsRequested, OpenPathsRequested>("open-paths-requested"),
 	playbackChanged: makeEvent<PlaybackChanged, PlaybackChanged>("playback-changed"),
 	projectChanged: makeEvent<ProjectChanged_Serialize, ProjectChanged_Deserialize>("project-changed"),
 	remoteOpened: makeEvent<RemoteOpened_Serialize, RemoteOpened_Deserialize>("remote-opened"),
+	spendRequested: makeEvent<SpendRequested, SpendRequested>("spend-requested"),
+	spendSettled: makeEvent<SpendSettled, SpendSettled>("spend-settled"),
+	tasksChanged: makeEvent<TasksChanged_Serialize, TasksChanged_Deserialize>("tasks-changed"),
 	viewerBackendChanged: makeEvent<ViewerBackendChanged, ViewerBackendChanged>("viewer-backend-changed"),
 	viewerFrameReady: makeEvent<ViewerFrameReady, ViewerFrameReady>("viewer-frame-ready"),
 };
 
 /* Types */
+/**  One thing an agent did on the timeline. */
+export type AgentActivity = AgentActivity_Serialize | AgentActivity_Deserialize;
+
+/**  One thing an agent did on the timeline. */
+export type AgentActivity_Deserialize = {
+	/**  Who, as a stable key: the actor kind and its session (`mcp:<session>`, `assistant:<chat>`). */
+	actor: string,
+	/**  The badge's name: Assistant, the client's name (Claude Code), MCP agent or Command line. */
+	name: string,
+	/**  `read`, `change`, or `person` (the person's own edit; never outlined). */
+	kind: string,
+	/**  Items read, changed or added. */
+	ids: string[],
+	/**  Items removed. */
+	removed: string[],
+	/**  The time range read, seconds. */
+	start?: number | null,
+	end?: number | null,
+	/**  When, ms since the epoch. */
+	ts: number | null,
+};
+
+/**  One thing an agent did on the timeline. */
+export type AgentActivity_Serialize = {
+	/**  Who, as a stable key: the actor kind and its session (`mcp:<session>`, `assistant:<chat>`). */
+	actor: string,
+	/**  The badge's name: Assistant, the client's name (Claude Code), MCP agent or Command line. */
+	name: string,
+	/**  `read`, `change`, or `person` (the person's own edit; never outlined). */
+	kind: string,
+	/**  Items read, changed or added. */
+	ids: string[],
+	/**  Items removed. */
+	removed: string[],
+	/**  The time range read, seconds. */
+	start: number | null,
+	end: number | null,
+	/**  When, ms since the epoch. */
+	ts: number | null,
+};
+
 export type AgentConnect = {
 	status: AgentConnectStatus,
 	instructions: string,
@@ -352,6 +640,25 @@ export type AgentUiEvent_Serialize = { kind: "turnStarted"; chatId: string } | {
 /**  The assistant asked to show a timeline time. */
 { kind: "seek"; seconds: number | null };
 
+/**  What "Undo this agent's changes" did. */
+export type AgentUndo = AgentUndo_Serialize | AgentUndo_Deserialize;
+
+/**  What "Undo this agent's changes" did. */
+export type AgentUndo_Deserialize = {
+	/**  The project after the undo; none when it was refused. */
+	view?: ProjectView_Deserialize | null,
+	/**  Why it was refused: the fields changed later by others (nothing was changed). */
+	conflicts: UndoConflictRow[],
+};
+
+/**  What "Undo this agent's changes" did. */
+export type AgentUndo_Serialize = {
+	/**  The project after the undo; none when it was refused. */
+	view: ProjectView_Serialize | null,
+	/**  Why it was refused: the fields changed later by others (nothing was changed). */
+	conflicts: UndoConflictRow[],
+};
+
 /**  Error returned by every command: a code plus a plain-language message. */
 export type AppError = {
 	code: ErrorCode,
@@ -392,6 +699,57 @@ export type AppInfo_Serialize = {
 	libraryDir: string | null,
 };
 
+/**  A media file's analysis finished (or failed): the UI asks for its peaks again. */
+export type AudioAnalysisChanged = {
+	contentId: string,
+	/**  ready | error */
+	status: string,
+};
+
+/**  Audio settings of an [`ExportForm`]. */
+export type AudioForm = AudioForm_Serialize | AudioForm_Deserialize;
+
+/**  Audio settings of an [`ExportForm`]. */
+export type AudioForm_Deserialize = {
+	/**  `aac`, `pcm`, `flac` or `opus`. */
+	codec: string,
+	/**  PCM and FLAC: 16 or 24. */
+	bitDepth?: number | null,
+	/**  AAC and Opus, bits per second; `None` follows the video quality. */
+	bitrate?: number | null,
+};
+
+/**  Audio settings of an [`ExportForm`]. */
+export type AudioForm_Serialize = {
+	/**  `aac`, `pcm`, `flac` or `opus`. */
+	codec: string,
+	/**  PCM and FLAC: 16 or 24. */
+	bitDepth: number | null,
+	/**  AAC and Opus, bits per second; `None` follows the video quality. */
+	bitrate: number | null,
+};
+
+/**  A batch of meter readings. */
+export type AudioMeter = AudioMeter_Serialize | AudioMeter_Deserialize;
+
+/**  A batch of meter readings. */
+export type AudioMeter_Deserialize = {
+	/**  Media seconds being heard when the batch was sent. */
+	heard: number | null,
+	/**  Whether the mix is playing; when false the meters fall back. */
+	playing: boolean,
+	readings: MeterReadingView_Deserialize[],
+};
+
+/**  A batch of meter readings. */
+export type AudioMeter_Serialize = {
+	/**  Media seconds being heard when the batch was sent. */
+	heard: number | null,
+	/**  Whether the mix is playing; when false the meters fall back. */
+	playing: boolean,
+	readings: MeterReadingView_Serialize[],
+};
+
 /**  What to caption. */
 export type AutoCaptionRequest = AutoCaptionRequest_Serialize | AutoCaptionRequest_Deserialize;
 
@@ -421,6 +779,16 @@ export type AutoCaptionRequest_Serialize = {
 	presetId: string | null,
 	/**  Replace captions already on the Captions track in the captioned range. */
 	replace: boolean,
+};
+
+/**  One Storage row. */
+export type CacheRow = {
+	kind: string,
+	label: string,
+	/**  Bytes in the open project (0 without one). */
+	projectBytes: number | null,
+	/**  Bytes across every project in the library. */
+	totalBytes: number | null,
 };
 
 /**  Progress of a captions job (model download, transcription, applying); `done` ends it. */
@@ -465,12 +833,26 @@ export type CaptionModel = {
 	default: boolean,
 };
 
+export type CatalogEntryView = {
+	id: string,
+	name: string,
+	description: string,
+	sha256: string,
+};
+
+export type CatalogView = {
+	url: string,
+	entries: CatalogEntryView[],
+	skipped: string[],
+	installed: SkillUpdateRow[],
+};
+
 /**  One line of the chat as the UI shows it. */
 export type ChatItem = ChatItem_Serialize | ChatItem_Deserialize;
 
 /**  One line of the chat as the UI shows it. */
 export type ChatItem_Deserialize = {
-	/**  user, assistant, tool, question or note. */
+	/**  user, assistant, tool, question, note, reasoning (the summarized thinking), changes or usage. */
 	role: string,
 	text: string,
 	/**  Tool call / question id. */
@@ -481,11 +863,13 @@ export type ChatItem_Deserialize = {
 	usage?: TurnUsageView | null,
 	/**  role `changes`: what the turn changed. */
 	review?: TurnReview | null,
+	/**  role `user`: what the message mentioned (items, ranges, media, skills). */
+	mentions: MentionChip[],
 };
 
 /**  One line of the chat as the UI shows it. */
 export type ChatItem_Serialize = {
-	/**  user, assistant, tool, question or note. */
+	/**  user, assistant, tool, question, note, reasoning (the summarized thinking), changes or usage. */
 	role: string,
 	text: string,
 	/**  Tool call / question id. */
@@ -496,6 +880,8 @@ export type ChatItem_Serialize = {
 	usage: TurnUsageView | null,
 	/**  role `changes`: what the turn changed. */
 	review: TurnReview | null,
+	/**  role `user`: what the message mentioned (items, ranges, media, skills). */
+	mentions: MentionChip[],
 };
 
 export type ChatSummaryView = {
@@ -506,6 +892,101 @@ export type ChatSummaryView = {
 
 /**  A step of the guided first edit. */
 export type ChecklistStep = "import" | "cut" | "title" | "captions" | "export";
+
+/**  What a clear did. */
+export type ClearResult = ClearResult_Serialize | ClearResult_Deserialize;
+
+/**  What a clear did. */
+export type ClearResult_Deserialize = {
+	freedBytes: number | null,
+	cancelledTasks: number,
+	/**  Files that could not be removed (in use); they go on the next clear. */
+	left: number,
+	view: StorageView_Deserialize,
+};
+
+/**  What a clear did. */
+export type ClearResult_Serialize = {
+	freedBytes: number | null,
+	cancelledTasks: number,
+	/**  Files that could not be removed (in use); they go on the next clear. */
+	left: number,
+	view: StorageView_Serialize,
+};
+
+/**  What Settings and the diagnostics overlay show. */
+export type CompositingStatus = CompositingStatus_Serialize | CompositingStatus_Deserialize;
+
+/**  What Settings and the diagnostics overlay show. */
+export type CompositingStatus_Deserialize = {
+	/**  The person allows the GPU (Settings → Rendering). */
+	gpuEnabled: boolean,
+	/**  The backend in use: "gpu" or "cpu"; "starting" until the startup self-test has run. */
+	backend: string,
+	adapter?: string | null,
+	/**  Why this backend. */
+	reason: string,
+};
+
+/**  What Settings and the diagnostics overlay show. */
+export type CompositingStatus_Serialize = {
+	/**  The person allows the GPU (Settings → Rendering). */
+	gpuEnabled: boolean,
+	/**  The backend in use: "gpu" or "cpu"; "starting" until the startup self-test has run. */
+	backend: string,
+	adapter: string | null,
+	/**  Why this backend. */
+	reason: string,
+};
+
+/**  One desktop client as the Connect list shows it. */
+export type ConnectorInfo = ConnectorInfo_Serialize | ConnectorInfo_Deserialize;
+
+/**  One desktop client as the Connect list shows it. */
+export type ConnectorInfo_Deserialize = {
+	id: string,
+	name: string,
+	installed: boolean,
+	connected: boolean,
+	getIt: string,
+	/**  `extension` (a package the client installs) or `link` (an install link). */
+	kind: string,
+	/**  Where the manual configuration goes. */
+	configFile?: string | null,
+	/**  The manual configuration to copy. */
+	snippet: string,
+};
+
+/**  One desktop client as the Connect list shows it. */
+export type ConnectorInfo_Serialize = {
+	id: string,
+	name: string,
+	installed: boolean,
+	connected: boolean,
+	getIt: string,
+	/**  `extension` (a package the client installs) or `link` (an install link). */
+	kind: string,
+	/**  Where the manual configuration goes. */
+	configFile: string | null,
+	/**  The manual configuration to copy. */
+	snippet: string,
+};
+
+export type ConnectorOpened = {
+	/**  What was opened: the package file or the link. */
+	opened: string,
+	detail: string,
+};
+
+/**  A container and what it may hold. */
+export type ContainerChoice = {
+	id: string,
+	label: string,
+	audioOnly: boolean,
+	available: boolean,
+	videoCodecs: string[],
+	audioCodecs: string[],
+};
 
 export type CrashReport = {
 	path: string,
@@ -541,8 +1022,271 @@ export type Diagnostics_Serialize = {
 	audioAvailable: boolean,
 };
 
+/**  What a duck would change. */
+export type DuckPreview = {
+	/**  transcript | level */
+	source: string,
+	/**  Lines of speech found. */
+	lines: number,
+	/**  Speech, seconds, as [start, end] pairs. */
+	speech: ((number | null)[])[],
+	musicItems: number,
+	keyframes: number,
+};
+
+/**  What to duck, under what, and how. */
+export type DuckRequest = {
+	/**  Music item ids or track ids/names. */
+	music: string[],
+	/**  Dialogue item ids or track ids/names. */
+	under: string[],
+	/**  dB during speech (-60 to 0). */
+	depth: number | null,
+	/**  Seconds. */
+	attack: number | null,
+	release: number | null,
+	hold: number | null,
+	/**  transcript | level | auto */
+	source: string,
+	/**  replace | merge */
+	mode: string,
+};
+
+/**
+ *  What an edit would do, without doing it: the items it adds or changes at their new place (for ghost
+ *  rendering), the items it removes, the items that stopped at a limit, or why it would be refused.
+ */
+export type EditPreview = EditPreview_Serialize | EditPreview_Deserialize;
+
+/**
+ *  What an edit would do, without doing it: the items it adds or changes at their new place (for ghost
+ *  rendering), the items it removes, the items that stopped at a limit, or why it would be refused.
+ */
+export type EditPreview_Deserialize = {
+	summary: string,
+	ghosts: Ghost[],
+	removed: string[],
+	limited: string[],
+	refusal?: EditRefusal | null,
+};
+
+/**
+ *  What an edit would do, without doing it: the items it adds or changes at their new place (for ghost
+ *  rendering), the items it removes, the items that stopped at a limit, or why it would be refused.
+ */
+export type EditPreview_Serialize = {
+	summary: string,
+	ghosts: Ghost[],
+	removed: string[],
+	limited: string[],
+	refusal: EditRefusal | null,
+};
+
+/**  Why an edit would be refused. */
+export type EditRefusal = {
+	code: string,
+	/**  Items to outline. */
+	culprits: string[],
+	message: string,
+};
+
 /**  Machine-readable error category. The UI switches on this; `message` is shown to the user. */
 export type ErrorCode = "not_found" | "unsupported" | "corrupt" | "media_offline" | "no_media" | "invalid_argument" | "worker_panic" | "gpu" | "io" | "internal";
+
+/**  The dialog's check of a form against the open timeline and this computer. */
+export type ExportCheck = ExportCheck_Serialize | ExportCheck_Deserialize;
+
+/**  The dialog's check of a form against the open timeline and this computer. */
+export type ExportCheck_Deserialize = {
+	ok: boolean,
+	/**  Why it cannot be exported, naming the conflicting choices. */
+	message?: string | null,
+	/**  The fields the message is about (`container`, `video.codec`, `alpha`, `range`, …). */
+	fields: string[],
+	/**  The file extension for the container. */
+	extension: string,
+	/**  "MOV · ProRes 422 HQ · PCM 24-bit · 1920×1080 · 30 fps". */
+	summary: string,
+	/**  Output frame size ("1920×1080"); `None` for audio only. */
+	frameSize?: string | null,
+};
+
+/**  The dialog's check of a form against the open timeline and this computer. */
+export type ExportCheck_Serialize = {
+	ok: boolean,
+	/**  Why it cannot be exported, naming the conflicting choices. */
+	message: string | null,
+	/**  The fields the message is about (`container`, `video.codec`, `alpha`, `range`, …). */
+	fields: string[],
+	/**  The file extension for the container. */
+	extension: string,
+	/**  "MOV · ProRes 422 HQ · PCM 24-bit · 1920×1080 · 30 fps". */
+	summary: string,
+	/**  Output frame size ("1920×1080"); `None` for audio only. */
+	frameSize: string | null,
+};
+
+/**  One choice in a list (a profile, a codec). */
+export type ExportChoice = {
+	id: string,
+	label: string,
+	/**  False when this computer has no encoder (or muxer) for it. */
+	available: boolean,
+};
+
+/**  What the export dialog sends: the export settings model in a shape the UI can hold. */
+export type ExportForm = ExportForm_Serialize | ExportForm_Deserialize;
+
+/**  What the export dialog sends: the export settings model in a shape the UI can hold. */
+export type ExportForm_Deserialize = {
+	/**  `mp4`, `mov`, `mkv`, `webm`, `m4a`, `wav` or `flac`. */
+	container: string,
+	/**  `None`: audio only. */
+	video?: VideoForm_Deserialize | null,
+	/**  `None`: no sound. */
+	audio?: AudioForm_Deserialize | null,
+	/**  `match` (the timeline's size) or a height in pixels. */
+	size: string,
+	/**  `match` (the timeline's rate) or frames per second. */
+	fps: string,
+	/**  Start and end in seconds; `None` = the whole timeline. */
+	range?: [number | null, number | null] | null,
+	/**  Integrated loudness target in LUFS; `None` = off. */
+	loudness?: number | null,
+};
+
+/**  What the export dialog sends: the export settings model in a shape the UI can hold. */
+export type ExportForm_Serialize = {
+	/**  `mp4`, `mov`, `mkv`, `webm`, `m4a`, `wav` or `flac`. */
+	container: string,
+	/**  `None`: audio only. */
+	video: VideoForm_Serialize | null,
+	/**  `None`: no sound. */
+	audio: AudioForm_Serialize | null,
+	/**  `match` (the timeline's size) or a height in pixels. */
+	size: string,
+	/**  `match` (the timeline's rate) or frames per second. */
+	fps: string,
+	/**  Start and end in seconds; `None` = the whole timeline. */
+	range: [number | null, number | null] | null,
+	/**  Integrated loudness target in LUFS; `None` = off. */
+	loudness: number | null,
+};
+
+/**  An export job as the Exports panel shows it. */
+export type ExportJobView = ExportJobView_Serialize | ExportJobView_Deserialize;
+
+/**  An export job as the Exports panel shows it. */
+export type ExportJobView_Deserialize = {
+	id: string,
+	projectName: string,
+	/**  True when the job's project is the one open in the editor ("Export again" needs it). */
+	thisProject: boolean,
+	out: string,
+	fileName: string,
+	/**  `queued`, `running`, `done`, `failed` or `cancelled`. */
+	status: string,
+	/**  0–1. */
+	progress: number | null,
+	frame: number,
+	totalFrames: number,
+	/**  The encoder as people read it, once known. */
+	encoder?: string | null,
+	/**  "MOV · ProRes 422 HQ · PCM 24-bit". */
+	summary: string,
+	range?: [number | null, number | null] | null,
+	error?: string | null,
+	warnings: string[],
+	/**  "person", "assistant", "cli" or an MCP client's name. */
+	requestedBy: string,
+	/**  Milliseconds since 1970. */
+	createdAt: number | null,
+	finishedAt?: number | null,
+	secondsTaken?: number | null,
+	/**  "Loudness −14.0 LUFS (was −22.3)" when the export normalised loudness. */
+	loudness?: string | null,
+	form: ExportForm_Deserialize,
+};
+
+/**  An export job as the Exports panel shows it. */
+export type ExportJobView_Serialize = {
+	id: string,
+	projectName: string,
+	/**  True when the job's project is the one open in the editor ("Export again" needs it). */
+	thisProject: boolean,
+	out: string,
+	fileName: string,
+	/**  `queued`, `running`, `done`, `failed` or `cancelled`. */
+	status: string,
+	/**  0–1. */
+	progress: number | null,
+	frame: number,
+	totalFrames: number,
+	/**  The encoder as people read it, once known. */
+	encoder: string | null,
+	/**  "MOV · ProRes 422 HQ · PCM 24-bit". */
+	summary: string,
+	range: [number | null, number | null] | null,
+	error: string | null,
+	warnings: string[],
+	/**  "person", "assistant", "cli" or an MCP client's name. */
+	requestedBy: string,
+	/**  Milliseconds since 1970. */
+	createdAt: number | null,
+	finishedAt: number | null,
+	secondsTaken: number | null,
+	/**  "Loudness −14.0 LUFS (was −22.3)" when the export normalised loudness. */
+	loudness: string | null,
+	form: ExportForm_Serialize,
+};
+
+/**  Everything the export dialog offers. */
+export type ExportOptions = ExportOptions_Serialize | ExportOptions_Deserialize;
+
+/**  Everything the export dialog offers. */
+export type ExportOptions_Deserialize = {
+	presets: ExportPresetView_Deserialize[],
+	containers: ContainerChoice[],
+	videoCodecs: VideoCodecChoice[],
+	audioCodecs: ExportChoice[],
+	/**  Loudness targets in LUFS. */
+	loudnessTargets: (number | null)[],
+};
+
+/**  Everything the export dialog offers. */
+export type ExportOptions_Serialize = {
+	presets: ExportPresetView_Serialize[],
+	containers: ContainerChoice[],
+	videoCodecs: VideoCodecChoice[],
+	audioCodecs: ExportChoice[],
+	/**  Loudness targets in LUFS. */
+	loudnessTargets: (number | null)[],
+};
+
+/**  A named preset as the dialog lists it. */
+export type ExportPresetView = ExportPresetView_Serialize | ExportPresetView_Deserialize;
+
+/**  A named preset as the dialog lists it. */
+export type ExportPresetView_Deserialize = {
+	name: string,
+	about: string,
+	form: ExportForm_Deserialize,
+	/**  "MOV · ProRes 422 HQ · PCM 24-bit". */
+	summary: string,
+	/**  Why this computer cannot write it ("no HEVC encoder on this computer …"); `None` when it can. */
+	unavailable?: string | null,
+};
+
+/**  A named preset as the dialog lists it. */
+export type ExportPresetView_Serialize = {
+	name: string,
+	about: string,
+	form: ExportForm_Serialize,
+	/**  "MOV · ProRes 422 HQ · PCM 24-bit". */
+	summary: string,
+	/**  Why this computer cannot write it ("no HEVC encoder on this computer …"); `None` when it can. */
+	unavailable: string | null,
+};
 
 /**  Export progress (and the end of an export: `done`, with `error` or `path`). */
 export type ExportProgress = ExportProgress_Serialize | ExportProgress_Deserialize;
@@ -585,6 +1329,43 @@ export type ExportRequest = {
 	fps: number,
 };
 
+/**  One drafted report. */
+export type FeedbackDraft = FeedbackDraft_Serialize | FeedbackDraft_Deserialize;
+
+/**  One drafted report. */
+export type FeedbackDraft_Deserialize = {
+	id: string,
+	/**  Milliseconds since the epoch. */
+	createdAt: number | null,
+	category: string,
+	severity: string,
+	summary: string,
+	/**  Who drafted it: the agent's client name, or where it ran. */
+	from: string,
+	recentTools: string[],
+	lastError?: string | null,
+	edited: boolean,
+	/**  The text "Copy report" puts on the clipboard. */
+	report: string,
+};
+
+/**  One drafted report. */
+export type FeedbackDraft_Serialize = {
+	id: string,
+	/**  Milliseconds since the epoch. */
+	createdAt: number | null,
+	category: string,
+	severity: string,
+	summary: string,
+	/**  Who drafted it: the agent's client name, or where it ran. */
+	from: string,
+	recentTools: string[],
+	lastError: string | null,
+	edited: boolean,
+	/**  The text "Copy report" puts on the clipboard. */
+	report: string,
+};
+
 /**  What "Send feedback" puts in a report. Nothing is sent from here: the person copies it. */
 export type FeedbackInfo = FeedbackInfo_Serialize | FeedbackInfo_Deserialize;
 
@@ -619,8 +1400,19 @@ export type FontFamily = {
 /**  A job changed (started, finished, failed). Payload: the job as JSON. */
 export type GenerationUpdated = string;
 
+/**  An item where an edit would put it. */
+export type Ghost = {
+	id: string,
+	trackId: string,
+	start: number | null,
+	end: number | null,
+};
+
 /**  One revision in the history panel. */
-export type HistoryRow = {
+export type HistoryRow = HistoryRow_Serialize | HistoryRow_Deserialize;
+
+/**  One revision in the history panel. */
+export type HistoryRow_Deserialize = {
 	rev: number | null,
 	/**  ms since the epoch. */
 	time: number | null,
@@ -631,6 +1423,61 @@ export type HistoryRow = {
 	summary: string,
 	/**  The project as it was before this revision can still be rebuilt (older ones may have been pruned). */
 	canRestore: boolean,
+	/**  The agent client that made it (an MCP client's name, such as claude-code), when recorded. */
+	client?: string | null,
+	/**
+	 *  Who made it, for grouping by agent (change add-agent-chat-context-and-activity): the recorded actor's kind
+	 *  (user, assistant, cli, mcp, …), session and turn, and its name as people read it (Claude Code, Assistant).
+	 */
+	actorKind?: string | null,
+	session?: string | null,
+	turn?: string | null,
+	actorName?: string | null,
+};
+
+/**  One revision in the history panel. */
+export type HistoryRow_Serialize = {
+	rev: number | null,
+	/**  ms since the epoch. */
+	time: number | null,
+	/**  The recorded source: gui, cli, mcp, agent, migration, undo, redo or restore. */
+	source: string,
+	/**  Who made it, in words: You, Assistant, Command line, MCP, Template, Generation, App update. */
+	who: string,
+	summary: string,
+	/**  The project as it was before this revision can still be rebuilt (older ones may have been pruned). */
+	canRestore: boolean,
+	/**  The agent client that made it (an MCP client's name, such as claude-code), when recorded. */
+	client: string | null,
+	/**
+	 *  Who made it, for grouping by agent (change add-agent-chat-context-and-activity): the recorded actor's kind
+	 *  (user, assistant, cli, mcp, …), session and turn, and its name as people read it (Claude Code, Assistant).
+	 */
+	actorKind: string | null,
+	session: string | null,
+	turn: string | null,
+	actorName: string | null,
+};
+
+/**  What the timeline needs to draw a clip's waveform and gain line. */
+export type ItemAudio = {
+	/**  Static volume, percent (0–200). */
+	volume: number | null,
+	reverse: boolean,
+	/**  Audio fade durations, seconds (0 when none). */
+	fadeIn: number | null,
+	fadeOut: number | null,
+	/**  Volume keyframes in time order (empty when none). */
+	volumeKeys: VolumeKey[],
+	volumeEasing: string,
+};
+
+/**  One music item's beats on the timeline. */
+export type ItemBeats = {
+	item: string,
+	/**  Timeline seconds. */
+	beats: (number | null)[],
+	downbeats: (number | null)[],
 };
 
 export type ItemView = ItemView_Serialize | ItemView_Deserialize;
@@ -653,6 +1500,12 @@ export type ItemView_Deserialize = {
 	transitionIn: number | null,
 	transitionOut: number | null,
 	speed: number | null,
+	/**  Link group value, when the item is linked. */
+	link?: string | null,
+	/**  Volume, fades and volume keyframes of video and audio items, for the waveform and gain line. */
+	audio?: ItemAudio | null,
+	/**  Keyframe tracks other than volume (opacity, scale, crop, …), for the keyframe lanes (absent: none). */
+	keyframes?: KeyframeTrackView_Deserialize[] | null,
 };
 
 export type ItemView_Serialize = {
@@ -673,6 +1526,12 @@ export type ItemView_Serialize = {
 	transitionIn: number | null,
 	transitionOut: number | null,
 	speed: number | null,
+	/**  Link group value, when the item is linked. */
+	link: string | null,
+	/**  Volume, fades and volume keyframes of video and audio items, for the waveform and gain line. */
+	audio?: ItemAudio,
+	/**  Keyframe tracks other than volume (opacity, scale, crop, …), for the keyframe lanes (absent: none). */
+	keyframes?: KeyframeTrackView_Serialize[],
 };
 
 /**  The result of trying the saved key with a real (free) request. */
@@ -680,6 +1539,225 @@ export type KeyCheck = {
 	ok: boolean,
 	/**  "Key works." or the provider's error in plain words. */
 	message: string,
+};
+
+/**  What a key colour sample did: the new colour and the project, or that the point was outside the layer. */
+export type KeySample = KeySample_Serialize | KeySample_Deserialize;
+
+/**  What a key colour sample did: the new colour and the project, or that the point was outside the layer. */
+export type KeySample_Deserialize = {
+	/**  The click or rectangle missed the layer: nothing changed. */
+	outside: boolean,
+	/**  The sampled colour (RGB 0..1), when set. */
+	color?: (number | null)[] | null,
+	project?: ProjectView_Deserialize | null,
+};
+
+/**  What a key colour sample did: the new colour and the project, or that the point was outside the layer. */
+export type KeySample_Serialize = {
+	/**  The click or rectangle missed the layer: nothing changed. */
+	outside: boolean,
+	/**  The sampled colour (RGB 0..1), when set. */
+	color: (number | null)[] | null,
+	project: ProjectView_Serialize | null,
+};
+
+/**  One keyframe as a lane shows it. */
+export type KeyView = KeyView_Serialize | KeyView_Deserialize;
+
+/**  One keyframe as a lane shows it. */
+export type KeyView_Deserialize = {
+	/**  Seconds from the item's start. */
+	time: number | null,
+	value: number | null,
+	/**  The easing of the segment that starts here, when it overrides the track's. */
+	easing?: string | null,
+};
+
+/**  One keyframe as a lane shows it. */
+export type KeyView_Serialize = {
+	/**  Seconds from the item's start. */
+	time: number | null,
+	value: number | null,
+	/**  The easing of the segment that starts here, when it overrides the track's. */
+	easing: string | null,
+};
+
+/**  One keyframed property of an item. */
+export type KeyframeTrackView = KeyframeTrackView_Serialize | KeyframeTrackView_Deserialize;
+
+/**  One keyframed property of an item. */
+export type KeyframeTrackView_Deserialize = {
+	property: string,
+	/**  The track's easing (`linear` when not set). */
+	easing: string,
+	keys: KeyView_Deserialize[],
+};
+
+/**  One keyframed property of an item. */
+export type KeyframeTrackView_Serialize = {
+	property: string,
+	/**  The track's easing (`linear` when not set). */
+	easing: string,
+	keys: KeyView_Serialize[],
+};
+
+/**  One model as the Storage list shows it. */
+export type LocalModel = LocalModel_Serialize | LocalModel_Deserialize;
+
+/**
+ *  Progress of a download the person started in Settings → Storage. The first event names the host the files come
+ *  from; the last has `finished` set, with `error` when it failed or was cancelled.
+ */
+export type LocalModelInstallProgress = LocalModelInstallProgress_Serialize | LocalModelInstallProgress_Deserialize;
+
+/**
+ *  Progress of a download the person started in Settings → Storage. The first event names the host the files come
+ *  from; the last has `finished` set, with `error` when it failed or was cancelled.
+ */
+export type LocalModelInstallProgress_Deserialize = {
+	id: string,
+	host: string,
+	doneBytes: number | null,
+	totalBytes: number | null,
+	finished: boolean,
+	error?: string | null,
+};
+
+/**
+ *  Progress of a download the person started in Settings → Storage. The first event names the host the files come
+ *  from; the last has `finished` set, with `error` when it failed or was cancelled.
+ */
+export type LocalModelInstallProgress_Serialize = {
+	id: string,
+	host: string,
+	doneBytes: number | null,
+	totalBytes: number | null,
+	finished: boolean,
+	error: string | null,
+};
+
+/**  One model as the Storage list shows it. */
+export type LocalModel_Deserialize = {
+	id: string,
+	purpose: string,
+	licence: string,
+	/**  Size of the whole model in bytes. */
+	bytes: number | null,
+	installed: boolean,
+	/**  The folder holding its files, when installed. */
+	location?: string | null,
+	/**  A running job uses it (removal waits for the job). */
+	inUse: boolean,
+	/**  Where it downloads from (shown before the first download). */
+	host?: string | null,
+	/**  Bytes to download (an archive counts once). */
+	downloadBytes: number | null,
+};
+
+/**  One model as the Storage list shows it. */
+export type LocalModel_Serialize = {
+	id: string,
+	purpose: string,
+	licence: string,
+	/**  Size of the whole model in bytes. */
+	bytes: number | null,
+	installed: boolean,
+	/**  The folder holding its files, when installed. */
+	location: string | null,
+	/**  A running job uses it (removal waits for the job). */
+	inUse: boolean,
+	/**  Where it downloads from (shown before the first download). */
+	host: string | null,
+	/**  Bytes to download (an archive counts once). */
+	downloadBytes: number | null,
+};
+
+export type LocalModels = LocalModels_Serialize | LocalModels_Deserialize;
+
+/**  The outcome of a removal, returned by `remove_local_model` and, after a wait, sent as an event. */
+export type LocalModelsChanged = LocalModelsChanged_Serialize | LocalModelsChanged_Deserialize;
+
+/**  The outcome of a removal, returned by `remove_local_model` and, after a wait, sent as an event. */
+export type LocalModelsChanged_Deserialize = {
+	id: string,
+	status: RemoveStatus,
+	freedBytes: number | null,
+	freeBytes?: number | null,
+};
+
+/**  The outcome of a removal, returned by `remove_local_model` and, after a wait, sent as an event. */
+export type LocalModelsChanged_Serialize = {
+	id: string,
+	status: RemoveStatus,
+	freedBytes: number | null,
+	freeBytes: number | null,
+};
+
+export type LocalModels_Deserialize = {
+	/**  The store folder. */
+	root: string,
+	/**  Free space on the store's disk in bytes, when known. */
+	freeBytes?: number | null,
+	models: LocalModel_Deserialize[],
+};
+
+export type LocalModels_Serialize = {
+	/**  The store folder. */
+	root: string,
+	/**  Free space on the store's disk in bytes, when known. */
+	freeBytes: number | null,
+	models: LocalModel_Serialize[],
+};
+
+/**  A marker as the timeline shows it. */
+export type MarkerView = MarkerView_Serialize | MarkerView_Deserialize;
+
+/**  A marker as the timeline shows it. */
+export type MarkerView_Deserialize = {
+	id: string,
+	/**  Seconds. */
+	at: number | null,
+	/**  Seconds; 0 for a point marker. */
+	dur: number | null,
+	/**  open, review or resolved. */
+	status: string,
+	name?: string | null,
+	color?: string | null,
+	note?: string | null,
+	assignee?: string | null,
+};
+
+/**  A marker as the timeline shows it. */
+export type MarkerView_Serialize = {
+	id: string,
+	/**  Seconds. */
+	at: number | null,
+	/**  Seconds; 0 for a point marker. */
+	dur: number | null,
+	/**  open, review or resolved. */
+	status: string,
+	name: string | null,
+	color: string | null,
+	note: string | null,
+	assignee: string | null,
+};
+
+/**  What the media panel's index pill shows. */
+export type MediaIndexStatus = {
+	/**  The visual search model is installed. */
+	modelInstalled: boolean,
+	/**  Its download size when it is not. */
+	downloadBytes: number | null,
+	/**  What the install offer names: the model, its weights' licence and where it downloads from. */
+	modelName: string,
+	licence: string,
+	host: string,
+	/**  Videos and images with a current index, of all. */
+	indexed: number,
+	total: number,
+	/**  Indexing tasks queued or running for this project. */
+	running: number,
 };
 
 /**  Properties shown next to the viewer. */
@@ -729,6 +1807,15 @@ export type MediaView_Deserialize = {
 	status: string,
 	/**  `data:image/png;base64,…` thumbnail, when one could be made. */
 	thumbnail?: string | null,
+	/**  The hover-skim sheet, once built (served at `ove-skim://localhost/<contentId>.jpg`). */
+	skim?: SkimView | null,
+	/**  Start timecode label (`HH:MM:SS:FF`, `;` for drop-frame) when the file carries one. */
+	timecode?: string | null,
+	/**  Media panel folder (add-semantic-media-search), `/`-separated; none at the top level. */
+	folder?: string | null,
+	tags: string[],
+	/**  Saved source ranges, shown under the media and dragged like it. */
+	subclips: SubclipView[],
 };
 
 export type MediaView_Serialize = {
@@ -743,6 +1830,74 @@ export type MediaView_Serialize = {
 	status: string,
 	/**  `data:image/png;base64,…` thumbnail, when one could be made. */
 	thumbnail: string | null,
+	/**  The hover-skim sheet, once built (served at `ove-skim://localhost/<contentId>.jpg`). */
+	skim: SkimView | null,
+	/**  Start timecode label (`HH:MM:SS:FF`, `;` for drop-frame) when the file carries one. */
+	timecode?: string,
+	/**  Media panel folder (add-semantic-media-search), `/`-separated; none at the top level. */
+	folder: string | null,
+	tags: string[],
+	/**  Saved source ranges, shown under the media and dragged like it. */
+	subclips: SubclipView[],
+};
+
+/**  A mention as the chat shows it under a message. */
+export type MentionChip = {
+	kind: string,
+	label: string,
+	ids: string[],
+	/**  An image was attached. */
+	image: boolean,
+};
+
+/**  A mention as the chat input sends it: an item, media or skill by id, or a time range. */
+export type MentionInput = MentionInput_Serialize | MentionInput_Deserialize;
+
+/**  A mention as the chat input sends it: an item, media or skill by id, or a time range. */
+export type MentionInput_Deserialize = {
+	/**  `item`, `range`, `media` or `skill`. */
+	kind: string,
+	id?: string | null,
+	/**  A range's start and end, seconds. */
+	start?: number | null,
+	end?: number | null,
+};
+
+/**  A mention as the chat input sends it: an item, media or skill by id, or a time range. */
+export type MentionInput_Serialize = {
+	/**  `item`, `range`, `media` or `skill`. */
+	kind: string,
+	id: string | null,
+	/**  A range's start and end, seconds. */
+	start: number | null,
+	end: number | null,
+};
+
+/**  One reading as the UI uses it. Times are media seconds; levels are dB. */
+export type MeterReadingView = MeterReadingView_Serialize | MeterReadingView_Deserialize;
+
+/**  One reading as the UI uses it. Times are media seconds; levels are dB. */
+export type MeterReadingView_Deserialize = {
+	start: number | null,
+	end: number | null,
+	/**  Sample peak, RMS and true peak per channel (left, right). */
+	peak: (number | null)[],
+	rms: (number | null)[],
+	truePeak: (number | null)[],
+	momentary?: number | null,
+	shortTerm?: number | null,
+};
+
+/**  One reading as the UI uses it. Times are media seconds; levels are dB. */
+export type MeterReadingView_Serialize = {
+	start: number | null,
+	end: number | null,
+	/**  Sample peak, RMS and true peak per channel (left, right). */
+	peak: (number | null)[],
+	rms: (number | null)[],
+	truePeak: (number | null)[],
+	momentary: number | null,
+	shortTerm: number | null,
 };
 
 export type ModelOption = {
@@ -819,6 +1974,45 @@ export type OpenPathsRequested = {
 	paths: string[],
 };
 
+/**  An active reason background work is paused, with the words the popover shows after "Paused: ". */
+export type PauseView = {
+	reason: string,
+	label: string,
+};
+
+/**  Peaks of a source range, or why there are none yet. */
+export type PeakRangeView = PeakRangeView_Serialize | PeakRangeView_Deserialize;
+
+/**  Peaks of a source range, or why there are none yet. */
+export type PeakRangeView_Deserialize = {
+	/**  ready | pending | error | none (the media has no sound) */
+	status: string,
+	message?: string | null,
+	/**  The media's content id: the key for caching peaks in the UI and matching [`AudioAnalysisChanged`]. */
+	contentId?: string | null,
+	channels: number,
+	bins: number,
+	/**  Pyramid level read (bin size 256 × 2^level sample frames). */
+	level: number,
+	/**  `bins × channels × 2` values (min, max) from -127 to 127. */
+	data: number[],
+};
+
+/**  Peaks of a source range, or why there are none yet. */
+export type PeakRangeView_Serialize = {
+	/**  ready | pending | error | none (the media has no sound) */
+	status: string,
+	message: string | null,
+	/**  The media's content id: the key for caching peaks in the UI and matching [`AudioAnalysisChanged`]. */
+	contentId: string | null,
+	channels: number,
+	bins: number,
+	/**  Pyramid level read (bin size 256 × 2^level sample frames). */
+	level: number,
+	/**  `bins × channels × 2` values (min, max) from -127 to 127. */
+	data: number[],
+};
+
 /**  Playback state changed (frame, play/pause, speed, loop, volume). */
 export type PlaybackChanged = PlaybackState;
 
@@ -836,6 +2030,8 @@ export type PlaybackState = {
 	muted: boolean,
 	/**  False when no audio output device is available (video then runs on the system clock). */
 	audioAvailable: boolean,
+	/**  Playback rate (0.5, 1, 1.25, 1.5 or 2): multiplies the speed. */
+	rate: number | null,
 };
 
 /**  The open project changed (any source). */
@@ -892,6 +2088,8 @@ export type ProjectView_Deserialize = {
 	bundle: string,
 	rev: number | null,
 	aspectRatio: string,
+	/**  Timeline frame rate (edits snap to its frame grid). */
+	fps: number | null,
 	durationSeconds: number | null,
 	canUndo: boolean,
 	canRedo: boolean,
@@ -899,6 +2097,10 @@ export type ProjectView_Deserialize = {
 	tracks: TrackView[],
 	items: ItemView_Deserialize[],
 	media: MediaView_Deserialize[],
+	/**  The project's "Use proxies" setting (absent: off). */
+	useProxies?: boolean | null,
+	/**  Timeline markers in time order (absent: none). */
+	markers?: MarkerView_Deserialize[] | null,
 };
 
 /**  Everything the editor shows about the open project. */
@@ -908,6 +2110,8 @@ export type ProjectView_Serialize = {
 	bundle: string,
 	rev: number | null,
 	aspectRatio: string,
+	/**  Timeline frame rate (edits snap to its frame grid). */
+	fps: number | null,
 	durationSeconds: number | null,
 	canUndo: boolean,
 	canRedo: boolean,
@@ -915,6 +2119,10 @@ export type ProjectView_Serialize = {
 	tracks: TrackView[],
 	items: ItemView_Serialize[],
 	media: MediaView_Serialize[],
+	/**  The project's "Use proxies" setting (absent: off). */
+	useProxies?: boolean,
+	/**  Timeline markers in time order (absent: none). */
+	markers?: MarkerView_Serialize[],
 };
 
 /**  A project was opened from the command line: the UI switches to the editor. */
@@ -926,9 +2134,242 @@ export type RemoteOpened_Deserialize = ProjectView_Deserialize;
 /**  A project was opened from the command line: the UI switches to the editor. */
 export type RemoteOpened_Serialize = ProjectView_Serialize;
 
-export type SendResult = {
-	chatId: string,
+export type RemoveStatus = "removed" | 
+/**  A running job uses the model; it is removed when the job ends (`localModelsChanged` follows). */
+"waiting" | "notInstalled";
+
+/**  What "Save range as media" or "Render in place" made. */
+export type SavedRange = SavedRange_Serialize | SavedRange_Deserialize;
+
+/**  What "Save range as media" or "Render in place" made. */
+export type SavedRange_Deserialize = {
+	mediaId: string,
+	/**  In the project bundle (`media/rendered/…`). */
+	file: string,
+	/**  The clip of the new media when the range was rendered in place. */
+	itemId?: string | null,
+	replaced: boolean,
+	/**  "ProRes 422 HQ", "DNxHR HQ", … */
+	format?: string | null,
 };
+
+/**  What "Save range as media" or "Render in place" made. */
+export type SavedRange_Serialize = {
+	mediaId: string,
+	/**  In the project bundle (`media/rendered/…`). */
+	file: string,
+	/**  The clip of the new media when the range was rendered in place. */
+	itemId: string | null,
+	replaced: boolean,
+	/**  "ProRes 422 HQ", "DNxHR HQ", … */
+	format: string | null,
+};
+
+/**  The latest scope for the panel. */
+export type ScopeFrame = {
+	/**  Increases with every new grid. */
+	seq: number | null,
+	scope: string,
+	/**  Timeline time of the frame, microseconds. */
+	ptsUs: number | null,
+	width: number,
+	height: number,
+	/**  `width × height` density bytes (0 empty … 255 fullest), row-major, base64. */
+	data: string,
+};
+
+export type SendResult = SendResult_Serialize | SendResult_Deserialize;
+
+export type SendResult_Deserialize = {
+	chatId: string,
+	/**  Things the chat tells the person about the message (images left out, mentions that no longer exist). */
+	notices?: string[],
+};
+
+export type SendResult_Serialize = {
+	chatId: string,
+	/**  Things the chat tells the person about the message (images left out, mentions that no longer exist). */
+	notices: string[],
+};
+
+export type SkillDiffLine = {
+	/**  `" "`, `"-"` or `"+"`. */
+	op: string,
+	text: string,
+};
+
+/**  The result of exporting to one agent. */
+export type SkillExportOutcome = SkillExportOutcome_Serialize | SkillExportOutcome_Deserialize;
+
+/**  The result of exporting to one agent. */
+export type SkillExportOutcome_Deserialize = {
+	target: string,
+	name: string,
+	ok: boolean,
+	file?: string | null,
+	/**  `export.modified` when the copy there was changed (export again with overwrite to replace it). */
+	code?: string | null,
+	message?: string | null,
+};
+
+/**  The result of exporting to one agent. */
+export type SkillExportOutcome_Serialize = {
+	target: string,
+	name: string,
+	ok: boolean,
+	file: string | null,
+	/**  `export.modified` when the copy there was changed (export again with overwrite to replace it). */
+	code: string | null,
+	message: string | null,
+};
+
+/**  What an install would write, verified against its pin, for the person to read and confirm. */
+export type SkillInstallPreview = {
+	id: string,
+	name: string,
+	sha256: string,
+	catalogUrl: string,
+	installAs: string,
+	text: string,
+	unknownTools: string[],
+};
+
+/**  One skill as the Installed and Local lists show it. */
+export type SkillRow = SkillRow_Serialize | SkillRow_Deserialize;
+
+/**  One skill as the Installed and Local lists show it. */
+export type SkillRow_Deserialize = {
+	id: string,
+	name: string,
+	description: string,
+	version?: string | null,
+	/**  `builtin`, `catalog`, `local`, `drafted` or `assistant`. */
+	kind: string,
+	/**  Where it came from, as shown (`catalog <url>`, `created by the assistant`, …). */
+	source: string,
+	builtin: boolean,
+	/**  Why agents are not offered it. */
+	invalid?: string | null,
+	/**  Edited since the app installed it. */
+	modified: boolean,
+	path?: string | null,
+	/**  Front-matter keys that are ignored. */
+	ignoredKeys: string[],
+	/**  Tool names in the text that are not agent tools. */
+	unknownTools: string[],
+};
+
+/**  One skill as the Installed and Local lists show it. */
+export type SkillRow_Serialize = {
+	id: string,
+	name: string,
+	description: string,
+	version: string | null,
+	/**  `builtin`, `catalog`, `local`, `drafted` or `assistant`. */
+	kind: string,
+	/**  Where it came from, as shown (`catalog <url>`, `created by the assistant`, …). */
+	source: string,
+	builtin: boolean,
+	/**  Why agents are not offered it. */
+	invalid: string | null,
+	/**  Edited since the app installed it. */
+	modified: boolean,
+	path: string | null,
+	/**  Front-matter keys that are ignored. */
+	ignoredKeys: string[],
+	/**  Tool names in the text that are not agent tools. */
+	unknownTools: string[],
+};
+
+/**  One agent skills can be exported to. */
+export type SkillTarget = SkillTarget_Serialize | SkillTarget_Deserialize;
+
+/**  One agent skills can be exported to. */
+export type SkillTarget_Deserialize = {
+	id: string,
+	name: string,
+	dir: string,
+	available: boolean,
+	reason?: string | null,
+};
+
+/**  One agent skills can be exported to. */
+export type SkillTarget_Serialize = {
+	id: string,
+	name: string,
+	dir: string,
+	available: boolean,
+	reason: string | null,
+};
+
+export type SkillUpdateOffer = {
+	id: string,
+	/**  True when the person edited the skill: accepting installs a copy under `install_as`. */
+	asCopy: boolean,
+	installAs: string,
+	sha256: string,
+	diff: SkillDiffLine[],
+};
+
+/**  An installed catalog skill and whether an update is offered. */
+export type SkillUpdateRow = {
+	id: string,
+	/**  `upToDate`, `available`, `modified` (an update comes as a copy), `editedLocally` or `gone`. */
+	state: string,
+};
+
+export type SkillsView = SkillsView_Serialize | SkillsView_Deserialize;
+
+export type SkillsView_Deserialize = {
+	/**  The store folder. */
+	root: string,
+	skills: SkillRow_Deserialize[],
+	/**  The catalog address; empty when none is set. */
+	catalogUrl: string,
+	/**  Valid skills, and the most the assistant's index lists. */
+	validCount: number,
+	indexCap: number,
+	targets: SkillTarget_Deserialize[],
+};
+
+export type SkillsView_Serialize = {
+	/**  The store folder. */
+	root: string,
+	skills: SkillRow_Serialize[],
+	/**  The catalog address; empty when none is set. */
+	catalogUrl: string,
+	/**  Valid skills, and the most the assistant's index lists. */
+	validCount: number,
+	indexCap: number,
+	targets: SkillTarget_Serialize[],
+};
+
+/**  A skim sheet's image and layout: tile `i` of `count` sits at column `i % columns`, row `i / columns`. */
+export type SkimView = {
+	contentId: string,
+	columns: number,
+	rows: number,
+	tileWidth: number,
+	tileHeight: number,
+	count: number,
+};
+
+/**  A price card to show: an agent asks to spend. */
+export type SpendRequested = {
+	quoteId: string,
+	/**  The question and the details, one per line. */
+	text: string,
+	estimateUsd: number | null,
+	/**  Who asks (the agent's client name, or its kind). */
+	client: string,
+	prompt: string,
+	project: string,
+	/**  Milliseconds since the epoch. */
+	expiresAt: number | null,
+};
+
+/**  A price card was answered or ran out of time: the UI removes it. */
+export type SpendSettled = string;
 
 /**  Tokens and estimated cost of some turns. */
 export type SpendView = {
@@ -938,6 +2379,173 @@ export type SpendView = {
 	cacheReadTokens: number | null,
 	costUsd: number | null,
 	turns: number | null,
+};
+
+/**  The Storage rows, and the open project's "Use proxies" setting. */
+export type StorageView = StorageView_Serialize | StorageView_Deserialize;
+
+/**  The Storage rows, and the open project's "Use proxies" setting. */
+export type StorageView_Deserialize = {
+	/**  The open project's name, if one is open. */
+	project?: string | null,
+	rows: CacheRow[],
+	useProxies: boolean,
+};
+
+/**  The Storage rows, and the open project's "Use proxies" setting. */
+export type StorageView_Serialize = {
+	/**  The open project's name, if one is open. */
+	project: string | null,
+	rows: CacheRow[],
+	useProxies: boolean,
+};
+
+/**  A saved subclip of a media item: a named source range. */
+export type SubclipView = {
+	id: string,
+	name: string,
+	/**  Source seconds. */
+	start: number | null,
+	end: number | null,
+};
+
+/**  The new project state and what happened to each item. */
+export type SyncOutcome = SyncOutcome_Serialize | SyncOutcome_Deserialize;
+
+/**  The new project state and what happened to each item. */
+export type SyncOutcome_Deserialize = {
+	view: ProjectView_Deserialize,
+	/**  One line for people: how many items moved and why the others did not. */
+	summary: string,
+	targets: SyncTargetView_Deserialize[],
+};
+
+/**  The new project state and what happened to each item. */
+export type SyncOutcome_Serialize = {
+	view: ProjectView_Serialize,
+	/**  One line for people: how many items moved and why the others did not. */
+	summary: string,
+	targets: SyncTargetView_Serialize[],
+};
+
+/**  What to synchronise. */
+export type SyncRequest = {
+	/**  The item the others line up against (usually the camera). */
+	reference: string,
+	targets: string[],
+	/**  auto | timecode | audio */
+	mode: string,
+};
+
+/**  One item's outcome. */
+export type SyncTargetView = SyncTargetView_Serialize | SyncTargetView_Deserialize;
+
+/**  One item's outcome. */
+export type SyncTargetView_Deserialize = {
+	item: string,
+	/**  placed | unmatched | refused */
+	status: string,
+	/**  timecode | audio */
+	method?: string | null,
+	confidence: number | null,
+	/**  Timeline move, seconds. */
+	movedBy?: number | null,
+	driftPpm?: number | null,
+	driftApplied?: boolean | null,
+	reason?: string | null,
+};
+
+/**  One item's outcome. */
+export type SyncTargetView_Serialize = {
+	item: string,
+	/**  placed | unmatched | refused */
+	status: string,
+	/**  timecode | audio */
+	method: string | null,
+	confidence: number | null,
+	/**  Timeline move, seconds. */
+	movedBy: number | null,
+	driftPpm: number | null,
+	driftApplied: boolean | null,
+	reason: string | null,
+};
+
+/**  One task as the popover shows it. */
+export type TaskView = TaskView_Serialize | TaskView_Deserialize;
+
+/**  One task as the popover shows it. */
+export type TaskView_Deserialize = {
+	id: number,
+	kind: string,
+	label: string,
+	/**  The project's bundle path, when the task belongs to one. */
+	project?: string | null,
+	/**  export, interactive, derivative or analysis. */
+	priority: string,
+	/**  queued, running or paused. */
+	state: string,
+	/**  Why it is paused (`battery`, `playback`, …), when it is. */
+	pauseReason?: string | null,
+	progress?: number | null,
+	/**  Larger than the whole memory budget: it runs with nothing beside it. */
+	runningAlone: boolean,
+};
+
+/**  One task as the popover shows it. */
+export type TaskView_Serialize = {
+	id: number,
+	kind: string,
+	label: string,
+	/**  The project's bundle path, when the task belongs to one. */
+	project: string | null,
+	/**  export, interactive, derivative or analysis. */
+	priority: string,
+	/**  queued, running or paused. */
+	state: string,
+	/**  Why it is paused (`battery`, `playback`, …), when it is. */
+	pauseReason: string | null,
+	progress: number | null,
+	/**  Larger than the whole memory budget: it runs with nothing beside it. */
+	runningAlone: boolean,
+};
+
+/**  The background tasks changed (sent at most four times a second). */
+export type TasksChanged = TasksChanged_Serialize | TasksChanged_Deserialize;
+
+/**  The background tasks changed (sent at most four times a second). */
+export type TasksChanged_Deserialize = TasksView_Deserialize;
+
+/**  The background tasks changed (sent at most four times a second). */
+export type TasksChanged_Serialize = TasksView_Serialize;
+
+/**  Everything the popover shows. */
+export type TasksView = TasksView_Serialize | TasksView_Deserialize;
+
+/**  Everything the popover shows. */
+export type TasksView_Deserialize = {
+	/**  Unfinished tasks, running first, most urgent first. */
+	tasks: TaskView_Deserialize[],
+	/**  Active pause reasons (after "run anyway"). */
+	paused: PauseView[],
+	/**  Reasons the person chose to run anyway. */
+	runAnyway: string[],
+};
+
+/**  Everything the popover shows. */
+export type TasksView_Serialize = {
+	/**  Unfinished tasks, running first, most urgent first. */
+	tasks: TaskView_Serialize[],
+	/**  Active pause reasons (after "run anyway"). */
+	paused: PauseView[],
+	/**  Reasons the person chose to run anyway. */
+	runAnyway: string[],
+};
+
+/**  Beats of the audio items, for "Snap to beats". */
+export type TimelineBeats = {
+	items: ItemBeats[],
+	/**  True when some item has no cached beats and the beat model is not installed. */
+	modelMissing: boolean,
 };
 
 /**  The written file (`None` when the dialog was cancelled or for a preview) and what it doesn't carry over. */
@@ -998,6 +2606,8 @@ export type TrackView = {
 	locked: boolean,
 	visible: boolean,
 	muted: boolean,
+	/**  Ripple edits on other tracks shift this track too. */
+	syncLock: boolean,
 };
 
 /**  Transport commands sent by the UI (buttons and keys). */
@@ -1009,7 +2619,9 @@ export type TransportCommand = { kind: "play" } | { kind: "pause" } | { kind: "t
 /**  J key: 1× reverse, then 2×. */
 { kind: "shuttleReverse" } | 
 /**  Seek to an exact frame (clamped to the media). */
-{ kind: "seekFrame"; frame: number } | { kind: "setLoop"; enabled: boolean };
+{ kind: "seekFrame"; frame: number } | { kind: "setLoop"; enabled: boolean } | 
+/**  Playback rate: 0.5, 1, 1.25, 1.5 or 2 (others are refused). Audio plays resampled. */
+{ kind: "setRate"; rate: number | null };
 
 /**  What a turn changed on the timeline, for "Show" and "Undo this turn". */
 export type TurnReview = {
@@ -1040,6 +2652,15 @@ export type UiState = {
 	selection: string[],
 	/**  `timeline` or `source`. */
 	viewer: string,
+};
+
+/**  A field an agent changed that someone changed again later. */
+export type UndoConflictRow = {
+	/**  The item (its id), or the track, media or project. */
+	item: string,
+	field: string,
+	/**  The later change, as History lists it. */
+	summary: string,
 };
 
 export type UpdateInfo = UpdateInfo_Serialize | UpdateInfo_Deserialize;
@@ -1089,6 +2710,85 @@ export type UsageTotals_Serialize = {
 	monthCapUsd: number | null,
 };
 
+/**  One classified change between two versions. */
+export type VersionChange = {
+	/**  `item` or `marker`. */
+	entity: string,
+	id: string,
+	/**  added, removed, moved, trimmed or changed. */
+	class: string,
+	/**  The change in words, with old and new times. */
+	line: string,
+};
+
+/**  A version as the History panel shows it. */
+export type VersionView = VersionView_Serialize | VersionView_Deserialize;
+
+/**  A version as the History panel shows it. */
+export type VersionView_Deserialize = {
+	name: string,
+	rev: number | null,
+	/**  ms since the epoch. */
+	createdAt: number | null,
+	note?: string | null,
+	/**  Who saved it, in words. */
+	who: string,
+	/**  Bytes it added to the bundle. */
+	bytes: number | null,
+};
+
+/**  A version as the History panel shows it. */
+export type VersionView_Serialize = {
+	name: string,
+	rev: number | null,
+	/**  ms since the epoch. */
+	createdAt: number | null,
+	note: string | null,
+	/**  Who saved it, in words. */
+	who: string,
+	/**  Bytes it added to the bundle. */
+	bytes: number | null,
+};
+
+/**  A video codec with its profiles. */
+export type VideoCodecChoice = {
+	id: string,
+	label: string,
+	available: boolean,
+	profiles: ExportChoice[],
+};
+
+/**  Video settings of an [`ExportForm`]. */
+export type VideoForm = VideoForm_Serialize | VideoForm_Deserialize;
+
+/**  Video settings of an [`ExportForm`]. */
+export type VideoForm_Deserialize = {
+	/**  `h264`, `hevc`, `prores`, `dnxhr`, `vp9` or `av1`. */
+	codec: string,
+	/**  One of the codec's profiles ([`ExportOptions`]); `None` = the codec's default. */
+	profile?: string | null,
+	/**  8, 10 or 12; `None` = the codec's (or profile's) default. */
+	bitDepth?: number | null,
+	/**  `very low`, `low`, `medium`, `high` or `very high`. */
+	quality: string,
+	/**  Keep the timeline's transparency (ProRes 4444, VP9 in WebM). */
+	alpha: boolean,
+};
+
+/**  Video settings of an [`ExportForm`]. */
+export type VideoForm_Serialize = {
+	/**  `h264`, `hevc`, `prores`, `dnxhr`, `vp9` or `av1`. */
+	codec: string,
+	/**  One of the codec's profiles ([`ExportOptions`]); `None` = the codec's default. */
+	profile: string | null,
+	/**  8, 10 or 12; `None` = the codec's (or profile's) default. */
+	bitDepth: number | null,
+	/**  `very low`, `low`, `medium`, `high` or `very high`. */
+	quality: string,
+	/**  Keep the timeline's transparency (ProRes 4444, VP9 in WebM). */
+	alpha: boolean,
+};
+
 /**  Which presentation path is active. */
 export type ViewerBackend = 
 /**  Candidate 1: native surface below a transparent web view. */
@@ -1106,6 +2806,34 @@ export type ViewerFrameReady = {
 	seq: number,
 	width: number,
 	height: number,
+};
+
+/**  The layers visible at a time, bottom first, and the frame size their fractions refer to. */
+export type ViewerGeometry = {
+	width: number,
+	height: number,
+	layers: ViewerLayer[],
+};
+
+/**
+ *  One visible layer in the viewer. Corners are fractions of the frame (0..1), top-left, top-right, bottom-right,
+ *  bottom-left of the source.
+ */
+export type ViewerLayer = {
+	itemId: string,
+	itemType: string,
+	index: number,
+	quad: ([(number | null), (number | null)])[],
+	cropQuad: ([(number | null), (number | null)])[],
+	rotation: number | null,
+	selectable: boolean,
+};
+
+/**  A transient change shown while a handle is dragged: fields to set on one item. */
+export type ViewerPreview = {
+	itemId: string,
+	/**  Document field names → values (JSON object text), as `update_item` takes them. */
+	setJson: string,
 };
 
 /**
@@ -1164,6 +2892,14 @@ export type ViewerStats_Serialize = {
 	imageHeight: number,
 	/**  Time from the last seek/step request to the frame being presented. */
 	lastSeekMs: number | null,
+};
+
+/**  One volume keyframe as the timeline draws it. */
+export type VolumeKey = {
+	/**  Seconds from the item's start. */
+	time: number | null,
+	/**  Percent, 0–200. */
+	value: number | null,
 };
 
 /**  Where the welcome stands. */

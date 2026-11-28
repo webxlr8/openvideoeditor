@@ -37,6 +37,18 @@ pub struct FileItem {
     pub pos: Pos,
 }
 
+/// A `<marker>` element.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FileMarker {
+    /// `None` for a new marker without an id.
+    pub id: Option<String>,
+    pub at: Micros,
+    pub dur: Micros,
+    /// status (when given), name, color, assignee, note and unknown fields, normalised.
+    pub fields: Fields,
+    pub pos: Pos,
+}
+
 /// A new media file referenced by path.
 #[derive(Debug, Clone, PartialEq)]
 pub struct NewMedia {
@@ -48,8 +60,12 @@ pub struct NewMedia {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct FileModel {
     pub aspect: Option<String>,
+    /// The `fps` attribute of `<timeline>`; `None` when absent (the default, 30).
+    pub fps: Option<Value>,
     pub tracks: Vec<FileTrack>,
     pub items: Vec<FileItem>,
+    /// `<marker>` elements in file order.
+    pub markers: Vec<FileMarker>,
     pub new_media: Vec<NewMedia>,
 }
 
@@ -171,7 +187,7 @@ impl Reader<'_> {
     }
 
     /// Validates a known field's value and reports errors/warnings at the attribute.
-    fn check_value(&mut self, field: &schema::Field, attr: &Attr) -> bool {
+    fn check_value(&mut self, field: &schema::Field, attr: &Attr, owner: Option<&str>) -> bool {
         let mut issues = Vec::new();
         schema::validate(&field.kind, &attr.value, &attr.name, &mut issues);
         let mut ok = true;
@@ -182,7 +198,12 @@ impl Reader<'_> {
             } else {
                 Severity::Warning
             };
-            self.push(diag(sev, attr.value_pos, i.code, i.message));
+            // A keyframe problem names its item, since the attribute alone does not say which one.
+            let message = match owner {
+                Some(id) if i.path.starts_with("keyframeTracks") => format!("item {id}: {}", i.message),
+                _ => i.message,
+            };
+            self.push(diag(sev, attr.value_pos, i.code, message));
         }
         ok
     }
@@ -244,7 +265,7 @@ impl Reader<'_> {
                 }
                 other => {
                     if let Some(f) = schema::track_field(other) {
-                        ok &= self.check_value(f, a);
+                        ok &= self.check_value(f, a, None);
                     }
                     t.fields.insert(other.to_string(), a.value.clone());
                 }
@@ -278,6 +299,8 @@ impl Reader<'_> {
         };
         let mut ok = true;
         let (mut id, mut start, mut end) = (None, None, None);
+        let owner_id = el.attrs.iter().find(|a| a.name == "id").and_then(|a| a.value.as_str()).map(str::to_string);
+        let owner = owner_id.as_deref();
         let mut fields = Map::new();
         for a in &el.attrs {
             match a.name.as_str() {
@@ -339,7 +362,7 @@ impl Reader<'_> {
                 other => {
                     let field = field_for(other);
                     if let Some(f) = schema::item_field(kind, field) {
-                        ok &= self.check_value(f, a);
+                        ok &= self.check_value(f, a, owner);
                     }
                     fields.insert(
                         field.to_string(),
@@ -375,6 +398,80 @@ impl Reader<'_> {
             fields: normal::item_fields(kind, &fields),
             pos: el.pos,
         })
+    }
+
+    fn marker(&mut self, el: &Element) -> Option<FileMarker> {
+        let mut ok = true;
+        let (mut id, mut at, mut dur) = (None, None, 0);
+        let mut fields = Map::new();
+        for a in &el.attrs {
+            match a.name.as_str() {
+                "id" => match a.value.as_str() {
+                    Some(s) => id = Some(s.to_string()),
+                    None => {
+                        self.push(diag(Severity::Error, a.value_pos, "value.type", "id must be a string"));
+                        ok = false;
+                    }
+                },
+                "at" | "dur" => match json_to_micros(&a.value).filter(|us| *us >= 0) {
+                    Some(us) => {
+                        if a.name == "at" {
+                            at = Some(us)
+                        } else {
+                            dur = us
+                        }
+                    }
+                    None => {
+                        self.push(diag(
+                            Severity::Error,
+                            a.value_pos,
+                            "value.type",
+                            format!("{} must be a non-negative number of seconds", a.name),
+                        ));
+                        ok = false;
+                    }
+                },
+                crate::print::EXTRA_ATTR => match a.value.as_object() {
+                    Some(o) => fields.extend(o.iter().map(|(k, v)| (k.clone(), v.clone()))),
+                    None => {
+                        self.push(diag(Severity::Error, a.value_pos, "value.type", "extraFields must be an object"));
+                        ok = false;
+                    }
+                },
+                other => {
+                    if let Some(f) = schema::marker_field(other) {
+                        ok &= self.check_value(f, a, None);
+                    }
+                    if other == "note" && a.value.as_str().is_some_and(|s| s.chars().count() > schema::MARKER_NOTE_MAX)
+                    {
+                        self.push(diag(
+                            Severity::Error,
+                            a.value_pos,
+                            "marker.note.length",
+                            format!("note must be at most {} characters", schema::MARKER_NOTE_MAX),
+                        ));
+                        ok = false;
+                    }
+                    fields.insert(other.to_string(), normal::canon(&a.value));
+                }
+            }
+        }
+        if !el.children.is_empty() {
+            self.push(diag(
+                Severity::Error,
+                el.children[0].pos,
+                "structure.element",
+                "<marker> cannot contain elements",
+            ));
+            ok = false;
+        }
+        let Some(at) = at else {
+            if ok && !el.invalid.iter().any(|a| a == "at") {
+                self.push(diag(Severity::Error, el.pos, "attr.required", "<marker> needs at"));
+            }
+            return None;
+        };
+        ok.then(|| FileMarker { id, at, dur, fields: normal::marker_fields(&fields), pos: el.pos })
     }
 }
 
@@ -419,6 +516,13 @@ pub fn read(root: &Element, r: Resolve) -> (FileModel, Vec<Diagnostic>) {
                     format!("aspect must be one of {}", schema::ASPECT_RATIOS.join(", ")),
                 )),
             }
+        } else if a.name == "fps" {
+            let mut issues = Vec::new();
+            schema::validate(&schema::FPS_KIND, &a.value, "fps", &mut issues);
+            match issues.first() {
+                None => model.fps = Some(normal::canon(&a.value)),
+                Some(i) => rd.push(diag(Severity::Error, a.value_pos, i.code, "fps must be a number from 1 to 240")),
+            }
         } else {
             rd.push(diag(
                 Severity::Warning,
@@ -430,12 +534,29 @@ pub fn read(root: &Element, r: Resolve) -> (FileModel, Vec<Diagnostic>) {
     }
     let mut ids = BTreeMap::new();
     for t in &root.children {
+        if t.tag == "marker" {
+            if let Some(m) = rd.marker(t) {
+                if let Some(id) = &m.id
+                    && ids.insert(format!("marker:{id}"), t.pos).is_some()
+                {
+                    rd.push(diag(
+                        Severity::Error,
+                        t.pos,
+                        "marker.id.unique",
+                        format!("marker id \"{id}\" appears twice"),
+                    ));
+                    continue;
+                }
+                model.markers.push(m);
+            }
+            continue;
+        }
         if t.tag != "track" {
             rd.push(diag(
                 Severity::Error,
                 t.pos,
                 "structure.element",
-                format!("<timeline> may only contain <track> elements, found <{}>", t.tag),
+                format!("<timeline> may only contain <marker> and <track> elements, found <{}>", t.tag),
             ));
             continue;
         }

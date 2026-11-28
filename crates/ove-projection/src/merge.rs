@@ -9,13 +9,14 @@ use std::sync::Arc;
 use serde::Serialize;
 use serde_json::{Map, Value};
 
-use ove_core::model::{Document, Item, MediaItem, RegistryEntry, Track};
+use ove_core::model::{Document, Item, Marker, MediaItem, RegistryEntry, Track};
 use ove_core::schema::{self, Kind};
-use ove_core::time::micros_to_json;
+use ove_core::time::{Micros, json_to_micros, micros_to_json};
+use ove_core::timemap::Ripple;
 
 use crate::normal;
 use crate::parse::Pos;
-use crate::read::{FileItem, FileModel, FileTrack, new_media_json};
+use crate::read::{FileItem, FileMarker, FileModel, FileTrack, new_media_json};
 
 /// Which side wins a conflict.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
@@ -37,6 +38,10 @@ pub struct Conflict {
     pub editor_value: Option<Value>,
     pub kept: Prefer,
     pub message: String,
+    /// When the editor's side of the conflict comes from a ripple edit: `ripple <rev>`. Conflicts with one ripple
+    /// share this value, so they read as one group (the ripple moved them together).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -97,13 +102,43 @@ fn is_obj_field(kind: &str, field: &str) -> bool {
     schema::item_field(kind, field).is_some_and(|f| matches!(f.kind, Kind::Obj { .. }))
 }
 
-/// Field-level changes from `b` to `f`; known object fields are compared one key deeper.
+/// The keyframe-track field. It merges as a map keyed by `property` (add-markers-keyframe-lanes-and-versions D6), so
+/// edits to different properties of one item merge; one property's track is one value.
+pub const KEYFRAME_TRACKS: &str = "keyframeTracks";
+
+/// A keyframe-track list as a map from property to track (absent: empty). `None` when the value is not a list of
+/// tracks with distinct properties; such a value merges as a whole.
+fn tracks_by_property(v: Option<&Value>) -> Option<BTreeMap<String, Value>> {
+    let Some(v) = v else { return Some(BTreeMap::new()) };
+    let mut m = BTreeMap::new();
+    for t in v.as_array()? {
+        let p = t.get("property")?.as_str()?;
+        if m.insert(p.to_string(), t.clone()).is_some() {
+            return None;
+        }
+    }
+    Some(m)
+}
+
+/// Field-level changes from `b` to `f`; known object fields are compared one key deeper, and keyframe tracks one
+/// property deeper.
 pub fn changes(kind_b: &str, b: &Map<String, Value>, f: &Map<String, Value>) -> Vec<(Path, Option<Value>)> {
     let mut out = Vec::new();
     let keys: BTreeSet<&String> = b.keys().chain(f.keys()).collect();
     for k in keys {
         let (bv, fv) = (b.get(k), f.get(k));
         if bv == fv {
+            continue;
+        }
+        if k == KEYFRAME_TRACKS
+            && let (Some(bm), Some(fm)) = (tracks_by_property(bv), tracks_by_property(fv))
+        {
+            let props: BTreeSet<&String> = bm.keys().chain(fm.keys()).collect();
+            for p in props {
+                if bm.get(p) != fm.get(p) {
+                    out.push(((k.clone(), Some(p.clone())), fm.get(p).cloned()));
+                }
+            }
             continue;
         }
         let objectish = is_obj_field(kind_b, k) && bv.is_none_or(Value::is_object) && fv.is_none_or(Value::is_object);
@@ -127,12 +162,42 @@ pub fn changes(kind_b: &str, b: &Map<String, Value>, f: &Map<String, Value>) -> 
 fn get(view: &Map<String, Value>, p: &Path) -> Option<Value> {
     match &p.1 {
         None => view.get(&p.0).cloned(),
+        Some(prop) if p.0 == KEYFRAME_TRACKS => view
+            .get(&p.0)
+            .and_then(Value::as_array)
+            .and_then(|a| a.iter().find(|t| t.get("property").and_then(Value::as_str) == Some(prop)))
+            .cloned(),
         Some(k) => view.get(&p.0).and_then(|o| o.get(k)).cloned(),
+    }
+}
+
+/// Sets (or removes, with `None`) one property's keyframe track on an item; the list is dropped when it empties.
+fn set_keyframe_track(item: &mut Item, prop: &str, v: Option<Value>) {
+    let mut list: Vec<Value> = item.fields.get(KEYFRAME_TRACKS).and_then(Value::as_array).cloned().unwrap_or_default();
+    let at = list.iter().position(|t| t.get("property").and_then(Value::as_str) == Some(prop));
+    match (at, v) {
+        (Some(i), Some(v)) => list[i] = v,
+        (Some(i), None) => {
+            list.remove(i);
+        }
+        (None, Some(v)) => list.push(v),
+        (None, None) => {}
+    }
+    if list.is_empty() {
+        item.fields.shift_remove(KEYFRAME_TRACKS);
+    } else {
+        item.fields.insert(KEYFRAME_TRACKS.into(), Value::Array(list));
     }
 }
 
 /// Sets (or removes, with `None`) a field path on an item.
 fn set_path(item: &mut Item, p: &Path, v: Option<Value>) {
+    if p.0 == KEYFRAME_TRACKS
+        && let Some(prop) = &p.1
+    {
+        set_keyframe_track(item, prop, v);
+        return;
+    }
     match p.0.as_str() {
         "trackId" => item.track_id = v.and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default(),
         "type" => item.kind = v.and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default(),
@@ -208,12 +273,38 @@ fn fresh_id(prefix: &str, taken: &dyn Fn(&str) -> bool, seed: &mut u64) -> Strin
     }
 }
 
-struct Ctx {
+struct Ctx<'r> {
     prefer: Prefer,
     conflicts: Vec<Conflict>,
+    ripples: &'r [Ripple],
 }
 
-impl Ctx {
+impl Ctx<'_> {
+    /// The conflict group of an id: the latest ripple that touched it.
+    fn group(&self, id: &str) -> Option<String> {
+        self.ripples.iter().rev().find(|r| r.touched.contains(id)).map(|r| format!("ripple {}", r.rev))
+    }
+
+    /// Maps an item edge of the base revision on `track` through every ripple since, oldest first.
+    fn rebase(&self, track: &str, t: Micros, end: bool) -> Micros {
+        self.ripples.iter().fold(t, |t, r| if end { r.map.map_end(track, t) } else { r.map.map(track, t) })
+    }
+
+    /// Rebases a base view and a file view of one item: each base edge passes through the ripples since the base,
+    /// and the file's edge keeps its distance from the base edge (the file's edit is relative to where the item
+    /// was). An item the file did not move stays where the ripples put it.
+    fn rebase_views(&self, base: &mut Map<String, Value>, file: &mut Map<String, Value>, track: &str) {
+        for k in ["startTime", "endTime"] {
+            let (Some(b), Some(f)) = (base.get(k).and_then(json_to_micros), file.get(k).and_then(json_to_micros))
+            else {
+                continue;
+            };
+            let moved = self.rebase(track, b, k == "endTime");
+            base.insert(k.into(), micros_to_json(moved));
+            file.insert(k.into(), micros_to_json(moved + (f - b)));
+        }
+    }
+
     /// The 3-way rule for one value. Returns `Some(new)` when the target must change.
     fn decide(
         &mut self,
@@ -229,6 +320,7 @@ impl Ctx {
         if c == f {
             return None;
         }
+        let group = self.group(id);
         self.conflicts.push(Conflict {
             id: id.to_string(),
             field: field.to_string(),
@@ -236,10 +328,171 @@ impl Ctx {
             editor_value: c,
             kept: self.prefer,
             message: format!("{id}.{field} was changed both in the file and in the editor"),
+            group,
         });
         match self.prefer {
             Prefer::File => Some(f),
             Prefer::Editor => None,
+        }
+    }
+
+    /// The keyed-entity field merge shared by items and markers (design D3): for each field the file changed from
+    /// the base, the 3-way rule against the entity's current view. Returns the field values the target must take.
+    fn decide_fields(
+        &mut self,
+        id: &str,
+        changed: Vec<(Path, Option<Value>)>,
+        base: &Map<String, Value>,
+        current: &Map<String, Value>,
+    ) -> Vec<(Path, Option<Value>)> {
+        let mut out = Vec::new();
+        for (p, f) in changed {
+            if let Some(new) = self.decide(id, &path_str(&p), get(base, &p), f, get(current, &p)) {
+                out.push((p, new));
+            }
+        }
+        out
+    }
+}
+
+/// Field-level changes from `b` to `f` for entities without nested known objects (markers).
+fn flat_changes(b: &Map<String, Value>, f: &Map<String, Value>) -> Vec<(Path, Option<Value>)> {
+    let keys: BTreeSet<&String> = b.keys().chain(f.keys()).collect();
+    keys.into_iter().filter(|k| b.get(*k) != f.get(*k)).map(|k| ((k.clone(), None), f.get(k).cloned())).collect()
+}
+
+fn file_marker_view(f: &FileMarker) -> Map<String, Value> {
+    let mut v = f.fields.clone();
+    if !v.contains_key("status") {
+        v.insert("status".into(), Value::String(Marker::DEFAULT_STATUS.into()));
+    }
+    v.insert("at".into(), micros_to_json(f.at));
+    v.insert("dur".into(), micros_to_json(f.dur));
+    v
+}
+
+fn marker_from_view(id: &str, v: &Map<String, Value>) -> Marker {
+    let mut m = Marker::point(id, 0);
+    for (k, val) in v {
+        set_marker_field(&mut m, k, Some(val.clone()));
+    }
+    m
+}
+
+fn set_marker_field(m: &mut Marker, k: &str, v: Option<Value>) {
+    match k {
+        "at" => m.at = v.as_ref().and_then(json_to_micros).unwrap_or(0),
+        "dur" => m.dur = v.as_ref().and_then(json_to_micros).unwrap_or(0),
+        "status" => {
+            m.status = v.and_then(|v| v.as_str().map(str::to_string)).unwrap_or_else(|| Marker::DEFAULT_STATUS.into())
+        }
+        _ => match v {
+            Some(v) => {
+                m.fields.insert(k.to_string(), v);
+            }
+            None => {
+                m.fields.shift_remove(k);
+            }
+        },
+    }
+}
+
+/// Merges the file's markers onto the target, marker by marker and field by field (spec: Marker merge).
+fn merge_markers(
+    ctx: &mut Ctx,
+    base: &Document,
+    current: &Document,
+    file: &FileModel,
+    m: &mut Document,
+    positions: &mut BTreeMap<String, Pos>,
+    seed: &mut u64,
+) {
+    let taken = |id: &str| {
+        base.project.markers.contains_key(id)
+            || current.project.markers.contains_key(id)
+            || file.markers.iter().any(|f| f.id.as_deref() == Some(id))
+    };
+    let mut seen = BTreeSet::new();
+    let mut new_ids: Vec<String> = Vec::new();
+    let mut claimed: BTreeSet<String> = BTreeSet::new();
+    for fm in &file.markers {
+        let fv = file_marker_view(fm);
+        match fm.id.as_ref().filter(|id| base.project.markers.contains_key(*id)) {
+            Some(id) => {
+                seen.insert(id.clone());
+                positions.insert(id.clone(), fm.pos);
+                let bv = normal::marker_view(&base.project.markers[id]);
+                let ch = flat_changes(&bv, &fv);
+                if ch.is_empty() {
+                    continue;
+                }
+                match m.project.markers.get(id).cloned() {
+                    None => {
+                        ctx.conflicts.push(Conflict {
+                            id: id.clone(),
+                            field: "marker".into(),
+                            file_value: Some(Value::Object(fv.clone())),
+                            editor_value: None,
+                            kept: ctx.prefer,
+                            message: format!("marker {id} was edited in the file but removed in the editor"),
+                            group: None,
+                        });
+                        if ctx.prefer == Prefer::File {
+                            m.project.markers.insert(id.clone(), Arc::new(marker_from_view(id, &fv)));
+                        }
+                    }
+                    Some(cm) => {
+                        let cv = normal::marker_view(&cm);
+                        let mut mk = (*cm).clone();
+                        for ((k, _), new) in ctx.decide_fields(id, ch, &bv, &cv) {
+                            set_marker_field(&mut mk, &k, new);
+                        }
+                        if mk != *cm {
+                            m.project.markers.insert(id.clone(), Arc::new(mk));
+                        }
+                    }
+                }
+            }
+            None => {
+                // The same file applied twice: an identical marker added since the base is already applied.
+                let same = current.project.markers.iter().find(|(cid, cm)| {
+                    !base.project.markers.contains_key(*cid) && !claimed.contains(*cid) && normal::marker_view(cm) == fv
+                });
+                if let Some((cid, _)) = same {
+                    claimed.insert(cid.clone());
+                    positions.insert(cid.clone(), fm.pos);
+                    continue;
+                }
+                let id = match &fm.id {
+                    Some(id) if !current.project.markers.contains_key(id) && !new_ids.contains(id) => id.clone(),
+                    _ => fresh_id("mk_", &|x: &str| taken(x) || new_ids.iter().any(|n| n == x), seed),
+                };
+                positions.insert(id.clone(), fm.pos);
+                new_ids.push(id.clone());
+                m.project.markers.insert(id.clone(), Arc::new(marker_from_view(&id, &fv)));
+            }
+        }
+    }
+    for (id, bm) in &base.project.markers {
+        if seen.contains(id) {
+            continue;
+        }
+        if let Some(cm) = current.project.markers.get(id) {
+            let changed = normal::marker_view(cm) != normal::marker_view(bm);
+            if changed {
+                ctx.conflicts.push(Conflict {
+                    id: id.clone(),
+                    field: "marker".into(),
+                    file_value: None,
+                    editor_value: Some(cm.to_json()),
+                    kept: ctx.prefer,
+                    message: format!("marker {id} was removed in the file but changed in the editor"),
+                    group: None,
+                });
+            }
+            if !changed || ctx.prefer == Prefer::File {
+                m.project.markers.remove(id);
+            }
         }
     }
 }
@@ -255,7 +508,22 @@ fn insert_after_predecessors(list: &mut Vec<String>, order: &[String], missing: 
 
 /// Merges a file model (printed from `base`) onto `current`.
 pub fn merge(base: &Document, current: &Document, file: &FileModel, prefer: Prefer, now_ms: i64) -> Merged {
-    let mut ctx = Ctx { prefer, conflicts: Vec::new() };
+    merge_rebased(base, current, file, prefer, now_ms, &[])
+}
+
+/// [`merge`] after ripple edits: `ripples` are the ripples committed between the base and the current revision,
+/// oldest first. The start and end of every item the file changed that also exists in the base pass through their
+/// time maps first, so the item lands where the author of the file meant it relative to its neighbours. Items the
+/// file did not change and items the file adds keep their times.
+pub fn merge_rebased(
+    base: &Document,
+    current: &Document,
+    file: &FileModel,
+    prefer: Prefer,
+    now_ms: i64,
+    ripples: &[Ripple],
+) -> Merged {
+    let mut ctx = Ctx { prefer, conflicts: Vec::new(), ripples };
     let mut m = current.clone();
     let mut positions = BTreeMap::new();
     let mut seed = (now_ms as u64) ^ 0x9e37_79b9_7f4a_7c15 ^ (current.project.rev as u64);
@@ -279,6 +547,20 @@ pub fn merge(base: &Document, current: &Document, file: &FileModel, prefer: Pref
         let c = Some(Value::String(current.project.aspect_ratio.clone()));
         if let Some(Some(Value::String(v))) = ctx.decide("timeline", "aspect", b, Some(Value::String(fa.clone())), c) {
             m.project.aspect_ratio = v;
+        }
+    }
+
+    // Frame rate: compared as effective values, so an absent `fps` and `fps={30}` are the same.
+    let fps_of = |d: &Document| normal::canon(&Value::from(d.fps()));
+    let file_fps = file.fps.clone().unwrap_or_else(|| Value::from(schema::DEFAULT_FPS));
+    let file_fps = normal::canon(&file_fps);
+    if file_fps != fps_of(base)
+        && let Some(Some(v)) = ctx.decide("timeline", "fps", Some(fps_of(base)), Some(file_fps), Some(fps_of(current)))
+    {
+        if schema::project_field("fps").is_some_and(|f| schema::is_default(f, &v)) {
+            m.project.extra.shift_remove("fps");
+        } else {
+            m.project.extra.insert("fps".into(), v);
         }
     }
 
@@ -324,6 +606,7 @@ pub fn merge(base: &Document, current: &Document, file: &FileModel, prefer: Pref
                             editor_value: None,
                             kept: prefer,
                             message: format!("track {id} was edited in the file but removed in the editor"),
+                            group: None,
                         });
                         if prefer == Prefer::File {
                             m.project.tracks.push(Track {
@@ -374,6 +657,7 @@ pub fn merge(base: &Document, current: &Document, file: &FileModel, prefer: Pref
                     editor_value: None,
                     kept: prefer,
                     message: format!("track {} was removed in the file but changed in the editor", bt.id),
+                    group: None,
                 });
             }
             if !changed || prefer == Prefer::File {
@@ -402,6 +686,7 @@ pub fn merge(base: &Document, current: &Document, file: &FileModel, prefer: Pref
             editor_value: Some(c_order.clone().into()),
             kept: prefer,
             message: "the track order was changed both in the file and in the editor".into(),
+            group: None,
         });
     }
     let mut order: Vec<String>;
@@ -447,10 +732,15 @@ pub fn merge(base: &Document, current: &Document, file: &FileModel, prefer: Pref
                 positions.insert(id.clone(), fi.pos);
                 let bi = &base.project.items[id];
                 // Compared as the kind the file gives the item (the same kind unless the file changes it).
-                let bv = item_view_as(bi, &fi.kind);
-                let ch = changes(&fi.kind, &bv, &fv);
+                let mut bv = item_view_as(bi, &fi.kind);
+                let mut ch = changes(&fi.kind, &bv, &fv);
                 if ch.is_empty() {
                     continue;
+                }
+                let mut fv = fv;
+                if !ripples.is_empty() {
+                    ctx.rebase_views(&mut bv, &mut fv, &bi.track_id);
+                    ch = changes(&fi.kind, &bv, &fv);
                 }
                 match m.project.items.get(id).cloned() {
                     None => {
@@ -461,6 +751,7 @@ pub fn merge(base: &Document, current: &Document, file: &FileModel, prefer: Pref
                             editor_value: None,
                             kept: prefer,
                             message: format!("item {id} was edited in the file but removed in the editor"),
+                            group: ctx.group(id),
                         });
                         if prefer == Prefer::File {
                             let item = Item {
@@ -477,10 +768,8 @@ pub fn merge(base: &Document, current: &Document, file: &FileModel, prefer: Pref
                     Some(ci) => {
                         let cv = item_view_as(&ci, &fi.kind);
                         let mut item = (*ci).clone();
-                        for (p, f) in ch {
-                            if let Some(new) = ctx.decide(id, &path_str(&p), get(&bv, &p), f, get(&cv, &p)) {
-                                set_path(&mut item, &p, new);
-                            }
+                        for (p, new) in ctx.decide_fields(id, ch, &bv, &cv) {
+                            set_path(&mut item, &p, new);
                         }
                         if item != *ci {
                             m.project.items.insert(id.clone(), Arc::new(item));
@@ -532,6 +821,7 @@ pub fn merge(base: &Document, current: &Document, file: &FileModel, prefer: Pref
                     editor_value: Some(ci.to_json()),
                     kept: prefer,
                     message: format!("item {id} was removed in the file but changed in the editor"),
+                    group: ctx.group(id),
                 });
             }
             if !changed || prefer == Prefer::File {
@@ -540,5 +830,6 @@ pub fn merge(base: &Document, current: &Document, file: &FileModel, prefer: Pref
             }
         }
     }
+    merge_markers(&mut ctx, base, current, file, &mut m, &mut positions, &mut seed);
     Merged { target: m, conflicts: ctx.conflicts, removed, positions, new_ids }
 }

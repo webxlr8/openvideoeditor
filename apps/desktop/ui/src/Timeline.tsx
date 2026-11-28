@@ -1,23 +1,34 @@
 // The timeline: real tracks and items of the open project. Click to select (shift/⌘ to add), drag to move (also to
 // another compatible track), drag an edge to trim (the start edge moves the in-point), right-click for actions.
-// Snapping to the playhead and clip edges is on by default. Every gesture commits one revision on release.
+// Snapping to the playhead, clip edges and markers is on by default. Every gesture commits one revision on release.
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { ItemView_Serialize, ProjectView_Serialize } from "./bindings";
+import { CLIP_DRAG_TYPE } from "./media/MediaPanel";
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { Ghost, ItemView_Serialize, ProjectView_Serialize } from "./bindings";
 import { commands } from "./bridge";
-import { type EditResult, addItems, firstTrack, trackAccepts, updateItem, updateItems, snapToFrame } from "./edit";
+import { type EditResult, TIMELINE_FPS, addItems, firstTrack, linkDrift, trackAccepts, updateItem, updateItems, snapToFrame } from "./edit";
 import { Icon, type IconName } from "./icons";
+import { ClipAudioLayer } from "./ClipAudioLayer";
+import { KeyframeLanes, LANE_H, laneProperties } from "./KeyframeLanes";
+import { MarkerLane } from "./MarkerLane";
+import { ActivityLayer } from "./activity/ActivityLayer";
 import { ContextMenu, type MenuItem } from "./Menu";
-import { MOD } from "./keys";
+import { useCutPreview } from "./cutPreview";
+import { resetScrub, scrubAudio } from "./scrubAudio";
+import { MOD, type Tool } from "./keys";
 
 export const HEADER_W = 188;
 const ROW_H = 41;
 const SNAP_PX = 8;
+const NO_MARKERS: never[] = [];
 const TRACK_ICON: Record<string, IconName> = { video: "media", caption: "captions", audio: "audio", adjustment: "effects", layout: "layout" };
 
 export type SelectMode = "replace" | "toggle";
 
 export interface TimelineProps {
+  /** A source range dropped from the media panel (add-semantic-media-search): the track, the timeline time and the
+   * drag payload (`ClipDrag` JSON). */
+  onDropClip?: (trackId: string, time: number, payload: string) => void;
   project: ProjectView_Serialize | null;
   selection: string[];
   playhead: number;
@@ -33,7 +44,16 @@ export interface TimelineProps {
   onFitWidth?: (pxPerSecond: number) => void;
   /** Items to mark (what an assistant turn changed, while the chat's "Show" is on). */
   highlight?: string[];
+  /** The tool mode (select when absent). */
+  tool?: Tool;
+  /** Marked in and out points, seconds. */
+  range?: { in: number | null; out: number | null };
+  /** The marked range's menu (right-click on it in the ruler): export it, save it as media, render it in place. */
+  rangeMenu?: (start: number, end: number) => MenuItem[];
 }
+
+/** Beat and downbeat times of one music item, timeline seconds. */
+type BeatTimes = { item: string; beats: number[]; downbeats: number[] };
 
 type Drag =
   | { kind: "move"; id: string; dx: number; dy: number; ids: string[] }
@@ -51,11 +71,49 @@ function fmtTick(s: number) {
 
 export function Timeline(props: TimelineProps) {
   const { project, selection, playhead, zoom, snap, onSelect, onScrub, onEdit, onCopy, onPaste, canPaste, onFitWidth, highlight } = props;
+  const tool = props.tool ?? "select";
+  const range = props.range ?? { in: null, out: null };
   const scroller = useRef<HTMLDivElement>(null);
   const rows = useRef<HTMLDivElement>(null);
   const [viewW, setViewW] = useState(1000);
   const [drag, setDrag] = useState<Drag | null>(null);
+  // Where the planner would put the items a drag also moves (link partners), shown as ghosts while the drag is held.
+  const [ghosts, setGhosts] = useState<Ghost[]>([]);
+  const previewSeq = useRef(0);
   const [menu, setMenu] = useState<{ at: { x: number; y: number }; items: MenuItem[] } | null>(null);
+  // Tracks whose keyframe lanes are open (view state: no revision).
+  const [expanded, setExpanded] = useState<string[]>([]);
+  // Keyframed properties per track, computed once per change of the items (lane toggles and row heights).
+  const lanesByTrack = useMemo(() => {
+    const byTrack = new Map<string, ItemView_Serialize[]>();
+    for (const i of project?.items ?? []) if (i.keyframes?.length) byTrack.set(i.trackId, [...(byTrack.get(i.trackId) ?? []), i]);
+    return new Map([...byTrack].map(([t, list]) => [t, laneProperties(list)]));
+  }, [project?.items]);
+  const [syncNote, setSyncNote] = useState<string | null>(null);
+  // Snap to beats: beat and downbeat times of the music items, fetched while the option is on.
+  const [snapBeats, setSnapBeats] = useState(false);
+  const [beatData, setBeatData] = useState<{ items: BeatTimes[]; modelMissing: boolean } | null>(null);
+  const beatRev = project?.rev;
+  useEffect(() => {
+    if (!snapBeats) return;
+    let live = true;
+    const nums = (v: (number | null)[]) => v.filter((t): t is number => t !== null);
+    commands
+      .timelineBeats()
+      .then((r) => {
+        if (live && r.status === "ok")
+          setBeatData({
+            modelMissing: r.data.modelMissing,
+            items: r.data.items.map((b) => ({ item: b.item, beats: nums(b.beats), downbeats: nums(b.downbeats) })),
+          });
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [snapBeats, beatRev]);
+  const beatsOf = new Map((snapBeats ? (beatData?.items ?? []) : []).map((b) => [b.item, b]));
+  const cutPreview = useCutPreview();
   const items = project?.items ?? [];
   const tracks = project?.tracks ?? [];
 
@@ -68,6 +126,9 @@ export function Timeline(props: TimelineProps) {
   }, []);
 
   const total = Math.max(10, (project?.durationSeconds ?? 0) * 1.15, playhead + 1);
+  const drift = linkDrift(items, project?.fps ?? TIMELINE_FPS);
+  const linkCount = new Map<string, number>();
+  for (const i of items) if (i.link) linkCount.set(i.link, (linkCount.get(i.link) ?? 0) + 1);
   const fitPps = Math.max(1, viewW - HEADER_W) / total;
   const pps = zoom ?? fitPps;
   const contentW = Math.max(viewW, HEADER_W + total * pps);
@@ -95,16 +156,28 @@ export function Timeline(props: TimelineProps) {
   /** Snaps a time to the playhead, 0 and other items' edges (within SNAP_PX). */
   const snapTime = (t: number, ignore: string[]) => {
     if (!snap) return t;
-    const points = [0, playhead, ...items.filter((i) => !ignore.includes(i.id)).flatMap((i) => [i.start ?? 0, i.end ?? 0])];
-    let best = t;
-    let bestD = SNAP_PX / pps;
-    for (const p of points) {
-      const d = Math.abs(p - t);
-      if (d < bestD) {
-        best = p;
-        bestD = d;
+    const markerPoints = (project?.markers ?? []).flatMap((m) => ((m.dur ?? 0) > 0 ? [m.at ?? 0, (m.at ?? 0) + (m.dur ?? 0)] : [m.at ?? 0]));
+    const points = [0, playhead, ...markerPoints, ...items.filter((i) => !ignore.includes(i.id)).flatMap((i) => [i.start ?? 0, i.end ?? 0])];
+    const reach = SNAP_PX / pps;
+    const nearest = (list: number[]) => {
+      let best: number | null = null;
+      let bestD = reach;
+      for (const p of list) {
+        const d = Math.abs(p - t);
+        if (d < bestD) {
+          best = p;
+          bestD = d;
+        }
       }
-    }
+      return best;
+    };
+    const others = [...beatsOf.values()].filter((b) => !ignore.includes(b.item));
+    const downbeats = others.flatMap((b) => b.downbeats);
+    const beatTimes = others.flatMap((b) => b.beats);
+    const best = nearest([...points, ...beatTimes, ...downbeats]);
+    if (best === null) return t;
+    // A beat in reach gives way to a downbeat in reach (downbeats rank first).
+    if (beatTimes.includes(best) && !points.includes(best) && !downbeats.includes(best)) return nearest(downbeats) ?? best;
     return best;
   };
 
@@ -119,16 +192,50 @@ export function Timeline(props: TimelineProps) {
     else onScrub(t);
   };
 
+  /** Clicking the ruler seeks; dragging along it scrubs, with a grain of the mix at each new time. */
+  const startRulerScrub = (e: React.PointerEvent) => {
+    resetScrub();
+    seekAt(e.clientX);
+    scrubAudio(timeAt(e.clientX));
+    const move = (ev: PointerEvent) => {
+      const t = timeAt(ev.clientX);
+      onScrub(t);
+      scrubAudio(t);
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
   const trackAtY = (clientY: number) => {
     const r = rows.current?.getBoundingClientRect();
     if (!r) return null;
-    const i = Math.floor((clientY - r.top) / ROW_H);
-    return tracks[Math.min(Math.max(i, 0), tracks.length - 1)] ?? null;
+    // Rows are ROW_H tall, plus LANE_H per keyframe lane of an expanded track.
+    let y = clientY - r.top;
+    for (const t of tracks) {
+      const h = ROW_H + (expanded.includes(t.id) ? (lanesByTrack.get(t.id)?.length ?? 0) * LANE_H : 0);
+      if (y < h) return t;
+      y -= h;
+    }
+    return tracks[tracks.length - 1] ?? null;
   };
 
   const startMove = (e: React.PointerEvent, item: ItemView_Serialize) => {
     if (e.button !== 0) return;
     e.stopPropagation();
+    if (tool === "blade") {
+      // The blade cuts where it is clicked (and the clip's link partners with it).
+      const t = snapToFrame(timeAt(e.clientX));
+      if (t > (item.start ?? 0) && t < (item.end ?? 0)) onEdit(commands.splitItem(item.id, t));
+      return;
+    }
+    if (tool === "trim") {
+      startSlip(e, item);
+      return;
+    }
     const additive = e.shiftKey || e.metaKey || e.ctrlKey;
     if (additive) {
       onSelect(item, undefined, "toggle");
@@ -146,12 +253,26 @@ export function Timeline(props: TimelineProps) {
       if (Math.abs(dx) > 3 || Math.abs(dy) > 6) {
         last = { kind: "move", id: item.id, dx, dy, ids: group };
         setDrag(last);
+        if (group.length === 1 && item.link) {
+          // Ask the planner what the move does to the link group; the latest answer wins.
+          const seq = ++previewSeq.current;
+          const start = snapToFrame((item.start ?? 0) + dx / pps);
+          const request = { op: "move", item: item.id, start, linked: !ev.altKey, crossfade: true };
+          commands.editPreview(JSON.stringify(request)).then(
+            (r) => {
+              if (seq === previewSeq.current && r.status === "ok") setGhosts(r.data.ghosts.filter((g) => g.id !== item.id));
+            },
+            () => undefined, // A failed preview only means no ghost.
+          );
+        }
       }
     };
     const up = (ev: PointerEvent) => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
       setDrag(null);
+      previewSeq.current++;
+      setGhosts([]);
       if (!last) return;
       const raw = (item.start ?? 0) + (ev.clientX - x0) / pps;
       // Snap the start, or the end if that is closer to a snap point.
@@ -172,8 +293,30 @@ export function Timeline(props: TimelineProps) {
           });
         onEdit(updateItems(edits, `move ${edits.length} items`));
       } else if (Math.abs(delta) > 1e-6 || changeTrack) {
-        onEdit(commands.moveItem(item.id, start, changeTrack));
+        // Alt moves this item alone, out of its link group's sync.
+        onEdit(commands.moveItem(item.id, start, changeTrack, ev.altKey ? false : null));
       }
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
+  /** Trim tool: dragging a clip slips its source (content follows the pointer); Alt-drag slides it between its
+   * neighbours. */
+  const startSlip = (e: React.PointerEvent, item: ItemView_Serialize) => {
+    onSelect(item);
+    const x0 = e.clientX;
+    let moved = false;
+    const move = (ev: PointerEvent) => {
+      if (Math.abs(ev.clientX - x0) > 3) moved = true;
+    };
+    const up = (ev: PointerEvent) => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      if (!moved) return;
+      const dt = (ev.clientX - x0) / pps;
+      const request = ev.altKey ? { op: "slide", item: item.id, delta: dt } : { op: "slip", item: item.id, delta: -dt };
+      onEdit(commands.editPlan(JSON.stringify(request)));
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
@@ -196,7 +339,18 @@ export function Timeline(props: TimelineProps) {
       if (!moved) return;
       const base = edge === "start" ? (item.start ?? 0) : (item.end ?? 0);
       const t = snapTime(base + (ev.clientX - x0) / pps, [item.id]);
-      onEdit(commands.trimItem(item.id, edge, snapToFrame(t)));
+      // Trim tool: an edit point between two touching clips rolls (both edges move together).
+      const neighbour =
+        tool === "trim"
+          ? items.find((o) => o.trackId === item.trackId && o.id !== item.id && Math.abs((edge === "start" ? (o.end ?? 0) : (o.start ?? 0)) - base) < 1e-6)
+          : undefined;
+      if (neighbour) {
+        const [left, right] = edge === "start" ? [neighbour.id, item.id] : [item.id, neighbour.id];
+        onEdit(commands.editPlan(JSON.stringify({ op: "roll", left, right, to: snapToFrame(t), linked: !ev.altKey })));
+        return;
+      }
+      // Alt trims this side only (a J or L cut).
+      onEdit(commands.trimItem(item.id, edge, snapToFrame(t), ev.altKey ? false : null));
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
@@ -217,8 +371,26 @@ export function Timeline(props: TimelineProps) {
       ...(sound ? [{ id: "mute", label: item.muted ? "Unmute" : "Mute", onSelect: () => onEdit(updateItem(item.id, { muted: !item.muted }, [], item.muted ? "unmute" : "mute")) }] : []),
       { id: "hide", label: item.hidden ? "Show" : "Hide", onSelect: () => onEdit(updateItem(item.id, { hidden: !item.hidden }, [], item.hidden ? "show" : "hide")) },
       { id: "delete", label: ids.length > 1 ? `Delete ${ids.length} items` : "Delete", hint: "⌫", danger: true, onSelect: () => onEdit(commands.removeItems(ids)) },
+      ...(syncable(item, ids).length > 0 ? [{ id: "sync", label: "Synchronise selection", onSelect: () => synchronise(item, ids) }] : []),
     ];
     setMenu({ at: { x: e.clientX, y: e.clientY }, items: list });
+  };
+
+  // Synchronise selection: the other selected sound items line up against the clicked one (a camera, usually).
+  const syncable = (item: ItemView_Serialize, ids: string[]) => {
+    const isSound = (i: ItemView_Serialize | undefined) => !!i && (i.kind === "video" || i.kind === "audio") && !!i.mediaId;
+    if (!isSound(item)) return [];
+    return ids.filter((id) => id !== item.id && isSound(items.find((i) => i.id === id)));
+  };
+  const synchronise = (item: ItemView_Serialize, ids: string[]) => {
+    const p = commands.syncItems({ reference: item.id, targets: syncable(item, ids), mode: "auto" });
+    onEdit(
+      p.then((r) => {
+        if (r.status !== "ok") return r;
+        setSyncNote(r.data.summary);
+        return { status: "ok" as const, data: r.data.view };
+      }),
+    );
   };
 
   const laneMenu = (e: React.MouseEvent, trackId: string, trackKind: string) => {
@@ -266,10 +438,33 @@ export function Timeline(props: TimelineProps) {
   };
 
   return (
-    <div className="timeline" data-testid="timeline">
+    <div className={`timeline tool-${tool}`} data-testid="timeline" data-tool={tool}>
       <div className="tl-scroll" ref={scroller}>
         <div className="tl-content" style={{ width: contentW }}>
-          <div className="ruler" onPointerDown={(e) => seekAt(e.clientX)} data-testid="ruler">
+          <div
+            className="ruler"
+            // The right button opens the marked range's menu instead of scrubbing.
+            onPointerDown={(e) => e.button !== 2 && startRulerScrub(e)}
+            onContextMenu={(e) => {
+              const t = timeAt(e.clientX);
+              if (range.in === null || range.out === null || t < range.in || t > range.out) return;
+              e.preventDefault();
+              const list = props.rangeMenu?.(range.in, range.out) ?? [];
+              if (list.length) setMenu({ at: { x: e.clientX, y: e.clientY }, items: list });
+            }}
+            data-testid="ruler"
+          >
+            {range.in !== null && <span className="range-in" data-testid="range-in" style={{ left: HEADER_W + x(range.in) }} />}
+            {range.out !== null && <span className="range-out" data-testid="range-out" style={{ left: HEADER_W + x(range.out) }} />}
+            {range.in !== null && range.out !== null && range.out > range.in && (
+              <span
+                className="range-mark"
+                data-testid="range"
+                data-in={range.in}
+                data-out={range.out}
+                style={{ left: HEADER_W + x(range.in), width: x(range.out - range.in) }}
+              />
+            )}
             <div className="ruler-head small">{fmtTime(playhead)}</div>
             <div className="ruler-ticks">
               {ticks.map((s) => (
@@ -279,13 +474,25 @@ export function Timeline(props: TimelineProps) {
               ))}
             </div>
           </div>
+          <MarkerLane markers={project?.markers ?? NO_MARKERS} pps={pps} headerW={HEADER_W} onEdit={onEdit} onSeek={onScrub} />
           <div className="tracks" ref={rows}>
             {tracks.map((t) => (
+              <Fragment key={t.id}>
               <div className={`track${t.visible ? "" : " track-hidden"}`} key={t.id} data-testid={`track-${t.name}`}>
                 <div className="track-head">
                   <Icon name={TRACK_ICON[t.kind] ?? "media"} size={14} />
                   <span>{t.name}</span>
                   <span className="track-tools">
+                    {(lanesByTrack.get(t.id)?.length ?? 0) > 0 && (
+                      <button
+                        className={`tiny kf-toggle${expanded.includes(t.id) ? " on" : ""}`}
+                        data-testid={`kf-toggle-${t.name}`}
+                        title={expanded.includes(t.id) ? "Hide keyframe lanes" : "Show keyframe lanes"}
+                        onClick={() => setExpanded((e) => (e.includes(t.id) ? e.filter((x) => x !== t.id) : [...e, t.id]))}
+                      >
+                        ◆
+                      </button>
+                    )}
                     {t.kind !== "caption" && (
                       <button
                         className={`tiny${t.muted ? " on" : ""}`}
@@ -310,7 +517,27 @@ export function Timeline(props: TimelineProps) {
                   data-testid={`lane-${t.name}`}
                   onPointerDown={(e) => (e.target === e.currentTarget && e.button === 0 ? seekAt(e.clientX) : undefined)}
                   onContextMenu={(e) => laneMenu(e, t.id, t.kind)}
+                  onDragOver={(e) => {
+                    if (props.onDropClip && e.dataTransfer.types.includes(CLIP_DRAG_TYPE)) e.preventDefault();
+                  }}
+                  onDrop={(e) => {
+                    const payload = e.dataTransfer.getData(CLIP_DRAG_TYPE);
+                    if (!payload || !props.onDropClip) return;
+                    e.preventDefault();
+                    props.onDropClip(t.id, snapToFrame(timeAt(e.clientX)), payload);
+                  }}
                 >
+                  {ghosts
+                    .filter((g) => g.trackId === t.id)
+                    .map((g) => (
+                      <div
+                        key={`ghost-${g.id}`}
+                        className="clip-ghost"
+                        data-testid="ghost"
+                        data-id={g.id}
+                        style={{ left: x(g.start ?? 0), width: Math.max(4, x((g.end ?? 0) - (g.start ?? 0))) }}
+                      />
+                    ))}
                   {items
                     .filter((i) => i.trackId === t.id)
                     .map((i) => {
@@ -330,12 +557,35 @@ export function Timeline(props: TimelineProps) {
                           onPointerDown={(e) => startMove(e, i)}
                           onContextMenu={(e) => clipMenu(e, i)}
                         >
+                          {i.audio && i.mediaId && !i.pending && <ClipAudioLayer item={i} width={g.width} height={ROW_H - 8} onEdit={onEdit} />}
+                          {beatsOf.get(i.id)?.beats.map((t) => {
+                            const down = beatsOf.get(i.id)!.downbeats.includes(t);
+                            return (
+                              <span
+                                key={`beat-${t}`}
+                                className={`beat-mark${down ? " downbeat" : ""}`}
+                                data-testid={down ? "downbeat-mark" : "beat-mark"}
+                                style={{ left: x(t - (i.start ?? 0)) }}
+                              />
+                            );
+                          })}
                           {(i.transitionIn ?? 0) > 0 && <span className="fade-in" style={{ width: x(i.transitionIn ?? 0) }} />}
                           {(i.transitionOut ?? 0) > 0 && <span className="fade-out" style={{ width: x(i.transitionOut ?? 0) }} />}
                           <span className="clip-label">
                             {i.muted && <Icon name="mute" size={11} />} {i.kind === "text" || i.kind === "caption" ? (i.text ?? i.name) : i.name}
                             {(i.speed ?? 1) !== 1 && <em className="speed-tag"> {i.speed}×</em>}
                           </span>
+                          {i.link && (linkCount.get(i.link) ?? 0) > 1 && (
+                            <span className="link-badge" data-testid="link-badge" title="Linked: moves, trims and deletes with its partner (Alt edits this side only)">
+                              <Icon name="link" size={11} />
+                            </span>
+                          )}
+                          {drift.has(i.id) && (
+                            <span className="drift-chip" data-testid="drift-chip" title="Out of sync with the items it is linked to">
+                              {drift.get(i.id)! > 0 ? "+" : ""}
+                              {drift.get(i.id)}f
+                            </span>
+                          )}
                           {sel && (
                             <>
                               <span className="trim trim-start" data-testid="trim-start" onPointerDown={(e) => startTrim(e, i, "start")} />
@@ -347,13 +597,47 @@ export function Timeline(props: TimelineProps) {
                     })}
                 </div>
               </div>
+              {expanded.includes(t.id) && <KeyframeLanes items={items.filter((i) => i.trackId === t.id)} pps={pps} headerW={HEADER_W} onEdit={onEdit} />}
+              </Fragment>
             ))}
             {!items.length && <div className="timeline-empty muted">Import media to start your timeline.</div>}
           </div>
+          {cutPreview.map((r) => (
+            <div
+              key={`${r.start}-${r.end}`}
+              className="cut-preview"
+              style={{ left: HEADER_W + x(r.start), width: Math.max(1, x(r.end) - x(r.start)) }}
+              data-testid="cut-preview"
+            />
+          ))}
+          <ActivityLayer items={items} tracks={tracks} x={x} headerW={HEADER_W} rowH={ROW_H} rulerH={31} />
           <div className="playhead" style={{ left: HEADER_W + x(playhead) }} data-testid="playhead" />
         </div>
       </div>
       <ContextMenu at={menu?.at ?? null} items={menu?.items ?? []} onClose={() => setMenu(null)} testId="clip-menu" />
+      <button
+        className={`beats-toggle icon-btn${snapBeats ? " on" : ""}`}
+        aria-pressed={snapBeats}
+        data-testid="snap-beats"
+        title={
+          beatData?.modelMissing
+            ? "Snap to beats: the beat model is not installed, so only music with detected beats snaps"
+            : snapBeats
+              ? "Snap to beats on: edges snap to beats, downbeats first"
+              : "Snap to beats"
+        }
+        onClick={() => setSnapBeats(!snapBeats)}
+      >
+        ♩
+      </button>
+      {syncNote && (
+        <div className="sync-summary" role="status" data-testid="sync-summary">
+          <span>{syncNote}</span>
+          <button className="ghost" onClick={() => setSyncNote(null)} aria-label="Dismiss" data-testid="sync-summary-close">
+            ×
+          </button>
+        </div>
+      )}
     </div>
   );
 }

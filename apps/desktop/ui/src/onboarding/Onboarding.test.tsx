@@ -299,6 +299,7 @@ describe("steps from project state", () => {
     transitionIn: 0,
     transitionOut: 0,
     speed: 1,
+    link: null,
   });
   const view = (rev: number, items: ItemView_Serialize[], media = 1, id = "p1") =>
     ({
@@ -364,6 +365,7 @@ describe("help", () => {
       "Show the welcome again",
       "Try the sample project",
       "Keyboard shortcuts",
+      "Feedback",
     ]);
     for (const b of menu.getAllByRole("menuitem")) expect(b.hasAttribute("disabled")).toBe(false);
 

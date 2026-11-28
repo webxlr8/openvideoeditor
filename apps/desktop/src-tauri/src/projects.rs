@@ -95,6 +95,8 @@ pub struct TrackView {
     pub locked: bool,
     pub visible: bool,
     pub muted: bool,
+    /// Ripple edits on other tracks shift this track too.
+    pub sync_lock: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -117,6 +119,16 @@ pub struct ItemView {
     pub transition_in: f64,
     pub transition_out: f64,
     pub speed: f64,
+    /// Link group value, when the item is linked.
+    pub link: Option<String>,
+    /// Volume, fades and volume keyframes of video and audio items, for the waveform and gain line.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub audio: Option<crate::waveforms::ItemAudio>,
+    /// Keyframe tracks other than volume (opacity, scale, crop, …), for the keyframe lanes (absent: none).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub keyframes: Option<Vec<crate::keyframes::KeyframeTrackView>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -133,6 +145,62 @@ pub struct MediaView {
     pub status: String,
     /// `data:image/png;base64,…` thumbnail, when one could be made.
     pub thumbnail: Option<String>,
+    /// The hover-skim sheet, once built (served at `ove-skim://localhost/<contentId>.jpg`).
+    pub skim: Option<SkimView>,
+    /// Start timecode label (`HH:MM:SS:FF`, `;` for drop-frame) when the file carries one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timecode: Option<String>,
+    /// Media panel folder (add-semantic-media-search), `/`-separated; none at the top level.
+    pub folder: Option<String>,
+    pub tags: Vec<String>,
+    /// Saved source ranges, shown under the media and dragged like it.
+    pub subclips: Vec<SubclipView>,
+}
+
+/// A saved subclip of a media item: a named source range.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SubclipView {
+    pub id: String,
+    pub name: String,
+    /// Source seconds.
+    pub start: f64,
+    pub end: f64,
+}
+
+/// A skim sheet's image and layout: tile `i` of `count` sits at column `i % columns`, row `i / columns`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SkimView {
+    pub content_id: String,
+    pub columns: u32,
+    pub rows: u32,
+    pub tile_width: u32,
+    pub tile_height: u32,
+    pub count: u32,
+}
+
+impl SkimView {
+    fn new(content_id: &str, s: &ove_media::skim::SkimSheet) -> SkimView {
+        SkimView {
+            content_id: content_id.to_string(),
+            columns: s.columns,
+            rows: s.rows,
+            tile_width: s.tile_width,
+            tile_height: s.tile_height,
+            count: s.times_us.len() as u32,
+        }
+    }
+
+    /// The sheet of `content_id` in `bundle`, read from disk.
+    pub(crate) fn read(bundle: &Path, content_id: &str) -> Option<SkimView> {
+        crate::tasks::read_skim(bundle, content_id).map(|s| SkimView::new(content_id, &s))
+    }
+}
+
+/// The content id of a media item, when its registry entry has one.
+fn content_id_of<'a>(doc: &'a ove_core::Document, media_id: &str) -> Option<&'a str> {
+    doc.registry.get(media_id)?.fields.get("contentId")?.as_str()
 }
 
 /// Everything the editor shows about the open project.
@@ -144,6 +212,8 @@ pub struct ProjectView {
     pub bundle: String,
     pub rev: f64,
     pub aspect_ratio: String,
+    /// Timeline frame rate (edits snap to its frame grid).
+    pub fps: f64,
     pub duration_seconds: f64,
     pub can_undo: bool,
     pub can_redo: bool,
@@ -151,6 +221,14 @@ pub struct ProjectView {
     pub tracks: Vec<TrackView>,
     pub items: Vec<ItemView>,
     pub media: Vec<MediaView>,
+    /// The project's "Use proxies" setting (absent: off).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub use_proxies: Option<bool>,
+    /// Timeline markers in time order (absent: none).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub markers: Option<Vec<crate::markers::MarkerView>>,
 }
 
 /// The open project changed (any source).
@@ -216,9 +294,120 @@ pub(crate) fn thumbs_dir(bundle: &Path) -> PathBuf {
     bundle.join("cache").join("thumbs")
 }
 
-fn thumbnail_data_url(bundle: &Path, media_id: &str) -> Option<String> {
-    let bytes = std::fs::read(thumbs_dir(bundle).join(format!("{media_id}.png"))).ok()?;
+/// `cache/thumbs/<key>.png` as a data URL.
+fn thumbnail_data_url(bundle: &Path, key: &str) -> Option<String> {
+    let bytes = std::fs::read(thumbs_dir(bundle).join(format!("{key}.png"))).ok()?;
     Some(format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes)))
+}
+
+/// What a media file's thumbnail is stored under: its content id (so a moved or relinked file keeps it), or its
+/// media id for entries from before content ids.
+pub(crate) fn thumb_key(doc: &ove_core::Document, media_id: &str) -> String {
+    doc.registry
+        .get(media_id)
+        .and_then(|e| e.fields.get("contentId"))
+        .and_then(Value::as_str)
+        .map_or_else(|| media_id.to_string(), str::to_string)
+}
+
+/// A media file's thumbnail: under its content id, else under its media id (not migrated yet, or written by a
+/// feature that names thumbnails by media id).
+fn thumbnail_for(bundle: &Path, doc: &ove_core::Document, media_id: &str) -> Option<String> {
+    thumbnail_data_url(bundle, &thumb_key(doc, media_id)).or_else(|| thumbnail_data_url(bundle, media_id))
+}
+
+/// Moves derived data from before content ids onto them: thumbnails named by media id and transcripts keyed by
+/// path, size and time. Returns how many files moved. Entries without a content id are left alone.
+#[cfg(test)]
+pub(crate) fn migrate_derived(bundle: &Path, doc: &ove_core::Document) -> usize {
+    let all: BTreeSet<String> = doc
+        .registry
+        .values()
+        .filter_map(|e| e.fields.get("contentId").and_then(Value::as_str))
+        .map(str::to_string)
+        .collect();
+    migrate_derived_only(bundle, doc, &all)
+}
+
+/// [`migrate_derived`] for the entries whose content id is in `only`.
+fn migrate_derived_only(bundle: &Path, doc: &ove_core::Document, only: &BTreeSet<String>) -> usize {
+    let mut moved = 0;
+    for e in doc.registry.values() {
+        let Some(cid) = e.fields.get("contentId").and_then(Value::as_str).filter(|c| only.contains(*c)) else {
+            continue;
+        };
+        let old = thumbs_dir(bundle).join(format!("{}.png", e.media_id));
+        if old.is_file() {
+            let new = thumbs_dir(bundle).join(format!("{cid}.png"));
+            let ok = if new.exists() { std::fs::remove_file(&old) } else { std::fs::rename(&old, &new) };
+            moved += usize::from(ok.is_ok());
+        }
+        let path = resolve_media_path(bundle, &e.native_path);
+        moved += ove_transcribe::cache::migrate_legacy(bundle, &path, cid);
+    }
+    moved
+}
+
+/// Computes content ids in a background task for entries without one (projects from before content ids) or whose
+/// file changed, and stores them as one revision attributed to migration. The next media check then moves older
+/// derived data onto them.
+fn queue_identity_check(app: &AppHandle, bundle: &Path) {
+    let state = app.state::<AppState>();
+    let spec =
+        ove_tasks::TaskSpec::new("identity", "Media identities", ove_tasks::Priority::Derivative, ove_tasks::Class::Io)
+            .project(crate::tasks::project_key(bundle))
+            .memory(8 * 1024 * 1024)
+            .key(format!("identity:{}", bundle.display()));
+    let (a, b) = (app.clone(), bundle.to_path_buf());
+    state.tasks.submit(spec, move |ctx| {
+        let state = a.state::<AppState>();
+        let doc = {
+            let g = lock(&state.projects.open).map_err(|e| ove_tasks::TaskError::Failed(e.message))?;
+            match g.as_ref() {
+                Some(p) if p.bundle() == b => p.doc().clone(),
+                _ => return Ok(()),
+            }
+        };
+        ctx.checkpoint()?;
+        let ops = identity_ops(&b, &doc);
+        ctx.checkpoint()?;
+        if ops.is_empty() {
+            return Ok(());
+        }
+        let n = ops.len();
+        {
+            let mut g = lock(&state.projects.open).map_err(|e| ove_tasks::TaskError::Failed(e.message))?;
+            // Only onto the same project, unchanged since the files were read.
+            if !g.as_ref().is_some_and(|p| p.bundle() == b && p.doc().registry == doc.registry) {
+                return Ok(());
+            }
+            let p = commit_as(&mut g, ops, "media identities", Source::Migration)
+                .map_err(|e| ove_tasks::TaskError::Failed(e.message))?;
+            emit_view(&a, Some(p));
+        }
+        tracing::info!(entries = n, "stored media content ids");
+        refresh_media(&a);
+        Ok(())
+    });
+}
+
+/// Ops that store content ids for entries that lack one (projects from before content ids) or whose file changed
+/// in place. Reads the files; runs as a background task.
+pub(crate) fn identity_ops(bundle: &Path, doc: &ove_core::Document) -> Vec<Op> {
+    doc.registry
+        .values()
+        .filter_map(|e| {
+            let path = resolve_media_path(bundle, &e.native_path);
+            let entry_set = ove_store::media::refresh_identity(&path, &e.fields)?;
+            Some(Op::UpdateMedia {
+                id: e.media_id.clone(),
+                set: Map::new(),
+                unset: vec![],
+                entry_set,
+                entry_unset: vec![],
+            })
+        })
+        .collect()
 }
 
 fn transition_secs(i: &ove_core::Item, key: &str) -> f64 {
@@ -244,7 +433,7 @@ fn status_name(s: MediaState) -> &'static str {
 /// the cached view instead ([`MediaCache::view`]); this is for one-off use and tests.
 pub fn view(p: &Project) -> ProjectView {
     let status = media_status(p.bundle(), p.doc());
-    view_from(
+    let v = view_from(
         p,
         |id| {
             status
@@ -252,8 +441,13 @@ pub fn view(p: &Project) -> ProjectView {
                 .find(|s| s.media_id == id)
                 .map(|s| LinkView { path: s.path.display().to_string(), state: s.state })
         },
-        |id| thumbnail_data_url(p.bundle(), id),
-    )
+        |id| thumbnail_for(p.bundle(), p.doc(), id),
+    );
+    let mut v = v;
+    for m in &mut v.media {
+        m.skim = content_id_of(p.doc(), &m.id).and_then(|cid| SkimView::read(p.bundle(), cid));
+    }
+    v
 }
 
 fn view_from(
@@ -273,7 +467,13 @@ fn view_from(
             let st = link(&m.id);
             MediaView {
                 id: m.id.clone(),
-                name: m.file_name().map(str::to_string).unwrap_or_else(|| m.id.clone()),
+                name: m
+                    .fields
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .or_else(|| m.file_name())
+                    .map(str::to_string)
+                    .unwrap_or_else(|| m.id.clone()),
                 path: st.as_ref().map(|s| s.path.clone()).unwrap_or_default(),
                 kind: get("type").and_then(Value::as_str).unwrap_or("video").to_string(),
                 duration_seconds: get("duration").and_then(Value::as_f64),
@@ -281,6 +481,34 @@ fn view_from(
                 height: get("height").and_then(Value::as_u64).map(|v| v as u32),
                 status: status_name(st.map(|s| s.state).unwrap_or(MediaState::Online)).into(),
                 thumbnail: thumbnail(&m.id),
+                skim: None,
+                timecode: get("sourceTimecode")
+                    .and_then(|v| serde_json::from_value::<ove_media::SourceTimecode>(v.clone()).ok())
+                    .map(|t| t.label()),
+                folder: m.fields.get("folder").and_then(Value::as_str).map(str::to_string),
+                tags: m
+                    .fields
+                    .get("tags")
+                    .and_then(Value::as_array)
+                    .map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect())
+                    .unwrap_or_default(),
+                subclips: m
+                    .fields
+                    .get("subclips")
+                    .and_then(Value::as_array)
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|s| {
+                                Some(SubclipView {
+                                    id: s.get("id")?.as_str()?.to_string(),
+                                    name: s.get("name").and_then(Value::as_str).unwrap_or("Subclip").to_string(),
+                                    start: s.get("in")?.as_f64()?,
+                                    end: s.get("out")?.as_f64()?,
+                                })
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default(),
             }
         })
         .collect();
@@ -290,6 +518,7 @@ fn view_from(
         bundle: p.bundle().display().to_string(),
         rev: d.project.rev as f64,
         aspect_ratio: d.project.aspect_ratio.clone(),
+        fps: d.fps(),
         duration_seconds: secs(d.duration()),
         can_undo: p.session().can_undo(),
         can_redo: p.session().can_redo(),
@@ -305,6 +534,7 @@ fn view_from(
                 locked: track_bool(t, "locked", false),
                 visible: track_bool(t, "visible", true),
                 muted: track_bool(t, "muted", false),
+                sync_lock: track_bool(t, "syncLock", true),
             })
             .collect(),
         items: d
@@ -337,9 +567,14 @@ fn view_from(
                 transition_in: transition_secs(i, "transitionIn"),
                 transition_out: transition_secs(i, "transitionOut"),
                 speed: i.fields.get("playbackSpeed").and_then(Value::as_f64).unwrap_or(1.0),
+                link: i.fields.get("link").and_then(Value::as_str).map(str::to_string),
+                audio: crate::waveforms::item_audio(i),
+                keyframes: crate::keyframes::views(i),
             })
             .collect(),
         media,
+        use_proxies: ove_render::proxy::enabled(d).then_some(true),
+        markers: crate::markers::views(d),
     }
 }
 
@@ -357,6 +592,18 @@ pub struct MediaCache {
     links: HashMap<String, (String, LinkView)>,
     /// media id → thumbnail data URL (`None`: there was no thumbnail file when last looked).
     thumbs: HashMap<String, Option<String>>,
+    /// Media whose missing thumbnail was queued once already (a file that cannot be thumbnailed is not retried).
+    thumbs_queued: BTreeSet<String>,
+    /// Content ids whose older derived data was moved onto them this session.
+    migrated: BTreeSet<String>,
+    /// Registry states (link keys) an identity check was queued for.
+    identity_queued: BTreeSet<String>,
+    /// Content ids a skim sheet was queued for (or found finished).
+    skim_queued: BTreeSet<String>,
+    /// content id → finished skim sheet.
+    skims: HashMap<String, SkimView>,
+    /// Content ids an audio analysis was queued for (or found finished).
+    analysis_queued: BTreeSet<String>,
 }
 
 impl MediaCache {
@@ -387,7 +634,28 @@ impl MediaCache {
             },
             |id| self.thumbs.get(id).cloned().flatten(),
         );
+        let mut v = v;
+        for m in &mut v.media {
+            m.skim = content_id_of(d, &m.id).and_then(|cid| self.skims.get(cid).cloned());
+        }
         (v, stale)
+    }
+
+    /// Forgets everything checked and derived, so the next media check reads it all again from disk (after
+    /// Settings → Storage cleared a cache).
+    pub fn forget(&mut self) {
+        *self = MediaCache::default();
+    }
+
+    /// Records a finished skim sheet.
+    pub fn put_skim(&mut self, bundle: &Path, skim: SkimView) {
+        self.select(bundle);
+        self.skims.insert(skim.content_id.clone(), skim);
+    }
+
+    /// The bundle whose media this cache holds (the open project's).
+    pub fn bundle(&self) -> &Path {
+        &self.bundle
     }
 
     /// Records a thumbnail just made for `media_id`.
@@ -415,6 +683,10 @@ impl MediaCache {
             self.links.insert(id, (key, l));
         }
         for (id, t) in thumbs {
+            // A thumbnail task may have finished after this check looked for the file.
+            if t.is_none() && self.thumbs.get(&id).is_some_and(Option::is_some) {
+                continue;
+            }
             changed |= self.thumbs.get(&id).cloned().flatten() != t;
             self.thumbs.insert(id, t);
         }
@@ -457,27 +729,156 @@ fn refresh_once(app: &AppHandle, state: &AppState) {
     let snapshot =
         lock(&state.projects.open).ok().and_then(|g| g.as_ref().map(|p| (p.bundle().to_path_buf(), p.doc().clone())));
     let Some((bundle, doc)) = snapshot else { return };
-    let have_thumb: BTreeSet<String> = {
+    let (have_thumb, to_migrate, needs_identity) = {
         let mut c = relock(&state.projects.media);
         c.select(&bundle);
-        c.thumbs.iter().filter(|(_, t)| t.is_some()).map(|(id, _)| id.clone()).collect()
+        let have: BTreeSet<String> = c.thumbs.iter().filter(|(_, t)| t.is_some()).map(|(id, _)| id.clone()).collect();
+        let to_migrate: BTreeSet<String> = doc
+            .registry
+            .values()
+            .filter_map(|e| e.fields.get("contentId").and_then(Value::as_str))
+            .filter(|cid| !c.migrated.contains(*cid))
+            .map(str::to_string)
+            .collect();
+        c.migrated.extend(to_migrate.iter().cloned());
+        let keys: Vec<String> = doc.registry.values().map(link_key).collect();
+        let needs_identity = keys.iter().any(|k| !c.identity_queued.contains(k));
+        c.identity_queued.extend(keys);
+        (have, to_migrate, needs_identity)
     };
-    let links = media_status(&bundle, &doc)
+    // Derived data from before content ids moves onto them (first open after the upgrade, or after an identity check).
+    if !to_migrate.is_empty() {
+        let moved = migrate_derived_only(&bundle, &doc, &to_migrate);
+        if moved > 0 {
+            tracing::info!(moved, "moved derived data onto content ids");
+        }
+    }
+    if needs_identity {
+        queue_identity_check(app, &bundle);
+    }
+    let links: Vec<(String, String, LinkView)> = media_status(&bundle, &doc)
         .into_iter()
         .filter_map(|s| {
             let key = link_key(doc.registry.get(&s.media_id)?);
             Some((s.media_id, key, LinkView { path: s.path.display().to_string(), state: s.state }))
         })
         .collect();
-    let thumbs = doc
+    let thumbs: Vec<(String, Option<String>)> = doc
         .project
         .media
         .keys()
         .filter(|id| !have_thumb.contains(*id))
-        .map(|id| (id.clone(), thumbnail_data_url(&bundle, id)))
+        .map(|id| (id.clone(), thumbnail_for(&bundle, &doc, id)))
         .collect();
+    // Thumbnails are derived data: one that is missing (a cleared cache, an older project) is made again.
+    let missing: Vec<(String, String, PathBuf, i64)> = {
+        let mut c = relock(&state.projects.media);
+        let online: BTreeSet<&str> =
+            links.iter().filter(|(_, _, l)| l.state == MediaState::Online).map(|(id, _, _)| id.as_str()).collect();
+        thumbs
+            .iter()
+            .filter(|(id, t)| t.is_none() && online.contains(id.as_str()))
+            .filter_map(|(id, _)| {
+                let data = doc.project.media.get(id)?.fields.get("data")?;
+                (data.get("type").and_then(Value::as_str) == Some("video")).then_some(())?;
+                let e = doc.registry.get(id)?;
+                let dur = data.get("duration").and_then(ove_core::time::json_to_micros).unwrap_or(1_000_000);
+                c.thumbs_queued
+                    .insert(id.clone())
+                    .then(|| (id.clone(), thumb_key(&doc, id), resolve_media_path(&bundle, &e.native_path), dur))
+            })
+            .collect()
+    };
+    // Skim sheets, keyed by content id: queued once per content for online videos without a finished sheet.
+    let skims: Vec<(String, PathBuf, i64)> = {
+        let mut c = relock(&state.projects.media);
+        let online: BTreeSet<&str> =
+            links.iter().filter(|(_, _, l)| l.state == MediaState::Online).map(|(id, _, _)| id.as_str()).collect();
+        doc.registry
+            .values()
+            .filter(|e| online.contains(e.media_id.as_str()))
+            .filter_map(|e| {
+                let cid = e.fields.get("contentId")?.as_str()?;
+                let data = doc.project.media.get(&e.media_id)?.fields.get("data")?;
+                (data.get("type").and_then(Value::as_str) == Some("video")).then_some(())?;
+                let dur = data.get("duration").and_then(ove_core::time::json_to_micros).unwrap_or(1_000_000);
+                c.skim_queued.insert(cid.to_string()).then_some(())?;
+                if let Some(s) = SkimView::read(&bundle, cid) {
+                    c.skims.insert(cid.to_string(), s);
+                    return None;
+                }
+                let original = resolve_media_path(&bundle, &e.native_path);
+                Some((cid.to_string(), crate::proxies::derivative_source(&bundle, &doc, cid, original), dur))
+            })
+            .collect()
+    };
+    // Proxies, when the project uses them: online videos without one.
+    let online_videos: Vec<(String, PathBuf)> = {
+        let online: BTreeSet<&str> =
+            links.iter().filter(|(_, _, l)| l.state == MediaState::Online).map(|(id, _, _)| id.as_str()).collect();
+        doc.registry
+            .values()
+            .filter(|e| online.contains(e.media_id.as_str()))
+            .filter_map(|e| {
+                let cid = e.fields.get("contentId")?.as_str()?;
+                let data = doc.project.media.get(&e.media_id)?.fields.get("data")?;
+                (data.get("type").and_then(Value::as_str) == Some("video")).then_some(())?;
+                Some((cid.to_string(), resolve_media_path(&bundle, &e.native_path)))
+            })
+            .collect()
+    };
+    crate::proxies::queue_missing(app, &bundle, &doc, online_videos);
+    // Audio analysis (peaks and loudness), keyed by content id: queued once per content for online media with sound.
+    let analyses: Vec<(String, PathBuf)> = {
+        let mut c = relock(&state.projects.media);
+        let online: BTreeSet<&str> =
+            links.iter().filter(|(_, _, l)| l.state == MediaState::Online).map(|(id, _, _)| id.as_str()).collect();
+        doc.registry
+            .values()
+            .filter(|e| online.contains(e.media_id.as_str()))
+            .filter_map(|e| {
+                let cid = e.fields.get("contentId")?.as_str()?;
+                let data = doc.project.media.get(&e.media_id)?.fields.get("data")?;
+                crate::waveforms::media_has_sound(data).then_some(())?;
+                c.analysis_queued.insert(cid.to_string()).then_some(())?;
+                Some((cid.to_string(), resolve_media_path(&bundle, &e.native_path)))
+            })
+            .collect()
+    };
+    let index_items = {
+        let online: BTreeSet<&str> =
+            links.iter().filter(|(_, _, l)| l.state == MediaState::Online).map(|(id, _, _)| id.as_str()).collect();
+        crate::search::indexable(&bundle, &doc, &online)
+    };
     // Released before the project is locked: the lock order is project, then media cache.
     let changed = relock(&state.projects.media).store(&bundle, links, thumbs);
+    if !missing.is_empty() {
+        queue_thumbnails(app, &bundle, missing);
+    }
+    if !skims.is_empty() {
+        let tasks = &state.tasks;
+        let project = crate::tasks::project_key(&bundle);
+        for (cid, source, dur) in skims {
+            let (a, b, c) = (app.clone(), bundle.clone(), cid.clone());
+            crate::tasks::queue_skim(tasks, &project, &bundle, &cid, source, dur, move |made| {
+                if let Some(s) = made.then(|| SkimView::read(&b, &c)).flatten() {
+                    relock(&a.state::<AppState>().projects.media).put_skim(&b, s);
+                    emit_view_soon(&a);
+                }
+            });
+        }
+    }
+    if !analyses.is_empty() {
+        let project = crate::tasks::project_key(&bundle);
+        for (cid, source) in analyses {
+            let (a, c) = (app.clone(), cid.clone());
+            crate::waveforms::queue_analysis(&state.tasks, &project, &bundle, &cid, source, move |ok| {
+                crate::waveforms::emit_changed(&a, &c, ok);
+            });
+        }
+    }
+    // Footage search indexes (P3), keyed by content id; queued only when the visual search model is installed.
+    crate::search::queue_indexing(app, &bundle, index_items);
     if changed
         && let Ok(g) = lock(&state.projects.open)
         && let Some(p) = g.as_ref().filter(|p| p.bundle() == bundle)
@@ -508,6 +909,8 @@ pub(crate) fn emit_view(app: &AppHandle, p: Option<&Project>) -> Option<ProjectV
     // The timeline preview follows every change.
     if let Some(p) = p {
         crate::exporting::notify_doc(&state, p.doc(), p.bundle());
+        // Agents' changes show live on the timeline.
+        crate::activity::after_change(app, p);
     }
     v
 }
@@ -733,6 +1136,9 @@ pub(crate) fn media_records(canonical: &Path, info: &ove_media::MediaInfo, id: &
     data.insert("format".into(), info.container.clone().into());
     data.insert("duration".into(), ove_core::time::micros_to_json(duration_us));
     data.insert("hasAudio".into(), info.audio.is_some().into());
+    if let Some(tc) = info.source_timecode.as_ref().and_then(|t| serde_json::to_value(t).ok()) {
+        data.insert("sourceTimecode".into(), tc);
+    }
     if let Some(v) = &info.video {
         data.insert("width".into(), v.width.into());
         data.insert("height".into(), v.height.into());
@@ -741,11 +1147,9 @@ pub(crate) fn media_records(canonical: &Path, info: &ove_media::MediaInfo, id: &
         }
     }
     let mut entry = json!({"mediaId": id, "nativePath": canonical.display().to_string(), "ownedByBundle": false, "probeStatus": "probed"});
-    if let Ok(md) = std::fs::metadata(canonical) {
-        entry["size"] = json!(md.len());
-        if let Some(t) = md.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()) {
-            entry["modifiedAt"] = json!(t.as_millis() as i64);
-        }
+    // size, modifiedAt and contentId: written with the add-media op, so they cost no extra revision.
+    if let Some(e) = entry.as_object_mut() {
+        e.extend(ove_store::media::identity_fields(canonical));
     }
     (json!({"id": id, "createdAt": now, "addedAt": now, "data": Value::Object(data)}), entry, duration_us)
 }
@@ -756,12 +1160,16 @@ struct Probed {
     entry: Value,
     id: String,
     name: String,
+    path: PathBuf,
     duration_us: i64,
     video: bool,
+    /// The file has sound as well as picture.
+    audio: bool,
 }
 
-/// Probes files, registers their records and makes thumbnails. Slow (decoding), so it runs outside the project's
-/// turn: edits made meanwhile are not held up.
+/// Probes files (as interactive background tasks, several at once) and builds their records. Thumbnails come later,
+/// as derivative tasks, once the files are in the project ([`queue_thumbnails`]). Runs outside the project's turn:
+/// edits made meanwhile are not held up.
 fn probe_paths(state: &AppState, paths: &[String], now: i64) -> AppResult<(PathBuf, Vec<Probed>, Vec<String>)> {
     let bundle = {
         let g = lock(&state.projects.open)?;
@@ -769,38 +1177,132 @@ fn probe_paths(state: &AppState, paths: &[String], now: i64) -> AppResult<(PathB
             g.as_ref().ok_or_else(|| AppError::new(ErrorCode::InvalidArgument, "Open or create a project first."))?;
         p.bundle().to_path_buf()
     };
+    let project = crate::tasks::project_key(&bundle);
+    let (probed, errors) = probed_records(crate::tasks::probe_all(&state.tasks, &project, paths), now);
+    for f in probed.iter().filter(|f| !f.video) {
+        relock(&state.projects.media).put_thumbnail(&bundle, &f.id, None);
+    }
+    Ok((bundle, probed, errors))
+}
+
+/// Records for every file that probed, and the error text of every one that did not.
+fn probed_records(
+    results: Vec<(PathBuf, Result<ove_media::MediaInfo, String>)>,
+    now: i64,
+) -> (Vec<Probed>, Vec<String>) {
     let mut probed = Vec::new();
     let mut errors = Vec::new();
-    for (n, path) in paths.iter().enumerate() {
-        let pb = PathBuf::from(path);
-        let canonical = dunce::canonicalize(&pb).unwrap_or(pb.clone());
-        let name = canonical.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-        if let Err(e) = crate::engine::precheck(&canonical) {
-            errors.push(e.message);
-            continue;
-        }
-        let info = match ove_media::probe(&canonical) {
+    for (n, (canonical, result)) in results.into_iter().enumerate() {
+        let info = match result {
             Ok(i) => i,
             Err(e) => {
-                errors.push(format!("“{name}” can't be read: {e}."));
+                errors.push(e);
                 continue;
             }
         };
+        let name = canonical.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
         let id = format!("m_{:x}_{n}", now);
         let (media, entry, duration_us) = media_records(&canonical, &info, &id, now);
-        if info.video.is_some() {
-            let out = thumbs_dir(&bundle).join(format!("{id}.png"));
-            if make_thumbnail(&canonical, &out, duration_us).is_none() {
-                tracing::warn!(path, "no thumbnail");
-            }
-            // Read once here; views reuse it.
-            relock(&state.projects.media).put_thumbnail(&bundle, &id, thumbnail_data_url(&bundle, &id));
-        } else {
-            relock(&state.projects.media).put_thumbnail(&bundle, &id, None);
-        }
-        probed.push(Probed { media, entry, id, name, duration_us, video: info.video.is_some() });
+        let (video, audio) = (info.video.is_some(), info.audio.is_some());
+        probed.push(Probed { media, entry, id, name, path: canonical, duration_us, video, audio });
     }
-    Ok((bundle, probed, errors))
+    (probed, errors)
+}
+
+/// Queues a thumbnail task for each video file; each finished thumbnail shows in the media panel (views go out at
+/// most four times a second while thumbnails arrive).
+/// `files`: media id, thumbnail key ([`thumb_key`]), source file, duration.
+fn queue_thumbnails(app: &AppHandle, bundle: &Path, files: Vec<(String, String, PathBuf, i64)>) {
+    let state = app.state::<AppState>();
+    let project = crate::tasks::project_key(bundle);
+    for (id, key, source, duration_us) in files {
+        let out = thumbs_dir(bundle).join(format!("{key}.png"));
+        let (a, b) = (app.clone(), bundle.to_path_buf());
+        crate::tasks::queue_thumbnail(&state.tasks, &project, source, out, duration_us, move |made| {
+            let state = a.state::<AppState>();
+            let url = if made { thumbnail_data_url(&b, &key) } else { None };
+            // Every media entry with the same content shares the thumbnail (and the task: same key, one run).
+            let mut ids = vec![id];
+            if let Ok(g) = lock(&state.projects.open)
+                && let Some(p) = g.as_ref().filter(|p| p.bundle() == b)
+            {
+                ids.extend(p.doc().registry.keys().filter(|m| thumb_key(p.doc(), m) == key).cloned());
+            }
+            let mut cache = relock(&state.projects.media);
+            for m in ids {
+                cache.put_thumbnail(&b, &m, url.clone());
+            }
+            drop(cache);
+            emit_view_soon(&a);
+        });
+    }
+}
+
+/// Sends the open project's view shortly, once for a burst of changes (thumbnails arriving).
+pub(crate) fn emit_view_soon(app: &AppHandle) {
+    static PENDING: AtomicBool = AtomicBool::new(false);
+    if PENDING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let a = app.clone();
+    let spawned = std::thread::Builder::new().name("view-soon".into()).spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(250));
+        PENDING.store(false, Ordering::SeqCst);
+        let state = a.state::<AppState>();
+        if let Ok(g) = lock(&state.projects.open)
+            && let Some(p) = g.as_ref()
+        {
+            let _ = ProjectChanged(Some(cached_view(&a, &state, p))).emit(&a);
+        }
+    });
+    if spawned.is_err() {
+        PENDING.store(false, Ordering::SeqCst);
+    }
+}
+
+/// The ops that add probed files: each file's media record, then its items appended to the Main track (audio-only
+/// files to the Audio track). A file with picture and sound becomes a linked pair: a muted video item on Main and an
+/// audio item on the Audio track at the same time, sharing one new `link` value, so they edit together and the sound
+/// can be cut apart (J and L cuts) with the link override.
+fn import_ops(doc: &ove_core::Document, probed: Vec<Probed>, now: i64) -> Vec<Op> {
+    let track_end = |track: &str| doc.items_on_track(track).iter().map(|i| i.end).max().unwrap_or(0);
+    let (mut main_end, mut audio_end) = (track_end("t_main"), track_end("t_audio"));
+    let has_audio_track = doc.track("t_audio").is_some();
+    let t = ove_core::time::micros_to_json;
+    let mut ops = Vec::new();
+    for (n, f) in probed.into_iter().enumerate() {
+        ops.push(Op::AddMedia { media: f.media, entry: Some(f.entry) });
+        let id = format!("i_{:x}_{n}", now);
+        if !f.video {
+            audio_end += f.duration_us;
+            let at = audio_end - f.duration_us;
+            ops.push(Op::AddItem {
+                item: json!({"id": id, "trackId": "t_audio", "type": "audio", "startTime": t(at),
+                    "endTime": t(at + f.duration_us), "name": f.name, "mediaItemId": f.id}),
+            });
+            continue;
+        }
+        // Linked sound goes on the Audio track at the picture's time; the pair starts after both tracks' ends.
+        let linked = f.audio && has_audio_track;
+        let at = if linked { main_end.max(audio_end) } else { main_end };
+        main_end = at + f.duration_us;
+        let mut video = json!({"id": id, "trackId": "t_main", "type": "video", "startTime": t(at),
+            "endTime": t(main_end), "name": f.name, "mediaItemId": f.id});
+        if linked {
+            let link = format!("l_{:x}_{n}", now);
+            audio_end = main_end;
+            video["muted"] = true.into();
+            video["link"] = link.clone().into();
+            ops.push(Op::AddItem { item: video });
+            ops.push(Op::AddItem {
+                item: json!({"id": format!("{id}_a"), "trackId": "t_audio", "type": "audio", "startTime": t(at),
+                    "endTime": t(main_end), "name": f.name, "mediaItemId": f.id, "link": link}),
+            });
+        } else {
+            ops.push(Op::AddItem { item: video });
+        }
+    }
+    ops
 }
 
 /// Appends probed files to the Main track (audio-only files to the Audio track) as one revision.
@@ -817,30 +1319,8 @@ fn add_probed(
     if p.bundle() != bundle {
         return Err(AppError::new(ErrorCode::InvalidArgument, "The project changed while the files were read."));
     }
-    let doc = p.doc();
-    let known: BTreeSet<&str> = doc.registry.values().map(|e| e.native_path.as_str()).collect();
-    let track_end = |track: &str| doc.items_on_track(track).iter().map(|i| i.end).max().unwrap_or(0);
-    let (mut main_end, mut audio_end) = (track_end("t_main"), track_end("t_audio"));
-    let mut ops = Vec::new();
-    for (n, f) in probed.into_iter().enumerate() {
-        if f.entry.get("nativePath").and_then(Value::as_str).is_some_and(|p| known.contains(p)) {
-            tracing::info!(name = f.name, "media already in the project; adding another clip");
-        }
-        ops.push(Op::AddMedia { media: f.media, entry: Some(f.entry) });
-        let (track, kind, at) = if f.video {
-            main_end += f.duration_us;
-            ("t_main", "video", main_end - f.duration_us)
-        } else {
-            audio_end += f.duration_us;
-            ("t_audio", "audio", audio_end - f.duration_us)
-        };
-        ops.push(Op::AddItem {
-            item: json!({"id": format!("i_{:x}_{n}", now), "trackId": track, "type": kind,
-                "startTime": ove_core::time::micros_to_json(at), "endTime": ove_core::time::micros_to_json(at + f.duration_us),
-                "name": f.name, "mediaItemId": f.id}),
-        });
-    }
-    let count = ops.len() / 2;
+    let count = probed.len();
+    let ops = import_ops(p.doc(), probed, now);
     let summary = format!(
         "{}import {count} file{}",
         if source == Source::Agent { "assistant: " } else { "" },
@@ -862,8 +1342,18 @@ pub(crate) async fn import_paths(app: AppHandle, paths: Vec<String>, source: Sou
     let a = app.clone();
     let (bundle, probed, errors) =
         worker::blocking("import_media", move || probe_paths(&a.state::<AppState>(), &paths, now)).await?;
-    let v =
-        serial(&app, "import_media", move |app, state| add_probed(app, state, &bundle, probed, now, source)).await?;
+    let thumbs: Vec<(String, String, PathBuf, i64)> = probed
+        .iter()
+        .filter(|f| f.video)
+        .map(|f| {
+            let key = f.entry.get("contentId").and_then(Value::as_str).unwrap_or(&f.id).to_string();
+            (f.id.clone(), key, f.path.clone(), f.duration_us)
+        })
+        .collect();
+    let b = bundle.clone();
+    let v = serial(&app, "import_media", move |app, state| add_probed(app, state, &b, probed, now, source)).await?;
+    // The files are listed now; thumbnails follow as their tasks finish.
+    queue_thumbnails(&app, &bundle, thumbs);
     if !errors.is_empty() {
         let _ = crate::AppErrorRaised(AppError::new(ErrorCode::Unsupported, errors.join(" "))).emit(&app);
     }
@@ -890,26 +1380,24 @@ pub async fn import_media_dialog(app: AppHandle) -> AppResult<Option<ProjectView
     import_media(app, paths).await.map(Some)
 }
 
-/// Moves an item to a new start time (and optionally another track), keeping its duration.
+/// Moves an item to a new start time (and optionally another track), keeping its duration. Linked items move with
+/// it unless `linked` is false (Alt in the timeline). Landing on another item is allowed (the overlap plays as a
+/// crossfade).
 #[tauri::command]
 #[specta::specta]
-pub async fn move_item(app: AppHandle, id: String, start: f64, track_id: Option<String>) -> AppResult<ProjectView> {
+pub async fn move_item(
+    app: AppHandle,
+    id: String,
+    start: f64,
+    track_id: Option<String>,
+    linked: Option<bool>,
+) -> AppResult<ProjectView> {
+    let start = ove_core::time::secs_to_micros(start.max(0.0))
+        .ok_or_else(|| AppError::new(ErrorCode::InvalidArgument, "The time is invalid."))?;
     serial(&app, "move_item", move |app, state| {
-        let (old_start, old_end) = {
-            let g = lock(&state.projects.open)?;
-            let p = g.as_ref().ok_or_else(|| AppError::new(ErrorCode::InvalidArgument, "No project is open."))?;
-            let i =
-                p.doc().item(&id).ok_or_else(|| AppError::new(ErrorCode::NotFound, "That clip no longer exists."))?;
-            (i.start, i.end)
-        };
-        let new_start = ove_core::time::secs_to_micros(start.max(0.0)).unwrap_or(old_start);
-        let mut set = Map::new();
-        set.insert("startTime".into(), ove_core::time::micros_to_json(new_start));
-        set.insert("endTime".into(), ove_core::time::micros_to_json(new_start + (old_end - old_start)));
-        if let Some(t) = track_id {
-            set.insert("trackId".into(), t.into());
-        }
-        edit(app, state, vec![Op::UpdateItem { id, set }], "move clip")
+        let linked = linked.unwrap_or(true);
+        let req = ove_edit::Request::Move { item: id, start, track: track_id, linked, crossfade: true };
+        crate::edits::plan_and_apply(app, state, req)
     })
     .await
 }
@@ -917,37 +1405,23 @@ pub async fn move_item(app: AppHandle, id: String, start: f64, track_id: Option<
 #[tauri::command]
 #[specta::specta]
 pub async fn remove_items(app: AppHandle, ids: Vec<String>) -> AppResult<ProjectView> {
+    // Linked items go with the items deleted.
     serial(&app, "remove_items", move |app, state| {
-        let n = ids.len();
-        edit(app, state, vec![Op::RemoveItems { ids }], &format!("delete {n} item{}", if n == 1 { "" } else { "s" }))
+        crate::edits::plan_and_apply(app, state, ove_edit::Request::Delete { items: ids, linked: true })
     })
     .await
 }
 
-/// Splits a clip at a timeline time (seconds): the left part keeps the id, the right part is a new item.
+/// Splits a clip at a timeline time (seconds): the left part keeps the id, the right part is a new item. Linked
+/// items are split at the same time. Speed, reverse playback, keyframes, caption segments, fades and transitions are
+/// carried over so both parts look and sound exactly like the uncut clip.
 #[tauri::command]
 #[specta::specta]
 pub async fn split_item(app: AppHandle, id: String, at: f64) -> AppResult<ProjectView> {
+    let at = ove_core::time::secs_to_micros(at).unwrap_or(0);
     serial(&app, "split_item", move |app, state| {
-        let item = {
-            let g = lock(&state.projects.open)?;
-            let p = g.as_ref().ok_or_else(|| AppError::new(ErrorCode::InvalidArgument, "No project is open."))?;
-            p.doc()
-                .item(&id)
-                .cloned()
-                .ok_or_else(|| AppError::new(ErrorCode::NotFound, "That clip no longer exists."))?
-        };
-        let cut = ove_core::time::secs_to_micros(at).unwrap_or(0);
-        if cut <= item.start || cut >= item.end {
-            return Err(AppError::new(ErrorCode::InvalidArgument, "Move the playhead inside the clip to split it."));
-        }
-        let mut right = item.to_json();
-        right["id"] = format!("{}_b{}", item.id, ove_core::Clock::now_ms(&ove_core::SystemClock) % 100_000).into();
-        right["startTime"] = ove_core::time::micros_to_json(cut);
-        right["trimStart"] = ove_core::time::micros_to_json(item.time_field("trimStart") + (cut - item.start));
-        let mut set = Map::new();
-        set.insert("endTime".into(), ove_core::time::micros_to_json(cut));
-        edit(app, state, vec![Op::UpdateItem { id, set }, Op::AddItem { item: right }], "split clip")
+        let req = ove_edit::Request::Split { items: vec![id], tracks: vec![], at, linked: true };
+        crate::edits::plan_and_apply(app, state, req)
     })
     .await
 }
@@ -1003,6 +1477,18 @@ pub struct HistoryRow {
     pub summary: String,
     /// The project as it was before this revision can still be rebuilt (older ones may have been pruned).
     pub can_restore: bool,
+    /// The agent client that made it (an MCP client's name, such as claude-code), when recorded.
+    pub client: Option<String>,
+    /// Who made it, for grouping by agent (change add-agent-chat-context-and-activity): the recorded actor's kind
+    /// (user, assistant, cli, mcp, …), session and turn, and its name as people read it (Claude Code, Assistant).
+    #[serde(default)]
+    pub actor_kind: Option<String>,
+    #[serde(default)]
+    pub session: Option<String>,
+    #[serde(default)]
+    pub turn: Option<String>,
+    #[serde(default)]
+    pub actor_name: Option<String>,
 }
 
 /// Who a revision is attributed to, as far as its record tells.
@@ -1031,6 +1517,11 @@ pub fn history_rows(p: &Project, limit: usize) -> AppResult<Vec<HistoryRow>> {
             source: h.source.as_str().into(),
             who: who(h.source, &h.summary).into(),
             can_restore: p.is_retained(h.parent),
+            client: h.actor.as_ref().and_then(|a| a.client.clone()),
+            actor_name: h.actor.as_ref().map(|a| ove_tools::activity::actor_label(Some(a), h.source).1),
+            actor_kind: crate::history::actor_fields(h.actor.as_ref()).0,
+            session: crate::history::actor_fields(h.actor.as_ref()).1,
+            turn: crate::history::actor_fields(h.actor.as_ref()).2,
             summary: h.summary,
         })
         .collect();
@@ -1109,6 +1600,136 @@ pub async fn redo(app: AppHandle) -> AppResult<ProjectView> {
 mod tests {
     use super::*;
 
+    /// Import of 200 files: probes run as tasks and the files go into the project as one revision before any
+    /// thumbnail exists; thumbnails then appear as their tasks finish.
+    #[test]
+    fn large_import_lists_every_file_at_once_and_thumbnails_follow() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = crate::tasks::testing::video(dir.path(), "source.mp4");
+        let media = dir.path().join("media");
+        std::fs::create_dir_all(&media).unwrap();
+        let paths: Vec<String> = (0..200)
+            .map(|i| {
+                let p = media.join(format!("clip_{i:03}.mp4"));
+                std::fs::copy(&source, &p).unwrap();
+                p.display().to_string()
+            })
+            .collect();
+        let bundle = dir.path().join("Import.ove");
+        let tasks = crate::tasks::testing::scheduler();
+        let project = crate::tasks::project_key(&bundle);
+
+        let t = std::time::Instant::now();
+        let (probed, errors) = probed_records(crate::tasks::probe_all(&tasks, &project, &paths), 1);
+        let probe_time = t.elapsed();
+        assert!(errors.is_empty(), "{errors:?}");
+        assert_eq!(probed.len(), 200);
+        // Every entry carries a content id from the add-media op; copies of one file share it.
+        let cids: BTreeSet<&str> = probed.iter().filter_map(|f| f.entry.get("contentId")?.as_str()).collect();
+        assert_eq!(cids.len(), 1, "200 copies, one content");
+        assert!(probed.iter().all(|f| f.entry.get("contentId").is_some()));
+        // Thumbnails named by media id here, so the 200 copies make 200 tasks (the app shares one per content).
+        let thumbs: Vec<(String, PathBuf, i64)> =
+            probed.iter().filter(|f| f.video).map(|f| (f.id.clone(), f.path.clone(), f.duration_us)).collect();
+        let empty = ove_core::Document::new("p", "Import", 1);
+        let doc = ove_core::ops::apply_batch(&empty, &default_tracks()).unwrap().doc;
+        let ops = import_ops(&doc, probed, 1);
+        let after = ove_core::ops::apply_batch(&doc, &ops).unwrap().doc;
+        assert_eq!(after.project.media.len(), 200, "every file listed in one revision");
+        assert_eq!(after.items_on_track("t_main").len(), 200);
+        let list_time = t.elapsed();
+        assert!(!thumbs_dir(&bundle).exists(), "listed before any thumbnail exists");
+
+        let made = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        for (id, src, dur) in thumbs {
+            let m = made.clone();
+            let out = thumbs_dir(&bundle).join(format!("{id}.png"));
+            crate::tasks::queue_thumbnail(&tasks, &project, src, out, dur, move |ok| {
+                assert!(ok);
+                m.fetch_add(1, Ordering::SeqCst);
+            });
+        }
+        let first = made.load(Ordering::SeqCst);
+        let w = tasks.wait(&ove_tasks::TaskFilter::default(), std::time::Duration::from_secs(120));
+        assert!(w.done, "{w:?}");
+        let thumb_time = t.elapsed() - list_time;
+        assert!(first < 200, "thumbnails arrive after the list, as tasks finish ({first} were ready at once)");
+        assert_eq!(made.load(Ordering::SeqCst), 200);
+        let files = std::fs::read_dir(thumbs_dir(&bundle)).unwrap().count();
+        assert_eq!(files, 200, "one PNG per file and no part files left");
+        println!("200-file import: probes {probe_time:?}, listed at {list_time:?}, thumbnails took {thumb_time:?}");
+    }
+
+    /// A project from before content ids: the background check stores ids as one migration revision, older
+    /// thumbnails and transcripts move onto them without being made again, and a relinked file keeps them.
+    #[test]
+    fn upgrade_keeps_derived_data_and_relink_reuses_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let bundle = dir.path().join("Old.ove");
+        let source = crate::tasks::testing::video(dir.path(), "interview.mp4");
+        let empty = ove_core::Document::new("p", "Old", 1);
+        let mut doc = ove_core::ops::apply_batch(&empty, &default_tracks()).unwrap().doc;
+        // The entry an older build wrote: size and time, no content id.
+        let (stamp_size, stamp_time) = ove_store::media::file_stamp(&source).unwrap();
+        let old_entry = json!({"mediaId": "m1", "nativePath": source.display().to_string(), "ownedByBundle": false,
+            "probeStatus": "probed", "size": stamp_size, "modifiedAt": stamp_time.unwrap()});
+        doc = ove_core::ops::apply_batch(
+            &doc,
+            &[Op::AddMedia { media: json!({"id": "m1", "data": {"type": "video"}}), entry: Some(old_entry) }],
+        )
+        .unwrap()
+        .doc;
+        // Its derived data: a thumbnail named by media id and a transcript under the path/size/time key.
+        std::fs::create_dir_all(thumbs_dir(&bundle)).unwrap();
+        make_thumbnail(&source, &thumbs_dir(&bundle).join("m1.png"), 600_000).unwrap();
+        let transcript = ove_transcribe::Transcript {
+            language: "en".into(),
+            model: "base".into(),
+            words: vec![],
+            duration_us: 600_000,
+        };
+        ove_transcribe::cache::store(&bundle, &ove_transcribe::cache::key(&source, "base", None), &transcript);
+
+        // Content ids are computed and stored.
+        let ops = identity_ops(&bundle, &doc);
+        assert_eq!(ops.len(), 1);
+        let doc = ove_core::ops::apply_batch(&doc, &ops).unwrap().doc;
+        let cid = doc.registry["m1"].fields["contentId"].as_str().unwrap().to_string();
+        assert!(identity_ops(&bundle, &doc).is_empty(), "nothing more to compute");
+        // Derived data moves onto the id.
+        assert_eq!(migrate_derived(&bundle, &doc), 2);
+        assert!(thumbs_dir(&bundle).join(format!("{cid}.png")).is_file());
+        assert!(!thumbs_dir(&bundle).join("m1.png").exists());
+        assert!(thumbnail_for(&bundle, &doc, "m1").is_some());
+        let key = ove_transcribe::cache::content_key(&cid, "base", None);
+        assert_eq!(ove_transcribe::cache::load(&bundle, &key), Some(transcript.clone()), "no new transcription");
+
+        // The file moves to another folder and is relinked: same id, same derived data.
+        let moved_dir = dir.path().join("moved");
+        std::fs::create_dir_all(&moved_dir).unwrap();
+        let moved = moved_dir.join("interview.mp4");
+        std::fs::rename(&source, &moved).unwrap();
+        let mut entry_set = Map::new();
+        entry_set.insert("nativePath".into(), moved.display().to_string().into());
+        entry_set.extend(ove_store::media::identity_fields(&moved));
+        let doc = ove_core::ops::apply_batch(
+            &doc,
+            &[Op::UpdateMedia { id: "m1".into(), set: Map::new(), unset: vec![], entry_set, entry_unset: vec![] }],
+        )
+        .unwrap()
+        .doc;
+        assert_eq!(thumb_key(&doc, "m1"), cid);
+        assert!(thumbnail_for(&bundle, &doc, "m1").is_some());
+        assert_eq!(ove_transcribe::cache::load(&bundle, &key), Some(transcript));
+
+        // A different file under the same name gets a new id: its derived data is rebuilt.
+        std::fs::write(&moved, b"not the same video").unwrap();
+        let ops = identity_ops(&bundle, &doc);
+        let doc = ove_core::ops::apply_batch(&doc, &ops).unwrap().doc;
+        assert_ne!(thumb_key(&doc, "m1"), cid);
+        assert!(thumbnail_for(&bundle, &doc, "m1").is_none());
+    }
+
     fn open_project(lib: &Library) -> Projects {
         let mut p = lib.create("Trip").unwrap();
         p.apply(default_tracks(), Source::Gui, None).unwrap();
@@ -1121,6 +1742,39 @@ mod tests {
         let mut set = Map::new();
         set.insert("name".into(), name.into());
         vec![Op::UpdateProject { set, unset: vec![] }]
+    }
+
+    #[test]
+    fn importing_a_camera_clip_makes_a_linked_pair() {
+        let d = tempfile::tempdir().unwrap();
+        let lib = Library::open(d.path(), clock()).unwrap();
+        let mut p = lib.create("Camera").unwrap();
+        p.apply(default_tracks(), Source::Gui, None).unwrap();
+        let probed = |id: &str, video: bool, audio: bool| Probed {
+            media: json!({"id": id, "data": {"type": if video { "video" } else { "audio" }, "fileName": format!("{id}.mov"),
+                "duration": 4, "hasAudio": audio}}),
+            entry: json!({"mediaId": id, "nativePath": format!("/x/{id}.mov"), "ownedByBundle": false}),
+            id: id.into(),
+            name: format!("{id}.mov"),
+            path: PathBuf::from(format!("/x/{id}.mov")),
+            duration_us: 4_000_000,
+            video,
+            audio,
+        };
+        let ops = import_ops(p.doc(), vec![probed("cam", true, true), probed("silent", true, false)], 7);
+        p.apply(ops, Source::Gui, None).unwrap();
+        let doc = p.doc();
+        let linked: Vec<_> = doc.project.items.values().filter(|i| i.fields.contains_key("link")).collect();
+        assert_eq!(linked.len(), 2, "one link value on two items");
+        assert_eq!(linked[0].fields["link"], linked[1].fields["link"]);
+        let (v, a) = if linked[0].kind == "video" { (linked[0], linked[1]) } else { (linked[1], linked[0]) };
+        assert_eq!((v.track_id.as_str(), a.track_id.as_str()), ("t_main", "t_audio"));
+        assert_eq!((v.start, v.end), (a.start, a.end), "same timing");
+        assert_eq!(v.fields["muted"], json!(true), "the sound plays once, from the audio item");
+        // The silent clip is a single video item after the pair.
+        let silent = doc.project.items.values().find(|i| i.media_id() == Some("silent")).unwrap();
+        assert!(!silent.fields.contains_key("link"));
+        assert_eq!(silent.start, 4_000_000);
     }
 
     #[test]
@@ -1218,6 +1872,7 @@ mod tests {
                 video: None,
                 audio: None,
                 stream_count: 1,
+                source_timecode: None,
             },
             "m1",
             0,

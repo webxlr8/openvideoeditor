@@ -6,46 +6,7 @@ use serde_json::{Value, json};
 
 use crate::common::{Fail, Out};
 
-/// Built-in documentation pages (the files in docs/cli).
-pub const TOPICS: &[(&str, &str, &str)] = &[
-    ("agents", "How an agent edits a project with ove (start here)", include_str!("../../../docs/cli/agents.md")),
-    ("timeline", "source print / check / apply, verify, history, undo", include_str!("../../../docs/cli/timeline.md")),
-    (
-        "project",
-        "project list / create / show / rename / duplicate / remove / open / reveal",
-        include_str!("../../../docs/cli/project.md"),
-    ),
-    ("media", "media list / add / remove / relink / probe", include_str!("../../../docs/cli/media.md")),
-    (
-        "app",
-        "app context / open / seek / play / pause and how edits reach the running app",
-        include_str!("../../../docs/cli/app.md"),
-    ),
-    ("export", "export to MP4", include_str!("../../../docs/cli/export.md")),
-    (
-        "interchange",
-        "timeline export / import (FCPXML, XML, EDL, OTIO)",
-        include_str!("../../../docs/cli/interchange.md"),
-    ),
-    ("mcp", "the MCP server and agent setup", include_str!("../../../docs/cli/mcp.md")),
-];
-
-pub fn docs(topic: Option<&str>) -> Out {
-    match topic {
-        None => {
-            let text = TOPICS.iter().map(|(n, about, _)| format!("{n}\t{about}")).collect::<Vec<_>>().join("\n");
-            let v = json!({"topics": TOPICS.iter().map(|(n, about, _)| json!({"name": n, "about": about})).collect::<Vec<_>>()});
-            Ok((v, format!("{text}\n\n`ove docs <topic>` prints one.")))
-        }
-        Some(t) => {
-            let (n, _, body) = TOPICS
-                .iter()
-                .find(|(n, ..)| n.eq_ignore_ascii_case(t))
-                .ok_or_else(|| Fail::new("docs.notFound", format!("no topic {t}; `ove docs` lists them")))?;
-            Ok((json!({"topic": n, "text": body}), body.trim_end().to_string()))
-        }
-    }
-}
+use ove_tools::tools::docs::TOPICS;
 
 /// The agent skill: front matter + the agents guide.
 pub fn skill_text() -> String {
@@ -187,7 +148,25 @@ pub fn doctor(library: Option<&Path>) -> Out {
             Ok(v) => add("media", true, format!("FFmpeg {v}")),
             Err(_) => add("media", false, "FFmpeg libraries could not be loaded".into()),
         }
-        add("export encoders", true, ove_render::export::encoder_candidates().join(", "));
+        // One line per codec: the encoders that work here, else why none does (a missing HEVC or AV1 hardware
+        // encoder is normal, so these lines never fail the check).
+        let report = ove_render::export::encoder_report();
+        for codec in ove_render::export::VideoCodec::ALL {
+            let of: Vec<_> = report.iter().filter(|c| c.codec == codec).collect();
+            let works: Vec<String> =
+                of.iter().filter(|c| c.works).map(|c| format!("{} ({})", c.encoder, c.label)).collect();
+            let detail = if works.is_empty() {
+                let why: Vec<String> =
+                    of.iter().map(|c| format!("{}: {}", c.encoder, c.detail.as_deref().unwrap_or(""))).collect();
+                format!(
+                    "none on this computer ({})",
+                    if why.is_empty() { "no candidate".into() } else { why.join("; ") }
+                )
+            } else {
+                works.join(", ")
+            };
+            add(&format!("export {}", codec.label()), true, detail);
+        }
     }
     #[cfg(not(feature = "media"))]
     add("media", false, "this build cannot read media or export (build with --features media)".into());

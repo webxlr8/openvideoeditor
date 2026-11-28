@@ -5,6 +5,8 @@ import type {
   ChatItem_Serialize,
   ChatSummaryView,
   KeyCheck,
+  MentionChip,
+  ProjectView_Serialize,
   TurnReview,
   TurnUsageView,
   UsageTotals_Serialize,
@@ -15,9 +17,29 @@ import { Icon } from "./icons";
 import { COMING_LATER, Dropdown } from "./Menu";
 import { fire, reportError, runCommand, unlisten } from "./notify";
 import { StarterPrompts } from "./onboarding/StarterPrompts";
+import "./chat/chat.css";
+import { ComposerMenu } from "./chat/ComposerMenu";
+import {
+  MENTION_TABS,
+  type MentionDraft,
+  type MentionTab,
+  type SlashEntry,
+  fillMarked,
+  filterMentions,
+  filterSlash,
+  mentionCandidates,
+  mentionInputs,
+  mentionKey,
+  mentionQuery,
+  slashQuery,
+} from "./chat/mentions";
+import { type AssistantRequest, onAssistantRequest, takeAssistantRequest } from "./chat/handoff";
+import { TemplateIntake } from "./chat/TemplateIntake";
+import { Reasoning } from "./chat/Reasoning";
+import { PROJECT_TEMPLATES, type ProjectTemplate } from "./templates";
 
 interface Item {
-  role: "user" | "assistant" | "tool" | "question" | "note" | "error" | "changes" | "usage";
+  role: "user" | "assistant" | "tool" | "question" | "note" | "error" | "changes" | "usage" | "reasoning";
   text: string;
   id?: string | null;
   ok?: boolean | null;
@@ -26,6 +48,30 @@ interface Item {
   answered?: boolean;
   review?: TurnReview | null;
   usage?: TurnUsageView | null;
+  /** role `user`: what the message mentioned. */
+  mentions?: MentionChip[];
+  /** role `reasoning`: when it started and ended streaming (ms). */
+  started?: number;
+  ended?: number;
+}
+
+/** The id of the reasoning block still streaming. */
+const LIVE_REASONING = "live-reasoning";
+
+/** Calls `f` at the next animation frame (a timer where there are none). */
+function nextFrame(f: () => void): number {
+  return typeof requestAnimationFrame === "function" ? requestAnimationFrame(f) : (setTimeout(f, 16) as unknown as number);
+}
+
+function cancelFrame(h: number) {
+  if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(h);
+  else clearTimeout(h);
+}
+
+const MENTION_ICON = { item: "timeline", range: "scissors", media: "media", skill: "spark", track: "layout" } as const;
+
+function chipOf(m: MentionDraft): MentionChip {
+  return { kind: m.kind, label: m.label, ids: m.id ? [m.id] : [], image: m.media === "image" };
 }
 
 function fromChat(items: ChatItem_Serialize[]): Item[] {
@@ -39,8 +85,12 @@ function fromChat(items: ChatItem_Serialize[]): Item[] {
     answered: i.role === "question" ? true : undefined,
     review: i.review,
     usage: i.usage,
+    mentions: i.mentions,
   }));
 }
+
+/** The / menu's templates. */
+const TEMPLATE_ENTRIES: SlashEntry[] = PROJECT_TEMPLATES.map((t) => ({ kind: "template", id: t.id, label: t.name, hint: "Template" }));
 
 /** Dollars: four decimals under a cent, two above. */
 export function usd(v: number | null | undefined): string {
@@ -124,6 +174,8 @@ export function ChatPanel({
   onSeek,
   shownTurn,
   onShowTurn,
+  project,
+  range,
 }: {
   onClose: () => void;
   /** Changes when another project opens (the chat list is per project). */
@@ -137,6 +189,10 @@ export function ChatPanel({
   shownTurn?: string | null;
   /** Highlights a turn's changed items on the timeline (`null`: stop). */
   onShowTurn?: (turnId: string | null, ids: string[]) => void;
+  /** The open project: what @ can mention. */
+  project?: ProjectView_Serialize | null;
+  /** The marked in and out points (mentionable as a range). */
+  range?: { in: number | null; out: number | null };
 }) {
   const [status, setStatus] = useState<AgentStatus_Serialize | null>(null);
   const [chats, setChats] = useState<ChatSummaryView[]>([]);
@@ -150,6 +206,41 @@ export function ChatPanel({
   const [keyCheck, setKeyCheck] = useState<KeyCheck | null>(null);
   const chatRef = useRef<string | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
+  const input = useRef<HTMLTextAreaElement>(null);
+  const [mentions, setMentions] = useState<MentionDraft[]>([]);
+  // What the app said about the last message sent (images left out, mentions that no longer exist).
+  const [notices, setNotices] = useState<string[]>([]);
+  // The @ popover: the query typed after @ and where the @ is.
+  const [menu, setMenu] = useState<{ query: string; at: number } | null>(null);
+  const [tab, setTab] = useState<MentionTab>("all");
+  const [active, setActive] = useState(0);
+  const rows = menu ? filterMentions(mentionCandidates(project, range), menu.query, tab) : [];
+  // The / menu: installed skills (loaded when it first opens) and project templates.
+  const [skills, setSkills] = useState<SlashEntry[] | null>(null);
+  const [slashClosed, setSlashClosed] = useState(false);
+  const [intake, setIntake] = useState<ProjectTemplate | null>(null);
+  const slash = slashClosed ? null : slashQuery(text);
+  const slashRows = slash === null ? [] : filterSlash([...(skills ?? []), ...TEMPLATE_ENTRIES], slash);
+  useEffect(() => {
+    if (slash === null || skills !== null) return;
+    runCommand(
+      commands.skillsView(),
+      (v) =>
+        setSkills(
+          v.skills
+            .filter((x) => !x.invalid)
+            .map((x) => ({ kind: "skill" as const, id: x.id, label: x.name, hint: "Skill" })),
+        ),
+      () => setSkills([]),
+    );
+  }, [slash, skills]);
+  // Reasoning deltas wait here and are drawn once per animation frame (design D4).
+  const reasoningBuf = useRef("");
+  const reasoningFrame = useRef<number | null>(null);
+  const rangeRef = useRef(range);
+  useEffect(() => {
+    rangeRef.current = range;
+  }, [range]);
 
   const report = useCallback((e: AppError) => (onError ? onError(e) : reportError(e)), [onError]);
 
@@ -195,9 +286,38 @@ export function ChatPanel({
     loadChats();
   }, [projectId, loadChats]);
 
+  /** Draws the reasoning that arrived since the last frame. */
+  const flushReasoning = useCallback(() => {
+    reasoningFrame.current = null;
+    const add = reasoningBuf.current;
+    reasoningBuf.current = "";
+    if (!add) return;
+    setItems((xs) => {
+      const last = xs[xs.length - 1];
+      if (last && last.role === "reasoning" && last.id === LIVE_REASONING) {
+        return [...xs.slice(0, -1), { ...last, text: last.text + add }];
+      }
+      return [...xs, { role: "reasoning", text: add, id: LIVE_REASONING, started: Date.now() }];
+    });
+  }, []);
+
+  /** The reasoning block stops streaming (text, a tool call or the end of the turn followed it). */
+  const endReasoning = useCallback(() => {
+    if (reasoningFrame.current !== null) {
+      cancelFrame(reasoningFrame.current);
+      flushReasoning();
+    }
+    setItems((xs) =>
+      xs.some((x) => x.id === LIVE_REASONING)
+        ? xs.map((x) => (x.id === LIVE_REASONING ? { ...x, id: null, ended: Date.now() } : x))
+        : xs,
+    );
+  }, [flushReasoning]);
+
   useEffect(() => {
     const un = events.agentUiEvent.listen((e) => {
       const ev = e.payload;
+      if (ev.kind !== "thinkingDelta" && ev.kind !== "seek" && ev.kind !== "retrying") endReasoning();
       switch (ev.kind) {
         case "turnStarted":
           if (chatRef.current !== ev.chatId) {
@@ -225,6 +345,8 @@ export function ChatPanel({
           break;
         case "thinkingDelta":
           setThinking(true);
+          reasoningBuf.current += ev.text;
+          if (reasoningFrame.current === null) reasoningFrame.current = nextFrame(flushReasoning);
           break;
         case "toolCall":
           setThinking(false);
@@ -260,7 +382,7 @@ export function ChatPanel({
       }
     });
     return () => unlisten(un);
-  }, [loadChat, loadChats, loadTotals, report, onSeek]);
+  }, [loadChat, loadChats, loadTotals, report, onSeek, endReasoning, flushReasoning]);
 
   useEffect(() => {
     scroller.current?.scrollTo?.({ top: scroller.current.scrollHeight });
@@ -269,18 +391,124 @@ export function ChatPanel({
   const send = async () => {
     const t = text.trim();
     if (!t || running) return;
+    const sent = mentions;
+    setNotices([]);
     setText("");
-    setItems((xs) => [...xs, { role: "user", text: t }]);
+    setMentions([]);
+    setMenu(null);
+    setItems((xs) => [...xs, { role: "user", text: t, mentions: sent.map(chipOf) }]);
     setRunning(true);
-    const r = await commands.agentSend(chatRef.current, t);
+    const r = await commands.agentSendContext(chatRef.current, t, mentionInputs(sent));
     if (r.status === "error") {
       setRunning(false);
       setItems((xs) => [...xs, { role: "error", text: r.error.message }]);
       setText(t);
+      setMentions(sent);
       return;
     }
     chatRef.current = r.data.chatId;
     setChatId(r.data.chatId);
+    setNotices(r.data.notices ?? []);
+  };
+
+  /** A panel handed over a prepared request: it goes into the input, never sent from here. */
+  const take = useCallback((r: AssistantRequest | null) => {
+    if (!r) return;
+    if (r.newChat) {
+      chatRef.current = null;
+      setChatId(null);
+      setItems([]);
+    }
+    setText(r.prompt);
+    setMentions(fillMarked(r.mentions ?? [], rangeRef.current));
+    setMenu(null);
+    setSlashClosed(true);
+    queueMicrotask(() => input.current?.focus());
+  }, []);
+  useEffect(() => {
+    // A request made before this chat mounted (the panel opened it) waits for it.
+    queueMicrotask(() => take(takeAssistantRequest()));
+    return onAssistantRequest(() => take(takeAssistantRequest()));
+  }, [take]);
+
+  /** Picks from the / menu: a skill becomes a chip (the assistant reads it first); a template asks for its details. */
+  const pickSlash = (e: SlashEntry | undefined) => {
+    if (!e) return;
+    setActive(0);
+    if (e.kind === "skill") {
+      setText("");
+      setMentions((ms) => (ms.some((m) => m.kind === "skill" && m.id === e.id) ? ms : [...ms, { kind: "skill", id: e.id, label: e.label }]));
+      input.current?.focus();
+      return;
+    }
+    const t = PROJECT_TEMPLATES.find((x) => x.id === e.id);
+    setSlashClosed(true);
+    if (t) setIntake(t);
+  };
+
+  /** The text was edited: open, follow or close the @ popover. */
+  const edited = (value: string, caret: number | null) => {
+    setText(value);
+    setSlashClosed(false);
+    const q = mentionQuery(value.slice(0, caret ?? value.length));
+    setMenu(q);
+    if (!q || q.query !== menu?.query) setActive(0);
+  };
+
+  /** Picks a mention from the popover: the @query text becomes a chip. */
+  const pick = (m: MentionDraft | undefined) => {
+    if (!m || !menu) return;
+    const end = menu.at + 1 + menu.query.length;
+    const next = (text.slice(0, menu.at) + text.slice(end)).replace(/ {2,}/g, " ");
+    setText(next);
+    setMentions((ms) => (ms.some((x) => mentionKey(x) === mentionKey(m)) ? ms : [...ms, m]));
+    setMenu(null);
+    setActive(0);
+    input.current?.focus();
+  };
+
+  const onComposerKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (slash !== null && !menu) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        const n = slashRows.length;
+        if (n) setActive((a) => (a + (e.key === "ArrowDown" ? 1 : n - 1)) % n);
+        return;
+      }
+      if ((e.key === "Enter" || e.key === "Tab") && slashRows.length) {
+        e.preventDefault();
+        pickSlash(slashRows[Math.min(active, slashRows.length - 1)]);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setSlashClosed(true);
+        return;
+      }
+      // No match: Enter sends the text as typed.
+    }
+    if (menu) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        const n = rows.length;
+        if (n) setActive((a) => (a + (e.key === "ArrowDown" ? 1 : n - 1)) % n);
+        return;
+      }
+      if ((e.key === "Enter" || e.key === "Tab") && rows.length) {
+        e.preventDefault();
+        pick(rows[Math.min(active, rows.length - 1)]);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setMenu(null);
+        return;
+      }
+    }
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      fire(send(), report);
+    }
   };
 
   const answer = async (id: string, value: string) => {
@@ -394,23 +622,84 @@ export function ChatPanel({
               busy={running}
             />
           ))}
-          {running && thinking && <div className="chat-thinking muted small">Thinking…</div>}
+          {notices.map((n) => (
+            <div className="msg-note muted small" role="status" key={n} data-testid="chat-notice">
+              {n}
+            </div>
+          ))}
+          {running && thinking && !items.some((x) => x.id === LIVE_REASONING) && (
+            <div className="chat-thinking muted small">Thinking…</div>
+          )}
         </div>
       )}
 
       {footer && <div className="chat-footer muted small" data-testid="chat-footer">{footer}</div>}
       <div className="composer">
+        {slash !== null && !menu && (
+          <ComposerMenu
+            testId="slash-menu"
+            title="Skills and templates"
+            rows={slashRows.map((x) => ({ key: `${x.kind}:${x.id}`, label: x.label, hint: x.hint, icon: x.kind === "skill" ? "spark" : "templates" }))}
+            active={active}
+            onHover={setActive}
+            onPick={(i) => pickSlash(slashRows[i])}
+          />
+        )}
+        {intake && (
+          <TemplateIntake
+            template={intake}
+            onClose={() => setIntake(null)}
+            onDone={(request) => {
+              setIntake(null);
+              setText(request);
+              input.current?.focus();
+            }}
+          />
+        )}
+        {menu && (
+          <ComposerMenu
+            testId="mention-menu"
+            title="Mention"
+            tabs={MENTION_TABS}
+            tab={tab}
+            onTab={(t) => {
+              setTab(t as MentionTab);
+              setActive(0);
+            }}
+            rows={rows.map((m) => ({ key: mentionKey(m), label: m.label, hint: m.kind === "item" ? m.media : m.kind, icon: MENTION_ICON[m.kind] }))}
+            active={active}
+            onHover={setActive}
+            onPick={(i) => pick(rows[i])}
+          />
+        )}
+        {mentions.length > 0 && (
+          <div className="composer-mentions" data-testid="composer-mentions">
+            {mentions.map((m) => (
+              <span className={`mention-chip kind-${m.kind}`} key={mentionKey(m)} data-testid="mention-chip">
+                <Icon name={MENTION_ICON[m.kind]} size={12} />
+                {m.label}
+                <button
+                  className="mention-remove"
+                  aria-label={`Remove ${m.label}`}
+                  onClick={() => setMentions((ms) => ms.filter((x) => mentionKey(x) !== mentionKey(m)))}
+                >
+                  <Icon name="close" size={10} />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
         <textarea
-          placeholder={status && !status.hasKey ? "Add your API key above to start." : "Describe an edit…"}
+          ref={input}
+          placeholder={status && !status.hasKey ? "Add your API key above to start." : "Describe an edit… (@ to mention)"}
           rows={3}
           value={text}
           data-testid="composer"
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              fire(send(), report);
-            }
+          onChange={(e) => edited(e.target.value, e.target.selectionStart)}
+          onKeyDown={onComposerKey}
+          onBlur={() => {
+            setMenu(null);
+            setSlashClosed(true);
           }}
         />
         <div className="composer-row">
@@ -539,7 +828,21 @@ function ChatLine({
       );
     }
     case "user":
-      return <div className="msg msg-user" data-testid="msg-user">{item.text}</div>;
+      return (
+        <div className="msg msg-user" data-testid="msg-user">
+          {item.text}
+          {item.mentions && item.mentions.length > 0 && (
+            <span className="msg-mentions" data-testid="msg-mentions">
+              {item.mentions.map((m, i) => (
+                <span className={`mention-chip kind-${m.kind}`} key={i} title={m.image ? "Attached as an image" : undefined}>
+                  <Icon name={MENTION_ICON[m.kind as keyof typeof MENTION_ICON] ?? "link"} size={12} />
+                  {m.label}
+                </span>
+              ))}
+            </span>
+          )}
+        </div>
+      );
     case "assistant":
       return (
         <div className="msg msg-assistant" data-testid="msg-assistant">
@@ -582,6 +885,8 @@ function ChatLine({
       );
     case "note":
       return <div className="msg-note muted small">{item.text}</div>;
+    case "reasoning":
+      return <Reasoning text={item.text} started={item.started} ended={item.ended} />;
     case "error":
       return (
         <div className="msg-error" role="alert" data-testid="msg-error">

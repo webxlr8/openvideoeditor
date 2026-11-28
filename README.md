@@ -38,13 +38,44 @@ setup `.exe`, Linux `.deb`); on Linux, `tools/package.sh --target windows-x64-gn
   the estimate shows first and nothing is spent without confirming; a placeholder fills in when the job is done.
 - **Templates** for common videos, **Settings** (keys, agents, shortcut rebinding, privacy), local crash reports
   and an update check.
-- Not yet: GPU effects, subject masks, stock media search, voice cloning, signed installers and in-place updates
+- New since v1 (implemented and checked on Windows 11; **macOS not yet verified**, see `docs/owner-checklist.md`):
+  - **Edit by text**: a Transcript panel; delete words to cut the video with natural pauses and quiet cut edges;
+    remove dead air (judged against the speaker's own level) and fillers; phrase search across media. Agents get the
+    same tools, with dry runs that show the `timeline.tsx` diff first.
+  - **Editing**: ripple, insert, overwrite, lift and extract, slip, slide and roll; linked audio and video with J/L
+    cuts; edits from people and agents at the same time stay correct.
+  - **Audio**: volume keyframes and waveforms with a gain line on clips, meters, scrub audio, ducking under dialogue,
+    a true-peak limiter, and loudness targets on export (for example −14 LUFS).
+  - **Export**: a queue that survives restarts, ProRes (including 4444 with alpha), audio-only (M4A, WAV), and save a
+    range as media, from an export dialog with presets and an Exports panel. HEVC, DNxHR, VP9 and AV1 need encoders
+    the current FFmpeg build does not have yet.
+  - **Picture**: a GPU compositor that checks itself against the CPU renderer (some effects still render on the
+    CPU), a chroma key, live waveform, parade and vectorscope scopes, and `inspect_color` so agents can match shots.
+  - **Agents**: one tool set for the in-app assistant, `ove mcp` and the CLI; an agent can undo only its own edits;
+    agent spending needs a person to approve each quote, with a spend cap; feedback drafts stay on this computer;
+    skills (playbooks) for agents, with a hash-pinned catalog you confirm, and one-step connection for Claude
+    Desktop and Cursor.
+  - **Search footage**: by description, "more like this", and phrase search in transcripts; folders, tags, subclips
+    and smart folders. Release needs the owner's licence sign-off and model hosting; recall on real footage is not
+    measured yet.
+  - **Agent context**: @mentions of clips, ranges and media, a `/` menu for skills and templates, live agent
+    activity on the timeline, and history grouped by agent. The check in the built app with Claude Code is pending.
+  - **Audio sync and beats**: source timecode, sync by sound with drift correction, beats and downbeats as snap
+    targets. The beat model needs the owner's hosting decision before users can download it.
+  - **Viewer**: click to select, then move, scale, rotate and crop with handles; guides, safe areas, full screen and
+    playback at 0.5–2×. Text fills, tilt and Lottie items are not done.
+  - **Background work and models**: a scheduler that pauses during playback and export, hover skim, and local models
+    (ONNX Runtime, downloaded on first use with consent).
+- Known limits: the shipped FFmpeg build cannot read PNG files, so generated images do not decode until the FFmpeg
+  rebuild in `docs/owner-checklist.md`. `ove transcript transcribe` needs the app to be open.
+- Not yet: subject masks, stock media search, voice cloning, signed installers and in-place updates
   (need the owner's certificates).
 
 ## Docs
 
 - `docs/03-architecture-plan.md` — decided architecture, alternatives, roadmap of OpenSpec changes, engineering
   standards, what the owner provides. Start here.
+- `docs/owner-checklist.md` — the checks that need the owner's machines, accounts or approval, in priority order.
 - `docs/01-reference-teardown.md` — how the reference app is built: architecture, every screen, main flows, weak spots.
 - `docs/spec/` — behaviour contracts of the reference app that v1 rebuilds:
   - `document-model.md` — bundle layout, project document, items, projection rules, apply/merge ops, chat log

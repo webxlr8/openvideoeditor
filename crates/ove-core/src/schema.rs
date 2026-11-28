@@ -24,6 +24,9 @@ pub enum Kind {
     SignedTime,
     /// One of a fixed list of strings.
     Enum(&'static [&'static str]),
+    /// A keyframe property: one of a fixed list, or an effect parameter `effects.<effect entry id>.<parameter>`
+    /// (the entry and parameter are checked against the item's effects by the invariants).
+    KeyframeProperty(&'static [&'static str]),
     /// An object with known keys. `open` objects accept extra keys silently (preset parameters); closed objects
     /// keep unknown keys but report a warning.
     Obj { fields: &'static [Field], open: bool },
@@ -87,7 +90,30 @@ pub const BLEND_MODES: &[&str] = &[
     "luminosity",
 ];
 pub const EASINGS: &[&str] = &["linear", "ease-in", "ease-out", "ease-in-out"];
-pub const KEYFRAME_PROPERTIES: &[&str] = &["x", "y", "scale", "rotation", "opacity", "gaussianBlur", "borderRadius"];
+/// Keyframe easings: the curve easings plus `hold`, which keeps the value until the next keyframe.
+pub const KEYFRAME_EASINGS: &[&str] = &["linear", "ease-in", "ease-out", "ease-in-out", "hold"];
+pub const KEYFRAME_PROPERTIES: &[&str] = &[
+    "x",
+    "y",
+    "scale",
+    "rotation",
+    "opacity",
+    "gaussianBlur",
+    "borderRadius",
+    "volume",
+    "crop.top",
+    "crop.right",
+    "crop.bottom",
+    "crop.left",
+];
+/// Value ranges of keyframe properties whose values are bounded, checked on every keyframe of such a track.
+pub const KEYFRAME_VALUE_RANGES: &[(&str, f64, f64)] = &[
+    ("volume", 0.0, 200.0),
+    ("crop.top", 0.0, 100.0),
+    ("crop.right", 0.0, 100.0),
+    ("crop.bottom", 0.0, 100.0),
+    ("crop.left", 0.0, 100.0),
+];
 pub const PLAYBACK_DIRECTIONS: &[&str] = &["forward", "reverse"];
 pub const TEXT_ALIGNS: &[&str] = &["left", "center", "right", "justify"];
 pub const FONT_STYLES: &[&str] = &["normal", "italic"];
@@ -134,13 +160,20 @@ const CROP: &[Field] = &[
     fd("left", num(0.0, 100.0), Def::Num(0.0), "Percent of width removed from the left."),
 ];
 
-const KEYFRAME: &[Field] =
-    &[f("time", Kind::Time, "Seconds from the item's start."), f("value", NUM, "Property value at that time.")];
+const KEYFRAME: &[Field] = &[
+    f("time", Kind::Time, "Seconds from the item's start."),
+    f("value", NUM, "Property value at that time."),
+    f("easing", Kind::Enum(KEYFRAME_EASINGS), "Easing of the segment that starts here (overrides the track easing)."),
+];
 const KEYFRAME_KIND: Kind = Kind::Obj { fields: KEYFRAME, open: false };
 const KEYFRAME_TRACK: &[Field] = &[
-    f("property", Kind::Enum(KEYFRAME_PROPERTIES), "Animated property."),
+    f(
+        "property",
+        Kind::KeyframeProperty(KEYFRAME_PROPERTIES),
+        "Animated property, or an effect parameter as `effects.<effect id>.<parameter>`.",
+    ),
     f("keyframes", Kind::Arr(&KEYFRAME_KIND), "Keyframes in time order."),
-    fd("easing", Kind::Enum(EASINGS), Def::Str("linear"), "Interpolation between keyframes."),
+    fd("easing", Kind::Enum(KEYFRAME_EASINGS), Def::Str("linear"), "Interpolation between keyframes."),
 ];
 const KEYFRAME_TRACK_KIND: Kind = Kind::Obj { fields: KEYFRAME_TRACK, open: false };
 
@@ -253,6 +286,7 @@ const MEDIA: &[Field] = &[
     f("mediaItemId", Kind::Str, "Id of the media item the item plays."),
     fd("pending", Kind::Bool, Def::Bool(false), "Placeholder awaiting generated or supplied media."),
     f("pendingDescription", Kind::Str, "What the pending placeholder should become."),
+    f("link", Kind::Str, "Link group: items with the same value move, trim, slip and delete together."),
 ];
 
 const LOOK: &[Field] = &[
@@ -285,6 +319,12 @@ const SOUND: &[Field] = &[
     f("audioFadeOut", Kind::Obj { fields: FADE, open: false }, "Audio fade at the end."),
     fd("playbackSpeed", num(0.01, 100.0), Def::Num(1.0), "Playback speed factor."),
     fd("playbackDirection", Kind::Enum(PLAYBACK_DIRECTIONS), Def::Str("forward"), "Playback direction."),
+    fd(
+        "denoise",
+        num(0.0, 100.0),
+        Def::Num(0.0),
+        "Speech clean-up amount in percent: the sound is this blend of a cleaned copy and the original.",
+    ),
 ];
 
 const TEXT: &[Field] = &[
@@ -404,6 +444,7 @@ pub const TRACK_FIELDS: &[Field] = &[
     fd("locked", Kind::Bool, Def::Bool(false), "Locked tracks cannot be edited in the GUI."),
     fd("visible", Kind::Bool, Def::Bool(true), "Hidden tracks render nothing."),
     fd("muted", Kind::Bool, Def::Bool(false), "Muted tracks play no audio."),
+    fd("syncLock", Kind::Bool, Def::Bool(true), "Ripple edits on other tracks shift this track's items too."),
 ];
 
 pub fn track_field(name: &str) -> Option<&'static Field> {
@@ -418,6 +459,7 @@ pub const REGISTRY_FIELDS: &[Field] = &[
     fd("probeStatus", Kind::Enum(PROBE_STATUSES), Def::Str("awaiting-probe"), "Probe state."),
     f("size", Kind::Int { min: Some(0), max: None }, "Last known file size in bytes."),
     f("modifiedAt", Kind::Int { min: None, max: None }, "Last known modification time, ms since the epoch."),
+    f("contentId", Kind::Str, "Content identity: hash of the size and sampled content; derived data is keyed by it."),
 ];
 
 /// Media item (`project.media`): what a media file is. `data` holds probe results owned by the media change.
@@ -426,7 +468,44 @@ pub const MEDIA_ITEM_FIELDS: &[Field] = &[
     f("createdAt", Kind::Int { min: None, max: None }, "ms since the epoch."),
     f("addedAt", Kind::Int { min: None, max: None }, "ms since the epoch."),
     f("data", Kind::Any, "type, fileName, format, size, duration, width, height, frameRate, hasAudio, statuses, …"),
+    f("name", Kind::Str, "Display name set by a rename; absent means the file name without its extension."),
+    f("folder", Kind::Str, "Media panel folder, `/`-separated (`Interviews/Day 1`); absent means the top level."),
+    f("tags", Kind::Arr(&Kind::Str), "Tags, in the order they were added."),
+    f("subclips", Kind::Arr(&SUBCLIP), "Saved source ranges of this media, shown under it and dragged like media."),
 ];
+
+/// A saved subclip: a named source range of one media item.
+pub const SUBCLIP_FIELDS: &[Field] = &[
+    f("id", Kind::Str, "Unique within the media item."),
+    f("name", Kind::Str, "Display name."),
+    f("in", Kind::Time, "Source start, seconds."),
+    f("out", Kind::Time, "Source end, seconds (after `in`)."),
+];
+
+const SUBCLIP: Kind = Kind::Obj { fields: SUBCLIP_FIELDS, open: false };
+
+/// Scopes a smart folder's saved query searches.
+pub const SEARCH_SCOPES: &[&str] = &["all", "moments", "spoken", "timelines", "files"];
+
+/// A media panel folder kept in the project (`project.folders`): an empty folder, or a smart folder when it has a
+/// query.
+pub const FOLDER_FIELDS: &[Field] = &[
+    f("path", Kind::Str, "Folder path, `/`-separated."),
+    f("query", Kind::Str, "Saved search query: the folder lists its current matches (a smart folder)."),
+    fd("scope", Kind::Enum(SEARCH_SCOPES), Def::Str("all"), "What the saved query searches."),
+];
+
+const FOLDER: Kind = Kind::Obj { fields: FOLDER_FIELDS, open: false };
+
+/// Frame rate of a timeline without an `fps` field.
+pub const DEFAULT_FPS: f64 = 30.0;
+/// The kind of the timeline `fps` field.
+pub const FPS_KIND: Kind = Kind::Num { min: Some(1.0), max: Some(240.0) };
+
+/// Looks up a known project field.
+pub fn project_field(name: &str) -> Option<&'static Field> {
+    PROJECT_FIELDS.iter().find(|f| f.name == name)
+}
 
 pub const PROJECT_FIELDS: &[Field] = &[
     f("id", Kind::Str, "Project id."),
@@ -435,9 +514,12 @@ pub const PROJECT_FIELDS: &[Field] = &[
     f("updatedAt", Kind::Int { min: None, max: None }, "ms since the epoch."),
     f("stateUpdatedAt", Kind::Int { min: Some(0), max: None }, "Current revision (rev), ms-based."),
     f("aspectRatio", Kind::Enum(ASPECT_RATIOS), "Frame aspect ratio."),
+    fd("fps", FPS_KIND, Def::Num(DEFAULT_FPS), "Timeline frame rate; edits snap to its frame grid."),
     f("media", Kind::Any, "Media items."),
     f("timelineItems", Kind::Any, "Items."),
     f("tracks", Kind::Any, "Tracks."),
+    f("markers", Kind::Any, "Timeline markers (see Marker)."),
+    f("folders", Kind::Arr(&FOLDER), "Media panel folders that hold no media yet, and smart folders (saved queries)."),
 ];
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -507,6 +589,18 @@ pub fn validate(kind: &Kind, v: &Value, path: &str, out: &mut Vec<Issue>) {
                 format!("{path} must be one of {}, got {}", values.join(", "), short(v)),
             )),
         },
+        Kind::KeyframeProperty(values) => match v.as_str() {
+            Some(s) if values.contains(&s) || crate::effect_params::split_property(s).is_some() => {}
+            _ => out.push(Issue::err(
+                "enum.known",
+                path,
+                format!(
+                    "{path} must be one of {}, or effects.<effect id>.<parameter>, got {}",
+                    values.join(", "),
+                    short(v)
+                ),
+            )),
+        },
         Kind::Arr(elem) => match v.as_array() {
             None => out.push(Issue::err("value.type", path, format!("{path} must be an array"))),
             Some(a) => {
@@ -517,8 +611,33 @@ pub fn validate(kind: &Kind, v: &Value, path: &str, out: &mut Vec<Issue>) {
         },
         Kind::Obj { fields, open } => match v.as_object() {
             None => out.push(Issue::err("value.type", path, format!("{path} must be an object"))),
-            Some(o) => validate_object(fields, *open, o, path, out),
+            Some(o) => {
+                validate_object(fields, *open, o, path, out);
+                if is_keyframe_track(fields) {
+                    keyframe_ranges(o, path, out);
+                }
+            }
         },
+    }
+}
+
+fn is_keyframe_track(fields: &[Field]) -> bool {
+    fields.len() == KEYFRAME_TRACK.len() && fields.iter().zip(KEYFRAME_TRACK).all(|(a, b)| a.name == b.name)
+}
+
+/// Range check of each keyframe value for properties with a bounded value (for example `volume`, 0–200 %).
+fn keyframe_ranges(track: &Map<String, Value>, path: &str, out: &mut Vec<Issue>) {
+    let Some(prop) = track.get("property").and_then(Value::as_str) else { return };
+    let Some(&(_, min, max)) = KEYFRAME_VALUE_RANGES.iter().find(|r| r.0 == prop) else { return };
+    let Some(kfs) = track.get("keyframes").and_then(Value::as_array) else { return };
+    for (i, k) in kfs.iter().enumerate() {
+        if let Some(x) = k.get("value").and_then(Value::as_f64)
+            && x.is_finite()
+            && (x < min || x > max)
+        {
+            let p = format!("{path}.keyframes[{i}].value");
+            out.push(Issue::err("value.range", &p, format!("{p}: {prop} keyframes must be {min}–{max}, got {x}")));
+        }
     }
 }
 
@@ -642,6 +761,34 @@ pub fn default_value(field: &Field) -> Option<Value> {
     })
 }
 
+// ---------------------------------------------------------------------------------------------------------------
+// Markers (add-markers-keyframe-lanes-and-versions D1)
+// ---------------------------------------------------------------------------------------------------------------
+
+/// Review statuses of a marker, in workflow order.
+pub const MARKER_STATUSES: &[&str] = &["open", "review", "resolved"];
+/// Named marker colours; any `#rrggbb` value is accepted too.
+pub const MARKER_COLORS: &[&str] = &["red", "orange", "yellow", "green", "teal", "blue", "purple", "pink"];
+/// Longest marker note, in characters.
+pub const MARKER_NOTE_MAX: usize = 4000;
+
+/// Marker fields in projection attribute order (head fields first).
+pub const MARKER_FIELDS: &[Field] = &[
+    f("id", Kind::Str, "Marker id."),
+    f("at", Kind::Time, "Timeline time of the marker, in seconds."),
+    fd("dur", Kind::Time, Def::Num(0.0), "Duration in seconds; 0 for a point marker."),
+    f("name", Kind::Str, "Short label."),
+    f("color", Kind::Str, "A named colour (red, orange, yellow, green, teal, blue, purple, pink) or #rrggbb."),
+    fd("status", Kind::Enum(MARKER_STATUSES), Def::Str("open"), "Review status: open, review or resolved."),
+    f("assignee", Kind::Str, "Who should act on it: `user`, `agent` or a name."),
+    f("note", Kind::Str, "Free text, at most 4,000 characters."),
+];
+
+/// Looks up a known marker field.
+pub fn marker_field(name: &str) -> Option<&'static Field> {
+    MARKER_FIELDS.iter().find(|f| f.name == name)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -679,6 +826,24 @@ mod tests {
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].severity, Severity::Warning);
         assert_eq!(out[0].code, "object.key.unknown");
+    }
+
+    #[test]
+    fn volume_keyframes_are_range_checked() {
+        let kind = &item_field("audio", "keyframeTracks").unwrap().kind;
+        let mut out = vec![];
+        let ok = json!([{"property": "volume", "keyframes": [{"time": 0, "value": 0}, {"time": 1, "value": 200}]}]);
+        validate(kind, &ok, "k", &mut out);
+        assert!(out.is_empty(), "{out:?}");
+        let bad = json!([{"property": "volume", "keyframes": [{"time": 0, "value": 100}, {"time": 1, "value": 250}]}]);
+        validate(kind, &bad, "k", &mut out);
+        assert_eq!(out.len(), 1, "{out:?}");
+        assert_eq!(out[0].code, "value.range");
+        assert_eq!(out[0].path, "k[0].keyframes[1].value");
+        // Other properties keep their unbounded values.
+        out.clear();
+        validate(kind, &json!([{"property": "scale", "keyframes": [{"time": 0, "value": 250}]}]), "k", &mut out);
+        assert!(out.is_empty());
     }
 
     #[test]

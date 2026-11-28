@@ -1,0 +1,20 @@
+[package]
+name = "ove-edit"
+description = "Edit planners shared by every writer: split, trim, ripple, insert, overwrite, lift, extract, slip, slide, roll, snap (pure, no I/O)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+ove-core = { path = "../ove-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
+
+[dev-dependencies]
+proptest = "1.12"
+ove-core = { path = "../ove-core", features = ["testgen"] }
+
+[lints]
+workspace = true

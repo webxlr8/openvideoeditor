@@ -7,11 +7,17 @@ import type {
   AgentStatus_Serialize,
   AppError,
   AppInfo_Serialize,
+  CompositingStatus_Serialize,
   CrashReport,
   KeyCheck,
   UpdateInfo_Serialize as UpdateInfo,
 } from "./bindings";
 import { AgentsSection } from "./agents/AgentsSection";
+import { ConnectorsSection } from "./agents/ConnectorsSection";
+import { ModelsSection } from "./storage/ModelsSection";
+import { SkillsSection } from "./skills/SkillsSection";
+import { CachesSection } from "./storage/CachesSection";
+import { SpendCapField } from "./spend/SpendCard";
 import { commands } from "./bridge";
 import { AssistantDataList } from "./ChatPanel";
 import { copyText } from "./clipboard";
@@ -33,7 +39,10 @@ const SECTIONS = [
   { id: "generation", label: "Generation" },
   { id: "assistant", label: "Assistant" },
   { id: "agents", label: "Agents & command line" },
+  { id: "skills", label: "Skills" },
   { id: "shortcuts", label: "Shortcuts" },
+  { id: "storage", label: "Storage" },
+  { id: "rendering", label: "Rendering" },
   { id: "privacy", label: "Privacy" },
   { id: "about", label: "About & updates" },
 ] as const;
@@ -272,6 +281,50 @@ function ShortcutsSection() {
   );
 }
 
+/** Settings → Rendering: whether the GPU composites preview, colour tools and export, and which backend is active. */
+function RenderingSection({ onError }: { onError: (e: AppError) => void }) {
+  const [status, setStatus] = useState<CompositingStatus_Serialize | null>(
+    null,
+  );
+  useEffect(() => {
+    runCommand(commands.compositingStatus(), setStatus, onError);
+  }, [onError]);
+  return (
+    <section>
+      <h3>Rendering</h3>
+      <label className="gen-check">
+        <input
+          type="checkbox"
+          data-testid="gpu-compositing"
+          checked={status?.gpuEnabled ?? true}
+          disabled={!status}
+          onChange={(e) =>
+            runCommand(
+              commands.setGpuCompositing(e.target.checked),
+              setStatus,
+              onError,
+            )
+          }
+        />
+        Use the GPU for compositing (preview, colour tools and export)
+      </label>
+      <p className="muted" data-testid="compositing-status">
+        {!status
+          ? "Checking the GPU…"
+          : status.backend === "gpu"
+            ? `Active: GPU${status.adapter ? ` (${status.adapter})` : ""}.`
+            : status.backend === "starting"
+              ? "Checking the GPU…"
+              : `Active: CPU — ${status.reason}.`}
+      </p>
+      <p className="muted small">
+        The GPU and the CPU make the same frames within a small tolerance. A
+        change applies to previews and exports started afterwards.
+      </p>
+    </section>
+  );
+}
+
 export function Settings({
   onError,
   initialSection = "library",
@@ -396,6 +449,7 @@ export function Settings({
                 onError={onError}
               />
             ))}
+            <SpendCapField onError={onError} />
           </section>
         )}
         {section === "assistant" && (
@@ -499,6 +553,13 @@ export function Settings({
               never sees an assistant's sign-in.
             </p>
             <AgentsSection onError={onError} />
+            <h4>Desktop apps</h4>
+            <p className="muted small">
+              Claude Desktop installs the editor as an extension; Cursor adds it
+              from an install link. Both ask you to confirm. The manual
+              configuration works in either.
+            </p>
+            <ConnectorsSection onError={onError} />
             <h4>By hand: give an agent the editing guide</h4>
             <Copyable text="ove skills install" />
             <h4>Connect the MCP server</h4>
@@ -514,7 +575,23 @@ export function Settings({
             </p>
           </section>
         )}
+        {section === "skills" && (
+          <section>
+            <h3>Skills</h3>
+            <SkillsSection onError={onError} />
+          </section>
+        )}
         {section === "shortcuts" && <ShortcutsSection />}
+        {section === "storage" && (
+          <section>
+            <h3>Storage</h3>
+            <h4>Models</h4>
+            <ModelsSection onError={onError} />
+            <h4>Derived data</h4>
+            <CachesSection onError={onError} />
+          </section>
+        )}
+        {section === "rendering" && <RenderingSection onError={onError} />}
         {section === "privacy" && (
           <section>
             <h3>Privacy</h3>

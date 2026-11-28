@@ -10,7 +10,7 @@ use serde_json::{Map, Value, json};
 
 use super::{GenError, Output, Result, Run, agent, base, data_uri, ext_for, fetch, http_error, poll_interval};
 use crate::catalog::{Kind, Model};
-use crate::job::Request;
+use crate::job::{RemoteRef, Request};
 
 /// FLUX-family `image_size` for an aspect ratio.
 fn image_size(aspect: &str) -> &'static str {
@@ -112,14 +112,15 @@ fn refuse_url(what: &str, url: &str) -> GenError {
     )
 }
 
-pub fn run(model: &Model, req: &Request, aspect: &str, r: &mut Run) -> Result<Output> {
+/// Submits a request to the queue and returns where to follow it. The status and result URLs from the reply must be
+/// on fal's own API domains ([`key_allowed`]), or nothing is returned; a cancel URL elsewhere is dropped.
+/// `now_ms` is recorded as the submit time the timeout is measured from.
+pub fn submit(model: &Model, req: &Request, aspect: &str, key: &str, now_ms: i64) -> Result<RemoteRef> {
     let (endpoint, body) = input(model, req, aspect)?;
     let root = base("OVE_FAL_QUEUE_URL", QUEUE_URL);
-    let auth = format!("Key {}", r.key);
-    let a = agent();
-    let sub: Value = a
+    let sub: Value = agent()
         .post(&format!("{root}/{endpoint}"))
-        .set("Authorization", &auth)
+        .set("Authorization", &format!("Key {key}"))
         .send_json(body)
         .map_err(|e| http_error("fal.ai", e))?
         .into_json()
@@ -128,21 +129,50 @@ pub fn run(model: &Model, req: &Request, aspect: &str, r: &mut Run) -> Result<Ou
     let (Some(status_url), Some(response_url)) = (field("status_url"), field("response_url")) else {
         return Err(GenError::new("provider.failed", format!("fal.ai: unexpected submit reply {sub}")));
     };
-    if !key_allowed(&status_url, &root) {
-        return Err(refuse_url("status", &status_url));
+    let remote = RemoteRef {
+        status_url,
+        response_url,
+        cancel_url: field("cancel_url"),
+        endpoint,
+        request_id: field("request_id"),
+        submitted_at: now_ms,
+    };
+    check_remote(&remote, &root)?;
+    Ok(RemoteRef { cancel_url: remote.cancel_url.filter(|c| key_allowed(c, &root)), ..remote })
+}
+
+/// Refuses a remote handle whose status or result URL is not on fal's API domains.
+fn check_remote(remote: &RemoteRef, root: &str) -> Result<()> {
+    if !key_allowed(&remote.status_url, root) {
+        return Err(refuse_url("status", &remote.status_url));
     }
-    if !key_allowed(&response_url, &root) {
-        return Err(refuse_url("result", &response_url));
+    if !key_allowed(&remote.response_url, root) {
+        return Err(refuse_url("result", &remote.response_url));
     }
-    let cancel_url = field("cancel_url").filter(|c| key_allowed(c, &root));
+    Ok(())
+}
+
+fn now_ms() -> i64 {
+    ove_core::Clock::now_ms(&ove_core::SystemClock)
+}
+
+/// Follows a submitted request to its result: polls `status_url`, reads `response_url`, downloads the output. Used
+/// right after [`submit`] and to resume a request a previous worker submitted; the URLs are checked again here, so a
+/// tampered job file cannot send the key elsewhere. The timeout runs from [`RemoteRef::submitted_at`].
+pub fn wait(model: &Model, remote: &RemoteRef, r: &mut Run) -> Result<Output> {
+    let root = base("OVE_FAL_QUEUE_URL", QUEUE_URL);
+    check_remote(remote, &root)?;
+    let auth = format!("Key {}", r.key);
+    let a = agent();
+    let cancel_url = remote.cancel_url.as_deref().filter(|c| key_allowed(c, &root));
     let cancel_remote = || {
-        if let Some(c) = &cancel_url {
+        if let Some(c) = cancel_url {
             let _ = a.put(c).set("Authorization", &auth).call();
         }
     };
-    let request_id = field("request_id");
-    (r.progress)(Some(0.0), request_id.as_deref());
-    let deadline = Instant::now() + timeout();
+    (r.progress)(Some(0.0), remote.request_id.as_deref());
+    let elapsed = Duration::from_millis(u64::try_from(now_ms() - remote.submitted_at).unwrap_or(0));
+    let deadline = Instant::now() + timeout().saturating_sub(elapsed);
     loop {
         if (r.cancelled)() {
             cancel_remote();
@@ -157,7 +187,7 @@ pub fn run(model: &Model, req: &Request, aspect: &str, r: &mut Run) -> Result<Ou
         }
         std::thread::sleep(poll_interval());
         let st: Value = a
-            .get(&status_url)
+            .get(&remote.status_url)
             .set("Authorization", &auth)
             .call()
             .map_err(|e| http_error("fal.ai", e))?
@@ -179,7 +209,7 @@ pub fn run(model: &Model, req: &Request, aspect: &str, r: &mut Run) -> Result<Ou
         }
     }
     let result: Value = a
-        .get(&response_url)
+        .get(&remote.response_url)
         .set("Authorization", &auth)
         .call()
         .map_err(|e| http_error("fal.ai", e))?
@@ -192,6 +222,12 @@ pub fn run(model: &Model, req: &Request, aspect: &str, r: &mut Run) -> Result<Ou
     Ok(Output {
         ext: ext_for(&mime, url, fallback),
         data,
-        details: json!({"endpoint": endpoint, "requestId": request_id, "seed": result.get("seed")}),
+        details: json!({"endpoint": remote.endpoint, "requestId": remote.request_id, "seed": result.get("seed")}),
     })
+}
+
+/// Submits and follows one request ([`submit`] then [`wait`]).
+pub fn run(model: &Model, req: &Request, aspect: &str, r: &mut Run) -> Result<Output> {
+    let remote = submit(model, req, aspect, r.key, now_ms())?;
+    wait(model, &remote, r)
 }

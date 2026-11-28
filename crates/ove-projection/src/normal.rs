@@ -4,8 +4,9 @@
 
 use serde_json::{Map, Number, Value};
 
-use ove_core::model::{Document, Fields, Item, Track};
+use ove_core::model::{Document, Fields, Item, Marker, Track};
 use ove_core::schema;
+use ove_core::time::micros_to_json;
 
 /// Canonical numbers: integral floats become integers, recursively.
 pub fn canon(v: &Value) -> Value {
@@ -58,10 +59,30 @@ pub fn track(t: &Track) -> Track {
     Track { fields: track_fields(&t.fields), ..t.clone() }
 }
 
+/// Normalised marker field map (canonical numbers; markers have no field defaults besides their head).
+pub fn marker_fields(fields: &Fields) -> Fields {
+    fields.iter().map(|(k, v)| (k.clone(), canon(v))).collect()
+}
+
+/// A marker as one comparable map: `at`, `dur`, `status` and its normalised fields.
+pub fn marker_view(m: &Marker) -> Map<String, Value> {
+    let mut v = marker_fields(&m.fields);
+    v.insert("at".into(), micros_to_json(m.at));
+    v.insert("dur".into(), micros_to_json(m.dur));
+    v.insert("status".into(), Value::String(m.status.clone()));
+    v
+}
+
 /// Normalised document (only tracks and items change; media and project fields are kept as they are).
 pub fn document(d: &Document) -> Document {
     let mut out = d.clone();
     out.project.tracks = d.project.tracks.iter().map(track).collect();
     out.project.items = d.project.items.iter().map(|(id, i)| (id.clone(), std::sync::Arc::new(item(i)))).collect();
+    out.project.markers = d
+        .project
+        .markers
+        .iter()
+        .map(|(id, m)| (id.clone(), std::sync::Arc::new(Marker { fields: marker_fields(&m.fields), ..(**m).clone() })))
+        .collect();
     out
 }

@@ -10,7 +10,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use ove_agent::tools::{self, ApplyRequest, ToolHost, label};
-use ove_agent::{AgentEvent, ChatStore, Client, KeyStore, OsKeyStore, ProjectCap, Record, Spend, TurnConfig, run_turn};
+use ove_agent::{
+    AgentEvent, ChatStore, Client, KeyStore, OsKeyStore, ProjectCap, Record, Spend, TurnConfig, run_turn_with,
+};
 use ove_core::ops::Op;
 use ove_core::revision::Source;
 use serde::{Deserialize, Serialize};
@@ -81,9 +83,17 @@ pub struct Assistant {
     running: Mutex<Option<Running>>,
     answers: Mutex<HashMap<String, Sender<String>>>,
     settings_path: Option<PathBuf>,
+    /// Each chat's agent session: generation quotes and confirmed spend (the tool context is rebuilt per call).
+    sessions: Mutex<HashMap<String, ove_tools::Session>>,
 }
 
 impl Assistant {
+    /// The stored API key, if any, and the chosen model (drafting a skill uses them; add-agent-skills-and-connectors).
+    pub(crate) fn key_and_model(&self) -> (Option<String>, String) {
+        let model = self.model.lock().map(|m| m.clone()).unwrap_or_else(|e| e.into_inner().clone());
+        (self.keys.get().map(|(k, _)| k), model)
+    }
+
     pub fn new(settings_dir: Option<PathBuf>) -> Self {
         Self::with_keys(Box::new(OsKeyStore), settings_dir)
     }
@@ -111,6 +121,7 @@ impl Assistant {
             running: Mutex::new(None),
             answers: Mutex::new(HashMap::new()),
             settings_path,
+            sessions: Mutex::new(HashMap::new()),
         }
     }
 
@@ -248,7 +259,7 @@ pub struct ChatSummaryView {
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatItem {
-    /// user, assistant, tool, question or note.
+    /// user, assistant, tool, question, note, reasoning (the summarized thinking), changes or usage.
     pub role: String,
     pub text: String,
     /// Tool call / question id.
@@ -259,6 +270,37 @@ pub struct ChatItem {
     pub usage: Option<TurnUsageView>,
     /// role `changes`: what the turn changed.
     pub review: Option<TurnReview>,
+    /// role `user`: what the message mentioned (items, ranges, media, skills).
+    pub mentions: Vec<MentionChip>,
+}
+
+/// A mention as the chat input sends it: an item, media or skill by id, or a time range.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct MentionInput {
+    /// `item`, `range`, `media` or `skill`.
+    pub kind: String,
+    pub id: Option<String>,
+    /// A range's start and end, seconds.
+    pub start: Option<f64>,
+    pub end: Option<f64>,
+}
+
+/// A mention as the chat shows it under a message.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct MentionChip {
+    pub kind: String,
+    pub label: String,
+    pub ids: Vec<String>,
+    /// An image was attached.
+    pub image: bool,
+}
+
+impl From<&ove_agent::Mention> for MentionChip {
+    fn from(m: &ove_agent::Mention) -> Self {
+        MentionChip { kind: m.kind.clone(), label: m.label.clone(), ids: m.ids.clone(), image: m.image.is_some() }
+    }
 }
 
 /// Live assistant activity.
@@ -346,6 +388,8 @@ struct DesktopHost {
     cancel: Arc<AtomicBool>,
     /// Revisions committed by tool calls since the turn last asked.
     revs: Vec<i64>,
+    /// The chat and turn running (recorded as the actor of each revision).
+    turn: Option<(String, String)>,
 }
 
 impl DesktopHost {
@@ -370,7 +414,94 @@ impl DesktopHost {
     }
 }
 
+/// The app as seen by registry tools: the open project, and the app calls the assistant may make.
+struct DesktopApp<'a> {
+    host: &'a mut DesktopHost,
+}
+
+impl ove_tools::AppHost for DesktopApp<'_> {
+    fn with_open(
+        &mut self,
+        edit: bool,
+        f: &mut dyn FnMut(&mut ove_store::Project) -> Result<(), ove_tools::Fail>,
+    ) -> Result<(), ove_tools::Fail> {
+        let state = self.host.app.state::<AppState>();
+        let mut g =
+            crate::projects::lock(&state.projects.open).map_err(|e| ove_tools::Fail::new("app.busy", e.message))?;
+        let p = g
+            .as_mut()
+            .ok_or_else(|| ove_tools::Fail::new("app.noProject", "No project is open in the editor anymore."))?;
+        let before = p.rev();
+        let out = f(p);
+        if edit && p.rev() != before {
+            // The project is locked: a new revision here is this tool's.
+            self.host.revs.push(p.rev());
+            crate::projects::emit(&self.host.app, Some(p));
+        }
+        out
+    }
+    fn app(&mut self, method: &str, params: serde_json::Value) -> Result<serde_json::Value, ove_tools::Fail> {
+        match method {
+            "context" => Ok(crate::control::context(&self.host.app)),
+            "tasks" => crate::background::tasks_method(&self.host.app.state::<AppState>().tasks, &params)
+                .map_err(|r| ove_tools::Fail::new(r.code, r.message)),
+            "seek" => {
+                let seconds = params["seconds"].as_f64().unwrap_or(0.0);
+                let _ = AgentUiEvent::Seek { seconds }.emit(&self.host.app);
+                Ok(serde_json::json!({}))
+            }
+            other => {
+                Err(ove_tools::Fail::new("app.unavailable", format!("`{other}` is not available to the assistant")))
+            }
+        }
+    }
+    /// The chat's session (quotes and the spend the person confirmed in it).
+    fn session(&self) -> Option<ove_tools::Session> {
+        let chat = self.host.turn.as_ref().map(|(c, _)| c.clone()).unwrap_or_default();
+        let keys = self.host.app.state::<crate::generation::Generation>().keys();
+        let state = self.host.app.state::<AppState>();
+        let mut sessions = relock(&state.assistant.sessions);
+        let s = sessions.entry(chat).or_insert_with(|| {
+            ove_tools::Session::with(ove_tools::session::config_dir(), Arc::new(ove_core::SystemClock), keys)
+        });
+        Some(s.clone())
+    }
+    /// The price goes to the person as a question card in the chat; only their "Approve" approves.
+    fn ask_spend(&mut self, card: &serde_json::Value) -> Result<bool, ove_tools::Fail> {
+        let id = format!("spend-{}", card["quoteId"].as_str().unwrap_or_default());
+        let question = ove_tools::tools::generate::card_text(card);
+        let options = vec![SPEND_APPROVE.to_string(), "Decline".to_string()];
+        let _ = AgentUiEvent::Question { id: id.clone(), question: question.clone(), options: options.clone() }
+            .emit(&self.host.app);
+        Ok(self.host.ask_user(&id, &question, &options).is_ok_and(|a| a == SPEND_APPROVE))
+    }
+    /// The app's own generation worker runs the job (as for jobs started from the Generate panel).
+    fn start_generation(&mut self, bundle: &std::path::Path, job: &str) -> Result<(), ove_tools::Fail> {
+        crate::generation::start_saved_job(&self.host.app, bundle, job)
+            .map_err(|e| ove_tools::Fail::new("worker.failed", e))
+    }
+    fn skills(&mut self) -> Option<ove_tools::skills::SkillStore> {
+        skill_store(&self.host.app)
+    }
+    /// The assistant's reads show live on the timeline.
+    fn notify(&mut self, actor: Option<&ove_core::revision::Actor>, activity: &ove_tools::activity::Activity) {
+        crate::activity::emit(&self.host.app, actor, Source::Agent, activity);
+    }
+}
+
+/// The skill store of the app's library.
+pub(crate) fn skill_store(app: &AppHandle) -> Option<ove_tools::skills::SkillStore> {
+    let state = app.state::<AppState>();
+    crate::projects::with_library(&state.projects, |l| Ok(ove_tools::skills::SkillStore::of_library(&l.root))).ok()
+}
+
+/// The question card's answer that approves a spend.
+const SPEND_APPROVE: &str = "Approve";
+
 impl ToolHost for DesktopHost {
+    fn begin_turn(&mut self, chat_id: &str, turn_id: &str) {
+        self.turn = Some((chat_id.to_string(), turn_id.to_string()));
+    }
     fn print_timeline(&mut self, from: Option<usize>, lines: Option<usize>) -> Result<String, String> {
         self.with_project(|p| Ok(tools::print(p, from, lines)), false)
     }
@@ -405,6 +536,28 @@ impl ToolHost for DesktopHost {
     fn seek_viewer(&mut self, seconds: f64) -> Result<String, String> {
         let _ = AgentUiEvent::Seek { seconds }.emit(&self.app);
         Ok(format!("Showing {seconds:.2}s."))
+    }
+    /// Every registry tool runs its handler on the open project through `AppCtx`, except importing (the app's own
+    /// import also starts probing and thumbnails) and seeking (the viewer follows an event).
+    fn run_tool(
+        &mut self,
+        tool: &'static ove_tools::ToolSpec,
+        args: &serde_json::Map<String, serde_json::Value>,
+    ) -> Option<Result<ove_agent::tools::ToolOutput, String>> {
+        if matches!(tool.name, "add_media" | "seek") {
+            return None;
+        }
+        let turn = self.turn.clone();
+        let mut host = DesktopApp { host: self };
+        let mut ctx = match &turn {
+            Some((chat, turn)) => ove_tools::AppCtx::assistant_in(&mut host, chat, turn),
+            None => ove_tools::AppCtx::assistant(&mut host),
+        };
+        Some(
+            ove_tools::call(&mut ctx, tool.name, args)
+                .map(|r| ove_agent::tools::ToolOutput { text: tool.model_text(&r), images: r.images })
+                .map_err(|f| f.model_text()),
+        )
     }
     fn ask_user(&mut self, question_id: &str, _question: &str, _options: &[String]) -> Result<String, String> {
         let state = self.app.state::<AppState>();
@@ -592,6 +745,7 @@ pub fn chat_items(records: &[Record]) -> Vec<ChatItem> {
         options: vec![],
         usage: None,
         review: None,
+        mentions: vec![],
     };
     let undone: HashSet<&str> = records
         .iter()
@@ -631,6 +785,12 @@ pub fn chat_items(records: &[Record]) -> Vec<ChatItem> {
                             let t = b["text"].as_str().unwrap_or_default();
                             if !t.trim().is_empty() {
                                 out.push(item("assistant", t.to_string()));
+                            }
+                        }
+                        Some("thinking") => {
+                            let t = b["thinking"].as_str().unwrap_or_default();
+                            if !t.trim().is_empty() {
+                                out.push(item("reasoning", t.to_string()));
                             }
                         }
                         Some("tool_use") if b["name"] != "ask_user" => {
@@ -679,6 +839,11 @@ pub fn chat_items(records: &[Record]) -> Vec<ChatItem> {
                     }),
                     ..item("usage", String::new())
                 });
+            }
+            Record::Mentions { mentions, .. } => {
+                if let Some(u) = out.iter_mut().rev().find(|i| i.role == "user") {
+                    u.mentions = mentions.iter().map(MentionChip::from).collect();
+                }
             }
             Record::Summary { .. } if !out.iter().any(|i| i.role == "note" && i.text == SUMMARY_NOTE) => {
                 out.push(item("note", SUMMARY_NOTE.into()));
@@ -748,33 +913,35 @@ pub fn fill_review(r: &mut TurnReview, bundle: &Path, present: &HashSet<String>)
 /// the project as it is now (later edits to other items are kept). Fails, changing nothing, when later edits touched
 /// the same items in a way that can't be reverted.
 pub fn undo_turn(p: &mut ove_store::Project, revs: &[i64]) -> AppResult<i64> {
+    use ove_store::undo::UndoError;
     let mut sorted = revs.to_vec();
     sorted.sort_unstable();
     sorted.dedup();
-    let mut ops = Vec::new();
-    for rev in sorted.iter().rev() {
-        let rec = ove_store::project::read_record(p.bundle(), *rev).map_err(|_| {
-            AppError::new(
-                ErrorCode::NotFound,
-                "This turn's changes are no longer in the project's history, so it can't be undone in one step.",
-            )
-        })?;
-        ops.extend(rec.inverse);
-    }
-    if ops.is_empty() {
-        return Err(AppError::new(ErrorCode::InvalidArgument, "This turn made no changes to undo."));
-    }
     let n = sorted.len();
     let summary = format!("undo the assistant's turn ({n} change{})", if n == 1 { "" } else { "s" });
-    let c = p.apply(ops, Source::Undo, Some(summary)).map_err(|e| {
+    let later = |what: String| {
         AppError::new(
             ErrorCode::InvalidArgument,
             format!(
-                "This turn can't be undone in one step because later edits changed the same items ({e}). Open History (the clock next to Undo) to go back to before it."
+                "This turn can't be undone in one step because later edits changed the same items ({what}). Open History (the clock next to Undo) to go back to before it."
             ),
         )
-    })?;
-    Ok(c.record.rev)
+    };
+    match p.undo_selected(&sorted, Source::Undo, summary, None) {
+        Ok(c) => Ok(c.record.rev),
+        Err(UndoError::Nothing) => Err(AppError::new(ErrorCode::InvalidArgument, "This turn made no changes to undo.")),
+        Err(UndoError::Conflict(c)) => Err(later(
+            c.iter()
+                .map(|x| format!("{} {}", x.item.as_deref().unwrap_or(&x.object), x.field))
+                .collect::<Vec<_>>()
+                .join(", "),
+        )),
+        Err(UndoError::Store(e)) if e.code() == "undo.unavailable" => Err(AppError::new(
+            ErrorCode::NotFound,
+            "This turn's changes are no longer in the project's history, so it can't be undone in one step.",
+        )),
+        Err(UndoError::Store(e)) => Err(later(e.to_string())),
+    }
 }
 
 #[tauri::command]
@@ -834,6 +1001,19 @@ pub async fn agent_undo_turn(
         }
         let mut g = crate::projects::lock(&state.projects.open)?;
         let p = g.as_mut().ok_or_else(|| AppError::new(ErrorCode::InvalidArgument, "No project is open."))?;
+        // Media the turn generated is filled in later by the generation worker, as the turn's own revision.
+        let mut revs = revs;
+        let first = revs.iter().min().copied().unwrap_or_default();
+        for r in p.records()?.into_iter().filter(|r| r.rev > first && r.source != Source::Undo) {
+            let ours = r.actor.as_ref().is_some_and(|a| {
+                a.kind == ove_core::revision::ActorKind::Assistant
+                    && a.session.as_deref() == Some(chat_id.as_str())
+                    && a.turn.as_deref() == Some(turn_id.as_str())
+            });
+            if ours && !revs.contains(&r.rev) {
+                revs.push(r.rev);
+            }
+        }
         let rev = undo_turn(p, &revs)?;
         if let Err(e) = store.append(&chat_id, &Record::TurnUndone { turn: turn_id, rev }) {
             tracing::warn!(error = %e, "could not note the undone turn in the chat log");
@@ -848,13 +1028,81 @@ pub async fn agent_undo_turn(
 #[serde(rename_all = "camelCase")]
 pub struct SendResult {
     pub chat_id: String,
+    /// Things the chat tells the person about the message (images left out, mentions that no longer exist).
+    #[serde(default)]
+    pub notices: Vec<String>,
+}
+
+/// Resolves the message's mentions when it is sent (design D1): item and range lines and media rows from the open
+/// project with its revision, then — through the tool registry, as the assistant — the attached images
+/// (`grab_frame`, downscaled) and the chosen skills (`read_skill`). Returns the mentions and notices for the chat.
+fn resolve_mentions(app: &AppHandle, refs: &[MentionInput]) -> AppResult<(Vec<ove_agent::Mention>, Vec<String>)> {
+    if refs.is_empty() {
+        return Ok((vec![], vec![]));
+    }
+    let to_ref =
+        |m: &MentionInput| ove_agent::MentionRef { kind: m.kind.clone(), id: m.id.clone(), start: m.start, end: m.end };
+    let timeline: Vec<ove_agent::MentionRef> = refs.iter().filter(|m| m.kind != "skill").map(to_ref).collect();
+    let mut resolved = {
+        let state = app.state::<AppState>();
+        let g = crate::projects::lock(&state.projects.open)?;
+        let p = g.as_ref().ok_or_else(|| AppError::new(ErrorCode::InvalidArgument, "Open a project first."))?;
+        ove_agent::mention::resolve(p, &timeline)
+    };
+    let mut host = DesktopHost { app: app.clone(), cancel: Arc::new(AtomicBool::new(false)), revs: vec![], turn: None };
+    let mut desk = DesktopApp { host: &mut host };
+    let mut ctx = ove_tools::AppCtx::assistant(&mut desk);
+    for want in &resolved.images {
+        let mut args = serde_json::Map::new();
+        args.insert("media".into(), want.media.clone().into());
+        args.insert("width".into(), want.width.into());
+        let label = resolved.mentions[want.index].label.clone();
+        match ove_tools::call(&mut ctx, "grab_frame", &args) {
+            Ok(r) => match r.images.first() {
+                Some(png) => resolved.mentions[want.index].image = Some(ove_tools::receipt::base64(&png.bytes)),
+                None => resolved.notices.push(format!("{label} could not be attached as an image.")),
+            },
+            Err(f) => resolved.notices.push(format!("{label} could not be attached as an image: {}", f.message)),
+        }
+    }
+    for m in refs.iter().filter(|m| m.kind == "skill") {
+        let Some(id) = m.id.as_deref() else { continue };
+        let mut args = serde_json::Map::new();
+        args.insert("id".into(), id.into());
+        match ove_tools::call(&mut ctx, "read_skill", &args) {
+            Ok(r) => {
+                let name = r.json["name"].as_str().unwrap_or(id).to_string();
+                let text = r.json["text"].as_str().unwrap_or_default();
+                resolved.mentions.push(ove_agent::mention::skill(id, &name, text));
+            }
+            Err(f) => resolved.notices.push(format!("The skill {id} could not be read: {}", f.message)),
+        }
+    }
+    Ok((resolved.mentions, resolved.notices))
 }
 
 /// Starts a turn in a chat (a new chat when `chat_id` is empty). Progress arrives as `agentUiEvent`.
 #[tauri::command]
 #[specta::specta]
 pub async fn agent_send(app: AppHandle, chat_id: Option<String>, text: String) -> AppResult<SendResult> {
-    worker::blocking("agent_send", move || {
+    worker::blocking("agent_send", move || send(app, chat_id, text, vec![])).await
+}
+
+/// [`agent_send`] with what the message mentions (items, ranges, media, skills). Each mention is resolved now, as
+/// the exact printed lines with their revision, and kept in the chat log.
+#[tauri::command]
+#[specta::specta]
+pub async fn agent_send_context(
+    app: AppHandle,
+    chat_id: Option<String>,
+    text: String,
+    mentions: Vec<MentionInput>,
+) -> AppResult<SendResult> {
+    worker::blocking("agent_send_context", move || send(app, chat_id, text, mentions)).await
+}
+
+fn send(app: AppHandle, chat_id: Option<String>, text: String, refs: Vec<MentionInput>) -> AppResult<SendResult> {
+    {
         let state = app.state::<AppState>();
         let state = &*state;
         let text = text.trim().to_string();
@@ -888,6 +1136,7 @@ pub async fn agent_send(app: AppHandle, chat_id: Option<String>, text: String) -
             }
             None => None,
         };
+        let (mentions, notices) = resolve_mentions(&app, &refs)?;
         let chat_id = match chat_id.filter(|c| !c.is_empty()) {
             Some(c) => c,
             None => {
@@ -914,18 +1163,22 @@ pub async fn agent_send(app: AppHandle, chat_id: Option<String>, text: String) -
             .spawn(move || {
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     let client = Client::new(key);
-                    let mut host = DesktopHost { app: app2.clone(), cancel: cancel.clone(), revs: Vec::new() };
+                    let mut host =
+                        DesktopHost { app: app2.clone(), cancel: cancel.clone(), revs: Vec::new(), turn: None };
                     let cfg = TurnConfig {
                         model,
                         max_requests: limits.max_requests as usize,
                         max_duration: Duration::from_secs(u64::from(limits.max_minutes) * 60),
                         max_cost_usd: limits.turn_cap_usd,
                         project_cap,
+                        // Read each turn: a skill installed between turns shows in the next one.
+                        skill_index: skill_store(&app2).and_then(|s| ove_tools::skills::index_for(&s)),
                         ..TurnConfig::default()
                     };
-                    let _ = run_turn(&client, &store, &chat2, &text, &mut host, &cfg, &cancel, &mut |e| {
-                        let _ = AgentUiEvent::from(e).emit(&app2);
-                    });
+                    let _ =
+                        run_turn_with(&client, &store, &chat2, &text, &mentions, &mut host, &cfg, &cancel, &mut |e| {
+                            let _ = AgentUiEvent::from(e).emit(&app2);
+                        });
                 }));
                 if result.is_err() {
                     tracing::error!("the assistant turn panicked");
@@ -951,9 +1204,8 @@ pub async fn agent_send(app: AppHandle, chat_id: Option<String>, text: String) -
                 relock(&st.assistant.answers).clear();
             })
             .map_err(|e| AppError::new(ErrorCode::Internal, e.to_string()))?;
-        Ok(SendResult { chat_id })
-    })
-    .await
+        Ok(SendResult { chat_id, notices })
+    }
 }
 
 #[tauri::command]
@@ -1015,6 +1267,7 @@ mod tests {
                 message_id: "m".into(),
                 model: "x".into(),
                 blocks: vec![
+                    json!({"type": "thinking", "thinking": "", "signature": "s"}),
                     json!({"type": "text", "text": "On it."}),
                     json!({"type": "tool_use", "id": "t1", "name": "apply_timeline", "input": {"edits": [{}]}}),
                 ],
@@ -1121,6 +1374,33 @@ mod tests {
         let mut records = records;
         records.push(Record::TurnUndone { turn: "u_1".into(), rev });
         assert!(chat_items(&records)[1].review.as_ref().unwrap().undone);
+    }
+
+    #[test]
+    fn a_reopened_chat_shows_the_mentions_of_each_message() {
+        let m = ove_agent::Mention {
+            kind: "media".into(),
+            ids: vec!["m1".into()],
+            rev: Some(3),
+            label: "poster.png".into(),
+            excerpt: "row".into(),
+            range: None,
+            more: 0,
+            image: Some("AAAA".into()),
+        };
+        let items = chat_items(&[
+            Record::User { id: "u_1".into(), text: "use this".into(), time: 0 },
+            Record::Mentions { turn: "u_1".into(), mentions: vec![m] },
+            Record::Assistant {
+                message_id: "m".into(),
+                model: "x".into(),
+                blocks: vec![json!({"type": "thinking", "thinking": "Compare the posters first.", "signature": "s"})],
+            },
+        ]);
+        assert_eq!(items.len(), 2);
+        assert_eq!((items[1].role.as_str(), items[1].text.as_str()), ("reasoning", "Compare the posters first."));
+        let chips = &items[0].mentions;
+        assert_eq!((chips[0].kind.as_str(), chips[0].label.as_str(), chips[0].image), ("media", "poster.png", true));
     }
 
     #[test]

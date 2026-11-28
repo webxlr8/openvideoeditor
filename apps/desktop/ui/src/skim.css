@@ -1,0 +1,19 @@
+/* Hover-skim over a media thumbnail: the sheet is one image; a tile shows by moving its background. */
+.skim-thumb {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+.skim-thumb img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.skim-layer {
+  position: absolute;
+  inset: 0;
+  background-repeat: no-repeat;
+  pointer-events: none;
+}

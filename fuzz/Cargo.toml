@@ -36,3 +36,10 @@ path = "fuzz_targets/parse_projection.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "revision_record"
+path = "fuzz_targets/revision_record.rs"
+test = false
+doc = false
+bench = false

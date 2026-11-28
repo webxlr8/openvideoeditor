@@ -10,8 +10,8 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use crate::invariants::{self, item_path, track_path};
-use crate::model::{Document, Fields, Item, MediaItem, RegistryEntry, Track};
+use crate::invariants::{self, item_path, marker_path, track_path};
+use crate::model::{Document, Fields, Item, Marker, MediaItem, RegistryEntry, Track};
 use crate::schema::{Issue, Severity};
 use crate::time::json_to_micros;
 
@@ -90,6 +90,21 @@ pub enum Op {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         unset: Vec<String>,
     },
+    /// Add a timeline marker (`{id, at, dur?, status?, name?, color?, note?, assignee?}`).
+    AddMarker {
+        marker: Value,
+    },
+    /// Set marker fields (head fields except `id` included) and remove optional ones.
+    UpdateMarker {
+        id: String,
+        #[serde(default, skip_serializing_if = "Map::is_empty")]
+        set: Map<String, Value>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        unset: Vec<String>,
+    },
+    RemoveMarkers {
+        ids: Vec<String>,
+    },
 }
 
 impl Op {
@@ -109,6 +124,9 @@ impl Op {
             Op::UpdateMedia { .. } => "updateMedia",
             Op::RemoveMedia { .. } => "removeMedia",
             Op::UpdateProject { .. } => "updateProject",
+            Op::AddMarker { .. } => "addMarker",
+            Op::UpdateMarker { .. } => "updateMarker",
+            Op::RemoveMarkers { .. } => "removeMarkers",
         }
     }
 }
@@ -157,6 +175,7 @@ pub fn apply_batch(doc: &Document, ops: &[Op]) -> Result<Applied, BatchError> {
     let mut inverse_chunks: Vec<Vec<Op>> = Vec::with_capacity(ops.len());
     let mut touched_items = BTreeSet::new();
     let mut touched_tracks = BTreeSet::new();
+    let mut touched_markers: BTreeSet<String> = BTreeSet::new();
     // Last op index that touched each entity, for attributing end-of-batch invariant errors.
     let mut last_touch: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     let mut last_global = None;
@@ -172,6 +191,10 @@ pub fn apply_batch(doc: &Document, ops: &[Op]) -> Result<Applied, BatchError> {
                     last_touch.insert(track_path(&id), i);
                     touched_tracks.insert(id);
                 }
+                Touch::Marker(id) => {
+                    last_touch.insert(marker_path(&id), i);
+                    touched_markers.insert(id);
+                }
                 Touch::Global => {}
             }
             last_global = Some(i);
@@ -180,7 +203,12 @@ pub fn apply_batch(doc: &Document, ops: &[Op]) -> Result<Applied, BatchError> {
     }
 
     let references_may_break = ops.iter().any(|o| matches!(o, Op::RemoveTrack { .. } | Op::RemoveMedia { .. }));
-    let issues = invariants::check_touched(&next, &touched_tracks, &touched_items, references_may_break);
+    let mut issues = invariants::check_touched(&next, &touched_tracks, &touched_items, references_may_break);
+    for id in &touched_markers {
+        if let Some(m) = next.project.markers.get(id) {
+            invariants::check_marker(m, &mut issues);
+        }
+    }
     let (errs, warnings): (Vec<Issue>, Vec<Issue>) = issues.into_iter().partition(|i| i.severity == Severity::Error);
     if let Some(first) = errs.first() {
         let key = first.path.split('.').next().unwrap_or_default().to_string();
@@ -200,6 +228,7 @@ pub fn apply_batch(doc: &Document, ops: &[Op]) -> Result<Applied, BatchError> {
 enum Touch {
     Item(String),
     Track(String),
+    Marker(String),
     Global,
 }
 
@@ -564,9 +593,93 @@ fn apply_op(doc: &mut Document, op: &Op, i: usize, touch: &mut dyn FnMut(Touch))
                 entry_unset: eabsent,
             }])
         }
+        Op::AddMarker { marker } => {
+            let mk = Marker::from_json(marker, "marker").map_err(|e| malformed("marker".into(), e))?;
+            if doc.project.markers.contains_key(&mk.id) {
+                return Err(BatchError::op(
+                    i,
+                    "marker.id.unique",
+                    marker_path(&mk.id),
+                    format!("marker {} already exists", mk.id),
+                ));
+            }
+            let id = mk.id.clone();
+            doc.project.markers.insert(id.clone(), Arc::new(mk));
+            touch(Touch::Marker(id.clone()));
+            Ok(vec![Op::RemoveMarkers { ids: vec![id] }])
+        }
+        Op::RemoveMarkers { ids } => {
+            let mut inv = Vec::with_capacity(ids.len());
+            for id in ids {
+                let mk = doc.project.markers.remove(id).ok_or_else(|| {
+                    BatchError::op(i, "op.target.missing", marker_path(id), format!("marker {id} does not exist"))
+                })?;
+                touch(Touch::Marker(id.clone()));
+                inv.push(Op::AddMarker { marker: mk.to_json() });
+            }
+            inv.reverse();
+            Ok(inv)
+        }
+        Op::UpdateMarker { id, set, unset } => {
+            let arc = doc.project.markers.get_mut(id).ok_or_else(|| {
+                BatchError::op(i, "op.target.missing", marker_path(id), format!("marker {id} does not exist"))
+            })?;
+            let mk = Arc::make_mut(arc);
+            let (mut prev, mut absent) = (Map::new(), Vec::new());
+            for (k, v) in set {
+                let path = format!("{}.{k}", marker_path(id));
+                match k.as_str() {
+                    "id" => return Err(BatchError::op(i, "op.field.immutable", path, "id cannot be changed")),
+                    "at" | "dur" => {
+                        let us = json_to_micros(v).ok_or_else(|| {
+                            BatchError::op(i, "value.type", path, format!("{k} must be a finite number of seconds"))
+                        })?;
+                        prev.insert(k.clone(), mk.get(k).unwrap_or_default());
+                        if k == "at" { mk.at = us } else { mk.dur = us }
+                    }
+                    "status" => {
+                        let s = v
+                            .as_str()
+                            .ok_or_else(|| BatchError::op(i, "value.type", path, "status must be a string"))?;
+                        prev.insert(k.clone(), mk.status.clone().into());
+                        mk.status = s.into();
+                    }
+                    _ => match mk.fields.insert(k.clone(), v.clone()) {
+                        Some(old) => {
+                            prev.insert(k.clone(), old);
+                        }
+                        None => absent.push(k.clone()),
+                    },
+                }
+            }
+            for k in unset {
+                if Marker::HEAD.contains(&k.as_str()) {
+                    return Err(BatchError::op(
+                        i,
+                        "op.field.required",
+                        format!("{}.{k}", marker_path(id)),
+                        format!("{k} is required and cannot be unset"),
+                    ));
+                }
+                if let Some(old) = mk.fields.shift_remove(k) {
+                    prev.insert(k.clone(), old);
+                }
+            }
+            touch(Touch::Marker(id.clone()));
+            Ok(vec![Op::UpdateMarker { id: id.clone(), set: prev, unset: absent }])
+        }
         Op::UpdateProject { set, unset } => {
-            const LOCKED: [&str; 8] =
-                ["id", "createdAt", "updatedAt", "stateUpdatedAt", "aspectRatio", "media", "timelineItems", "tracks"];
+            const LOCKED: [&str; 9] = [
+                "id",
+                "createdAt",
+                "updatedAt",
+                "stateUpdatedAt",
+                "aspectRatio",
+                "media",
+                "timelineItems",
+                "tracks",
+                "markers",
+            ];
             let p = &mut doc.project;
             let (mut prev, mut absent) = (Map::new(), Vec::new());
             for (k, v) in set {
@@ -644,6 +757,9 @@ pub fn summarise(ops: &[Op]) -> String {
             Op::RemoveMedia { .. } => ("media removed", 1),
             Op::UpdateMedia { .. } => ("media update", 1),
             Op::UpdateProject { .. } => ("project update", 1),
+            Op::AddMarker { .. } => ("marker added", 1),
+            Op::UpdateMarker { .. } => ("marker update", 1),
+            Op::RemoveMarkers { ids } => ("marker removed", ids.len()),
         };
         *counts.entry(label).or_default() += n;
     }

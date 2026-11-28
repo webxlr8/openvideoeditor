@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 use ove_core::migrate::{self, Opened};
 use ove_core::model::Document;
 use ove_core::ops::Op;
-use ove_core::revision::{Clock, Prepared, RevisionRecord, Session, Source};
+use ove_core::revision::{Actor, Clock, Prepared, RevisionRecord, Session, Source};
 use ove_core::schema::Issue;
 
 use crate::bundle::BUNDLE_DIRS;
@@ -53,6 +53,9 @@ pub struct HistoryEntry {
     pub source: Source,
     pub summary: String,
     pub op_count: usize,
+    /// Who made it (none for revisions recorded before actors were).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub actor: Option<Actor>,
 }
 
 /// Result of a committed batch.
@@ -322,9 +325,60 @@ impl Project {
 
     /// Validates, durably records and commits a batch. Returns only after the record is on disk.
     pub fn apply(&mut self, ops: Vec<Op>, source: Source, summary: Option<String>) -> Result<Committed> {
+        self.apply_as(ops, source, summary, None)
+    }
+
+    /// [`Project::apply`], recording who made the revision.
+    pub fn apply_as(
+        &mut self,
+        ops: Vec<Op>,
+        source: Source,
+        summary: Option<String>,
+        actor: Option<Actor>,
+    ) -> Result<Committed> {
         self.ensure_writable()?;
-        let prepared = self.session.prepare(ops, source, summary, self.clock.as_ref())?;
+        let mut prepared = self.session.prepare(ops, source, summary, self.clock.as_ref())?;
+        prepared.record.actor = actor;
         self.commit_prepared(prepared)
+    }
+
+    /// [`Project::apply`] for a ripple edit: also records how it moved time on each track, so projections printed
+    /// before it can be rebased onto it (add-edit-planners-and-links).
+    pub fn apply_mapped(
+        &mut self,
+        ops: Vec<Op>,
+        source: Source,
+        summary: Option<String>,
+        time_map: ove_core::timemap::TimeMap,
+    ) -> Result<Committed> {
+        self.ensure_writable()?;
+        let prepared = self.session.prepare(ops, source, summary, self.clock.as_ref())?.with_time_map(time_map);
+        self.commit_prepared(prepared)
+    }
+
+    /// [`Project::apply_mapped`], recording who made the revision.
+    pub fn apply_mapped_as(
+        &mut self,
+        ops: Vec<Op>,
+        source: Source,
+        summary: Option<String>,
+        time_map: ove_core::timemap::TimeMap,
+        actor: Option<Actor>,
+    ) -> Result<Committed> {
+        self.ensure_writable()?;
+        let mut prepared = self.session.prepare(ops, source, summary, self.clock.as_ref())?.with_time_map(time_map);
+        prepared.record.actor = actor;
+        self.commit_prepared(prepared)
+    }
+
+    /// The ripples committed after revision `rev`, oldest first. Records that cannot be read are skipped (a
+    /// projection then rebases as if they were not ripples).
+    pub fn ripples_since(&self, rev: i64) -> Vec<ove_core::timemap::Ripple> {
+        self.records
+            .range(rev.saturating_add(1)..)
+            .filter_map(|(r, _)| read_record(&self.bundle, *r).ok())
+            .filter_map(|r| ove_core::timemap::Ripple::from_record(&r))
+            .collect()
     }
 
     fn commit_prepared(&mut self, prepared: Prepared) -> Result<Committed> {
@@ -449,9 +503,15 @@ impl Project {
                 source: r.source,
                 summary: r.summary,
                 op_count: r.ops.len(),
+                actor: r.actor,
             });
         }
         Ok(out)
+    }
+
+    /// Retained revision records up to the current revision, oldest first.
+    pub fn records(&self) -> Result<Vec<RevisionRecord>> {
+        self.records.keys().filter(|r| **r <= self.rev()).map(|r| read_record(&self.bundle, *r)).collect()
     }
 
     /// The latest revision record, if any is retained.
@@ -523,7 +583,9 @@ impl Project {
         let by_count = revs[revs.len() - KEEP_REVISIONS];
         // Record times: rev is ms-based, so it is a lower bound of the commit time.
         let by_age = revs.iter().copied().find(|r| self.records[r].max(*r) >= now - KEEP_MS).unwrap_or(i64::MAX);
-        let oldest_kept = by_count.min(by_age);
+        // Revisions pinned by queued exports stay reconstructable too.
+        let pinned = crate::pins::pinned(&self.bundle).into_iter().min().unwrap_or(i64::MAX);
+        let oldest_kept = by_count.min(by_age).min(pinned);
         // Cut at the newest full snapshot at or before the oldest revision that must stay reconstructable; records
         // after it are kept (so retention may keep slightly more than the minimum, never less).
         let Some(keep_snap) = self.snaps.iter().rev().find(|s| **s <= oldest_kept).copied() else {

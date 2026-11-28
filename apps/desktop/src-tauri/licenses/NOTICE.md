@@ -49,3 +49,11 @@ set (MIT, © 2023 LobeHub; licence: `lobehub-icons-MIT.txt`).
 Captions use whisper.cpp and ggml (MIT, © The ggml authors), compiled into the app (licence:
 `generated/whisper.cpp-MIT.txt`). Speech models are downloaded on first use from their original publisher and are
 not part of the installer.
+
+## Inference runtime
+
+Voice activity detection and other local models run on ONNX Runtime 1.32.0 (MIT, © Microsoft Corporation). It is
+not part of the installer: it downloads only after you agree (Settings → Storage, or `ove models install onnxruntime
+--yes`), from the official Python wheel on the Python package index, checked against pinned SHA-256 hashes. Its
+licence (`LICENSE`) and its third-party notices (`ThirdPartyNotices.txt`) are installed next to the library in the
+model store, in `models/onnxruntime/1.32.0/`.

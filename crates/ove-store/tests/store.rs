@@ -485,3 +485,25 @@ fn same_doc_from_ops_json_cli_shape() {
     assert_eq!(d.doc.project.tracks.len(), 1);
     let _ = set(json!({}));
 }
+
+#[test]
+#[ignore = "slow: 2,300 durable commits; run with --ignored"]
+fn prune_keeps_a_revision_pinned_by_a_queued_export() {
+    let d = tempfile::tempdir().unwrap();
+    let ck = std::sync::Arc::new(common::StepClock(std::sync::atomic::AtomicI64::new(1_700_000_000_000)));
+    let lib = Library::open(d.path(), ck.clone()).unwrap();
+    let mut p = lib.create("Pinned").unwrap();
+    p.apply(setup_ops(), Source::Gui, None).unwrap();
+    let early = p.rev();
+    for b in batches(5, 2300) {
+        p.apply(b, Source::Cli, None).unwrap();
+    }
+    ck.0.fetch_add(31 * 24 * 3600 * 1000, std::sync::atomic::Ordering::SeqCst);
+    ove_store::pins::pin(p.bundle(), "export-x_test", early).unwrap();
+    assert_eq!(p.prune().unwrap(), 0, "nothing before the pinned revision may go");
+    assert_eq!(p.doc_at(early).unwrap().project.rev, early);
+    // Once the export has run, its pin goes and pruning proceeds.
+    ove_store::pins::unpin(p.bundle(), "export-x_test");
+    assert!(p.prune().unwrap() > 0);
+    assert_eq!(p.doc_at(early).unwrap_err().code(), "revision.missing");
+}

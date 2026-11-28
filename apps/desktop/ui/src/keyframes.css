@@ -1,0 +1,45 @@
+/* Keyframe lanes under an expanded track. */
+.kf-lanes {
+  border-bottom: 1px solid #1c1c20;
+  background: var(--bg-1);
+}
+.kf-lane {
+  position: relative;
+  display: flex;
+  height: 24px;
+}
+.kf-lane-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding: 0 10px 0 34px;
+  color: var(--muted);
+}
+.kf-lane-body {
+  position: relative;
+  flex: 1;
+  border-top: 1px dashed #222227;
+}
+.kf-diamond {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  margin: -4.5px 0 0 -4.5px;
+  padding: 0;
+  border: 1px solid #0b0b0c;
+  background: #f2c94c;
+  transform: rotate(45deg);
+  cursor: grab;
+}
+.kf-diamond.kf-hold {
+  background: #8d8d96;
+  transform: none;
+}
+.kf-diamond:focus-visible,
+.kf-diamond:focus {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+.track-tools .tiny.kf-toggle {
+  font-size: 10px;
+}

@@ -2,7 +2,7 @@
 
 use serde_json::{Map, Value};
 
-use crate::model::{Document, Fields, Item, Track};
+use crate::model::{Document, Fields, Item, Marker, Track};
 use crate::ops::Op;
 
 fn diff_fields(a: &Fields, b: &Fields) -> (Map<String, Value>, Vec<String>) {
@@ -36,6 +36,20 @@ fn item_ops(a: &Item, b: &Item, out: &mut Vec<Op>) {
     }
     if !set.is_empty() {
         out.push(Op::UpdateItem { id: a.id.clone(), set });
+    }
+}
+
+fn marker_ops(a: &Marker, b: &Marker, out: &mut Vec<Op>) {
+    let (mut set, unset) = diff_fields(&a.fields, &b.fields);
+    for k in ["at", "dur", "status"] {
+        if let Some(vb) = b.get(k)
+            && a.get(k).as_ref() != Some(&vb)
+        {
+            set.insert(k.into(), vb);
+        }
+    }
+    if !set.is_empty() || !unset.is_empty() {
+        out.push(Op::UpdateMarker { id: a.id.clone(), set, unset });
     }
 }
 
@@ -140,6 +154,19 @@ pub fn diff_documents(from: &Document, to: &Document) -> Vec<Op> {
         match pa.items.get(id) {
             None => ops.push(Op::AddItem { item: ib.to_json() }),
             Some(ia) if ia != ib => item_ops(ia, ib, &mut ops),
+            _ => {}
+        }
+    }
+
+    // Markers.
+    let removed: Vec<String> = pa.markers.keys().filter(|id| !pb.markers.contains_key(*id)).cloned().collect();
+    if !removed.is_empty() {
+        ops.push(Op::RemoveMarkers { ids: removed });
+    }
+    for (id, mb) in &pb.markers {
+        match pa.markers.get(id) {
+            None => ops.push(Op::AddMarker { marker: mb.to_json() }),
+            Some(ma) if ma != mb => marker_ops(ma, mb, &mut ops),
             _ => {}
         }
     }

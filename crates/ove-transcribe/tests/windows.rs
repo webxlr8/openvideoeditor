@@ -1,5 +1,6 @@
 //! Audio is read for recognition in bounded, overlapping windows that cover the file exactly like a whole-file
 //! decode. Uses the test-media matrix (no speech model needed).
+#![cfg(feature = "recognize")]
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,

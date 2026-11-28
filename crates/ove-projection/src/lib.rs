@@ -14,6 +14,6 @@ pub mod textedit;
 pub mod typings;
 pub mod verify;
 
-pub use apply::{ApplyInput, BaseError, Plan, Refusal, plan};
+pub use apply::{ApplyInput, BaseError, Plan, Refusal, plan, plan_rebased};
 pub use merge::Prefer;
 pub use print::{PrintContext, print};
