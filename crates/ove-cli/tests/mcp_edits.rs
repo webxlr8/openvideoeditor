@@ -228,10 +228,17 @@ fn two_sessions_are_told_apart_and_each_undoes_only_its_own_change() {
     let mut two = Mcp::start_with(&lib, &short_hold);
     one.initialize("claude-code");
     two.initialize("codex");
+    // On a failure, say which error and how long the call took: `project.locked` after about WAIT_FOR_SESSION is a
+    // holder that did not let go; `project.locked` at once is a waiter that gave up early (see docs/flaky-tests.md).
+    let failed = |who: &str, r: &Value, took: std::time::Duration| {
+        format!("{who}'s rename failed with {} after {took:?}: {r}", r["structuredContent"]["error"]["code"])
+    };
+    let t0 = std::time::Instant::now();
     let r = one.rename("i0", "One");
-    assert_eq!(r["isError"], false, "session one's rename: {r}");
+    assert_eq!(r["isError"], false, "{}", failed("session one", &r, t0.elapsed()));
+    let t0 = std::time::Instant::now();
     let r = two.rename("i1", "Two");
-    assert_eq!(r["isError"], false, "session two's rename: {r}");
+    assert_eq!(r["isError"], false, "{}", failed("session two", &r, t0.elapsed()));
     let h = one.call("timeline_history", json!({"project": "Demo"}));
     let revs = h["structuredContent"]["revisions"].as_array().unwrap();
     let last: Vec<&Value> = revs.iter().rev().take(2).map(|r| &r["actor"]).collect();
