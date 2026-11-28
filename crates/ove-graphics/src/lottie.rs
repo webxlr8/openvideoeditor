@@ -4,6 +4,7 @@
 //! output size. Nothing is cached and nothing touches the disk. The `lottie` item type (tasks 5.2–5.4) builds on this.
 
 use std::ffi::CString;
+use std::sync::Mutex;
 
 use dotlottie_rs::{ColorSpace, Player};
 
@@ -29,6 +30,10 @@ pub struct LottieInfo {
     pub duration: f32,
 }
 
+/// One render at a time. ThorVG's engine set-up and teardown are not safe to run on two threads at once: two
+/// players made in parallel crashed the process with an access violation on Windows (about 1 run in 8).
+static ENGINE: Mutex<()> = Mutex::new(());
+
 /// Renders frame `frame` of Lottie JSON `json` at `width`×`height`, returning straight (not premultiplied) RGBA8.
 pub fn render_frame(json: &str, frame: f32, width: u32, height: u32) -> Result<(Vec<u8>, LottieInfo), LottieError> {
     const MAX_SIDE: u32 = 16_384;
@@ -37,6 +42,7 @@ pub fn render_frame(json: &str, frame: f32, width: u32, height: u32) -> Result<(
     }
     let data = CString::new(json).map_err(|_| LottieError::Nul)?;
     let pixels = (width as usize) * (height as usize);
+    let _engine = ENGINE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     // The buffer is declared before the player so that it outlives it: ThorVG keeps a pointer to it.
     let mut buffer = vec![0u32; pixels];
     let mut player = Player::with_threads(0);
