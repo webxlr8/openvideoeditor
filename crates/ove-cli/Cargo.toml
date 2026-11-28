@@ -35,6 +35,7 @@ tempfile = "3"
 [dev-dependencies]
 ove-tasks = { path = "../ove-tasks" }
 ove-transcribe = { path = "../ove-transcribe", default-features = false }
+ove-vision = { path = "../ove-vision" }
 
 [features]
 # Reading media, analysis and `ove export` (links FFmpeg). Desktop bundles build the CLI with it.

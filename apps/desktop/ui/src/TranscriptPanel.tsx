@@ -9,6 +9,7 @@ import { setCutPreview } from "./cutPreview";
 import type { PanelProps } from "./Panels";
 import { PanelHint } from "./onboarding/PanelHint";
 import "./TranscriptPanel.css";
+import { AskAssistant } from "./chat/AskAssistant";
 
 export type Word = {
   id: string;
@@ -80,6 +81,7 @@ async function query<T>(
 export function TranscriptPanel({
   project,
   playhead,
+  selection,
   onEdit,
   onError,
   onSeek,
@@ -253,6 +255,7 @@ export function TranscriptPanel({
       onKeyDown={onKey}
       tabIndex={-1}
     >
+      {project.items.length > 0 && <AskAssistant panel="transcript" project={project} selection={selection} />}
       {project.items.length === 0 && (
         <PanelHint panel="transcript" action="Import media" onAction={onImport}>
           Edit by text: cut words, pauses and fillers from what was said.

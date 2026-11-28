@@ -17,6 +17,7 @@ import type {
 } from "./bindings";
 import { commands } from "./bridge";
 import { ChatPanel } from "./ChatPanel";
+import { onAssistantRequest } from "./chat/handoff";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { Icon, type IconName } from "./icons";
 import { Dropdown } from "./Menu";
@@ -39,14 +40,13 @@ import {
   TransitionsPanel,
 } from "./Panels";
 import { RangeMediaDialog, openExport } from "./ExportDialog";
+import { type ClipDrag, MediaPanel } from "./media/MediaPanel";
 import type { MenuItem } from "./Menu";
 import { MotionPanel } from "./Motion";
 import { GeneratePanel } from "./Generate";
 import { HistoryPanel } from "./HistoryPanel";
 import { type HelpActions, HelpMenu } from "./onboarding/HelpMenu";
-import { PanelHint } from "./onboarding/PanelHint";
 import { Shortcuts } from "./Shortcuts";
-import { SkimThumb } from "./SkimThumb";
 import { type SelectMode, Timeline } from "./Timeline";
 
 export const RAIL: { id: string; label: string; icon: IconName }[] = [
@@ -163,6 +163,14 @@ export function Editor({
   const [clipboard, setClipboard] = useState<Record<string, unknown>[]>([]);
   const toggle = (key: keyof Layout) =>
     setLayout({ ...layout, [key]: !layout[key] });
+  // A panel handed the assistant a prepared request: the chat opens to take it.
+  useEffect(
+    () =>
+      onAssistantRequest(() => {
+        if (!layout.chatOpen) setLayout({ ...layout, chatOpen: true });
+      }),
+    [layout, setLayout],
+  );
   const selected = selection[selection.length - 1] ?? null;
   const item = project?.items.find((i) => i.id === selected);
   const selectedItems = (project?.items ?? []).filter((i) =>
@@ -242,6 +250,25 @@ export function Editor({
       });
     },
     [project, media, timelineMode, playhead, plan, onError],
+  );
+
+  /** A Moment, Spoken result, subclip or media card dropped on a track: a clip playing that source range, placed over
+   * whatever is there (one revision). */
+  const dropClip = useCallback(
+    (track: string, at: number, payload: string) => {
+      let d: ClipDrag;
+      try {
+        d = JSON.parse(payload) as ClipDrag;
+      } catch {
+        return;
+      }
+      const type = d.kind === "audio" ? "audio" : d.kind === "image" ? "image" : "video";
+      const len = type === "image" ? 5 : Math.max(0.04, d.end - d.start);
+      const item: Record<string, unknown> = { type, mediaItemId: d.mediaId, name: d.name, startTime: 0, endTime: len };
+      if (type !== "image" && d.start > 0) item.trimStart = d.start;
+      plan({ op: "overwrite", track, at, items: [item] });
+    },
+    [plan],
   );
 
   // Editing shortcuts (transport, undo/redo and diagnostics are handled by the app).
@@ -511,6 +538,7 @@ export function Editor({
           <ErrorBoundary region="The timeline" className="timeline">
             <Timeline
               project={project}
+              onDropClip={dropClip}
               selection={selection}
               playhead={playhead}
               zoom={zoom}
@@ -553,6 +581,8 @@ export function Editor({
           <ChatPanel
             onClose={() => toggle("chatOpen")}
             projectId={project?.id}
+            project={project}
+            range={range}
             onError={onError}
             onSeek={onSeek}
             shownTurn={review?.turnId ?? null}
@@ -622,10 +652,6 @@ function ProjectName({
   );
 }
 
-function fmtSeconds(s: number | null | undefined) {
-  const v = Math.max(0, Math.round(s ?? 0));
-  return `${Math.floor(v / 60)}:${String(v % 60).padStart(2, "0")}`;
-}
 
 function SidePanel({
   id,
@@ -645,11 +671,6 @@ function SidePanel({
   onPick: (m: MediaView_Serialize) => void;
 }) {
   const label = RAIL.find((r) => r.id === id)?.label ?? "";
-  const [query, setQuery] = useState("");
-  const media = (project?.media ?? []).filter((m) =>
-    m.name.toLowerCase().includes(query.toLowerCase()),
-  );
-  const used = new Set(project?.items.map((i) => i.mediaId));
   return (
     <aside className="side-panel" data-testid="side-panel">
       <header className="panel-header">
@@ -664,93 +685,13 @@ function SidePanel({
         </button>
       </header>
       {id === "media" ? (
-        <>
-          <div className="panel-search">
-            <label className="search">
-              <Icon name="search" size={15} />
-              <input
-                placeholder="Search media…"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-              />
-            </label>
-            <button className="btn" onClick={onImport} data-testid="import">
-              <Icon name="plus" size={15} /> Import
-            </button>
-            {onImportTimeline && (
-              <button
-                className="icon-btn"
-                onClick={onImportTimeline}
-                title="Import a timeline (FCPXML, Premiere XML, EDL, OpenTimelineIO)"
-                aria-label="Import timeline"
-                data-testid="import-timeline"
-              >
-                <Icon name="timeline" size={15} />
-              </button>
-            )}
-          </div>
-          <div className="media-grid">
-            {media.map((m) => (
-              <button
-                key={m.id}
-                className="media-card"
-                title={m.path}
-                onClick={() => onPick(m)}
-                data-testid="media-card"
-              >
-                <div className="media-thumb">
-                  {m.thumbnail || m.skim ? (
-                    <SkimThumb
-                      thumbnail={m.thumbnail}
-                      skim={m.skim}
-                      video={m.kind !== "audio"}
-                      onRequest={() => {
-                        commands.requestSkim(m.id).catch(() => undefined);
-                      }}
-                    />
-                  ) : (
-                    <Icon
-                      name={m.kind === "audio" ? "audio" : "media"}
-                      size={22}
-                    />
-                  )}
-                  <span className="badge">{fmtSeconds(m.durationSeconds)}</span>
-                  {m.status !== "online" && (
-                    <span className="badge warn">{m.status}</span>
-                  )}
-                  {used.has(m.id) && (
-                    <span className="badge added">On timeline</span>
-                  )}
-                </div>
-                <div className="media-name">
-                  <Icon
-                    name={m.kind === "audio" ? "audio" : "play"}
-                    size={12}
-                  />{" "}
-                  {m.name}
-                </div>
-                {m.timecode && (
-                  <div className="media-tc" data-testid="media-timecode" title="Source timecode">
-                    TC {m.timecode}
-                  </div>
-                )}
-              </button>
-            ))}
-            {media.length === 0 &&
-              (query ? (
-                <p className="muted">No media matches.</p>
-              ) : (
-                <PanelHint
-                  panel="media"
-                  action="Import media"
-                  onAction={onImport}
-                >
-                  The video, sound and picture files of this project are kept
-                  here. You can also drop files on the window.
-                </PanelHint>
-              ))}
-          </div>
-        </>
+        <MediaPanel
+          project={project}
+          panelProps={panelProps}
+          onImport={onImport}
+          onImportTimeline={onImportTimeline}
+          onPick={onPick}
+        />
       ) : panelProps ? (
         <div className="panel-body" data-testid={`panel-${id}`}>
           {id === "text" && <TextPanel {...panelProps} />}

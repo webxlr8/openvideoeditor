@@ -7,6 +7,7 @@
 //! app when it holds the project) or [`AppCtx`] (the project open in the desktop app).
 #![forbid(unsafe_code)]
 
+pub mod activity;
 pub mod app;
 pub mod bundle;
 pub mod ctx;
@@ -79,7 +80,19 @@ pub fn unknown(name: &str, surface: Surface) -> Fail {
 pub fn call(ctx: &mut dyn ToolCtx, name: &str, args: &Map<String, Value>) -> Result<Receipt, Fail> {
     let surface = ctx.surface();
     let t = find(name).filter(|t| t.on(surface)).ok_or_else(|| unknown(name, surface))?;
-    let r = spec::validate(t, args, surface).and_then(|()| (t.run)(ctx, &Args(args)));
+    // Reads of the timeline are shown live in the running app (design D5 of add-agent-chat-context-and-activity).
+    let valid = spec::validate(t, args, surface);
+    let watched = activity::watched(t.name) && valid.is_ok();
+    let bundle = if watched { ctx.bundle(args.get("project").and_then(Value::as_str)).ok() } else { None };
+    if let (Some(b), Some(a)) = (&bundle, activity::before(t.name, args)) {
+        ctx.notify(b, &a);
+    }
+    let r = valid.and_then(|()| (t.run)(ctx, &Args(args)));
+    if let (Some(b), Ok(receipt)) = (&bundle, &r)
+        && let Some(a) = activity::after(t.name, args, receipt)
+    {
+        ctx.notify(b, &a);
+    }
     // The session remembers what ran (feedback reports list it).
     if let Some(s) = ctx.session() {
         s.note_call(t.name, r.as_ref().err().map(|f| f.code.as_str()));

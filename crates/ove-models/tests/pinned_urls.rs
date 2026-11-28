@@ -25,7 +25,8 @@ fn every_platform_and_model_is_covered() {
     assert!(urls.iter().any(|u| u.ends_with("win_amd64.whl")));
     assert!(urls.iter().any(|u| u.ends_with("macosx_14_0_arm64.whl")));
     assert!(urls.iter().any(|u| u.ends_with("silero_vad.onnx")));
-    assert_eq!(urls.len(), 6, "3 speech models, voice activity and 2 runtime wheels, each once");
+    assert!(urls.iter().any(|u| u.ends_with("vision_model_fp16.onnx")));
+    assert_eq!(urls.len(), 9, "3 speech models, voice activity, 3 visual search files and 2 runtime wheels, each once");
 }
 
 /// The live check: every pinned URL answers a HEAD request with success. Fails (and names the URL) on a 404.

@@ -16,6 +16,8 @@
 //! | `value.nonNegative` | times, trims, durations and other non-negative values are ≥ 0 |
 //! | `value.range` | a number is within its documented range |
 //! | `project.format` | the document's format id is this app's |
+//! | `subclip.id.unique` | subclip ids are unique within their media item |
+//! | `subclip.range` | a subclip's `out` is after its `in` |
 
 use std::collections::{BTreeSet, HashSet};
 
@@ -195,6 +197,33 @@ pub fn check_global(doc: &Document, out: &mut Vec<Issue>) {
             if let Some(v) = m.fields.get(key) {
                 schema::validate(&Kind::Int { min: None, max: None }, v, &format!("project.media[{id}].{key}"), out);
             }
+        }
+        // Organisation fields (add-semantic-media-search).
+        for key in ["name", "folder", "tags", "subclips"] {
+            if let (Some(v), Some(f)) = (m.fields.get(key), schema::MEDIA_ITEM_FIELDS.iter().find(|f| f.name == key)) {
+                schema::validate(&f.kind, v, &format!("project.media[{id}].{key}"), out);
+            }
+        }
+        check_subclips(id, m.fields.get("subclips"), out);
+    }
+}
+
+/// Subclip ids are unique within their media item and each range ends after it starts.
+fn check_subclips(media: &str, v: Option<&serde_json::Value>, out: &mut Vec<Issue>) {
+    let Some(list) = v.and_then(serde_json::Value::as_array) else { return };
+    let mut ids = HashSet::new();
+    for (i, s) in list.iter().enumerate() {
+        let p = format!("project.media[{media}].subclips[{i}]");
+        if let Some(sid) = s.get("id").and_then(serde_json::Value::as_str)
+            && !ids.insert(sid)
+        {
+            out.push(err("subclip.id.unique", format!("{p}.id"), format!("duplicate subclip id {sid}")));
+        }
+        let t = |k: &str| s.get(k).and_then(crate::time::json_to_micros);
+        if let (Some(a), Some(b)) = (t("in"), t("out"))
+            && b <= a
+        {
+            out.push(err("subclip.range", p, "a subclip's out must be after its in".into()));
         }
     }
 }

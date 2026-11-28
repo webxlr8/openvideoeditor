@@ -128,6 +128,31 @@ pub fn check_timeline(ctx: &mut dyn ToolCtx, a: &Args) -> Result<Receipt, Fail> 
     })
 }
 
+/// Refuses an apply that would bring back items someone deleted in the editor after the text's revision (an edit
+/// to an item that is gone — for example one mentioned in the chat before the person deleted it). Nothing is changed;
+/// the caller is told which items, and brings them back only with `prefer: "file"` (the person's choice).
+fn refuse_restoring_deleted(plan: &Plan) -> Result<(), Fail> {
+    let gone: Vec<&ove_projection::merge::Conflict> = plan
+        .conflicts
+        .iter()
+        .filter(|c| c.field == "item" && c.editor_value.is_none() && c.file_value.is_some())
+        .collect();
+    if gone.is_empty() {
+        return Ok(());
+    }
+    let ids: Vec<&str> = gone.iter().map(|c| c.id.as_str()).collect();
+    Err(Fail::new(
+        "edit.conflict",
+        format!(
+            "conflict: {} {} deleted in the editor after the revision your text came from, so nothing was applied. Ask the person whether to bring {} back; only then apply again with prefer \"file\".",
+            ids.join(", "),
+            if ids.len() == 1 { "was" } else { "were" },
+            if ids.len() == 1 { "it" } else { "them" },
+        ),
+    )
+    .details(serde_json::json!({"conflicts": gone})))
+}
+
 /// The text edits of an `apply_timeline` call.
 fn edits(a: &Args) -> Result<Option<Vec<TextEdit>>, Fail> {
     match a.value("edits") {
@@ -145,6 +170,7 @@ pub fn apply_timeline(ctx: &mut dyn ToolCtx, a: &Args) -> Result<Receipt, Fail> 
         return Err(Fail::new("argument.invalid", "give exactly one of `edits` or `source`"));
     }
     let prefer = prefer(a)?;
+    let explicit = a.str("prefer");
     let rev = a.i64("rev");
     let label = match ctx.surface() {
         Surface::InApp => "assistant",
@@ -158,6 +184,9 @@ pub fn apply_timeline(ctx: &mut dyn ToolCtx, a: &Args) -> Result<Receipt, Fail> 
             (None, None) => return Err(Fail::new("argument.invalid", "give `edits` or `source`")),
         };
         let plan = plan_for(w.project(), &text, prefer)?;
+        if explicit.is_none() {
+            refuse_restoring_deleted(&plan)?;
+        }
         let mut v = plan_json(&plan);
         let changed = !plan.ops.is_empty();
         let before = w.doc().clone();

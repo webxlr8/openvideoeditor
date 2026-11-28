@@ -8,7 +8,7 @@ use crate::spec::{
 };
 use crate::tools::{
     analyze, app, audio, audio_intel, code, color, deadair, docs, edit, exchange, export, export_queue, export_range,
-    feedback, generate, media, models, project, skills, tasks, timeline, transcript,
+    feedback, generate, media, models, organize, project, search, skills, tasks, timeline, transcript,
 };
 
 pub(crate) const PROJECT: Arg = arg(
@@ -992,6 +992,47 @@ pub static TOOLS: &[ToolSpec] = &[
         surfaces: AGENTS,
         run: color::inspect_color,
         model: ModelText::Json,
+    },
+    // Media search and organisation (add-semantic-media-search).
+    ToolSpec {
+        name: "organize_media",
+        aliases: &[],
+        about: organize::ABOUT,
+        args: &[PROJECT, req("ops", Json(organize::OPS_SCHEMA), "The steps, applied in order as one revision")],
+        annotations: WRITE,
+        surfaces: AGENTS,
+        run: organize::organize_media,
+        model: ModelText::Json,
+    },
+    ToolSpec {
+        name: "search_media",
+        aliases: &[],
+        about: search::SEARCH_ABOUT,
+        args: search::SEARCH_ARGS,
+        annotations: READ,
+        surfaces: AGENTS,
+        run: search::search_media,
+        model: ModelText::Text,
+    },
+    ToolSpec {
+        name: "media_transcript",
+        aliases: &[],
+        about: search::TRANSCRIPT_ABOUT,
+        args: search::TRANSCRIPT_ARGS,
+        annotations: READ,
+        surfaces: AGENTS,
+        run: search::media_transcript,
+        model: ModelText::Text,
+    },
+    ToolSpec {
+        name: "inspect_media",
+        aliases: &[],
+        about: search::INSPECT_ABOUT,
+        args: search::INSPECT_ARGS,
+        annotations: READ,
+        surfaces: AGENTS,
+        run: search::inspect_media,
+        model: ModelText::Text,
     },
     ToolSpec {
         name: "sync_items",

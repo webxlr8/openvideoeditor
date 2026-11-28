@@ -48,7 +48,9 @@ fn args_of(args: &str) -> AppResult<Map<String, Value>> {
     }
 }
 
-fn run(
+/// Runs a registry tool on the open project as the person (source gui); returns its JSON and, after an edit, the
+/// new project view.
+pub(crate) fn run(
     app: &AppHandle,
     state: &crate::AppState,
     tool: &str,

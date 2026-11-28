@@ -6,6 +6,7 @@ use clap::Subcommand;
 use serde_json::json;
 
 use crate::common::{Ctx, Out};
+use ove_tools::Fail;
 
 #[derive(Subcommand)]
 pub enum MediaCmd {
@@ -100,6 +101,46 @@ pub enum MediaCmd {
         #[arg(long, default_value = "wav")]
         format: String,
     },
+    /// Search footage by what it shows and what is said: moments, spoken, timelines and files. Each hit carries a
+    /// clip line to paste into timeline.tsx. Works on a closed project.
+    Search {
+        project: String,
+        /// Words, or a quoted phrase for exact spoken matches.
+        query: Option<String>,
+        /// all, moments, spoken, timelines or files.
+        #[arg(long, default_value = "all")]
+        scope: String,
+        /// Only this media item.
+        #[arg(long)]
+        media: Option<String>,
+        /// Results per section (at most 50).
+        #[arg(long)]
+        limit: Option<i64>,
+        /// More like this frame: MEDIA@SECONDS.
+        #[arg(long)]
+        like: Option<String>,
+    },
+    /// The transcript of one media file, in source seconds.
+    Transcript {
+        project: String,
+        media: String,
+        #[arg(long)]
+        from: Option<f64>,
+        #[arg(long)]
+        to: Option<f64>,
+    },
+    /// One sheet of up to 36 tiles, one per shot, with time labels.
+    Overview {
+        project: String,
+        media: String,
+        #[arg(long)]
+        out: Option<PathBuf>,
+        #[arg(long, default_value_t = 240)]
+        tile_width: u32,
+    },
+    /// Organise media in one revision: OPS is a JSON array of steps (see organize_media), or @FILE.
+    #[command(alias = "organise")]
+    Organize { project: String, ops: String },
 }
 
 pub fn run(ctx: &Ctx, cmd: &MediaCmd) -> Out {
@@ -125,6 +166,43 @@ pub fn run(ctx: &Ctx, cmd: &MediaCmd) -> Out {
         ),
         MediaCmd::ExtractAudio { project, media, format } => {
             ctx.tool("extract_audio", json!({"project": project, "media": media, "format": format}))
+        }
+        MediaCmd::Search { project, query, scope, media, limit, like } => {
+            let similar = match like {
+                Some(l) => {
+                    let (m, at) = l.rsplit_once('@').ok_or_else(|| {
+                        Fail::new("argument.invalid", "--like takes MEDIA@SECONDS, for example interview@12.5")
+                    })?;
+                    let at: f64 = at.parse().map_err(|_| {
+                        Fail::new("argument.invalid", format!("--like: {at} is not a number of seconds"))
+                    })?;
+                    Some(json!({"media": m, "at": at}))
+                }
+                None => None,
+            };
+            ctx.tool(
+                "search_media",
+                json!({"project": project, "query": query, "scope": scope, "media": media, "limit": limit,
+                       "similarTo": similar}),
+            )
+        }
+        MediaCmd::Transcript { project, media, from, to } => {
+            ctx.tool("media_transcript", json!({"project": project, "media": media, "from": from, "to": to}))
+        }
+        MediaCmd::Overview { project, media, out, tile_width } => ctx.tool(
+            "inspect_media",
+            json!({"project": project, "media": media, "overview": true, "out": out, "tileWidth": tile_width}),
+        ),
+        MediaCmd::Organize { project, ops } => {
+            let text = match ops.strip_prefix('@') {
+                Some(path) => {
+                    std::fs::read_to_string(path).map_err(|e| Fail::new("file.notFound", format!("{path}: {e}")))?
+                }
+                None => ops.clone(),
+            };
+            let ops: serde_json::Value = serde_json::from_str(&text)
+                .map_err(|e| Fail::new("argument.invalid", format!("OPS is not JSON: {e}")))?;
+            ctx.tool("organize_media", json!({"project": project, "ops": ops}))
         }
         MediaCmd::Scenes { project, media, threshold } => {
             ctx.tool("detect_scenes", json!({"project": project, "media": media, "threshold": threshold}))

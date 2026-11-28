@@ -200,6 +200,10 @@ ove source print Nope                              # exit 1
 | `read_skill` |  | in-app, mcp, pinned | read | `id` |
 | `manage_skills` |  | in-app | destructive | `action` `id`? `text`? |
 | `inspect_color` |  | in-app, mcp, pinned | read | `project`? `at`? `item`? `isolate`? `reference`? `referenceAt`? `strength`? `height`? `backend`? |
+| `organize_media` |  | in-app, mcp, pinned | write | `project`? `ops` |
+| `search_media` |  | in-app, mcp, pinned | read | `project`? `query`? `scope`? `media`? `limit`? `similarTo`? |
+| `media_transcript` |  | in-app, mcp, pinned | read | `project`? `media` `from`? `to`? |
+| `inspect_media` |  | in-app, mcp, pinned | read | `project`? `media` `overview`? `tileWidth`? |
 | `sync_items` |  | in-app, mcp, pinned | write | `project`? `reference` `targets` `mode`? `window`? `minConfidence`? `drift`? `dryRun`? |
 | `detect_beats` |  | in-app, mcp, pinned | read | `project`? `target` `from`? `to`? |
 <!-- tools:end -->

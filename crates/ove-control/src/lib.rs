@@ -6,7 +6,8 @@
 //! keeps other users and web pages out; the token changes every launch.
 //!
 //! Methods the app answers (see `docs/cli/app.md`): `context`, `open`, `seek`, `play`, `pause`, `apply`, `restore`,
-//! `undo`, `confirm_spend` (a price card the person answers) and `tasks` (background tasks: list, wait, cancel).
+//! `undo`, `confirm_spend` (a price card the person answers), `tasks` (background tasks: list, wait, cancel) and
+//! `notify` (what an agent reads, shown live on the timeline; fire and forget).
 #![forbid(unsafe_code)]
 
 use std::io::{BufRead, BufReader, Read, Write};

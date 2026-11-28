@@ -7,6 +7,9 @@ import * as generated from "./bindings";
 import fxCatalogJson from "./fx-catalog.json?raw";
 import { fire } from "./notify";
 import type {
+  AgentActivity_Serialize,
+  MentionChip,
+  MentionInput,
   AgentConnect,
   AgentInfo_Serialize,
   AgentLimits_Deserialize,
@@ -31,6 +34,7 @@ import type {
   ItemView_Serialize,
   ProjectSummary_Serialize,
   ProjectView_Serialize,
+  MediaIndexStatus,
   ViewerBackend,
   ViewerRect,
   ExportCheck_Serialize as ExportCheck,
@@ -108,6 +112,17 @@ export interface MockControl {
   meter(batch: AudioMeter): void;
   /** A project opened from outside the window (an agent or the command line, through the control link). */
   remoteOpen(name: string): void;
+  /** Simulates an agent's edit of one item field through the app, recorded with its actor (History groups by it). */
+  agentEdit(
+    actor: { kind: string; session: string; client?: string | null; name: string },
+    id: string,
+    field: string,
+    value: unknown,
+  ): void;
+  /** Simulates the person changing one item field (recorded so an agent undo can find the conflict). */
+  personEdit(id: string, field: string, value: unknown): void;
+  /** Simulates the app showing what an agent reads or changes (`agentActivity`). */
+  activity(ev: Pick<AgentActivity_Serialize, "actor" | "name" | "kind" | "ids"> & Partial<AgentActivity_Serialize>): void;
   /** The simulated assistant: whether a key is stored, how long each streamed step takes, whether the key check
    * fails, and what each turn costs. */
   agent: {
@@ -116,6 +131,11 @@ export interface MockControl {
     ask: boolean;
     keyWorks?: boolean;
     turnCost?: number;
+    /** The mentions of the last message sent. */
+    sent?: MentionInput[];
+    /** Reasoning each turn streams before it answers (none when unset), and how many tokens per step. */
+    reasoning?: string;
+    reasoningPerStep?: number;
   };
   /** Simulated speech models: which are on disk, and how long each progress step takes. */
   captions: { installed: string[]; stepMs: number };
@@ -139,6 +159,11 @@ export interface MockControl {
   setTasks(view: TasksView_Serialize): void;
   /** Settings → Storage rows of derived data (bytes in the open project and across the library). */
   storage: { kind: string; label: string; projectBytes: number; totalBytes: number }[];
+  /** The media panel (add-semantic-media-search): the `search_media` result the mock returns for any query, and the
+   * index state the pill shows. */
+  mediaSearch: { result: Record<string, unknown>; status: MediaIndexStatus };
+  /** The last edit-planner request (what a drop on the timeline asked for). */
+  lastPlan?: Record<string, unknown>;
   /** Onboarding state as the native side would keep it. Onboarding is over by default (the welcome would cover
    * every other test); a test of the first run puts `FIRST_RUN` here before rendering. */
   onboarding: OnboardingState;
@@ -761,6 +786,29 @@ function createMock(): {
     routePaths(paths) {
       emit("open-paths-requested", { paths });
     },
+    agentEdit(a, id, field, value) {
+      const it = project?.items.find((i) => i.id === id) as Record<string, unknown> | undefined;
+      const was = it?.[field];
+      recording = { kind: a.kind, session: a.session, client: a.client ?? null, name: a.name };
+      fire(editProject(`source apply: updated 1`, (p) => {
+        const x = p.items.find((i) => i.id === id) as Record<string, unknown> | undefined;
+        if (x) x[field] = value;
+      }, a.kind));
+      recording = null;
+      history[history.length - 1].fields = [{ id, field, was }];
+    },
+    personEdit(id, field, value) {
+      const it = project?.items.find((i) => i.id === id) as Record<string, unknown> | undefined;
+      const was = it?.[field];
+      fire(editProject(`edit ${field}`, (p) => {
+        const x = p.items.find((i) => i.id === id) as Record<string, unknown> | undefined;
+        if (x) x[field] = value;
+      }));
+      history[history.length - 1].fields = [{ id, field, was }];
+    },
+    activity(ev) {
+      emit("agent-activity", { removed: [], start: null, end: null, ts: Date.now(), ...ev });
+    },
     remoteOpen(name) {
       project = newProject(name);
       library.unshift(project);
@@ -774,6 +822,19 @@ function createMock(): {
     onboarding: { ...SETTLED },
     skills: initialSkills(),
     connectors: initialConnectors(),
+    mediaSearch: {
+      result: { moments: [], spoken: [], timelines: [], files: [], index: { visual: "ready", indexed: 0, total: 0 } },
+      status: {
+        modelInstalled: true,
+        downloadBytes: 0,
+        modelName: "SigLIP 2 base (patch 16, 256 px)",
+        licence: "Apache-2.0",
+        host: "huggingface.co",
+        indexed: 0,
+        total: 0,
+        running: 0,
+      },
+    },
     tasks: { tasks: [], paused: [], runAnyway: [] },
     setTasks(view) {
       control.tasks = view;
@@ -814,8 +875,14 @@ function createMock(): {
   let project: ProjectView_Serialize | null = null;
   let undoStack: ProjectView_Serialize[] = [];
   let redoStack: ProjectView_Serialize[] = [];
-  let history: { row: HistoryRow_Serialize; before: ProjectView_Serialize | null }[] =
-    [];
+  let history: {
+    row: HistoryRow_Serialize;
+    before: ProjectView_Serialize | null;
+    /** Item fields the change set (agent edits and simulated person edits), with their earlier values. */
+    fields?: { id: string; field: string; was: unknown }[];
+  }[] = [];
+  // The actor of the change being recorded (simulated agent edits).
+  let recording: { kind: string; session: string; client: string | null; name: string } | null = null;
   let seq = 0;
   const WHO: Record<string, string> = {
     gui: "You",
@@ -843,7 +910,11 @@ function createMock(): {
             : (WHO[source] ?? "You"),
         summary,
         canRestore: before !== null,
-        client: null,
+        client: recording?.client ?? null,
+        actorKind: recording?.kind ?? null,
+        session: recording?.session ?? null,
+        turn: null,
+        actorName: recording?.name ?? null,
       },
       before,
     });
@@ -958,7 +1029,7 @@ function createMock(): {
             id: `m${n}`,
             name,
             path,
-            kind: audio ? "audio" : "video",
+            kind: audio ? "audio" : /\.(png|jpe?g|webp)$/i.test(path) ? "image" : "video",
             durationSeconds: 60,
             width: audio ? null : 1920,
             height: audio ? null : 1080,
@@ -967,6 +1038,9 @@ function createMock(): {
             skim: null,
             // Files named with "TC" stand for media that carries a start timecode.
             ...(/\btc\b/i.test(name) ? { timecode: "10:00:00:00" } : {}),
+            folder: null,
+            tags: [],
+            subclips: [],
           });
           p.items.push(
             fromDetail({
@@ -1359,6 +1433,8 @@ function createMock(): {
     { title: string; updatedAt: number; items: ChatItem_Serialize[] }
   >();
   let turn: { stop: boolean; answer?: (a: string) => void } | null = null;
+  // The chips of the message being sent (agentSendContext hands them to agentSend).
+  let pendingMentions: MentionChip[] = [];
   const agentStatus = (): AgentStatus_Serialize => ({
     hasKey: control.agent.hasKey,
     keySource: control.agent.hasKey ? "keychain" : null,
@@ -1383,6 +1459,7 @@ function createMock(): {
     options: [],
     usage: null,
     review: null,
+    mentions: [],
   });
   const spendOf = (items: ChatItem_Serialize[]): SpendView => {
     const s = {
@@ -1434,7 +1511,17 @@ function createMock(): {
       agentEvent({ kind: "toolResult", id, ok: true, summary });
     };
     agentEvent({ kind: "turnStarted", chatId });
-    agentEvent({ kind: "thinkingDelta", text: "…" });
+    // Streamed reasoning, when a test sets it: one delta per word, kept in the log as the native side does.
+    const reasoning = control.agent.reasoning;
+    if (reasoning) {
+      chat.items.push(item("reasoning", reasoning));
+      const words = reasoning.split(/(?<= )/);
+      const per = Math.max(1, control.agent.reasoningPerStep ?? 1);
+      for (let i = 0; i < words.length; i++) {
+        agentEvent({ kind: "thinkingDelta", text: words[i] });
+        if ((i + 1) % per === 0) await wait();
+      }
+    }
     await wait();
     await say("Let me look at the timeline first. ");
     await tool(
@@ -1480,6 +1567,8 @@ function createMock(): {
       );
       revs.push(project?.rev ?? 0);
       changed.push(id);
+      // The app shows the assistant's change live on the timeline (from the revision it made).
+      setTimeout(() => emit("agent-activity", { actor: `assistant:${chatId}`, name: "Assistant", kind: "change", ids: [id], removed: [], start: null, end: null, ts: Date.now() }), 0);
       return "added 1";
     });
     await tool(
@@ -1702,6 +1791,33 @@ function createMock(): {
       project
         ? ok(history.map((h) => h.row).reverse())
         : fail("invalid_argument", "No project is open."),
+    // History → "Undo this agent's changes": reverts that session's fields as one change, unless someone changed one
+    // of them later (then nothing changes and the conflicts are listed).
+    undoAgentChanges: (kind: string, session: string, _turn: string | null) => {
+      if (!project) return fail("invalid_argument", "No project is open.");
+      const at = history
+        .map((h, n) => ({ h, n }))
+        .filter(({ h }) => h.row.actorKind === kind && h.row.session === session && h.fields && !h.row.summary.startsWith("undo"));
+      if (at.length === 0) return fail("invalid_argument", "This agent's changes are already undone.");
+      const conflicts = at.flatMap(({ h, n }) =>
+        h.fields!.flatMap((f) =>
+          history
+            .slice(n + 1)
+            .filter((l) => l.row.actorKind !== kind && l.fields?.some((g) => g.id === f.id && g.field === f.field))
+            .map((l) => ({ item: f.id, field: f.field, summary: l.row.summary })),
+        ),
+      );
+      if (conflicts.length) return ok({ view: null, conflicts });
+      const r = editProject(`undo the session (${at.length} change${at.length === 1 ? "" : "s"})`, (p) => {
+        for (const { h } of [...at].reverse())
+          for (const f of h.fields!) {
+            const x = p.items.find((i) => i.id === f.id) as Record<string, unknown> | undefined;
+            if (x) x[f.field] = f.was;
+          }
+      }, "undo");
+      for (const { h } of at) h.row.summary = `undone: ${h.row.summary}`;
+      return r.then((v) => (v.status === "ok" ? { status: "ok" as const, data: { view: v.data, conflicts: [] } } : v));
+    },
     restoreBefore: (rev: number | null) => {
       const h = history.find((x) => x.row.rev === rev);
       if (!h?.before)
@@ -1870,6 +1986,7 @@ function createMock(): {
     editPlan: (request: string) => {
       const r = JSON.parse(request) as { op: string; item?: string; start?: number; track?: string; linked?: boolean };
       track(`editPlan:${r.op}`);
+      control.lastPlan = r;
       if (r.op === "move" && r.item) return commands.moveItem(r.item, r.start ?? 0, r.track ?? null, r.linked ?? null);
       // Other verbs are planned by the native side; the mock records the request and changes nothing.
       return publish();
@@ -2224,6 +2341,9 @@ function createMock(): {
             status: "online",
             thumbnail: null,
             skim: null,
+            folder: null,
+            tags: [],
+            subclips: [],
           });
           if (!replace) return;
           const video = new Set(p.tracks.filter((t) => t.kind === "video").map((t) => t.id));
@@ -2794,10 +2914,46 @@ function createMock(): {
           items: [],
         });
       const turnId = `u_${++seq}`;
-      chats.get(id)!.items.push(item("user", text));
+      chats.get(id)!.items.push({ ...item("user", text), mentions: pendingMentions });
+      pendingMentions = [];
       turn = { stop: false };
       setTimeout(() => fire(runTurn(id, turnId)), 0);
-      return ok({ chatId: id });
+      return ok({ chatId: id, notices: [] });
+    },
+    // Mentions resolve as the native side does: chips for the log, at most 5 images with a notice naming the rest.
+    agentSendContext: (chatId: string | null, text: string, mentions: MentionInput[]) => {
+      control.agent.sent = mentions;
+      const chips: MentionChip[] = [];
+      const notices: string[] = [];
+      let images = 0;
+      const leftOut: string[] = [];
+      for (const m of mentions) {
+        const media = m.kind === "media" ? project?.media.find((x) => x.id === m.id) : undefined;
+        const it = m.kind === "item" ? project?.items.find((x) => x.id === m.id) : undefined;
+        if ((m.kind === "media" && !media) || (m.kind === "item" && !it)) {
+          notices.push(`${m.id} is no longer on the timeline, so it was not mentioned.`);
+          continue;
+        }
+        const image = media?.kind === "image" && images < 5;
+        if (media?.kind === "image" && !image) leftOut.push(media.name);
+        if (image) images++;
+        const label =
+          m.kind === "range"
+            ? `${(m.start ?? 0).toFixed(2)}–${(m.end ?? 0).toFixed(2)} s`
+            : m.kind === "skill"
+              ? (m.id ?? "")
+              : (media?.name ?? it?.name ?? m.id ?? "");
+        chips.push({ kind: m.kind, label, ids: m.id ? [m.id] : [], image });
+      }
+      if (leftOut.length)
+        notices.push(
+          `Only 5 images can be attached to one message. Not attached: ${leftOut.map((n) => `“${n}”`).join(", ")}. They are still mentioned by name.`,
+        );
+      pendingMentions = chips;
+      const r = commands.agentSend(chatId, text);
+      return r.then((x) =>
+        x.status === "ok" ? { status: "ok" as const, data: { chatId: x.data.chatId, notices } } : x,
+      );
     },
     agentStop: () => {
       if (turn) {
@@ -2921,6 +3077,34 @@ function createMock(): {
         return ok(JSON.stringify({ rev, dryRun: true, speechFound: true, changed: false, summary: `remove dead air (${t.pauses.length} cuts, ${total.toFixed(1)} s)`, ranges: t.pauses.map((p) => ({ clipId: "", start: p.start, end: p.end, wordIds: [] })), diff: t.pauses.length ? "--- timeline.tsx\n+++ timeline.tsx\n@@ -1,1 +1,1 @@\n-gap\n+" : "" }));
       }
       return fail("invalid_argument", `${tool} is not a transcript tool`);
+    },
+    // The media panel: search returns `control.mediaSearch.result`; organise applies the steps to the mock media.
+    mediaSearch: (args: string) => {
+      track(`mediaSearch:${(JSON.parse(args) as { scope?: string }).scope ?? "all"}`);
+      return ok(JSON.stringify(control.mediaSearch.result));
+    },
+    mediaIndexStatus: () => {
+      track("mediaIndexStatus");
+      return ok(control.mediaSearch.status);
+    },
+    mediaOrganize: (ops: string) => {
+      const steps = JSON.parse(ops) as Record<string, unknown>[];
+      track(`mediaOrganize:${steps.map((o) => o.op).join(",")}`);
+      return editProject("organise media", (p) => {
+        for (const o of steps) {
+          const ids = ([] as unknown[]).concat(o.media ?? []).map(String);
+          const media = p.media.filter((m) => ids.includes(m.id) || ids.includes(m.name));
+          for (const m of media) {
+            if (o.op === "move") m.folder = (o.folder as string) || null;
+            if (o.op === "tag") m.tags = [...new Set([...m.tags, ...((o.add as string[]) ?? [])])];
+            if (o.op === "saveSubclip")
+              m.subclips = [
+                ...m.subclips,
+                { id: `s${m.subclips.length + 1}`, name: typeof o.name === "string" ? o.name : "Subclip", start: Number(o.in), end: Number(o.out) },
+              ];
+          }
+        }
+      });
     },
     transcriptCut: (tool: string, args: string) => {
       track(`transcriptCut:${tool}`);
@@ -3165,6 +3349,9 @@ function createMock(): {
         status: "online",
         thumbnail: null,
         skim: null,
+        folder: null,
+        tags: [],
+        subclips: [],
       });
       const clip = { trackId: "t_main", type: "video", name: "Sample clip", mediaItemId: "m_sample" };
       const caption = (id: string, text: string, startTime: number, endTime: number) => ({
@@ -3215,6 +3402,7 @@ function createMock(): {
   });
   const events = {
     agentUiEvent: makeEvent("agent-ui-event"),
+    agentActivity: makeEvent("agent-activity"),
     appErrorRaised: makeEvent("app-error-raised"),
     audioAnalysisChanged: makeEvent("audio-analysis-changed"),
     audioMeter: makeEvent("audio-meter"),

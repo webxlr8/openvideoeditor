@@ -146,6 +146,22 @@ pub struct MediaView {
     /// Start timecode label (`HH:MM:SS:FF`, `;` for drop-frame) when the file carries one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timecode: Option<String>,
+    /// Media panel folder (add-semantic-media-search), `/`-separated; none at the top level.
+    pub folder: Option<String>,
+    pub tags: Vec<String>,
+    /// Saved source ranges, shown under the media and dragged like it.
+    pub subclips: Vec<SubclipView>,
+}
+
+/// A saved subclip of a media item: a named source range.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SubclipView {
+    pub id: String,
+    pub name: String,
+    /// Source seconds.
+    pub start: f64,
+    pub end: f64,
 }
 
 /// A skim sheet's image and layout: tile `i` of `count` sits at column `i % columns`, row `i / columns`.
@@ -443,7 +459,13 @@ fn view_from(
             let st = link(&m.id);
             MediaView {
                 id: m.id.clone(),
-                name: m.file_name().map(str::to_string).unwrap_or_else(|| m.id.clone()),
+                name: m
+                    .fields
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .or_else(|| m.file_name())
+                    .map(str::to_string)
+                    .unwrap_or_else(|| m.id.clone()),
                 path: st.as_ref().map(|s| s.path.clone()).unwrap_or_default(),
                 kind: get("type").and_then(Value::as_str).unwrap_or("video").to_string(),
                 duration_seconds: get("duration").and_then(Value::as_f64),
@@ -455,6 +477,30 @@ fn view_from(
                 timecode: get("sourceTimecode")
                     .and_then(|v| serde_json::from_value::<ove_media::SourceTimecode>(v.clone()).ok())
                     .map(|t| t.label()),
+                folder: m.fields.get("folder").and_then(Value::as_str).map(str::to_string),
+                tags: m
+                    .fields
+                    .get("tags")
+                    .and_then(Value::as_array)
+                    .map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect())
+                    .unwrap_or_default(),
+                subclips: m
+                    .fields
+                    .get("subclips")
+                    .and_then(Value::as_array)
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|s| {
+                                Some(SubclipView {
+                                    id: s.get("id")?.as_str()?.to_string(),
+                                    name: s.get("name").and_then(Value::as_str).unwrap_or("Subclip").to_string(),
+                                    start: s.get("in")?.as_f64()?,
+                                    end: s.get("out")?.as_f64()?,
+                                })
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default(),
             }
         })
         .collect();
@@ -789,6 +835,11 @@ fn refresh_once(app: &AppHandle, state: &AppState) {
             })
             .collect()
     };
+    let index_items = {
+        let online: BTreeSet<&str> =
+            links.iter().filter(|(_, _, l)| l.state == MediaState::Online).map(|(id, _, _)| id.as_str()).collect();
+        crate::search::indexable(&bundle, &doc, &online)
+    };
     // Released before the project is locked: the lock order is project, then media cache.
     let changed = relock(&state.projects.media).store(&bundle, links, thumbs);
     if !missing.is_empty() {
@@ -816,6 +867,8 @@ fn refresh_once(app: &AppHandle, state: &AppState) {
             });
         }
     }
+    // Footage search indexes (P3), keyed by content id; queued only when the visual search model is installed.
+    crate::search::queue_indexing(app, &bundle, index_items);
     if changed
         && let Ok(g) = lock(&state.projects.open)
         && let Some(p) = g.as_ref().filter(|p| p.bundle() == bundle)
@@ -846,6 +899,8 @@ pub(crate) fn emit_view(app: &AppHandle, p: Option<&Project>) -> Option<ProjectV
     // The timeline preview follows every change.
     if let Some(p) = p {
         crate::exporting::notify_doc(&state, p.doc(), p.bundle());
+        // Agents' changes show live on the timeline.
+        crate::activity::after_change(app, p);
     }
     v
 }
@@ -1414,6 +1469,16 @@ pub struct HistoryRow {
     pub can_restore: bool,
     /// The agent client that made it (an MCP client's name, such as claude-code), when recorded.
     pub client: Option<String>,
+    /// Who made it, for grouping by agent (change add-agent-chat-context-and-activity): the recorded actor's kind
+    /// (user, assistant, cli, mcp, …), session and turn, and its name as people read it (Claude Code, Assistant).
+    #[serde(default)]
+    pub actor_kind: Option<String>,
+    #[serde(default)]
+    pub session: Option<String>,
+    #[serde(default)]
+    pub turn: Option<String>,
+    #[serde(default)]
+    pub actor_name: Option<String>,
 }
 
 /// Who a revision is attributed to, as far as its record tells.
@@ -1443,6 +1508,10 @@ pub fn history_rows(p: &Project, limit: usize) -> AppResult<Vec<HistoryRow>> {
             who: who(h.source, &h.summary).into(),
             can_restore: p.is_retained(h.parent),
             client: h.actor.as_ref().and_then(|a| a.client.clone()),
+            actor_name: h.actor.as_ref().map(|a| ove_tools::activity::actor_label(Some(a), h.source).1),
+            actor_kind: crate::history::actor_fields(h.actor.as_ref()).0,
+            session: crate::history::actor_fields(h.actor.as_ref()).1,
+            turn: crate::history::actor_fields(h.actor.as_ref()).2,
             summary: h.summary,
         })
         .collect();

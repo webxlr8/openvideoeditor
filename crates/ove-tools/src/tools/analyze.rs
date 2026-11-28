@@ -178,12 +178,32 @@ mod imp {
 
     pub fn detect_scenes(ctx: &mut dyn ToolCtx, a: &Args) -> Result<Receipt, Fail> {
         let file = media_or_file(ctx, a)?;
-        let s = ove_analyze::scenes(&file, a.f64("threshold").unwrap_or(0.3)).map_err(fail)?;
+        let threshold = a.f64("threshold").unwrap_or(0.3);
+        // A media item with a current search index answers from its cut list (same cuts, no second decode).
+        let cached = cached_scenes(ctx, a, threshold);
+        let s = match cached {
+            Some(s) => s,
+            None => ove_analyze::scenes(&file, threshold).map_err(fail)?,
+        };
         let mut text = format!("{} cuts in {:.2} s ({} frames)", s.cuts.len(), s.duration, s.frames);
         for c in &s.cuts {
             text.push_str(&format!("\n{:.3}\t{:.2}", c.time, c.score));
         }
         Ok(Receipt::new(serde_json::to_value(&s).unwrap_or(Value::Null), text))
+    }
+
+    /// Scenes from the media item's search index, when it has a current one.
+    fn cached_scenes(ctx: &mut dyn ToolCtx, a: &Args, threshold: f64) -> Option<ove_analyze::Scenes> {
+        let q = a.str("media")?.to_string();
+        let bundle = ctx.bundle(a.project()).ok()?;
+        crate::ctx::read(ctx, &bundle, |p| {
+            let id = crate::tools::media::find_media(p.doc(), p.bundle(), &q).ok();
+            let cid =
+                id.and_then(|id| p.doc().registry.get(&id)?.fields.get("contentId")?.as_str().map(str::to_string));
+            Ok(cid.and_then(|cid| ove_vision::indexer::cached_scenes(p.bundle(), &cid, threshold)))
+        })
+        .ok()
+        .flatten()
     }
 
     pub fn audio_levels(ctx: &mut dyn ToolCtx, a: &Args) -> Result<Receipt, Fail> {

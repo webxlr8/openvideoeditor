@@ -61,6 +61,14 @@ export function shortcutGroups(): { group: string; keys: [string, string][] }[] 
         [`${MOD} ⇧ D`, "Playback diagnostics"],
       ],
     },
+    {
+      group: "Assistant",
+      keys: [
+        ["@", "Mention a media file, a clip or the marked range: the assistant gets its exact timeline lines and can edit it at once"],
+        ["/", "At the start of a message: pick a skill for the assistant to follow, or a template"],
+        ["↑ / ↓, Enter", "Move in the @ or / list, pick (Esc closes it)"],
+      ],
+    },
   ];
 }
 

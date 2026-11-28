@@ -518,4 +518,17 @@ impl ToolCtx for LinkCtx {
     fn start_generation(&mut self, bundle: &Path, job: &str) -> Result<(), Fail> {
         self.inner.start_generation(bundle, job)
     }
+    /// Sent to the running app over the control link (`notify`), which shows it only when it has `bundle` open. A
+    /// missing app or one too old to know `notify` changes nothing.
+    fn notify(&mut self, bundle: &Path, activity: &crate::activity::Activity) {
+        let notice = crate::activity::Notice {
+            bundle: bundle.to_path_buf(),
+            actor: self.inner.actor.clone(),
+            activity: activity.clone(),
+        };
+        let Ok(params) = serde_json::to_value(notice) else { return };
+        if let Err(e) = ove_control::call(&self.inner.root, "notify", params, Duration::from_secs(2)) {
+            tracing::debug!(code = e.code(), "the app was not told about a read");
+        }
+    }
 }

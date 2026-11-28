@@ -2224,6 +2224,245 @@
       }
     },
     {
+      "name": "organize_media",
+      "description": "Organise the project's media in one undoable revision: `move` media into a folder (`folder`: a `/`-separated path, empty or null for the top level), `rename` a media item (display name; `src` names in the timeline follow it), `tag` (`add` / `remove` tags), `createFolder`, `renameFolder` (`from`, `to`; media inside and below move with it), `deleteFolder` (its media move to the parent folder), `saveSubclip` (`media`, `name`, `in`, `out` in source seconds), `removeSubclip` (`media`, `id`) and `smartFolder` (`path`, a saved `query` and `scope`). Ops apply in order; `media` takes ids, file names or timeline names. Edits the person makes meanwhile to other fields are kept.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "ops": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 500,
+            "items": {
+              "type": "object",
+              "required": [
+                "op"
+              ],
+              "properties": {
+                "op": {
+                  "type": "string",
+                  "enum": [
+                    "move",
+                    "rename",
+                    "tag",
+                    "createFolder",
+                    "renameFolder",
+                    "deleteFolder",
+                    "saveSubclip",
+                    "removeSubclip",
+                    "smartFolder"
+                  ]
+                },
+                "media": {
+                  "type": [
+                    "string",
+                    "array"
+                  ],
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "folder": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "name": {
+                  "type": "string"
+                },
+                "add": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "remove": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "path": {
+                  "type": "string"
+                },
+                "from": {
+                  "type": "string"
+                },
+                "to": {
+                  "type": "string"
+                },
+                "in": {
+                  "type": "number"
+                },
+                "out": {
+                  "type": "number"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "query": {
+                  "type": "string"
+                },
+                "scope": {
+                  "type": "string",
+                  "enum": [
+                    "all",
+                    "moments",
+                    "spoken",
+                    "timelines",
+                    "files"
+                  ]
+                }
+              }
+            },
+            "description": "The steps, applied in order as one revision"
+          }
+        },
+        "required": [
+          "ops"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "search_media",
+      "description": "Search the project's media by what it shows and what is said, on this computer. Sections: moments (shots ranked by a local image–text model, each with its best frame, shot range, a suggested window of up to 4 s and a confidence 0–1), spoken (ranked phrase search over transcripts; quote a phrase to match it exactly; ranges padded by 150 ms), timelines (clips and titles whose name or text matches) and files (names, folders, tags). Each moment and spoken hit has `clip`: a `<clip …/>` line to paste into a track of timeline.tsx (set `start`/`end` where it goes, keeping the length). `similarTo` (media and time) finds shots that look like that frame. `index` reports what is searchable: visual not installed (with the download size; the person installs it in Settings > Storage, nothing is downloaded here), indexing (n of N files) or ready, and how many files have no transcript.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "query": {
+            "type": "string",
+            "description": "What to find: words, or a quoted phrase for exact spoken matches"
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "all",
+              "moments",
+              "spoken",
+              "timelines",
+              "files"
+            ],
+            "description": "Which sections to search (default all)"
+          },
+          "media": {
+            "type": "string",
+            "description": "Only this media item (id, file name or timeline name)"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Results per section (default 20, at most 50)"
+          },
+          "similarTo": {
+            "type": "object",
+            "properties": {
+              "media": {
+                "type": "string"
+              },
+              "at": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "media",
+              "at"
+            ],
+            "additionalProperties": false,
+            "description": "A frame as the query: {media, at} in source seconds"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "media_transcript",
+      "description": "The transcript of one media file in source seconds: caption-sized lines with their times and the words with word times, from the transcripts already made on this computer (transcribe_media makes one). `from`/`to` limit it to a source range.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "media": {
+            "type": "string",
+            "description": "Media id, file name or timeline name"
+          },
+          "from": {
+            "type": "number",
+            "description": "Source seconds to start at"
+          },
+          "to": {
+            "type": "number",
+            "description": "Source seconds to end at"
+          }
+        },
+        "required": [
+          "media"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "inspect_media",
+      "description": "Look at one media file: its probe facts, shots and index state; with `overview`, one sheet of at most 36 tiles with time labels, one per shot, built from the shot list (sampling seeks to each shot, it does not decode the whole file again).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "media": {
+            "type": "string",
+            "description": "Media id, file name or timeline name"
+          },
+          "overview": {
+            "type": "boolean",
+            "description": "Return the overview sheet"
+          },
+          "tileWidth": {
+            "type": "integer",
+            "description": "Tile width of the sheet in pixels (default 240)"
+          }
+        },
+        "required": [
+          "media"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
       "name": "sync_items",
       "description": "Line up recordings of the same moment (a camera and a sound recorder, several cameras) against a reference item, as one revision. mode auto (default) uses source timecode when both media carry it, else the sound: a cross-correlation of the cached onset envelopes, refined below 1 ms, and for overlaps over 150 s a clock-drift fit; 20–500 ppm of drift is corrected by retiming the audio-only target (video items keep their speed). The most confident target is placed first and placed targets anchor the rest; if any item would start before 0 the whole synced group moves right; a move that would overlap another item on its track is refused and names it. Each target reports status (placed, unmatched, refused), method, offset, confidence, drift and the reason it was not placed. Refused with sync.unmatched when no target is placed. `dryRun` returns the plan without changing anything.",
       "inputSchema": {

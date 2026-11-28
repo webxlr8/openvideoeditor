@@ -1,6 +1,7 @@
 //! Desktop shell: window, single instance and open-file routing, typed bridge, logs and crash
 //! containment, the native viewer, and playback through ove-media / ove-playback (change 1).
 
+pub mod activity;
 pub mod agents;
 pub mod assistant;
 pub mod audio_intel;
@@ -19,6 +20,7 @@ pub mod exports;
 pub mod feedback;
 pub mod fx;
 pub mod generation;
+pub mod history;
 pub mod interchange;
 pub mod logging;
 pub mod media;
@@ -32,6 +34,7 @@ pub mod sample;
 pub mod scopes;
 pub mod scripted_dialogs;
 pub mod scrub;
+pub mod search;
 pub mod skills;
 pub mod spend;
 pub mod storage;
@@ -234,6 +237,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             assistant::agent_chats,
             assistant::agent_chat,
             assistant::agent_send,
+            assistant::agent_send_context,
+            history::undo_agent_changes,
             assistant::agent_stop,
             assistant::agent_answer,
             assistant::agent_set_limits,
@@ -293,6 +298,9 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             connectors::connectors,
             connectors::connector_connect,
             connectors::connector_disconnect,
+            search::media_search,
+            search::media_organize,
+            search::media_index_status,
         ])
         .events(collect_events![
             PlaybackChanged,
@@ -307,6 +315,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             spend::SpendSettled,
             exporting::ExportProgress,
             assistant::AgentUiEvent,
+            activity::AgentActivity,
             captions::CaptionJobProgress,
             models::LocalModelsChanged,
             waveforms::AudioAnalysisChanged,
