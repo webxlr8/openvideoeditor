@@ -119,9 +119,14 @@ fn prefer(a: &Args) -> Result<Prefer, Fail> {
 pub fn check_timeline(ctx: &mut dyn ToolCtx, a: &Args) -> Result<Receipt, Fail> {
     let text = a.req_str("source")?.to_string();
     let prefer = prefer(a)?;
+    let explicit = a.str("prefer").is_some();
     let bundle = ctx.bundle(a.project())?;
     read(ctx, &bundle, |p| {
         let plan = plan_for(p, &text, prefer)?;
+        // The same refusal as `apply_timeline`, so the dry run never says ok to an apply that would be refused.
+        if !explicit {
+            refuse_restoring_deleted(p, &plan)?;
+        }
         let mut v = plan_json(&plan);
         v["ok"] = json!(true);
         Ok(Receipt::new(v, format!("ok: {}", plan_text(&plan))))

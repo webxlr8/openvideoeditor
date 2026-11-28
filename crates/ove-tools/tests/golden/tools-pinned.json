@@ -94,7 +94,7 @@
               "file",
               "editor"
             ],
-            "description": "On conflicting edits keep the `file` (default) or `editor` value"
+            "description": "Leave it out. Without it, an edit to an item the person deleted meanwhile is reported as a refusal (edit.conflict), as apply_timeline would refuse it; other conflicts keep your change. Pass \"file\" only after the person chooses to bring the deleted items back; \"editor\" keeps the person's values"
           }
         },
         "required": [

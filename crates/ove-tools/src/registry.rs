@@ -129,7 +129,11 @@ pub static TOOLS: &[ToolSpec] = &[
         args: &[
             PROJECT,
             req("source", Str, "The full edited timeline.tsx text"),
-            arg("prefer", Json(PREFER), "On conflicting edits keep the `file` (default) or `editor` value"),
+            arg(
+                "prefer",
+                Json(PREFER),
+                "Leave it out. Without it, an edit to an item the person deleted meanwhile is reported as a refusal (edit.conflict), as apply_timeline would refuse it; other conflicts keep your change. Pass \"file\" only after the person chooses to bring the deleted items back; \"editor\" keeps the person's values",
+            ),
         ],
         annotations: READ,
         surfaces: SERVERS,

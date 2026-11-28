@@ -385,6 +385,33 @@ fn an_agent_edit_to_an_item_deleted_in_the_editor_is_refused_until_the_person_ch
     assert!(element(&text, "i0").contains("Opening"), "re-created with the edit: {text}");
 }
 
+/// The dry run agrees with the apply: `check_timeline` without `prefer` reports an edit to an item deleted in the
+/// editor as the same `edit.conflict` refusal; with `prefer: "file"` it passes. Neither call changes the project.
+#[test]
+fn check_timeline_reports_the_same_conflict_as_apply_for_an_item_deleted_in_the_editor() {
+    let (_d, lib) = setup(3);
+    let mut m = Mcp::start_with(&lib, &[("OVE_MCP_HOLD_MS", "200")]);
+    let printed = m.call("print_timeline", json!({"project": "Demo"}));
+    let text = printed["structuredContent"]["text"].as_str().unwrap().replacen("Title 0", "Opening", 1);
+    delete_in_editor(&lib, "i0");
+
+    let r = m.call("check_timeline", json!({"project": "Demo", "source": text}));
+    assert_eq!(r["isError"], true, "{r}");
+    let error = &r["structuredContent"]["error"];
+    assert_eq!(error["code"], "edit.conflict", "{r}");
+    let message = error["message"].as_str().unwrap();
+    assert!(message.contains("\"Item 0\" (i0)"), "the clip is named by name and id: {message}");
+    assert!(message.contains("Ask the person"), "{message}");
+    assert_eq!(error["details"]["items"][0]["id"], "i0", "{r}");
+    assert_eq!(error["details"]["items"][0]["name"], "Item 0", "{r}");
+
+    let r = m.call("check_timeline", json!({"project": "Demo", "source": text, "prefer": "file"}));
+    assert_eq!(r["isError"], false, "{r}");
+    assert_eq!(r["structuredContent"]["ok"], true, "{r}");
+    assert_eq!(r["structuredContent"]["conflicts"][0]["id"], "i0", "the conflict is still listed: {r}");
+    assert_eq!(item_ids(&lib), ["i1", "i2"], "a check changes nothing");
+}
+
 /// `ove source apply` keeps "file wins": with no `--prefer` an edit to an item deleted in the editor re-creates it.
 #[test]
 fn source_apply_still_brings_back_an_item_deleted_in_the_editor_by_default() {

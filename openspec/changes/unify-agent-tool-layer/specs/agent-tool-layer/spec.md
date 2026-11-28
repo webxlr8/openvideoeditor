@@ -73,6 +73,20 @@ after the person chooses that. This guard is advisory: the apply cannot check it
 - **WHEN** an agent passes `prefer: "file"` on its first apply, without asking the person
 - **THEN** item A is re-created; the apply has no way to tell whether the person chose
 
+### Requirement: The dry run agrees with the apply
+`check_timeline` with no `prefer` SHALL report an edit to an item deleted in the editor as the same refusal that
+`apply_timeline` gives: code `edit.conflict`, the same message and the same list of items. With `prefer: "file"` the
+check SHALL pass and list the conflict. A check SHALL never change the project.
+
+#### Scenario: Check without a preference
+- **WHEN** the person deleted item A ("Intro", id `i_a`) in the editor, and an agent checks a text that edits item A
+  without `prefer`
+- **THEN** the check fails with `edit.conflict`, names "Intro" (`i_a`), and the details list item A
+
+#### Scenario: Check with prefer file
+- **WHEN** the agent checks the same text with `prefer: "file"`
+- **THEN** the check passes, lists the conflict, and item A is still deleted
+
 ### Requirement: Apply error codes
 A refused `apply_timeline` call SHALL fail with a code that names the reason. The codes include `argument.invalid`,
 `edit.anchor`, `edit.ambiguous`, `edit.overlap`, `edit.empty`, `edit.conflict`, `rev.malformed`, `rev.pruned`,

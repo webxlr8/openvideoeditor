@@ -64,8 +64,9 @@ onto the current document, so edits the person made meanwhile stay. Only a real 
 An edit to an item that the person deleted meanwhile is refused when `prefer` is left out: the call fails with
 `edit.conflict`, nothing is applied, the message names each item (name and id), and `details.items` lists them. Ask
 the person whether to bring the items back, and only then send the edit again with `prefer: "file"`. This rule is
-advisory: the tool does not check that the person chose. `ove source apply` keeps "file wins" and re-creates the
-items unless `--prefer editor` is given.
+advisory: the tool does not check that the person chose. `check_timeline` (the dry run) without `prefer` reports the
+same `edit.conflict` refusal, so a check never passes an apply that would be refused. `ove source apply` and
+`ove source check` keep "file wins" and re-create the items unless `--prefer editor` is given.
 
 ## Undo
 
