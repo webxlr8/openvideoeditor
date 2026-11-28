@@ -39,6 +39,20 @@ export const commands = {
 	/**  Diagnostics hook: panics inside the viewer thread; the error arrives as `AppErrorRaised`. */
 	debugPanicViewer: () => typedError<null, AppError>(__TAURI_INVOKE("debug_panic_viewer")),
 	listProjects: () => typedError<ProjectSummary_Serialize[], AppError>(__TAURI_INVOKE("list_projects")),
+	/**  Whether a new terminal finds `ove`, and how to get there. */
+	cliStatus: () => typedError<CliStatus_Serialize, AppError>(__TAURI_INVOKE("cli_status")),
+	/**  Adds the folder of `ove` to the user's search path (`install`), or removes it. */
+	cliInstall: (install: boolean) => typedError<CliStatus_Serialize, AppError>(__TAURI_INVOKE("cli_install", { install })),
+	/**  Where projects are kept. */
+	libraryChoice: () => typedError<LibraryChoice_Serialize, AppError>(__TAURI_INVOKE("library_choice")),
+	/**
+	 *  Uses `path` as the library from now on (`None`: the platform default), for the app and the command line. Refused
+	 *  while a project is open, and while `OVE_LIBRARY` decides the library. Projects in the old library stay where they
+	 *  are.
+	 */
+	setLibrary: (path: string | null) => typedError<LibraryChoice_Serialize, AppError>(__TAURI_INVOKE("set_library", { path })),
+	/**  Asks for a folder for the library (scripted in the end-to-end suite: the first line of `open.txt`). */
+	chooseLibraryFolder: () => typedError<string | null, AppError>(__TAURI_INVOKE("choose_library_folder")),
 	createProject: (name: string, template: string | null) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("create_project", { name, template })),
 	openProject: (bundle: string) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("open_project", { bundle })),
 	closeProject: () => typedError<null, AppError>(__TAURI_INVOKE("close_project")),
@@ -914,6 +928,30 @@ export type ClearResult_Serialize = {
 	view: StorageView_Serialize,
 };
 
+export type CliStatus = CliStatus_Serialize | CliStatus_Deserialize;
+
+export type CliStatus_Deserialize = {
+	/**  The `ove` program that ships with the app. */
+	program: string,
+	/**  A new terminal finds `ove` (the folder is on the user's or the computer's search path). */
+	onPath: boolean,
+	/**  The app can add it to (and remove it from) the search path itself. */
+	canInstall: boolean,
+	/**  What to run by hand instead, where the app cannot do it. */
+	instruction?: string | null,
+};
+
+export type CliStatus_Serialize = {
+	/**  The `ove` program that ships with the app. */
+	program: string,
+	/**  A new terminal finds `ove` (the folder is on the user's or the computer's search path). */
+	onPath: boolean,
+	/**  The app can add it to (and remove it from) the search path itself. */
+	canInstall: boolean,
+	/**  What to run by hand instead, where the app cannot do it. */
+	instruction: string | null,
+};
+
 /**  What Settings and the diagnostics overlay show. */
 export type CompositingStatus = CompositingStatus_Serialize | CompositingStatus_Deserialize;
 
@@ -1600,6 +1638,27 @@ export type KeyframeTrackView_Serialize = {
 	/**  The track's easing (`linear` when not set). */
 	easing: string,
 	keys: KeyView_Serialize[],
+};
+
+/**  Where projects are kept, and who decided it. */
+export type LibraryChoice = LibraryChoice_Serialize | LibraryChoice_Deserialize;
+
+/**  Where projects are kept, and who decided it. */
+export type LibraryChoice_Deserialize = {
+	libraryDir?: string | null,
+	/**  The platform default (nothing chosen in Settings). */
+	isDefault: boolean,
+	/**  The `OVE_LIBRARY` environment variable decides it (Settings cannot change it while it is set). */
+	fromEnv: boolean,
+};
+
+/**  Where projects are kept, and who decided it. */
+export type LibraryChoice_Serialize = {
+	libraryDir: string | null,
+	/**  The platform default (nothing chosen in Settings). */
+	isDefault: boolean,
+	/**  The `OVE_LIBRARY` environment variable decides it (Settings cannot change it while it is set). */
+	fromEnv: boolean,
 };
 
 /**  One model as the Storage list shows it. */
