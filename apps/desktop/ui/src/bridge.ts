@@ -36,6 +36,7 @@ import type {
   ProjectView_Serialize,
   MediaIndexStatus,
   ViewerBackend,
+  ViewerPreview,
   ViewerRect,
   ExportCheck_Serialize as ExportCheck,
   ExportForm_Serialize as ExportForm,
@@ -59,6 +60,8 @@ import {
 } from "./motionMock";
 import { type MockSkills, createSkillsMock, initialSkills } from "./skills/skillsMock";
 import { type MockConnectors, createConnectorsMock, initialConnectors } from "./agents/connectorsMock";
+import { mockGeometry, mockPick } from "./overlay/overlayMock";
+import { PLAYBACK_RATES } from "./overlay/rates";
 
 export type Commands = typeof generated.commands;
 export type Events = typeof generated.events;
@@ -594,6 +597,7 @@ function createMock(): {
     volume: 1,
     muted: false,
     audioAvailable: false,
+    rate: 1,
   };
   let timer: ReturnType<typeof setInterval> | null = null;
   const last = () => Math.max(0, state.totalFrames - 1);
@@ -614,11 +618,16 @@ function createMock(): {
           } else state.frame = next;
           changed();
         },
-        1000 / ((state.frameRate ?? 30) * Math.abs(state.speed ?? 1)),
+        1000 / ((state.frameRate ?? 30) * Math.abs(state.speed ?? 1) * (state.rate ?? 1)),
       );
     }
   };
   const apply = (c: TransportCommand) => {
+    if (c.kind === "setRate") {
+      if (PLAYBACK_RATES.includes(c.rate ?? 1)) state.rate = c.rate ?? 1;
+      if (state.playing) setSpeed(state.speed ?? 1);
+      return;
+    }
     if (!state.hasMedia) {
       if (c.kind === "setLoop") state.looping = c.enabled;
       return;
@@ -1706,7 +1715,9 @@ function createMock(): {
       return ok(null);
     },
     transport: (command: TransportCommand) => {
-      track(`transport:${command.kind}`);
+      track(command.kind === "setRate" ? `transport:setRate:${command.rate}` : `transport:${command.kind}`);
+      if (command.kind === "setRate" && !PLAYBACK_RATES.includes(command.rate ?? NaN))
+        return fail("invalid_argument", `${command.rate}× is not a supported playback rate; supported rates: ${PLAYBACK_RATES.join(", ")}`);
       apply(command);
       changed();
       return ok({ ...state });
@@ -2786,6 +2797,24 @@ function createMock(): {
       const seq = project?.rev ?? 0;
       if (since != null && seq <= since) return ok(null);
       return ok({ seq, scope: "waveform", ptsUs: 0, width: 256, height: 256, data: btoa("\u0000".repeat(65536)) });
+    },
+    // The viewer overlay (add-viewer-interaction-and-text-fills): see overlay/overlayMock.ts.
+    viewerGeometry: (time: number | null) => {
+      if (!project) return fail("invalid_argument", "No project is open.");
+      return ok(mockGeometry(project, (id) => mock(id)?.fields, time ?? 0));
+    },
+    viewerPick: (time: number | null, x: number | null, y: number | null) => {
+      track(`viewerPick:${(time ?? 0).toFixed(2)}:${(x ?? 0).toFixed(2)}:${(y ?? 0).toFixed(2)}`);
+      if (!project) return fail("invalid_argument", "No project is open.");
+      return ok(mockPick(mockGeometry(project, (id) => mock(id)?.fields, time ?? 0), x ?? 0, y ?? 0));
+    },
+    viewerFullscreen: (on: boolean) => {
+      track(`viewerFullscreen:${on}`);
+      return ok(null);
+    },
+    viewerPreview: (preview: ViewerPreview | null) => {
+      track(preview ? `viewerPreview:${preview.itemId}:${preview.setJson}` : "viewerPreview:none");
+      return ok(null);
     },
     colorScopes: (time: number | null) => {
       track(`colorScopes:${time ?? 0}`);

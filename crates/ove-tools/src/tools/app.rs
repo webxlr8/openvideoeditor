@@ -55,8 +55,15 @@ pub fn seek(ctx: &mut dyn ToolCtx, a: &Args) -> Result<Receipt, Fail> {
     Ok(Receipt::new(v, format!("playhead at {seconds:.3} s")))
 }
 
-pub fn play(ctx: &mut dyn ToolCtx, _: &Args) -> Result<Receipt, Fail> {
-    Ok(Receipt::new(ctx.app("play", json!({}))?, "playing"))
+pub fn play(ctx: &mut dyn ToolCtx, a: &Args) -> Result<Receipt, Fail> {
+    match a.f64("rate") {
+        Some(rate) => {
+            // The app refuses an unsupported rate (and names the supported ones) before anything plays.
+            ctx.app("rate", json!({"rate": rate}))?;
+            Ok(Receipt::new(ctx.app("play", json!({}))?, format!("playing at {rate}×")))
+        }
+        None => Ok(Receipt::new(ctx.app("play", json!({}))?, "playing")),
+    }
 }
 
 pub fn pause(ctx: &mut dyn ToolCtx, _: &Args) -> Result<Receipt, Fail> {

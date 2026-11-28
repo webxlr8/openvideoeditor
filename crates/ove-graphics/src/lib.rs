@@ -13,6 +13,8 @@
 
 pub mod diag;
 pub mod fonts;
+#[cfg(feature = "lottie")]
+pub mod lottie;
 pub mod sandbox;
 pub mod templates;
 pub mod transpile;

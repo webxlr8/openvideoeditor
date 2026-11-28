@@ -149,6 +149,10 @@ pub fn set_viewer_rect(app: AppHandle, state: State<'_, AppState>, rect: ViewerR
 #[tauri::command]
 #[specta::specta]
 pub fn transport(state: State<'_, AppState>, command: TransportCommand) -> AppResult<PlaybackState> {
+    if let TransportCommand::SetRate { rate } = command {
+        ove_playback::supported_rate(rate)
+            .map_err(|e| crate::error::AppError::new(crate::error::ErrorCode::InvalidArgument, e))?;
+    }
     if matches!(
         command,
         TransportCommand::SeekFrame { .. }

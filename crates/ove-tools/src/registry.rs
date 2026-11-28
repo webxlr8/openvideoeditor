@@ -8,7 +8,7 @@ use crate::spec::{
 };
 use crate::tools::{
     analyze, app, audio, audio_intel, code, color, deadair, docs, edit, exchange, export, export_queue, export_range,
-    feedback, generate, media, models, organize, project, search, skills, tasks, timeline, transcript,
+    feedback, generate, geometry, media, models, organize, project, search, skills, tasks, timeline, transcript,
 };
 
 pub(crate) const PROJECT: Arg = arg(
@@ -384,6 +384,11 @@ pub static TOOLS: &[ToolSpec] = &[
                 Bool,
                 "One storyboard sheet of the whole timeline instead: repeats dropped, at most 36 tiles, each with its timecode and the ids of the visible items",
             ),
+            arg(
+                "overlay",
+                Str,
+                "Viewer guides drawn over the frames, comma-separated: safe (action safe 93 %, title safe 90 %), grid or thirds, grid:<2-5>, centre, mask:<2.39:1|1.85:1|1:1|9:16|4:5>",
+            ),
             cli("out", Str, "Folder for one PNG per frame"),
             cli("sheet", Str, "Contact-sheet PNG to write"),
             cli("columns", Int, "Contact-sheet columns"),
@@ -483,8 +488,12 @@ pub static TOOLS: &[ToolSpec] = &[
     ToolSpec {
         name: "play",
         aliases: &[],
-        about: "Start playback in the app.",
-        args: &[],
+        about: "Start playback in the app, optionally at a playback rate.",
+        args: &[arg(
+            "rate",
+            Num,
+            "Playback rate: 0.5, 1, 1.25, 1.5 or 2 (default: keep the current one); audio plays resampled",
+        )],
         annotations: APP_WRITE,
         surfaces: SERVERS,
         run: app::play,
@@ -1070,6 +1079,25 @@ pub static TOOLS: &[ToolSpec] = &[
         annotations: READ,
         surfaces: AGENTS,
         run: audio_intel::detect_beats,
+        model: ModelText::Json,
+    },
+    // Layer geometry (add-viewer-interaction-and-text-fills).
+    ToolSpec {
+        name: "layer_geometry",
+        aliases: &[],
+        about: geometry::ABOUT,
+        args: &[
+            PROJECT,
+            req("at", Num, "Timeline time in seconds"),
+            arg(
+                "height",
+                Int,
+                "Canvas height in pixels the corners are measured on (default: the reference height, the units of transform x and y)",
+            ),
+        ],
+        annotations: READ,
+        surfaces: AGENTS,
+        run: geometry::layer_geometry,
         model: ModelText::Json,
     },
 ];

@@ -45,7 +45,8 @@ in seconds. Every change is one revision: the user can undo it in the app, and `
    pending placeholders (exit 1 when there are errors).
 6. **Look**: `ove look <project> --at 2,5.5 --out frames/` renders composited frames; `--every 2 --sheet sheet.png`
    makes a contact sheet; `--stats` reports brightness and black/clipped pixels. Frames come from the same
-   compositor and backend as export (`--backend auto|cpu|gpu`).
+   compositor and backend as export (`--backend auto|cpu|gpu`). `--overlay safe,grid,mask:9:16` draws the
+   viewer's guides over the frames (never exported); `ove geometry <project> --at 3` lists where each layer is.
 
 ## As MCP tools
 

@@ -380,8 +380,21 @@ mod imp {
         .map_err(fail)?;
         let reference = ove_render::eval::reference_size(&doc.project.aspect_ratio);
         let grid = a.bool("grid");
-        // What is shown (with the grid when asked); statistics are of the frame itself.
-        let shown: Vec<ove_analyze::Image> = images.iter().map(|i| with_grid(i, grid.then_some(reference))).collect();
+        let guides = match a.str("overlay") {
+            Some(s) => Some(ove_analyze::guides::parse(s).map_err(|e| Fail::new("argument.invalid", e))?),
+            None => None,
+        };
+        // What is shown (with the grid and guides when asked); statistics are of the frame itself.
+        let shown: Vec<ove_analyze::Image> = images
+            .iter()
+            .map(|i| {
+                let mut seen = with_grid(i, grid.then_some(reference));
+                if let Some(g) = &guides {
+                    ove_analyze::guides::draw(&mut seen, g);
+                }
+                seen
+            })
+            .collect();
         let mut frames = Vec::new();
         let mut pngs = Vec::new();
         if let Some(scope) = scope {
@@ -413,6 +426,10 @@ mod imp {
         let mut v = json!({"rev": rev, "frames": frames, "backend": backend});
         if grid {
             v["grid"] = grid_json(reference);
+        }
+        if let Some(s) = a.str("overlay") {
+            v["overlay"] = json!({"guides": s, "actionSafe": 1.0 - 2.0 * ove_analyze::guides::ACTION_SAFE,
+                                  "titleSafe": 1.0 - 2.0 * ove_analyze::guides::TITLE_SAFE});
         }
         if let Some(sheet) = &sheet {
             let cols = match a.u32_or("columns", 0) {

@@ -95,6 +95,19 @@ enum Cmd {
         /// folder).
         #[arg(long)]
         scope: Option<String>,
+        /// Viewer guides over the frames: safe, grid, grid:<2-5>, thirds, centre, mask:<2.39:1|1.85:1|1:1|9:16|4:5>.
+        #[arg(long)]
+        overlay: Option<String>,
+    },
+    /// Where each visible layer is on screen at a time: corners after transform and crop, stacking order.
+    Geometry {
+        project: String,
+        /// Timeline time in seconds.
+        #[arg(long)]
+        at: f64,
+        /// Canvas height the corners are measured on (default: the reference height, the units of transforms).
+        #[arg(long)]
+        height: Option<u32>,
     },
     /// Colour readouts for matching shots: inspect.
     Color {
@@ -371,12 +384,14 @@ fn run(cli: &Cli, source: Source) -> Out {
         Cmd::App { cmd } => app::run(&ctx, cmd),
         Cmd::Audio { cmd } => analyze::audio(&ctx, cmd),
         Cmd::Generate { cmd } => generate::run(&ctx, cmd),
-        Cmd::Look { project, at, every, count, width, out, sheet, columns, stats, backend, view, scope } => ctx.tool(
-            "look",
-            json!({"project": project, "at": at, "every": every, "count": count, "width": width, "out": out,
-                   "sheet": sheet, "columns": columns, "stats": stats, "backend": backend, "view": view,
-                   "scope": scope}),
-        ),
+        Cmd::Look { project, at, every, count, width, out, sheet, columns, stats, backend, view, scope, overlay } => {
+            ctx.tool(
+                "look",
+                json!({"project": project, "at": at, "every": every, "count": count, "width": width, "out": out,
+                       "sheet": sheet, "columns": columns, "stats": stats, "backend": backend, "view": view,
+                       "scope": scope, "overlay": overlay}),
+            )
+        }
         Cmd::Color {
             cmd: ColorCmd::Inspect { project, at, item, isolate, reference, reference_at, strength, height, backend },
         } => ctx.tool(
@@ -384,6 +399,9 @@ fn run(cli: &Cli, source: Source) -> Out {
             json!({"project": project, "at": at, "item": item, "isolate": isolate, "reference": reference,
                    "referenceAt": reference_at, "strength": strength, "height": height, "backend": backend}),
         ),
+        Cmd::Geometry { project, at, height } => {
+            ctx.tool("layer_geometry", json!({"project": project, "at": at, "height": height}))
+        }
         Cmd::Screenshot { out, width } => ctx.tool("screenshot", json!({"out": out, "width": width})),
         Cmd::Source { cmd: SourceCmd::Print { project, from, lines } } => {
             ctx.tool("print_timeline", json!({"project": project, "from": from, "lines": lines}))

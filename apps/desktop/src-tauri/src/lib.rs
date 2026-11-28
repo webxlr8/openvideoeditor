@@ -28,6 +28,7 @@ pub mod meters;
 pub mod models;
 pub mod motion;
 pub mod onboarding;
+pub mod overlay;
 pub mod projects;
 pub mod proxies;
 pub mod sample;
@@ -301,6 +302,11 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             search::media_search,
             search::media_organize,
             search::media_index_status,
+            // The viewer overlay: geometry, click to select, drag previews (add-viewer-interaction-and-text-fills).
+            overlay::viewer_geometry,
+            overlay::viewer_pick,
+            overlay::viewer_preview,
+            overlay::viewer_fullscreen,
         ])
         .events(collect_events![
             PlaybackChanged,
