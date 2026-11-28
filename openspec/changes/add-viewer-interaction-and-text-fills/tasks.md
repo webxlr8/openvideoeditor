@@ -12,7 +12,8 @@
 ## 2. Handles
 
 - [ ] 2.1 SVG overlay layer over the viewer rectangle on every viewer backend; verify it lines up with the frame
-      within 1 screen pixel on macOS and on the Windows stream backend.
+      within 1 screen pixel on macOS and on the Windows stream backend. (Windows stream backend: 0.00 px in the built
+      app; macOS open.)
 - [x] 2.2 Move, scale, rotate and crop handles with transient preview overrides, snapping, Esc cancel, and one apply op
       on release; verify UI tests: one revision per drag, undo, cancel, rotated crop, hidden during playback.
 - [ ] 2.3 Tilt handles for text; verify a UI test that one tilt drag creates one revision. (Waits for
@@ -25,6 +26,7 @@
 - [x] 3.2 `ove look --overlay` and the verify lint `text.outsideTitleSafe`; verify golden overlay images and lint
       fixtures for both scenarios.
 - [ ] 3.3 Full-screen viewer with floating controls and Esc exit; verify a UI test on both operating systems.
+      (UI suite and the built app on Windows pass; macOS open.)
 - [x] 3.4 Transport rate command (0.5×–2×) with resampled audio and control-link access; verify the 1.5× timing test
       and the unsupported-rate refusal.
 

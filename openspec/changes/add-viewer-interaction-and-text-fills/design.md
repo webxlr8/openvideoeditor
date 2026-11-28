@@ -181,3 +181,18 @@ Measured on Windows 11 x64 (32 cores, `CARGO_BUILD_JOBS=8`), unless a line says 
   resamples it (linear, pitch follows the rate); the ring counts media time at the rate. Simulated: 15.0 s of
   timeline in 10 s of wall time at 1.5× on the system clock, and 12 s in 8 s on the audio clock, both within one
   frame. 7× is refused in the app command, over the control link (`rate.unsupported`) and in `ove app play --rate`.
+
+### Built app on Windows (debug build, stream viewer backend, GPU compositor)
+
+- Flow "viewer: …" in `apps/desktop/e2e-app/flows.mjs`, passed twice: the overlay lines up with the viewer canvas to
+  0.00 px; a click in the picture selects the clip; a corner scale drag and a move drag are one revision each and undo
+  restores; guides change nothing in the project; full screen fills the window and Esc returns; the rate menu sets 1.5×
+  and 7× is refused with the supported rates.
+- Drag to revision (WebDriver pointer actions, 8 moves): 500–512 ms. Transient preview to the next presented frame:
+  median 243–252 ms, max 0.9–1.0 s. The debug build composites a 1080p frame in about 130 ms on this machine (the same
+  as before this change), which dominates both numbers; release-build numbers are open (task 6.1).
+- The 1.5× wall-clock check is not made in the debug app: it composites below real time, so it would measure the
+  compositor. The rate is measured on the simulated clock (above).
+- Other flows: "first run" and "timeline: select…" time out waiting for a clicked clip to be selected or for split to
+  be enabled on this busy machine, with and without this change (3 of 3 failures on b2b1a36); the "log" check fails on
+  log records from earlier days in the shared artefacts folder.

@@ -143,3 +143,10 @@
 .fullscreen-controls .fs-timecode {
   font-variant-numeric: tabular-nums;
 }
+
+/* The viewer toolbar holds the guides menu, full screen and zoom in one row. */
+.viewer-tools:not([hidden]) {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
