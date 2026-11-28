@@ -17,6 +17,30 @@ below. No step in this plan has been pushed or published.
      both branches have a feature, the wave's version is kept when it is that wave's exit check.
   The port passes when it fails nothing in section 2, the hardware-decode test passes, and the app e2e flow count
   does not go down.
+- Port status (branch `port/phase2-onto-dev`, 2026-11-28):
+  - **Ported (18 commits, cherry-picked with `-x`):** the hardware-decode test; mimalloc; native Windows packaging
+    (`FFMPEG_OUT`, MSVC and DLL paths, library paths with spaces); FFmpeg's `av1` decoder for the hardware path and
+    bounded decoder threads; the GPU device opened with the first frame (Home 257 → 55 MB working set); the
+    timeline scrollbar gutter; the forced-panic e2e flow; the software-decoder fallback; diagnostics without a GPU;
+    Settings → Library (choose another library folder); Settings → add the command line to PATH; caption styles
+    drawn with the font library; motion templates laid out for vertical video. Conflicts were resolved keeping both
+    sides. On OpenSpec `tasks.md` files dev's text was kept, because phase2 reorganised them; phase2's measured
+    Results in `design.md` were kept.
+  - **Dropped, superseded by hydroid:** the pinned `ove mcp --project/--turn` (hydroid's registry has the `Pinned`
+    surface and `--turn`); "the built-in assistant sees the project" (registry `look` and frames); the transcript
+    tool (`get_transcript`); "Remove silences" (transcript dead-air removal); scopes in the Colour tab and GPU effects
+    for full-size pictures (the GPU compositor and scopes); "Clean up voice" (the audio-intelligence denoise, still in
+    progress on `w3-audiointel`).
+  - **Not ported yet: chat through an installed agent (Agent Client Protocol).** This is open task group 3 of
+    `add-local-agents-and-onboarding` on dev. phase2 built it on its own `ove-agents` and `ove mcp`, and both were
+    restructured on hydroid. It needs reimplementing on dev's architecture, using phase2's commits as the reference
+    (993e9d3, b1d5946, cac7899, b78c0c6, d3a2189, 8835cd6, 83fe482, 39a4b79); a worker does it. It is not needed for
+    0.1.0-alpha.2: the built-in assistant (your own Anthropic key) is the chat in that release. The CEO reviewer
+    approved this, on three conditions:
+    1. Nothing in alpha.2 offers chat through installed agents: the release branch removes any picker text or
+       setting that promises it. The MCP Connect buttons stay; they let external agents edit through the app.
+    2. The release notes say: "Chat through installed agents (Claude Code, Codex): not yet; coming next."
+    3. Task group 3 stays open, and a worker starts on it right after the release branch is cut.
 - `w3-audiointel` and `w4-interchange` are still in progress. They join `dev` after the release branch is cut, not
   before. The seven changes that have not started are out of scope for this release.
 
