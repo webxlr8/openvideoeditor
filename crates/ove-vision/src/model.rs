@@ -42,8 +42,12 @@ pub trait Encoder {
     fn images(&mut self, pixels: &[Vec<f32>]) -> Result<Vec<Vec<f32>>>;
     /// Embeds a text query.
     fn text(&mut self, text: &str) -> Result<Vec<f32>>;
-    /// What index files built with this encoder record.
+    /// What index files built with this encoder record (the image side only: a new text encoder keeps them).
     fn provenance(&self) -> Provenance;
+    /// What cached text query embeddings are keyed by: the text encoder's identity.
+    fn text_key(&self) -> String {
+        self.provenance().model_hash
+    }
 }
 
 /// Runs a model file on tensors: the model worker, or an in-process backend in tests.
@@ -77,6 +81,8 @@ pub struct ModelFiles {
     pub tokenizer: PathBuf,
     /// SHA-256 of the image encoder (from the manifest).
     pub vision_sha256: String,
+    /// SHA-256 of the text encoder (from the manifest): keys the cached query embeddings.
+    pub text_sha256: String,
 }
 
 /// The model's files when it is installed, else the "model not installed" answer (size, host, how to install).
@@ -96,6 +102,7 @@ pub fn installed(store: &Store) -> std::result::Result<ModelFiles, Box<NotInstal
         text: file(SIGLIP2_TEXT)?,
         tokenizer: file(SIGLIP2_TOKENIZER)?,
         vision_sha256: manifest.file(SIGLIP2_VISION).map(|f| f.sha256.clone()).unwrap_or_default(),
+        text_sha256: manifest.file(SIGLIP2_TEXT).map(|f| f.sha256.clone()).unwrap_or_default(),
     })
 }
 
@@ -199,6 +206,10 @@ impl<R: Runner> Encoder for SiglipEncoder<R> {
     fn provenance(&self) -> Provenance {
         provenance_of(&self.files)
     }
+
+    fn text_key(&self) -> String {
+        format!("text:{}", self.files.text_sha256)
+    }
 }
 
 #[cfg(test)]
@@ -224,7 +235,9 @@ mod tests {
         assert!(n.download_bytes > 300_000_000, "{}", n.download_bytes);
         assert!(n.message.contains("needs your consent"), "{}", n.message);
         // The consent text names the size people read, the model and its licence.
-        assert!(n.message.contains("0.63 GB download"), "{}", n.message);
+        let size = ove_models::error::size_text(ove_models::manifest::siglip2_manifest().download_bytes());
+        assert_eq!(size, "0.76 GB");
+        assert!(n.message.contains(&format!("{size} download")), "{}", n.message);
         assert!(n.message.contains("SigLIP 2 base") && n.message.contains("licence Apache-2.0"), "{}", n.message);
         assert_eq!(n.licence, "Apache-2.0");
         assert_eq!(std::fs::read_dir(dir.path()).map(|d| d.count()).unwrap_or(0), 0, "nothing was downloaded");

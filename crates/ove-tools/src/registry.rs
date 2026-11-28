@@ -148,7 +148,7 @@ pub static TOOLS: &[ToolSpec] = &[
             arg(
                 "prefer",
                 Json(PREFER),
-                "Which side wins a conflict with edits the person made meanwhile (default file)",
+                "Leave it out. Without it, an edit to an item the person deleted meanwhile is refused (edit.conflict) and nothing is applied; other conflicts keep your change. Pass \"file\" only after the person chooses to bring the deleted items back; \"editor\" keeps the person's values",
             ),
         ],
         annotations: WRITE,

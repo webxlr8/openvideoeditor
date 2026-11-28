@@ -314,3 +314,103 @@ fn the_session_holds_the_project_between_calls_and_lets_the_app_open_it_when_idl
         .collect();
     assert_eq!(summaries.iter().filter(|s| s.starts_with("source apply")).count(), 2, "{summaries:?}");
 }
+
+/// Deletes item `id` of Demo as the editor does: opens it for writing (waiting while an MCP session lets go of it),
+/// applies the removal as a GUI revision and closes it.
+fn delete_in_editor(lib: &Path, id: &str) {
+    let bundle = ove_store::Library::open(lib, Arc::new(ove_core::SystemClock)).unwrap().find("Demo").unwrap();
+    let t0 = std::time::Instant::now();
+    let mut p = loop {
+        match ove_store::project::Project::open(
+            &bundle,
+            ove_store::project::Mode::Write,
+            Arc::new(ove_core::SystemClock),
+        ) {
+            Ok(p) => break p,
+            Err(e) if e.code() == "project.locked" && t0.elapsed() < std::time::Duration::from_secs(10) => {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            Err(e) => panic!("the editor could not open the project: {e}"),
+        }
+    };
+    let del: Op = serde_json::from_value(json!({"op": "removeItems", "ids": [id]})).unwrap();
+    p.apply(vec![del], Source::Gui, None).unwrap();
+    p.close().unwrap();
+}
+
+/// The items of Demo now.
+fn item_ids(lib: &Path) -> Vec<String> {
+    let bundle = ove_store::Library::open(lib, Arc::new(ove_core::SystemClock)).unwrap().find("Demo").unwrap();
+    let p =
+        ove_store::project::Project::open(&bundle, ove_store::project::Mode::ReadOnly, Arc::new(ove_core::SystemClock))
+            .unwrap();
+    let mut ids: Vec<String> = p.doc().project.items.keys().cloned().collect();
+    ids.sort();
+    ids
+}
+
+/// An agent's edit to an item the person deleted meanwhile: without `prefer` it is refused with `edit.conflict`,
+/// names the item and applies nothing; sent again with `prefer: "file"` (the person chose to bring it back) the
+/// item is re-created with the edit.
+#[test]
+fn an_agent_edit_to_an_item_deleted_in_the_editor_is_refused_until_the_person_chooses_to_restore_it() {
+    let (_d, lib) = setup(3);
+    let mut m = Mcp::start_with(&lib, &[("OVE_MCP_HOLD_MS", "200")]);
+    let printed = m.call("print_timeline", json!({"project": "Demo"}));
+    let text = printed["structuredContent"]["text"].as_str().unwrap().to_string();
+    let rev = printed["structuredContent"]["rev"].as_i64().unwrap();
+    let line = element(&text, "i0");
+    let edits = json!([{"oldText": line, "newText": line.replacen("Title 0", "Opening", 1)}]);
+    delete_in_editor(&lib, "i0");
+
+    let r = m.call("apply_timeline", json!({"project": "Demo", "rev": rev, "edits": edits}));
+    assert_eq!(r["isError"], true, "{r}");
+    let error = &r["structuredContent"]["error"];
+    assert_eq!(error["code"], "edit.conflict", "{r}");
+    let message = error["message"].as_str().unwrap();
+    assert!(message.contains("\"Item 0\" (i0)"), "the clip is named by name and id: {message}");
+    assert!(message.contains("Ask the person"), "{message}");
+    assert!(message.contains("prefer: \"file\""), "{message}");
+    let items = error["details"]["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1, "{r}");
+    assert_eq!(items[0]["id"], "i0");
+    assert_eq!(items[0]["name"], "Item 0");
+    assert_eq!(item_ids(&lib), ["i1", "i2"], "nothing was applied");
+
+    let r = m.call("apply_timeline", json!({"project": "Demo", "rev": rev, "edits": edits, "prefer": "file"}));
+    assert_eq!(r["isError"], false, "{r}");
+    assert_eq!(r["structuredContent"]["conflicts"][0]["id"], "i0", "the conflict is still reported: {r}");
+    let text =
+        m.call("print_timeline", json!({"project": "Demo"}))["structuredContent"]["text"].as_str().unwrap().to_string();
+    assert!(element(&text, "i0").contains("Opening"), "re-created with the edit: {text}");
+}
+
+/// `ove source apply` keeps "file wins": with no `--prefer` an edit to an item deleted in the editor re-creates it.
+#[test]
+fn source_apply_still_brings_back_an_item_deleted_in_the_editor_by_default() {
+    let (d, lib) = setup(3);
+    let ove = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_ove"))
+            .arg("--library")
+            .arg(&lib)
+            .args(args)
+            .env_remove("OVE_LIBRARY")
+            .output()
+            .unwrap()
+    };
+    let out = ove(&["source", "print", "Demo", "--json"]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let text = serde_json::from_slice::<Value>(&out.stdout).unwrap()["text"]
+        .as_str()
+        .unwrap()
+        .replacen("Title 0", "Opening", 1);
+    let file = d.path().join("edited.tsx");
+    std::fs::write(&file, text).unwrap();
+    delete_in_editor(&lib, "i0");
+
+    let out = ove(&["source", "apply", "Demo", file.to_str().unwrap(), "--json"]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let v: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["conflicts"][0]["id"], "i0", "the conflict is reported: {v}");
+    assert_eq!(item_ids(&lib), ["i0", "i1", "i2"], "the item is back");
+}

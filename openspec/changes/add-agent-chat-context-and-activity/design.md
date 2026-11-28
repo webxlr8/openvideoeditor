@@ -140,7 +140,12 @@ Measured on Windows 11 (32-core desktop, debug builds).
 - Decision made during apply: an edit whose merge would bring back an item deleted in the editor after the text's
   revision is now refused with `edit.conflict` (nothing applied) unless the caller passes `prefer: "file"`. Before,
   the default (`prefer: file`) re-created the item, which the "Mentioned item deleted" scenario forbids. The 3-way
-  merge itself is unchanged; the check sits in `apply_timeline`.
+  merge itself is unchanged; the check sits in `apply_timeline`. CTO and CEO conditions: `ove source apply` keeps
+  "file wins" (it always passes `--prefer`, default `file`); the refusal names each item by name and id, asks the
+  agent to ask the person, and lists the items in `details.items`; the `prefer` text says to leave it out and to pass
+  `"file"` only after the person chooses to bring the items back. That guard is advisory (tool text only): an agent
+  can pass `prefer: "file"` at once. Tests: `an_agent_edit_to_an_item_deleted_in_the_editor_is_refused_until_the_person_chooses_to_restore_it`
+  and `source_apply_still_brings_back_an_item_deleted_in_the_editor_by_default` (`crates/ove-cli/tests/mcp_edits.rs`).
 
 **Group 2, hand-off and the `/` menu:**
 - `askAssistant({prompt, mentions, newChat})` (`ui/src/chat/handoff.ts`) opens the chat and fills the input; it never

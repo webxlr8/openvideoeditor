@@ -130,8 +130,9 @@ pub fn check_timeline(ctx: &mut dyn ToolCtx, a: &Args) -> Result<Receipt, Fail> 
 
 /// Refuses an apply that would bring back items someone deleted in the editor after the text's revision (an edit
 /// to an item that is gone — for example one mentioned in the chat before the person deleted it). Nothing is changed;
-/// the caller is told which items, and brings them back only with `prefer: "file"` (the person's choice).
-fn refuse_restoring_deleted(plan: &Plan) -> Result<(), Fail> {
+/// the caller is told which items (name and id), and brings them back only with `prefer: "file"` (the person's
+/// choice). The tool text asks for that choice; nothing here can check that the person made it.
+fn refuse_restoring_deleted(p: &Project, plan: &Plan) -> Result<(), Fail> {
     let gone: Vec<&ove_projection::merge::Conflict> = plan
         .conflicts
         .iter()
@@ -140,17 +141,42 @@ fn refuse_restoring_deleted(plan: &Plan) -> Result<(), Fail> {
     if gone.is_empty() {
         return Ok(());
     }
-    let ids: Vec<&str> = gone.iter().map(|c| c.id.as_str()).collect();
-    Err(Fail::new(
-        "edit.conflict",
-        format!(
-            "conflict: {} {} deleted in the editor after the revision your text came from, so nothing was applied. Ask the person whether to bring {} back; only then apply again with prefer \"file\".",
-            ids.join(", "),
-            if ids.len() == 1 { "was" } else { "were" },
-            if ids.len() == 1 { "it" } else { "them" },
-        ),
-    )
-    .details(serde_json::json!({"conflicts": gone})))
+    // The name the person knew the item by: the one at the text's revision, else the one in the text.
+    let base = crate::edits::doc_at(p, plan.base_rev).ok();
+    let name_of = |c: &ove_projection::merge::Conflict| {
+        let at_base = base.as_ref().and_then(|d| d.project.items.get(&c.id)).map(|i| i.name().to_string());
+        let in_text = c.file_value.as_ref().and_then(|v| v["name"].as_str()).map(str::to_string);
+        at_base.filter(|n| !n.is_empty()).or(in_text.filter(|n| !n.is_empty()))
+    };
+    let items: Vec<Value> = gone
+        .iter()
+        .map(|c| json!({"id": c.id, "name": name_of(c), "message": c.message, "fileValue": c.file_value}))
+        .collect();
+    let named: Vec<String> = gone
+        .iter()
+        .map(|c| match name_of(c) {
+            Some(n) => format!("\"{n}\" ({})", c.id),
+            None => c.id.clone(),
+        })
+        .collect();
+    let one = named.len() == 1;
+    let message = format!(
+        "The {} {} {} deleted in the editor after the revision your text came from (an edit conflict), so nothing was applied. Ask the person whether to bring {} back, then apply again with prefer: \"file\".",
+        if one { "clip" } else { "clips" },
+        list(&named),
+        if one { "was" } else { "were" },
+        if one { "it" } else { "them" },
+    );
+    Err(Fail::new("edit.conflict", message).details(json!({"items": items, "conflicts": gone})))
+}
+
+/// `a`, `a and b`, `a, b and c`.
+fn list(names: &[String]) -> String {
+    match names {
+        [] => String::new(),
+        [one] => one.clone(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    }
 }
 
 /// The text edits of an `apply_timeline` call.
@@ -185,7 +211,7 @@ pub fn apply_timeline(ctx: &mut dyn ToolCtx, a: &Args) -> Result<Receipt, Fail> 
         };
         let plan = plan_for(w.project(), &text, prefer)?;
         if explicit.is_none() {
-            refuse_restoring_deleted(&plan)?;
+            refuse_restoring_deleted(w.project(), &plan)?;
         }
         let mut v = plan_json(&plan);
         let changed = !plan.ops.is_empty();

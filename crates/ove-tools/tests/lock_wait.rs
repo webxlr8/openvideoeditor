@@ -18,7 +18,7 @@ use ove_tools::bundle::{WAIT_FOR_SESSION, open_write_waiting};
 /// A library with one empty project; returns its bundle.
 fn fixture() -> (tempfile::TempDir, PathBuf) {
     let d = tempfile::tempdir().unwrap();
-    let library = ove_store::Library::open(&d.path().join("lib"), Arc::new(ove_core::SystemClock)).unwrap();
+    let library = ove_store::Library::open(d.path().join("lib"), Arc::new(ove_core::SystemClock)).unwrap();
     let p = library.create("Demo").unwrap();
     let bundle = p.bundle().to_path_buf();
     p.close().unwrap();
@@ -55,7 +55,7 @@ fn a_holder_that_never_writes_its_file_ends_the_wait_with_a_clear_error() {
     let (_d, bundle) = fixture();
     let _lock = take_bare_lock(&bundle);
     let t0 = Instant::now();
-    let f = open_write_waiting(&bundle).err().expect("the lock stays busy");
+    let Err(f) = open_write_waiting(&bundle) else { panic!("the lock stays busy") };
     let waited = t0.elapsed();
     assert_eq!(f.code, "project.locked", "{}", f.message);
     assert!(waited >= WAIT_FOR_SESSION, "waited the full time: {waited:?}");
@@ -71,7 +71,7 @@ fn a_holder_that_names_the_app_is_reported_at_once() {
     let app = ove_store::lock::Holder { pid: 1, process: "ove-desktop".into(), started_at: 0, host: "here".into() };
     std::fs::write(bundle.join(".lock.holder"), serde_json::to_vec(&app).unwrap()).unwrap();
     let t0 = Instant::now();
-    let f = open_write_waiting(&bundle).err().expect("the app holds it");
+    let Err(f) = open_write_waiting(&bundle) else { panic!("the app holds it") };
     assert_eq!(f.code, "project.locked");
     assert!(f.message.contains("ove-desktop"), "{}", f.message);
     assert!(t0.elapsed() < Duration::from_secs(2), "no wait for the app: {:?}", t0.elapsed());

@@ -4247,6 +4247,7 @@ dependencies = [
  "ove-tools",
  "ove-transcribe",
  "ove-vision",
+ "png",
  "serde_json",
  "tempfile",
 ]

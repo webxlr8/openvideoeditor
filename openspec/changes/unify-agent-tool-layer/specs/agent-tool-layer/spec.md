@@ -53,6 +53,35 @@ conflict preference does not resolve.
 - **THEN** the agent's change to that field is not applied, and the receipt lists the conflict with the item id and
   field
 
+### Requirement: Edits to items deleted in the editor
+With no `prefer`, an edit to an item the person deleted in the editor after the edit's `rev` SHALL fail with
+`edit.conflict` and apply nothing. The message SHALL name each item by name and id and tell the agent to ask the
+person whether to bring it back; the details SHALL list each item. The tool's text says to pass `prefer: "file"` only
+after the person chooses that. This guard is advisory: the apply cannot check it.
+
+#### Scenario: Edit to an item the person deleted, no preference
+- **WHEN** the person deletes item A ("Intro", id `i_a`) in the editor after the agent printed the timeline, and the
+  agent then edits item A against the older `rev` without `prefer`
+- **THEN** nothing is applied, the call fails with `edit.conflict`, the message names "Intro" (`i_a`) and asks the agent
+  to ask the person whether to bring it back, and the details list item A
+
+#### Scenario: Edit to an item the person deleted, person chose to restore it
+- **WHEN** the agent sends the same edit again with `prefer: "file"`
+- **THEN** item A is re-created with its id and the edit, and the receipt lists the conflict
+
+#### Scenario: The guard is advisory
+- **WHEN** an agent passes `prefer: "file"` on its first apply, without asking the person
+- **THEN** item A is re-created; the apply has no way to tell whether the person chose
+
+### Requirement: Apply error codes
+A refused `apply_timeline` call SHALL fail with a code that names the reason. The codes include `argument.invalid`,
+`edit.anchor`, `edit.ambiguous`, `edit.overlap`, `edit.empty`, `edit.conflict`, `rev.malformed`, `rev.pruned`,
+`rev.newer`, `check.failed` (with the diagnostics) and `project.locked`.
+
+#### Scenario: Refusal carries its code
+- **WHEN** an apply is refused because an edit changes an item deleted in the editor and no `prefer` was given
+- **THEN** the error code is `edit.conflict`, not a generic failure
+
 ### Requirement: Edit receipts
 Every successful edit SHALL return a receipt with these fields:
 - the new `rev`;

@@ -15,7 +15,7 @@ import { type ErrorSink, runCommand, unlisten } from "../notify";
 export function sizeText(bytes: number | null | undefined): string {
   if (bytes == null) return "…";
   if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(1)} GB`;
-  // From 500 MB up, gigabytes with two decimals (the visual search model reads "0.63 GB", as `ove models` shows it).
+  // From 500 MB up, gigabytes with two decimals (the visual search model reads "0.76 GB", as `ove models` shows it).
   if (bytes >= 5e8) return `${(bytes / 1e9).toFixed(2)} GB`;
   return `${(bytes / 1e6).toFixed(1)} MB`;
 }

@@ -65,9 +65,12 @@ The edit contract is `{project, rev, edits:[{oldText, newText}]}`. Applying a re
 2. Apply the text edits to that print.
 3. Run the existing 3-way merge, with base `doc_at(rev)` and the current document.
 
-A request is refused in two cases:
+A request is refused in these cases:
 - An `oldText` does not match the old print. Code: `edit.anchor`.
 - The merge reports a conflict and the caller asked for `prefer: "editor"`.
+- The caller gave no `prefer` and the edit changes an item that was deleted in the editor. Code: `edit.conflict`
+  (added in add-agent-chat-context-and-activity). The agent asks the person, and passes `prefer: "file"` only when
+  the person chooses to bring the item back. That rule is in the tool text only; the apply does not check it.
 
 The last 16 printed revisions are cached per project, so most applies do not print again.
 

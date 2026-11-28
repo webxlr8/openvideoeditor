@@ -87,6 +87,7 @@ fn files(vision: &str, text: &str) -> ModelFiles {
         text: d.join(text),
         tokenizer: d.join("tokenizer.model"),
         vision_sha256: format!("{vision}-{text}"),
+        text_sha256: text.to_string(),
     }
 }
 
