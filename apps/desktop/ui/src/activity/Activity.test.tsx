@@ -113,7 +113,7 @@ describe("activity layer", () => {
 
 // The flood's frame times, measured around the whole app with the React profiler.
 describe("activity frame time", () => {
-  it("stays responsive through 1,000 applies in 10 s: batched draws inside a 16 ms frame, at most 200 outlined", async () => {
+  it("stays responsive through 1,000 applies in 10 s: batched draws, at most 200 outlined", async () => {
     const commits: number[] = [];
     let on = false;
     render(
@@ -161,12 +161,11 @@ describe("activity frame time", () => {
     console.info(
       `activity flood: 1000 applies in ${seconds.toFixed(1)} s, ${commits.length} commits (${(commits.length / seconds).toFixed(1)}/s), render p50 ${p50.toFixed(2)} ms, p95 ${p95.toFixed(2)} ms, max ${sorted[sorted.length - 1].toFixed(2)} ms, ${outlined().length} outlined`,
     );
-    // Batched: about ten draws a second, not one per apply. Each batch draws inside a 16 ms frame; this is React's
-    // development build in the test DOM, where pauses for garbage collection give a few slower draws, so the bound
-    // on the slowest 5 % is looser here than in the app.
+    // Batched: about ten draws a second, not one per apply. Draw times are logged above but not asserted: this is
+    // React's development build in the test DOM, and its wall-clock times depend on machine load, not on the app.
+    // The 16 ms frame budget is checked in the built app (add-agent-chat-context-and-activity task 4.3; the same
+    // rule as SkimThumb, docs/flaky-tests.md).
     expect(commits.length).toBeLessThan(1000 / 3);
-    expect(p50).toBeLessThan(16);
-    expect(p95).toBeLessThan(32);
     expect(outlined().length).toBe(MAX_OUTLINES);
     expect(Number(screen.getByTestId("activity-more").textContent.replace(/\D/g, ""))).toBeGreaterThan(0);
   }, 40000);
