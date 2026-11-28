@@ -15,6 +15,7 @@ path = "src/main.rs"
 clap = { version = "4.6", features = ["derive"] }
 dunce = "1.0"
 ove-analyze = { path = "../ove-analyze", optional = true }
+ove-agent = { path = "../ove-agent" }
 ove-agents = { path = "../ove-agents" }
 ove-control = { path = "../ove-control" }
 ove-core = { path = "../ove-core" }
@@ -34,6 +35,7 @@ tempfile = "3"
 [dev-dependencies]
 ove-tasks = { path = "../ove-tasks" }
 ove-transcribe = { path = "../ove-transcribe", default-features = false }
+ove-vision = { path = "../ove-vision" }
 
 [features]
 # Reading media, analysis and `ove export` (links FFmpeg). Desktop bundles build the CLI with it.

@@ -118,6 +118,10 @@ pub trait ToolCtx {
     fn progress(&mut self, _percent: i64, _detail: &Value) {}
     /// A long call that reported progress finished.
     fn progress_done(&mut self) {}
+    /// The skill store: the library's `.skills` folder.
+    fn skills(&mut self) -> Result<crate::skills::SkillStore, Fail> {
+        Ok(crate::skills::SkillStore::of_library(&self.library()?.root))
+    }
     /// The session's state kept between calls (quotes, spend, recent tools). `None`: this context has no session, so
     /// generation and feedback are not available.
     fn session(&self) -> Option<Session> {

@@ -39,6 +39,13 @@ export function TasksButton({
   const [view, setView] = useState<TasksView_Serialize | null>(null);
   const [open, setOpen] = useState(false);
 
+  // The media panel's index pill opens this popover.
+  useEffect(() => {
+    const show = () => setOpen(true);
+    window.addEventListener("ove:open-tasks", show);
+    return () => window.removeEventListener("ove:open-tasks", show);
+  }, []);
+
   useEffect(() => {
     // An update that arrives before the first list answers is newer than it.
     let updated = false;

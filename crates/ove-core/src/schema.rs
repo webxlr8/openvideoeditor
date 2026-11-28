@@ -24,6 +24,9 @@ pub enum Kind {
     SignedTime,
     /// One of a fixed list of strings.
     Enum(&'static [&'static str]),
+    /// A keyframe property: one of a fixed list, or an effect parameter `effects.<effect entry id>.<parameter>`
+    /// (the entry and parameter are checked against the item's effects by the invariants).
+    KeyframeProperty(&'static [&'static str]),
     /// An object with known keys. `open` objects accept extra keys silently (preset parameters); closed objects
     /// keep unknown keys but report a warning.
     Obj { fields: &'static [Field], open: bool },
@@ -164,7 +167,11 @@ const KEYFRAME: &[Field] = &[
 ];
 const KEYFRAME_KIND: Kind = Kind::Obj { fields: KEYFRAME, open: false };
 const KEYFRAME_TRACK: &[Field] = &[
-    f("property", Kind::Enum(KEYFRAME_PROPERTIES), "Animated property."),
+    f(
+        "property",
+        Kind::KeyframeProperty(KEYFRAME_PROPERTIES),
+        "Animated property, or an effect parameter as `effects.<effect id>.<parameter>`.",
+    ),
     f("keyframes", Kind::Arr(&KEYFRAME_KIND), "Keyframes in time order."),
     fd("easing", Kind::Enum(KEYFRAME_EASINGS), Def::Str("linear"), "Interpolation between keyframes."),
 ];
@@ -455,7 +462,34 @@ pub const MEDIA_ITEM_FIELDS: &[Field] = &[
     f("createdAt", Kind::Int { min: None, max: None }, "ms since the epoch."),
     f("addedAt", Kind::Int { min: None, max: None }, "ms since the epoch."),
     f("data", Kind::Any, "type, fileName, format, size, duration, width, height, frameRate, hasAudio, statuses, …"),
+    f("name", Kind::Str, "Display name set by a rename; absent means the file name without its extension."),
+    f("folder", Kind::Str, "Media panel folder, `/`-separated (`Interviews/Day 1`); absent means the top level."),
+    f("tags", Kind::Arr(&Kind::Str), "Tags, in the order they were added."),
+    f("subclips", Kind::Arr(&SUBCLIP), "Saved source ranges of this media, shown under it and dragged like media."),
 ];
+
+/// A saved subclip: a named source range of one media item.
+pub const SUBCLIP_FIELDS: &[Field] = &[
+    f("id", Kind::Str, "Unique within the media item."),
+    f("name", Kind::Str, "Display name."),
+    f("in", Kind::Time, "Source start, seconds."),
+    f("out", Kind::Time, "Source end, seconds (after `in`)."),
+];
+
+const SUBCLIP: Kind = Kind::Obj { fields: SUBCLIP_FIELDS, open: false };
+
+/// Scopes a smart folder's saved query searches.
+pub const SEARCH_SCOPES: &[&str] = &["all", "moments", "spoken", "timelines", "files"];
+
+/// A media panel folder kept in the project (`project.folders`): an empty folder, or a smart folder when it has a
+/// query.
+pub const FOLDER_FIELDS: &[Field] = &[
+    f("path", Kind::Str, "Folder path, `/`-separated."),
+    f("query", Kind::Str, "Saved search query: the folder lists its current matches (a smart folder)."),
+    fd("scope", Kind::Enum(SEARCH_SCOPES), Def::Str("all"), "What the saved query searches."),
+];
+
+const FOLDER: Kind = Kind::Obj { fields: FOLDER_FIELDS, open: false };
 
 /// Frame rate of a timeline without an `fps` field.
 pub const DEFAULT_FPS: f64 = 30.0;
@@ -479,6 +513,7 @@ pub const PROJECT_FIELDS: &[Field] = &[
     f("timelineItems", Kind::Any, "Items."),
     f("tracks", Kind::Any, "Tracks."),
     f("markers", Kind::Any, "Timeline markers (see Marker)."),
+    f("folders", Kind::Arr(&FOLDER), "Media panel folders that hold no media yet, and smart folders (saved queries)."),
 ];
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -546,6 +581,18 @@ pub fn validate(kind: &Kind, v: &Value, path: &str, out: &mut Vec<Issue>) {
                 "enum.known",
                 path,
                 format!("{path} must be one of {}, got {}", values.join(", "), short(v)),
+            )),
+        },
+        Kind::KeyframeProperty(values) => match v.as_str() {
+            Some(s) if values.contains(&s) || crate::effect_params::split_property(s).is_some() => {}
+            _ => out.push(Issue::err(
+                "enum.known",
+                path,
+                format!(
+                    "{path} must be one of {}, or effects.<effect id>.<parameter>, got {}",
+                    values.join(", "),
+                    short(v)
+                ),
             )),
         },
         Kind::Arr(elem) => match v.as_array() {

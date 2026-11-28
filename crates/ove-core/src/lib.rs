@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 
 pub mod diff;
+pub mod effect_params;
 pub mod invariants;
 pub mod jsonschema;
 pub mod migrate;

@@ -255,9 +255,17 @@ pub fn ease(name: &str, p: f64) -> f64 {
 
 /// Value of a keyframed property at item-relative time `rel_us`, if the item animates it.
 pub fn keyframe_value(item: &Item, property: &str, rel_us: Micros) -> Option<f64> {
+    let tracks = item.fields.get("keyframeTracks")?.as_array()?;
+    let track = tracks.iter().find(|t| t.get("property").and_then(Value::as_str) == Some(property))?;
+    track_value(track, rel_us)
+}
+
+/// Value of one keyframe track (`{property, keyframes, easing}`) at item-relative time `rel_us`: transform, opacity,
+/// volume and effect-parameter keyframes all use this.
+pub fn track_value(track: &Value, rel_us: Micros) -> Option<f64> {
     // Per-keyframe easing and `hold` (add-markers-keyframe-lanes-and-versions D6) are shared with the audio mix and
     // the edit planners.
-    ove_core::retime::track_value(ove_core::retime::find_track(item.fields.get("keyframeTracks"), property)?, rel_us)
+    ove_core::retime::track_value(track, rel_us)
 }
 
 /// Source time of a video/audio item at timeline time `t_us` (trim, speed, reverse).

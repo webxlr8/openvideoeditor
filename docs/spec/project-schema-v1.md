@@ -34,6 +34,7 @@ Conventions:
 | `timelineItems` | any |  |  | Items. |
 | `tracks` | any |  |  | Tracks. |
 | `markers` | any |  |  | Timeline markers (see Marker). |
+| `folders` | array of object {path, query, scope} |  |  | Media panel folders that hold no media yet, and smart folders (saved queries). |
 
 Other project fields (`cast`, `temp`, `mediaBaseDirectory`, …) are preserved and changed with `updateProject`.
 
@@ -58,6 +59,10 @@ Other project fields (`cast`, `temp`, `mediaBaseDirectory`, …) are preserved a
 | `createdAt` | integer |  |  | ms since the epoch. |
 | `addedAt` | integer |  |  | ms since the epoch. |
 | `data` | any |  |  | type, fileName, format, size, duration, width, height, frameRate, hasAudio, statuses, … |
+| `name` | string |  |  | Display name set by a rename; absent means the file name without its extension. |
+| `folder` | string |  |  | Media panel folder, `/`-separated (`Interviews/Day 1`); absent means the top level. |
+| `tags` | array of string |  |  | Tags, in the order they were added. |
+| `subclips` | array of object {id, name, in, out} |  |  | Saved source ranges of this media, shown under it and dragged like media. |
 
 ## Registry entry (`media[]`)
 
@@ -405,7 +410,7 @@ Fields in projection attribute order:
 
 | field | type / range | default | required | meaning |
 |---|---|---|---|---|
-| `property` | `x` \| `y` \| `scale` \| `rotation` \| `opacity` \| `gaussianBlur` \| `borderRadius` \| `volume` \| `crop.top` \| `crop.right` \| `crop.bottom` \| `crop.left` |  |  | Animated property. |
+| `property` | `x` \| `y` \| `scale` \| `rotation` \| `opacity` \| `gaussianBlur` \| `borderRadius` \| `volume` \| `crop.top` \| `crop.right` \| `crop.bottom` \| `crop.left` \| `effects.<effect id>.<parameter>` |  |  | Animated property, or an effect parameter as `effects.<effect id>.<parameter>`. |
 | `keyframes` | array of object {time, value, easing} |  |  | Keyframes in time order. |
 | `easing` | `linear` \| `ease-in` \| `ease-out` \| `ease-in-out` \| `hold` | `"linear"` |  | Interpolation between keyframes. |
 

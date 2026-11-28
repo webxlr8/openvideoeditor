@@ -725,7 +725,8 @@ fn run(app: AppHandle, viewer: Sender<ViewerMsg>, rx: Receiver<EngineMsg>, share
             let path = match s.player.source_mut() {
                 AnySource::Media(w) => w.decode_path().to_string(),
                 AnySource::Timeline(t) => format!(
-                    "timeline compositor (CPU, {} ms/frame)",
+                    "timeline compositor ({}; {} ms/frame)",
+                    crate::worker::relock(&t.backend),
                     t.render_ms.load(std::sync::atomic::Ordering::Relaxed)
                 ),
             };

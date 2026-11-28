@@ -64,3 +64,35 @@ jobs:
         run: cargo test -p ove-models --test pinned_urls -- --include-ignored --nocapture
       - name: pure-Rust backend still builds
         run: cargo check -p ove-models --features tract
+
+  # add-gpu-compositor-and-scopes 2.3 / D4: CPU/GPU parity and timings on real GPUs (the reference Mac and PC). Runs
+  # only where the owner has set OVE_RUNNER_GPU_MACOS / OVE_RUNNER_GPU_WINDOWS to runners with a hardware GPU and the
+  # build prerequisites of docs/ci-runners.md; the log names the adapter and every case's metrics and timings.
+  gpu-parity:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos, windows]
+    if: ${{ vars.OVE_RUNNER_GPU_MACOS != '' || vars.OVE_RUNNER_GPU_WINDOWS != '' }}
+    runs-on: ${{ fromJSON(matrix.os == 'macos' && (vars.OVE_RUNNER_GPU_MACOS || '["self-hosted","macOS","ARM64","gpu"]') || (vars.OVE_RUNNER_GPU_WINDOWS || '["self-hosted","Windows","X64","gpu"]')) }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.97.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: v1-rust
+      - name: FFmpeg (LGPL, shared)
+        run: tools/ffmpeg/build.sh --ci
+      - name: parity and timings on the hardware GPU
+        run: |
+          source tools/ffmpeg/env.sh
+          mkdir -p gpu-out
+          OVE_REQUIRE_GPU=1 cargo test --release -p ove-gpu --test parity --test render_parity -- --nocapture 2>&1 | tee gpu-out/parity.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gpu-parity-${{ matrix.os }}
+          path: gpu-out

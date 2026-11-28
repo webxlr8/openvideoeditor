@@ -86,6 +86,12 @@ pub struct Assistant {
 }
 
 impl Assistant {
+    /// The stored API key, if any, and the chosen model (drafting a skill uses them; add-agent-skills-and-connectors).
+    pub(crate) fn key_and_model(&self) -> (Option<String>, String) {
+        let model = self.model.lock().map(|m| m.clone()).unwrap_or_else(|e| e.into_inner().clone());
+        (self.keys.get().map(|(k, _)| k), model)
+    }
+
     pub fn new(settings_dir: Option<PathBuf>) -> Self {
         Self::with_keys(Box::new(OsKeyStore), settings_dir)
     }
@@ -441,6 +447,15 @@ impl ove_tools::AppHost for DesktopApp<'_> {
         crate::generation::start_saved_job(&self.host.app, bundle, job)
             .map_err(|e| ove_tools::Fail::new("worker.failed", e))
     }
+    fn skills(&mut self) -> Option<ove_tools::skills::SkillStore> {
+        skill_store(&self.host.app)
+    }
+}
+
+/// The skill store of the app's library.
+pub(crate) fn skill_store(app: &AppHandle) -> Option<ove_tools::skills::SkillStore> {
+    let state = app.state::<AppState>();
+    crate::projects::with_library(&state.projects, |l| Ok(ove_tools::skills::SkillStore::of_library(&l.root))).ok()
 }
 
 /// The question card's answer that approves a spend.
@@ -1037,6 +1052,8 @@ pub async fn agent_send(app: AppHandle, chat_id: Option<String>, text: String) -
                         max_duration: Duration::from_secs(u64::from(limits.max_minutes) * 60),
                         max_cost_usd: limits.turn_cap_usd,
                         project_cap,
+                        // Read each turn: a skill installed between turns shows in the next one.
+                        skill_index: skill_store(&app2).and_then(|s| ove_tools::skills::index_for(&s)),
                         ..TurnConfig::default()
                     };
                     let _ = run_turn(&client, &store, &chat2, &text, &mut host, &cfg, &cancel, &mut |e| {

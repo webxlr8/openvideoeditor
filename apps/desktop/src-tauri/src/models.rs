@@ -66,7 +66,7 @@ fn store_root(app: &AppHandle) -> PathBuf {
     ove_transcribe::models::model_dir(&data)
 }
 
-fn store(app: &AppHandle) -> Store {
+pub(crate) fn store(app: &AppHandle) -> Store {
     Store::open(store_root(app))
 }
 

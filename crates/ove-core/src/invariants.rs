@@ -18,6 +18,8 @@
 //! | `project.format` | the document's format id is this app's |
 //! | `marker.id.unique` | marker ids are unique (enforced when adding) |
 //! | `marker.note.length` | a marker note has at most 4,000 characters |
+//! | `subclip.id.unique` | subclip ids are unique within their media item |
+//! | `subclip.range` | a subclip's `out` is after its `in` |
 
 use std::collections::{BTreeSet, HashSet};
 
@@ -107,6 +109,7 @@ pub fn check_item(doc: &Document, item: &Item, out: &mut Vec<Issue>) {
             schema::validate(&field.kind, v, &format!("{p}.{k}"), out);
         }
     }
+    effect_keyframes(item, &p, out);
     if let Some(mid) = item.fields.get("mediaItemId").and_then(|v| v.as_str())
         && !doc.project.media.contains_key(mid)
     {
@@ -115,6 +118,46 @@ pub fn check_item(doc: &Document, item: &Item, out: &mut Vec<Issue>) {
             format!("{p}.mediaItemId"),
             format!("item {} references media \"{mid}\", which does not exist", item.id),
         ));
+    }
+}
+
+/// Keyframe tracks on effect parameters (`effects.<entry id>.<parameter>`) must name an effect entry of the item and
+/// one of that effect's numeric parameters.
+fn effect_keyframes(item: &Item, p: &str, out: &mut Vec<Issue>) {
+    let Some(tracks) = item.fields.get("keyframeTracks").and_then(|v| v.as_array()) else { return };
+    let effects = item.fields.get("effects").and_then(|v| v.as_array());
+    for (i, t) in tracks.iter().enumerate() {
+        let Some(prop) = t.get("property").and_then(|v| v.as_str()) else { continue };
+        let Some((id, param)) = crate::effect_params::split_property(prop) else { continue };
+        let path = format!("{p}.keyframeTracks[{i}].property");
+        let entry = effects.and_then(|e| e.iter().find(|e| e.get("id").and_then(|v| v.as_str()) == Some(id)));
+        let Some(entry) = entry else {
+            out.push(err(
+                "keyframe.effect.exists",
+                path,
+                format!("item {} has no effect with id \"{id}\" to animate (keyframes on {prop})", item.id),
+            ));
+            continue;
+        };
+        let kind = entry.get("type").or_else(|| entry.get("template")).and_then(|v| v.as_str()).unwrap_or("");
+        match crate::effect_params::params(kind) {
+            Some(params) if params.contains(&param) => {}
+            Some(params) => out.push(err(
+                "keyframe.effect.param",
+                path,
+                format!(
+                    "effect {kind} (\"{id}\") has no numeric parameter \"{param}\" to animate; it has {}",
+                    params.join(", ")
+                ),
+            )),
+            None => out.push(err(
+                "keyframe.effect.param",
+                path,
+                format!(
+                    "effect \"{id}\" has the unknown type \"{kind}\", so its parameter \"{param}\" cannot be animated"
+                ),
+            )),
+        }
     }
 }
 
@@ -193,6 +236,33 @@ pub fn check_global(doc: &Document, out: &mut Vec<Issue>) {
             if let Some(v) = m.fields.get(key) {
                 schema::validate(&Kind::Int { min: None, max: None }, v, &format!("project.media[{id}].{key}"), out);
             }
+        }
+        // Organisation fields (add-semantic-media-search).
+        for key in ["name", "folder", "tags", "subclips"] {
+            if let (Some(v), Some(f)) = (m.fields.get(key), schema::MEDIA_ITEM_FIELDS.iter().find(|f| f.name == key)) {
+                schema::validate(&f.kind, v, &format!("project.media[{id}].{key}"), out);
+            }
+        }
+        check_subclips(id, m.fields.get("subclips"), out);
+    }
+}
+
+/// Subclip ids are unique within their media item and each range ends after it starts.
+fn check_subclips(media: &str, v: Option<&serde_json::Value>, out: &mut Vec<Issue>) {
+    let Some(list) = v.and_then(serde_json::Value::as_array) else { return };
+    let mut ids = HashSet::new();
+    for (i, s) in list.iter().enumerate() {
+        let p = format!("project.media[{media}].subclips[{i}]");
+        if let Some(sid) = s.get("id").and_then(serde_json::Value::as_str)
+            && !ids.insert(sid)
+        {
+            out.push(err("subclip.id.unique", format!("{p}.id"), format!("duplicate subclip id {sid}")));
+        }
+        let t = |k: &str| s.get(k).and_then(crate::time::json_to_micros);
+        if let (Some(a), Some(b)) = (t("in"), t("out"))
+            && b <= a
+        {
+            out.push(err("subclip.range", p, "a subclip's out must be after its in".into()));
         }
     }
 }

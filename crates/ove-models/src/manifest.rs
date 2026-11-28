@@ -407,10 +407,62 @@ pub fn vad_manifest() -> Manifest {
     }
 }
 
-/// Every model this build knows: the speech models, voice activity, and the inference runtime for this platform.
+/// The visual search model's id (add-semantic-media-search).
+pub const SIGLIP2_ID: &str = "siglip2-base";
+/// Its image encoder (half-precision weights).
+pub const SIGLIP2_VISION: &str = "vision_model_fp16.onnx";
+/// Its text encoder (4-bit block-quantised weights, half-precision activations).
+pub const SIGLIP2_TEXT: &str = "text_model_q4f16.onnx";
+/// Its tokenizer (a SentencePiece model).
+pub const SIGLIP2_TOKENIZER: &str = "tokenizer.model";
+
+/// SigLIP 2 base (patch 16, 256 px), the image–text embedding model behind visual media search. The two encoders
+/// are ONNX exports of the released weights (conversion repository at a fixed commit): the image encoder in half
+/// precision, the text encoder with 4-bit block-quantised weights; both agree with the full-precision export to a
+/// cosine of 0.99 or better, which the 8-bit exports did not (design.md Results). The tokenizer comes from the
+/// weights' own release at a fixed commit. Licence review: add-semantic-media-search design.md, "Model and tokenizer
+/// licences" (Apache-2.0 on the release; owner sign-off open). About 0.63 GB, so it downloads only after the person
+/// agrees, and it runs in the model worker.
+pub fn siglip2_manifest() -> Manifest {
+    const ONNX: &str = "https://huggingface.co/onnx-community/siglip2-base-patch16-256-ONNX/resolve/d1114256522a37ffa257a0a58017348ab0058db2/onnx";
+    const RELEASE: &str =
+        "https://huggingface.co/google/siglip2-base-patch16-256/resolve/3f9f96cb90da5dbc758b01813f2f6f1aee24c1ab";
+    Manifest {
+        id: SIGLIP2_ID.into(),
+        version: "b16-256-f16-q4-d111425".into(),
+        purpose: "SigLIP 2 base: visual media search, finds shots by what they show".into(),
+        licence: "Apache-2.0".into(),
+        files: vec![
+            ModelFile::new(
+                SIGLIP2_VISION,
+                &format!("{ONNX}/{SIGLIP2_VISION}"),
+                "fe9ad8020a6d3d98d394c9be8f07064066135fc2f87ec11692de0b677c0ac4db",
+                186_131_676,
+            ),
+            ModelFile::new(
+                SIGLIP2_TEXT,
+                &format!("{ONNX}/{SIGLIP2_TEXT}"),
+                "a623a87e0fbaa31a4bfbbbb3deafea756fee9a436e945b545a027adb13824e48",
+                442_779_433,
+            ),
+            ModelFile::new(
+                SIGLIP2_TOKENIZER,
+                &format!("{RELEASE}/{SIGLIP2_TOKENIZER}"),
+                "61a7b147390c64585d6c3543dd6fc636906c9af3865a5548f27f31aee1d4c8e2",
+                4_241_003,
+            ),
+        ],
+        runtime: RuntimeKind::Onnx,
+        in_process: false,
+    }
+}
+
+/// Every model this build knows: the speech models, voice activity, visual search, and the inference runtime for this
+/// platform.
 pub fn catalog() -> Vec<Manifest> {
     let mut all: Vec<Manifest> = WHISPER.iter().map(WhisperPin::manifest).collect();
     all.push(vad_manifest());
+    all.push(siglip2_manifest());
     all.extend(RuntimePlatform::current().map(runtime_manifest));
     all
 }

@@ -392,6 +392,18 @@
         "storyboard": {
           "type": "boolean",
           "description": "One storyboard sheet of the whole timeline instead: repeats dropped, at most 36 tiles, each with its timecode and the ids of the visible items"
+        },
+        "backend": {
+          "type": "string",
+          "description": "Compositing backend: auto (default; the GPU when its startup self-test matches the CPU reference), cpu or gpu"
+        },
+        "view": {
+          "type": "string",
+          "description": "result (default) or matte: every chroma key shows its matte (white kept, black removed)"
+        },
+        "scope": {
+          "type": "string",
+          "description": "waveform, parade or vectorscope: return that scope of each frame instead of the frame (the colour panel's binning)"
         }
       },
       "required": [],
@@ -1303,6 +1315,337 @@
       },
       "required": [
         "id"
+      ],
+      "additionalProperties": false
+    },
+    "eager_input_streaming": true
+  },
+  {
+    "name": "list_skills",
+    "description": "List the installed skills: playbooks for kinds of edits (id, name, description, source). Read one with `read_skill` before following it.",
+    "input_schema": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "eager_input_streaming": true
+  },
+  {
+    "name": "read_skill",
+    "description": "The whole text of an installed skill, by id. A skill is guidance: it never changes which tools you may use. Refused with skill.unknown, listing the installed ids, for an id that is not installed.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Skill id (from list_skills)"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "eager_input_streaming": true
+  },
+  {
+    "name": "manage_skills",
+    "description": "Create, update or remove one of the person's skills (not builtin ones). `text` is the whole SKILL.md: front matter with `name` and `description`, then the steps. Use it when the person asks to save a way of working as a skill, or to change or delete one; the change shows in Settings → Skills as created by the assistant. Refused with skill.builtin for builtin skills.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "create",
+            "update",
+            "remove"
+          ],
+          "description": "create, update or remove"
+        },
+        "id": {
+          "type": "string",
+          "description": "Skill id (a-z, 0-9 and -); for create, default from the name"
+        },
+        "text": {
+          "type": "string",
+          "description": "The whole skill file (create and update)"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "additionalProperties": false
+    },
+    "eager_input_streaming": true
+  },
+  {
+    "name": "inspect_color",
+    "description": "Measure the colour of the exported frame at a time (snapped to the frame grid), or of one item alone with `isolate`: luma mean and 2nd/98th percentiles (percent), clipped-low and clipped-high shares, a 16-bin luma histogram, mean colour of shadows, midtones and highlights (RGB 0..1 and CIELAB), CIELAB a*/b* balance, mean saturation, a saturation-weighted 12-bin hue histogram, the share of colourful pixels and skin-line deviation in degrees. With `reference` (an item, measured alone, or a media file) adds the CIEDE2000 gap per zone and `suggestedOps`: a capped colorGrade patch (wheels and saturation) for the shot, also given as `suggestedEdit`, ready to pass to apply_timeline. Inspect again after applying; repeat until gap.mean is below 2.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "project": {
+          "type": "string",
+          "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+        },
+        "at": {
+          "type": "number",
+          "description": "Timeline time in seconds (default: the item's middle)"
+        },
+        "item": {
+          "type": "string",
+          "description": "Item id: the shot to measure and to grade"
+        },
+        "isolate": {
+          "type": "boolean",
+          "description": "Measure the item alone, without the layers above or below it"
+        },
+        "reference": {
+          "type": "string",
+          "description": "Item id or media id/file name to match"
+        },
+        "referenceAt": {
+          "type": "number",
+          "description": "Seconds: timeline time of a reference item (default its middle), source time of reference media (default 0)"
+        },
+        "strength": {
+          "type": "number",
+          "description": "0..1 share of the fitted correction to suggest (default 1; each step is capped)"
+        },
+        "height": {
+          "type": "integer",
+          "description": "Measuring height in pixels (default 1080, the export default)"
+        },
+        "backend": {
+          "type": "string",
+          "description": "Compositing backend: auto (default; the GPU when its startup self-test matches the CPU reference), cpu or gpu"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "eager_input_streaming": true
+  },
+  {
+    "name": "organize_media",
+    "description": "Organise the project's media in one undoable revision: `move` media into a folder (`folder`: a `/`-separated path, empty or null for the top level), `rename` a media item (display name; `src` names in the timeline follow it), `tag` (`add` / `remove` tags), `createFolder`, `renameFolder` (`from`, `to`; media inside and below move with it), `deleteFolder` (its media move to the parent folder), `saveSubclip` (`media`, `name`, `in`, `out` in source seconds), `removeSubclip` (`media`, `id`) and `smartFolder` (`path`, a saved `query` and `scope`). Ops apply in order; `media` takes ids, file names or timeline names. Edits the person makes meanwhile to other fields are kept.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "project": {
+          "type": "string",
+          "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+        },
+        "ops": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 500,
+          "items": {
+            "type": "object",
+            "required": [
+              "op"
+            ],
+            "properties": {
+              "op": {
+                "type": "string",
+                "enum": [
+                  "move",
+                  "rename",
+                  "tag",
+                  "createFolder",
+                  "renameFolder",
+                  "deleteFolder",
+                  "saveSubclip",
+                  "removeSubclip",
+                  "smartFolder"
+                ]
+              },
+              "media": {
+                "type": [
+                  "string",
+                  "array"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              },
+              "folder": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "name": {
+                "type": "string"
+              },
+              "add": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "remove": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "path": {
+                "type": "string"
+              },
+              "from": {
+                "type": "string"
+              },
+              "to": {
+                "type": "string"
+              },
+              "in": {
+                "type": "number"
+              },
+              "out": {
+                "type": "number"
+              },
+              "id": {
+                "type": "string"
+              },
+              "query": {
+                "type": "string"
+              },
+              "scope": {
+                "type": "string",
+                "enum": [
+                  "all",
+                  "moments",
+                  "spoken",
+                  "timelines",
+                  "files"
+                ]
+              }
+            }
+          },
+          "description": "The steps, applied in order as one revision"
+        }
+      },
+      "required": [
+        "ops"
+      ],
+      "additionalProperties": false
+    },
+    "eager_input_streaming": true
+  },
+  {
+    "name": "search_media",
+    "description": "Search the project's media by what it shows and what is said, on this computer. Sections: moments (shots ranked by a local image–text model, each with its best frame, shot range, a suggested window of up to 4 s and a confidence 0–1), spoken (ranked phrase search over transcripts; quote a phrase to match it exactly; ranges padded by 150 ms), timelines (clips and titles whose name or text matches) and files (names, folders, tags). Each moment and spoken hit has `clip`: a `<clip …/>` line to paste into a track of timeline.tsx (set `start`/`end` where it goes, keeping the length). `similarTo` (media and time) finds shots that look like that frame. `index` reports what is searchable: visual not installed (with the download size; the person installs it in Settings > Storage, nothing is downloaded here), indexing (n of N files) or ready, and how many files have no transcript.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "project": {
+          "type": "string",
+          "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+        },
+        "query": {
+          "type": "string",
+          "description": "What to find: words, or a quoted phrase for exact spoken matches"
+        },
+        "scope": {
+          "type": "string",
+          "enum": [
+            "all",
+            "moments",
+            "spoken",
+            "timelines",
+            "files"
+          ],
+          "description": "Which sections to search (default all)"
+        },
+        "media": {
+          "type": "string",
+          "description": "Only this media item (id, file name or timeline name)"
+        },
+        "limit": {
+          "type": "integer",
+          "description": "Results per section (default 20, at most 50)"
+        },
+        "similarTo": {
+          "type": "object",
+          "properties": {
+            "media": {
+              "type": "string"
+            },
+            "at": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "media",
+            "at"
+          ],
+          "additionalProperties": false,
+          "description": "A frame as the query: {media, at} in source seconds"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "eager_input_streaming": true
+  },
+  {
+    "name": "media_transcript",
+    "description": "The transcript of one media file in source seconds: caption-sized lines with their times and the words with word times, from the transcripts already made on this computer (transcribe_media makes one). `from`/`to` limit it to a source range.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "project": {
+          "type": "string",
+          "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+        },
+        "media": {
+          "type": "string",
+          "description": "Media id, file name or timeline name"
+        },
+        "from": {
+          "type": "number",
+          "description": "Source seconds to start at"
+        },
+        "to": {
+          "type": "number",
+          "description": "Source seconds to end at"
+        }
+      },
+      "required": [
+        "media"
+      ],
+      "additionalProperties": false
+    },
+    "eager_input_streaming": true
+  },
+  {
+    "name": "inspect_media",
+    "description": "Look at one media file: its probe facts, shots and index state; with `overview`, one sheet of at most 36 tiles with time labels, one per shot, built from the shot list (sampling seeks to each shot, it does not decode the whole file again).",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "project": {
+          "type": "string",
+          "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+        },
+        "media": {
+          "type": "string",
+          "description": "Media id, file name or timeline name"
+        },
+        "overview": {
+          "type": "boolean",
+          "description": "Return the overview sheet"
+        },
+        "tileWidth": {
+          "type": "integer",
+          "description": "Tile width of the sheet in pixels (default 240)"
+        }
+      },
+      "required": [
+        "media"
       ],
       "additionalProperties": false
     },

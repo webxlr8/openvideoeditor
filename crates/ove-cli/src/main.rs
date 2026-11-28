@@ -19,6 +19,7 @@ mod media;
 mod model_worker;
 mod models;
 mod project;
+mod skills;
 mod versions;
 
 use std::io::Read;
@@ -86,6 +87,21 @@ enum Cmd {
         /// Mean brightness and black / clipped pixel shares per frame.
         #[arg(long)]
         stats: bool,
+        /// Compositing backend: auto (the GPU when its self-test passes), cpu or gpu.
+        #[arg(long)]
+        backend: Option<String>,
+        /// result (default) or matte: every chroma key shows its matte.
+        #[arg(long)]
+        view: Option<String>,
+        /// waveform, parade or vectorscope: write that scope instead of the frame (--out: a .png for one time, or a
+        /// folder).
+        #[arg(long)]
+        scope: Option<String>,
+    },
+    /// Colour readouts for matching shots: inspect.
+    Color {
+        #[command(subcommand)]
+        cmd: ColorCmd,
     },
     /// Render the frame under the running app's playhead.
     Screenshot {
@@ -145,7 +161,8 @@ enum Cmd {
         kind: Option<String>,
     },
     /// Render the timeline (or a range) to a video or audio file: a preset, or a format with codec options (see
-    /// `ove docs export`). With --json, progress is printed as JSON lines.
+    /// `ove docs export`). With --json, progress is printed as JSON lines. `ove render` is the same command.
+    #[command(alias = "render")]
     Export(export::ExportCmd),
     /// Exchange the timeline with other editors (FCPXML, Premiere/FCP7 XML, EDL, OpenTimelineIO).
     Timeline {
@@ -161,10 +178,10 @@ enum Cmd {
     Docs { topic: Option<String> },
     /// Check the library, media support, encoders, the running app and agent setup.
     Doctor,
-    /// Agent skills for Claude Code and Codex.
+    /// Skills: playbooks agents read (the library's skill store), and the editing guide for Claude Code and Codex.
     Skills {
         #[command(subcommand)]
-        cmd: SkillsCmd,
+        cmd: skills::SkillsCmd,
     },
     /// The supported AI agents installed on this computer (Claude, Codex, OpenCode, Hermes, Kimi, Grok).
     Agents {
@@ -191,6 +208,39 @@ enum Cmd {
         /// Record this turn id on every revision the session makes (for `undo_my_changes` scope turn).
         #[arg(long)]
         turn: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum ColorCmd {
+    /// Measure the colour of the exported frame at a time (or of one item alone), optionally against a reference
+    /// item or media frame with a suggested grade patch.
+    Inspect {
+        project: String,
+        /// Timeline time in seconds (snapped to the frame grid; default: the item's middle).
+        #[arg(long)]
+        at: Option<f64>,
+        /// The shot to measure and to grade.
+        #[arg(long)]
+        item: Option<String>,
+        /// Measure the item alone, without the layers above or below it.
+        #[arg(long)]
+        isolate: bool,
+        /// Item id or media id/file name to match.
+        #[arg(long)]
+        reference: Option<String>,
+        /// Timeline time of a reference item (default its middle), or source time of reference media (default 0).
+        #[arg(long)]
+        reference_at: Option<f64>,
+        /// Share of the fitted correction to suggest, 0..1 (each step is capped).
+        #[arg(long)]
+        strength: Option<f64>,
+        /// Measuring height in pixels (default 1080, the export default).
+        #[arg(long)]
+        height: Option<u32>,
+        /// Compositing backend: auto (the GPU when its self-test passes), cpu or gpu.
+        #[arg(long)]
+        backend: Option<String>,
     },
 }
 
@@ -223,15 +273,6 @@ enum AgentsCmd {
     List,
     /// Give an installed agent the editing guide and this program's MCP server (`ove agents connect claude`).
     Connect { agent: String },
-}
-
-#[derive(Subcommand)]
-enum SkillsCmd {
-    /// Write the openvideoeditor skill into the Claude Code / Codex skills folders (or --dir).
-    Install {
-        #[arg(long)]
-        dir: Vec<PathBuf>,
-    },
 }
 
 #[derive(Subcommand)]
@@ -326,7 +367,7 @@ fn run(cli: &Cli, source: Source) -> Out {
             return Ok((r.json, r.text));
         }
         Cmd::Doctor => return docs::doctor(cli.library.as_deref()),
-        Cmd::Skills { cmd: SkillsCmd::Install { dir } } => return docs::install_skills(dir),
+        Cmd::Skills { cmd } => return skills::run(cmd, cli.library.as_deref(), source),
         Cmd::Agents { cmd: None | Some(AgentsCmd::List) } => return docs::agents_list(),
         Cmd::Agents { cmd: Some(AgentsCmd::Connect { agent }) } => return docs::agents_connect(agent),
         Cmd::Models { cmd } => return models::run(cmd, source),
@@ -342,10 +383,18 @@ fn run(cli: &Cli, source: Source) -> Out {
         Cmd::App { cmd } => app::run(&ctx, cmd),
         Cmd::Audio { cmd } => analyze::audio(&ctx, cmd),
         Cmd::Generate { cmd } => generate::run(&ctx, cmd),
-        Cmd::Look { project, at, every, count, width, out, sheet, columns, stats } => ctx.tool(
+        Cmd::Look { project, at, every, count, width, out, sheet, columns, stats, backend, view, scope } => ctx.tool(
             "look",
             json!({"project": project, "at": at, "every": every, "count": count, "width": width, "out": out,
-                   "sheet": sheet, "columns": columns, "stats": stats}),
+                   "sheet": sheet, "columns": columns, "stats": stats, "backend": backend, "view": view,
+                   "scope": scope}),
+        ),
+        Cmd::Color {
+            cmd: ColorCmd::Inspect { project, at, item, isolate, reference, reference_at, strength, height, backend },
+        } => ctx.tool(
+            "inspect_color",
+            json!({"project": project, "at": at, "item": item, "isolate": isolate, "reference": reference,
+                   "referenceAt": reference_at, "strength": strength, "height": height, "backend": backend}),
         ),
         Cmd::Screenshot { out, width } => ctx.tool("screenshot", json!({"out": out, "width": width})),
         Cmd::Source { cmd: SourceCmd::Print { project, from, lines } } => {
@@ -413,6 +462,9 @@ fn exit_code(f: &Fail) -> u8 {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
+    // Queued exports and other renders pick the compositing backend through this (design D9).
+    #[cfg(feature = "media")]
+    ove_tools::tools::backend::install_provider();
     if let Cmd::ModelWorker { idle_secs } = cli.cmd {
         return model_worker::main(idle_secs);
     }

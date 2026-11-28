@@ -44,6 +44,9 @@ fn kind_schema(k: &Kind) -> Value {
         Kind::Time => json!({"type": "number", "minimum": 0, "description": "seconds, microsecond precision"}),
         Kind::SignedTime => json!({"type": "number", "description": "seconds, microsecond precision"}),
         Kind::Enum(v) => json!({"enum": v}),
+        Kind::KeyframeProperty(v) => {
+            json!({"anyOf": [{"enum": v}, {"type": "string", "pattern": "^effects\\..+\\.[^.]+$"}]})
+        }
         Kind::Arr(e) => json!({"type": "array", "items": kind_schema(e)}),
         Kind::Obj { fields, open: _ } => {
             // Unknown keys are preserved (closed objects only warn), so additionalProperties stays allowed.
@@ -116,6 +119,7 @@ pub fn project_schema() -> Value {
                     "tracks": {"type": "array", "items": {"$ref": "#/$defs/track"}},
                     "timelineItems": {"type": "array", "items": {"$ref": "#/$defs/item"}},
                     "markers": {"type": "array", "items": {"$ref": "#/$defs/marker"}},
+                    "folders": schema::project_field("folders").map(field_schema).unwrap_or(Value::Null),
                 },
             },
             "media": {"type": "array", "items": {"$ref": "#/$defs/registryEntry"}},
@@ -154,6 +158,11 @@ fn kind_text(k: &Kind) -> String {
         Kind::Time => "seconds ≥ 0".into(),
         Kind::SignedTime => "seconds".into(),
         Kind::Enum(v) => v.iter().map(|s| format!("`{s}`")).collect::<Vec<_>>().join(" \\| "),
+        Kind::KeyframeProperty(v) => {
+            let mut names: Vec<String> = v.iter().map(|s| format!("`{s}`")).collect();
+            names.push("`effects.<effect id>.<parameter>`".into());
+            names.join(" \\| ")
+        }
         Kind::Arr(e) => format!("array of {}", kind_text(e)),
         Kind::Obj { fields, open } => {
             let keys = fields.iter().map(|f| f.name).collect::<Vec<_>>().join(", ");

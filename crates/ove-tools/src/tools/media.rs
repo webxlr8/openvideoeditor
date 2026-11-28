@@ -41,6 +41,10 @@ pub fn find_media(doc: &Document, bundle: &Path, q: &str) -> Result<String, Fail
     if by_name.len() > 1 {
         return Err(Fail::new("media.ambiguous", format!("{} media items are named {q}; use the id", by_name.len())));
     }
+    // The name the timeline projection uses (`src="…"`, a rename's display name or the file stem); unique by design.
+    if let Some((id, _)) = ove_projection::print::media_names(doc).into_iter().find(|(_, n)| n.to_lowercase() == ql) {
+        return Ok(id);
+    }
     let as_path = dunce::canonicalize(q).unwrap_or_else(|_| PathBuf::from(q));
     if let Some(e) = doc.registry.values().find(|e| resolve_media_path(bundle, &e.native_path) == as_path) {
         return Ok(e.media_id.clone());

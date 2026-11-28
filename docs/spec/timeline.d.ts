@@ -93,7 +93,7 @@ interface ClipProps extends ItemBase {
   /** Blur radius in pixels. */
   gaussianBlur?: number;
   /** Animated properties. */
-  keyframeTracks?: { property?: "x" | "y" | "scale" | "rotation" | "opacity" | "gaussianBlur" | "borderRadius" | "volume" | "crop.top" | "crop.right" | "crop.bottom" | "crop.left"; keyframes?: { time?: Seconds; value?: number; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "hold"; [key: string]: unknown }[]; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "hold"; [key: string]: unknown }[];
+  keyframeTracks?: { property?: "x" | "y" | "scale" | "rotation" | "opacity" | "gaussianBlur" | "borderRadius" | "volume" | "crop.top" | "crop.right" | "crop.bottom" | "crop.left" | `effects.${string}.${string}`; keyframes?: { time?: Seconds; value?: number; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "hold"; [key: string]: unknown }[]; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "hold"; [key: string]: unknown }[];
   /** Transition at the start. */
   transitionIn?: { type?: string; presetId?: string; duration?: Seconds; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; direction?: "left" | "right" | "up" | "down"; [key: string]: unknown };
   /** Transition at the end. */
@@ -154,7 +154,7 @@ interface ImageProps extends ItemBase {
   /** Blur radius in pixels. */
   gaussianBlur?: number;
   /** Animated properties. */
-  keyframeTracks?: { property?: "x" | "y" | "scale" | "rotation" | "opacity" | "gaussianBlur" | "borderRadius" | "volume" | "crop.top" | "crop.right" | "crop.bottom" | "crop.left"; keyframes?: { time?: Seconds; value?: number; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "hold"; [key: string]: unknown }[]; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "hold"; [key: string]: unknown }[];
+  keyframeTracks?: { property?: "x" | "y" | "scale" | "rotation" | "opacity" | "gaussianBlur" | "borderRadius" | "volume" | "crop.top" | "crop.right" | "crop.bottom" | "crop.left" | `effects.${string}.${string}`; keyframes?: { time?: Seconds; value?: number; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "hold"; [key: string]: unknown }[]; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "hold"; [key: string]: unknown }[];
   /** Transition at the start. */
   transitionIn?: { type?: string; presetId?: string; duration?: Seconds; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; direction?: "left" | "right" | "up" | "down"; [key: string]: unknown };
   /** Transition at the end. */
@@ -203,7 +203,7 @@ interface AudioProps extends ItemBase {
   /** Blur radius in pixels. */
   gaussianBlur?: number;
   /** Animated properties. */
-  keyframeTracks?: { property?: "x" | "y" | "scale" | "rotation" | "opacity" | "gaussianBlur" | "borderRadius" | "volume" | "crop.top" | "crop.right" | "crop.bottom" | "crop.left"; keyframes?: { time?: Seconds; value?: number; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "hold"; [key: string]: unknown }[]; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "hold"; [key: string]: unknown }[];
+  keyframeTracks?: { property?: "x" | "y" | "scale" | "rotation" | "opacity" | "gaussianBlur" | "borderRadius" | "volume" | "crop.top" | "crop.right" | "crop.bottom" | "crop.left" | `effects.${string}.${string}`; keyframes?: { time?: Seconds; value?: number; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "hold"; [key: string]: unknown }[]; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "hold"; [key: string]: unknown }[];
   /** Transition at the start. */
   transitionIn?: { type?: string; presetId?: string; duration?: Seconds; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; direction?: "left" | "right" | "up" | "down"; [key: string]: unknown };
   /** Transition at the end. */
@@ -298,7 +298,7 @@ interface TextProps extends ItemBase {
   /** Blur radius in pixels. */
   gaussianBlur?: number;
   /** Animated properties. */
-  keyframeTracks?: { property?: "x" | "y" | "scale" | "rotation" | "opacity" | "gaussianBlur" | "borderRadius" | "volume" | "crop.top" | "crop.right" | "crop.bottom" | "crop.left"; keyframes?: { time?: Seconds; value?: number; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "hold"; [key: string]: unknown }[]; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "hold"; [key: string]: unknown }[];
+  keyframeTracks?: { property?: "x" | "y" | "scale" | "rotation" | "opacity" | "gaussianBlur" | "borderRadius" | "volume" | "crop.top" | "crop.right" | "crop.bottom" | "crop.left" | `effects.${string}.${string}`; keyframes?: { time?: Seconds; value?: number; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "hold"; [key: string]: unknown }[]; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "hold"; [key: string]: unknown }[];
   /** Transition at the start. */
   transitionIn?: { type?: string; presetId?: string; duration?: Seconds; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; direction?: "left" | "right" | "up" | "down"; [key: string]: unknown };
   /** Transition at the end. */
@@ -359,7 +359,7 @@ interface CaptionProps extends ItemBase {
   /** Blur radius in pixels. */
   gaussianBlur?: number;
   /** Animated properties. */
-  keyframeTracks?: { property?: "x" | "y" | "scale" | "rotation" | "opacity" | "gaussianBlur" | "borderRadius" | "volume" | "crop.top" | "crop.right" | "crop.bottom" | "crop.left"; keyframes?: { time?: Seconds; value?: number; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "hold"; [key: string]: unknown }[]; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "hold"; [key: string]: unknown }[];
+  keyframeTracks?: { property?: "x" | "y" | "scale" | "rotation" | "opacity" | "gaussianBlur" | "borderRadius" | "volume" | "crop.top" | "crop.right" | "crop.bottom" | "crop.left" | `effects.${string}.${string}`; keyframes?: { time?: Seconds; value?: number; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "hold"; [key: string]: unknown }[]; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "hold"; [key: string]: unknown }[];
   /** Transition at the start. */
   transitionIn?: { type?: string; presetId?: string; duration?: Seconds; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; direction?: "left" | "right" | "up" | "down"; [key: string]: unknown };
   /** Transition at the end. */
@@ -406,7 +406,7 @@ interface CodeProps extends ItemBase {
   /** Blur radius in pixels. */
   gaussianBlur?: number;
   /** Animated properties. */
-  keyframeTracks?: { property?: "x" | "y" | "scale" | "rotation" | "opacity" | "gaussianBlur" | "borderRadius" | "volume" | "crop.top" | "crop.right" | "crop.bottom" | "crop.left"; keyframes?: { time?: Seconds; value?: number; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "hold"; [key: string]: unknown }[]; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "hold"; [key: string]: unknown }[];
+  keyframeTracks?: { property?: "x" | "y" | "scale" | "rotation" | "opacity" | "gaussianBlur" | "borderRadius" | "volume" | "crop.top" | "crop.right" | "crop.bottom" | "crop.left" | `effects.${string}.${string}`; keyframes?: { time?: Seconds; value?: number; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "hold"; [key: string]: unknown }[]; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "hold"; [key: string]: unknown }[];
   /** Transition at the start. */
   transitionIn?: { type?: string; presetId?: string; duration?: Seconds; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; direction?: "left" | "right" | "up" | "down"; [key: string]: unknown };
   /** Transition at the end. */
@@ -457,7 +457,7 @@ interface AdjustmentProps extends ItemBase {
   /** Blur radius in pixels. */
   gaussianBlur?: number;
   /** Animated properties. */
-  keyframeTracks?: { property?: "x" | "y" | "scale" | "rotation" | "opacity" | "gaussianBlur" | "borderRadius" | "volume" | "crop.top" | "crop.right" | "crop.bottom" | "crop.left"; keyframes?: { time?: Seconds; value?: number; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "hold"; [key: string]: unknown }[]; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "hold"; [key: string]: unknown }[];
+  keyframeTracks?: { property?: "x" | "y" | "scale" | "rotation" | "opacity" | "gaussianBlur" | "borderRadius" | "volume" | "crop.top" | "crop.right" | "crop.bottom" | "crop.left" | `effects.${string}.${string}`; keyframes?: { time?: Seconds; value?: number; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "hold"; [key: string]: unknown }[]; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "hold"; [key: string]: unknown }[];
   /** Transition at the start. */
   transitionIn?: { type?: string; presetId?: string; duration?: Seconds; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; direction?: "left" | "right" | "up" | "down"; [key: string]: unknown };
   /** Transition at the end. */
@@ -508,7 +508,7 @@ interface ShaderProps extends ItemBase {
   /** Blur radius in pixels. */
   gaussianBlur?: number;
   /** Animated properties. */
-  keyframeTracks?: { property?: "x" | "y" | "scale" | "rotation" | "opacity" | "gaussianBlur" | "borderRadius" | "volume" | "crop.top" | "crop.right" | "crop.bottom" | "crop.left"; keyframes?: { time?: Seconds; value?: number; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "hold"; [key: string]: unknown }[]; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "hold"; [key: string]: unknown }[];
+  keyframeTracks?: { property?: "x" | "y" | "scale" | "rotation" | "opacity" | "gaussianBlur" | "borderRadius" | "volume" | "crop.top" | "crop.right" | "crop.bottom" | "crop.left" | `effects.${string}.${string}`; keyframes?: { time?: Seconds; value?: number; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "hold"; [key: string]: unknown }[]; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "hold"; [key: string]: unknown }[];
   /** Transition at the start. */
   transitionIn?: { type?: string; presetId?: string; duration?: Seconds; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; direction?: "left" | "right" | "up" | "down"; [key: string]: unknown };
   /** Transition at the end. */

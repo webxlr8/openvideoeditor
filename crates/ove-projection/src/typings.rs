@@ -13,6 +13,11 @@ fn ts(k: &Kind) -> String {
         Kind::Time | Kind::SignedTime => "Seconds".into(),
         Kind::Any => "unknown".into(),
         Kind::Enum(v) => v.iter().map(|s| format!("\"{s}\"")).collect::<Vec<_>>().join(" | "),
+        Kind::KeyframeProperty(v) => {
+            let mut names: Vec<String> = v.iter().map(|s| format!("\"{s}\"")).collect();
+            names.push("`effects.${string}.${string}`".into());
+            names.join(" | ")
+        }
         Kind::Arr(e) => match e {
             Kind::Enum(_) => format!("({})[]", ts(e)),
             _ => format!("{}[]", ts(e)),

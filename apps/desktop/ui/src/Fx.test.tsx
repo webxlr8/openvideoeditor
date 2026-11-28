@@ -41,7 +41,7 @@ async function clipDetail(): Promise<Fields> {
 describe("effects, transitions, layouts and colour", () => {
   it("the catalogue matches the contract counts", () => {
     const c = JSON.parse(catalogText) as { effects: unknown[]; layouts: unknown[]; luts: unknown[]; transitions: { id: string }[] };
-    expect(c.effects.length).toBe(41);
+    expect(c.effects.length).toBe(42); // 41 catalogue effects and the chroma key
     expect(c.layouts.length).toBe(15);
     expect(c.luts.length).toBe(9);
     for (const t of ["wipe-left", "push", "cross-zoom", "audio-fade", "radial-wipe", "ink-bleed", "film-burn"]) {
@@ -65,6 +65,37 @@ describe("effects, transitions, layouts and colour", () => {
     await waitFor(async () => expect(((await clipDetail()).effects as Fields[])[0].balance).toBe(0.8));
     fireEvent.click(screen.getByTestId("fx-remove-duotone"));
     await waitFor(async () => expect((await clipDetail()).effects).toEqual([]));
+  });
+
+  it("samples a chroma key colour from the viewer: one revision, and nothing outside the layer", async () => {
+    await editorWithClip();
+    await inspectClip();
+    fireEvent.click(screen.getByTestId("insp-tab-effects"));
+    fireEvent.change(await screen.findByTestId("fx-add"), { target: { value: "chroma-key" } });
+    await waitFor(async () => expect(((await clipDetail()).effects as Fields[] | undefined)?.[0]?.type).toBe("chroma-key"));
+    const rect = screen.getByTestId("viewer-rect");
+    const box = () => ({ left: 0, top: 0, width: 200, height: 100, right: 200, bottom: 100, x: 0, y: 0, toJSON: () => ({}) });
+    rect.getBoundingClientRect = box;
+    fireEvent.click(await screen.findByTestId("fx-key-sample"));
+    const overlay = await screen.findByTestId("key-sampler");
+    overlay.getBoundingClientRect = box;
+    const rev = async () => {
+      const v = await commands.projectView();
+      return v.status === "ok" && v.data ? (v.data.rev ?? 0) : 0;
+    };
+    const before = await rev();
+    // A click outside the layer: a message, and nothing changes.
+    fireEvent.pointerDown(overlay, { clientX: 5, clientY: 50 });
+    fireEvent.pointerUp(overlay, { clientX: 5, clientY: 50 });
+    await waitFor(() => expect(screen.getByTestId("key-sampler-msg").textContent).toContain("outside the selected layer"));
+    expect(await rev()).toBe(before);
+    // A drag over the screen sets the key colour as one revision and closes the sampler.
+    fireEvent.pointerDown(overlay, { clientX: 40, clientY: 10 });
+    fireEvent.pointerUp(overlay, { clientX: 60, clientY: 30 });
+    await waitFor(() => expect(screen.queryByTestId("key-sampler")).toBeNull());
+    expect(await rev()).toBe(before + 1);
+    expect(((await clipDetail()).effects as Fields[])[0].keyColor).toEqual([0.12, 0.72, 0.22]);
+    expect(window.__oveMock!.calls.some((c) => c.startsWith("sampleKeyColor:") && c.endsWith("0.20,0.10,0.30,0.30"))).toBe(true);
   });
 
   it("adds a background generator as a shader layer with its own inspector", async () => {
@@ -134,5 +165,21 @@ describe("effects, transitions, layouts and colour", () => {
     await waitFor(async () => expect(((((await clipDetail()).colorGrade as Fields).wheels as Fields).gain as Fields).r).toBe(0.08));
     expect(((await clipDetail()).colorGrade as Fields).lut).toBeTruthy();
     expect(await screen.findByTestId("scopes")).toBeTruthy();
+  });
+
+  it("scopes follow a grade change while paused", async () => {
+    await editorWithClip();
+    fireEvent.click(screen.getByTestId("insp-tab-color"));
+    const canvas = await screen.findByTestId("scope-canvas");
+    await waitFor(() => expect(canvas.getAttribute("data-seq")).not.toBe(""));
+    expect(window.__oveMock!.calls).toContain("setScope:waveform");
+    fireEvent.click(screen.getByTestId("scope-vectorscope"));
+    await waitFor(() => expect(window.__oveMock!.calls).toContain("setScope:vectorscope"));
+    const before = canvas.getAttribute("data-seq");
+    fireEvent.click(await screen.findByTestId("lut-cinematic"));
+    const started = Date.now();
+    await waitFor(() => expect(canvas.getAttribute("data-seq")).not.toBe(before), { timeout: 1000 });
+    // The panel polls every 66 ms, well inside the 200 ms the scenario allows.
+    expect(Date.now() - started).toBeLessThan(400);
   });
 });

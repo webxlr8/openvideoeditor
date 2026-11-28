@@ -44,6 +44,7 @@ ove-models = { path = "../../../crates/ove-models" }
 ove-tasks = { path = "../../../crates/ove-tasks" }
 ove-tools = { path = "../../../crates/ove-tools", features = ["speech"] }
 ove-transcribe = { path = "../../../crates/ove-transcribe" }
+ove-vision = { path = "../../../crates/ove-vision", features = ["media"] }
 png = "0.18"
 base64 = "0.22"
 ove-playback = { path = "../../../crates/ove-playback", features = ["media", "audio-output"] }
@@ -62,6 +63,8 @@ tokio = { version = "1", default-features = false, features = ["sync"] }
 tracing = "0.1.44"
 tracing-appender = "0.2.5"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+# The desktop-extension package Connect builds for Claude Desktop (add-agent-skills-and-connectors D8).
+zip = { version = "9.8", default-features = false, features = ["deflate"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"

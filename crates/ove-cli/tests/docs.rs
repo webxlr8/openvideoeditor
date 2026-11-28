@@ -96,6 +96,12 @@ fn documented_examples_run_with_documented_exit_codes() {
 }
 
 #[test]
+fn color_examples() {
+    let (d, lib) = setup();
+    assert_eq!(run_examples("color.md", &lib, d.path()), 3);
+}
+
+#[test]
 fn project_examples() {
     let (d, lib) = setup();
     assert_eq!(run_examples("project.md", &lib, d.path()), 7);
@@ -115,6 +121,35 @@ fn project_examples() {
 fn tasks_examples() {
     let (d, lib) = setup();
     assert_eq!(run_examples("tasks.md", &lib, d.path()), 4);
+}
+
+#[test]
+fn skills_examples() {
+    let (d, lib) = setup();
+    assert_eq!(run_examples("skills.md", &lib, d.path()), 5);
+    // A reviewed draft is saved with `add`, and keeps its drafted source.
+    let draft = d.path().join("draft.md");
+    let text = "---\nname: Calm captions\ndescription: Caption a talk calmly.\nsource: drafted\n---\n\n1. Step.\n";
+    std::fs::write(&draft, text).unwrap();
+    let out = ove(&lib, d.path(), &["skills", "add", draft.to_str().unwrap(), "--json"]);
+    let v: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!((v["id"].as_str(), v["origin"]["kind"].as_str()), (Some("calm-captions"), Some("drafted")));
+    assert_eq!(
+        ove(&lib, d.path(), &["skills", "add", draft.to_str().unwrap(), "--id", "calm-captions"]).status.code(),
+        Some(1)
+    );
+    let out = ove(&lib, d.path(), &["skills", "list", "--json"]);
+    let v: Value = serde_json::from_slice(&out.stdout).unwrap();
+    let ids: Vec<&str> = v["skills"].as_array().unwrap().iter().map(|s| s["id"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["caption-styling", "colour-matching", "interview-cutting", "calm-captions"]);
+    let out = ove(&lib, d.path(), &["skills", "show", "nope", "--json"]);
+    let e: Value = serde_json::from_slice(&out.stderr).unwrap();
+    assert_eq!(e["error"]["code"], "skill.unknown");
+    // The guide written by `ove skills install` names the skill tools.
+    let guide = d.path().join("guide");
+    assert!(ove(&lib, d.path(), &["skills", "install", "--dir", guide.to_str().unwrap()]).status.success());
+    let text = std::fs::read_to_string(guide.join("openvideoeditor/SKILL.md")).unwrap();
+    assert!(text.contains("read_skill") && text.contains("list_skills"));
 }
 
 #[test]

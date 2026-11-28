@@ -47,15 +47,19 @@ setup `.exe`, Linux `.deb`); on Linux, `tools/package.sh --target windows-x64-gn
   - **Audio**: volume keyframes and waveforms with a gain line on clips, meters, scrub audio, ducking under dialogue,
     a true-peak limiter, and loudness targets on export (for example −14 LUFS).
   - **Export**: a queue that survives restarts, ProRes (including 4444 with alpha), audio-only (M4A, WAV), and save a
-    range as media. HEVC, DNxHR, VP9 and AV1 need encoders the current FFmpeg build does not have yet. The export
-    dialog for these is in progress.
+    range as media, from an export dialog with presets and an Exports panel. HEVC, DNxHR, VP9 and AV1 need encoders
+    the current FFmpeg build does not have yet.
+  - **Picture**: a GPU compositor that checks itself against the CPU renderer (some effects still render on the
+    CPU), a chroma key, live waveform, parade and vectorscope scopes, and `inspect_color` so agents can match shots.
   - **Agents**: one tool set for the in-app assistant, `ove mcp` and the CLI; an agent can undo only its own edits;
-    agent spending needs a person to approve each quote, with a spend cap; feedback drafts stay on this computer.
+    agent spending needs a person to approve each quote, with a spend cap; feedback drafts stay on this computer;
+    skills (playbooks) for agents, with a hash-pinned catalog you confirm, and one-step connection for Claude
+    Desktop and Cursor.
   - **Background work and models**: a scheduler that pauses during playback and export, hover skim, and local models
     (ONNX Runtime, downloaded on first use with consent).
 - Known limits: the shipped FFmpeg build cannot read PNG files, so generated images do not decode until the FFmpeg
   rebuild in `docs/owner-checklist.md`. `ove transcript transcribe` needs the app to be open.
-- Not yet: GPU effects, subject masks, stock media search, voice cloning, signed installers and in-place updates
+- Not yet: subject masks, stock media search, voice cloning, signed installers and in-place updates
   (need the owner's certificates).
 
 ## Docs

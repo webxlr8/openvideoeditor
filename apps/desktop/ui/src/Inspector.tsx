@@ -725,7 +725,7 @@ export function Inspector({
         )}
         {detail !== null && tab === "effects" && catalog && (
           <Section title="Effects">
-            <EffectStackEditor catalog={catalog} fields={d} set={set} />
+            <EffectStackEditor catalog={catalog} fields={d} set={set} sampling={{ itemId: item.id, time: playhead ?? 0 }} />
           </Section>
         )}
         {detail !== null && tab === "shader" && catalog && (

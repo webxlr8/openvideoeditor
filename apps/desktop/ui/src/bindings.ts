@@ -332,6 +332,23 @@ export const commands = {
 	matchColor: (itemId: string, referenceTime: number | null, strength: number | null) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("match_color", { itemId, referenceTime, strength })),
 	/**  Histograms (red, green, blue, luma; 64 bins, 0..1) of the timeline frame at `time` seconds. */
 	colorScopes: (time: number | null) => typedError<((number | null)[])[], AppError>(__TAURI_INVOKE("color_scopes", { time })),
+	/**
+	 *  Sets the key colour of chroma key `effect_id` on `item_id` to the mean source colour (before grading) under a
+	 *  viewer point or rectangle (`rect`: x0, y0, x1, y1 as fractions of the frame) at `time` seconds: one revision.
+	 *  A point or rectangle that misses the layer changes nothing and reports `outside`.
+	 */
+	sampleKeyColor: (itemId: string, effectId: string, time: number | null, rect: (number | null)[]) => typedError<KeySample_Serialize, AppError>(__TAURI_INVOKE("sample_key_color", { itemId, effectId, time, rect })),
+	/**  Which scope the colour panel shows (`waveform`, `parade`, `vectorscope`), or none to stop binning. */
+	setScope: (scope: string | null) => typedError<null, AppError>(__TAURI_INVOKE("set_scope", { scope })),
+	/**  The latest scope grid, when newer than `since` (its `seq`). */
+	scopeFrame: (since: number | null) => typedError<ScopeFrame | null, AppError>(__TAURI_INVOKE("scope_frame", { since })),
+	/**  The current compositing status. */
+	compositingStatus: () => typedError<CompositingStatus_Serialize, AppError>(__TAURI_INVOKE("compositing_status")),
+	/**
+	 *  Allows or forbids the GPU for compositing. Applies to timeline previews built (the timeline is rebuilt on every
+	 *  edit and on open) and exports started after the change.
+	 */
+	setGpuCompositing: (enabled: boolean) => typedError<CompositingStatus_Serialize, AppError>(__TAURI_INVOKE("set_gpu_compositing", { enabled })),
 	/**  The onboarding state (a first run when there is none yet). */
 	onboardingState: () => typedError<OnboardingState_Serialize, AppError>(__TAURI_INVOKE("onboarding_state")),
 	/**  Changes the onboarding state and returns it as it is now. */
@@ -356,6 +373,56 @@ export const commands = {
 	transcriptQuery: (tool: string, args: string) => typedError<string, AppError>(__TAURI_INVOKE("transcript_query", { tool, args })),
 	/**  Runs a cutting tool (`remove_words`, `remove_silence`) on the open project as one revision. */
 	transcriptCut: (tool: string, args: string) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("transcript_cut", { tool, args })),
+	/**  Every skill in the store, with the catalog address and the export targets. */
+	skillsView: () => typedError<SkillsView_Serialize, AppError>(__TAURI_INVOKE("skills_view")),
+	/**  A skill's whole file (also for invalid skills, so the person can fix them). */
+	skillText: (id: string) => typedError<string, AppError>(__TAURI_INVOKE("skill_text", { id })),
+	/**  Saves the editor: a new skill (no id: one is made from its name) or the person's edit of one. */
+	skillSave: (id: string | null, text: string, drafted: boolean) => typedError<SkillRow_Serialize, AppError>(__TAURI_INVOKE("skill_save", { id, text, drafted })),
+	skillRemove: (id: string) => typedError<null, AppError>(__TAURI_INVOKE("skill_remove", { id })),
+	/**  Sets the catalog address (HTTPS); empty clears it. Fetches nothing. */
+	skillsSetCatalog: (url: string) => typedError<null, AppError>(__TAURI_INVOKE("skills_set_catalog", { url })),
+	/**
+	 *  Fetches the catalog (the person opened or refreshed the Community list). Refused, with no request, when no
+	 *  address is set.
+	 */
+	skillsCatalog: () => typedError<CatalogView, AppError>(__TAURI_INVOKE("skills_catalog")),
+	/**  Fetches and verifies a catalog skill for the person to read before installing. Installs nothing. */
+	skillInstallPreview: (id: string) => typedError<SkillInstallPreview, AppError>(__TAURI_INVOKE("skill_install_preview", { id })),
+	/**
+	 *  Installs a catalog skill the person confirmed: `sha256` is the pin of the text they read in the preview, and the
+	 *  install is refused when the catalog now pins anything else.
+	 */
+	skillInstall: (id: string, installAs: string, sha256: string) => typedError<SkillRow_Serialize, AppError>(__TAURI_INVOKE("skill_install", { id, installAs, sha256 })),
+	/**  The differences an update would make. Installs nothing. */
+	skillUpdateOffer: (id: string) => typedError<SkillUpdateOffer, AppError>(__TAURI_INVOKE("skill_update_offer", { id })),
+	/**  Installs an update the person accepted; `sha256` is the one they saw. */
+	skillUpdateAccept: (id: string, sha256: string) => typedError<SkillRow_Serialize, AppError>(__TAURI_INVOKE("skill_update_accept", { id, sha256 })),
+	/**  Exports a skill to the chosen agents. `overwrite`: the person confirmed replacing copies they changed there. */
+	skillExport: (id: string, targets: string[], overwrite: boolean) => typedError<SkillExportOutcome_Serialize[], AppError>(__TAURI_INVOKE("skill_export", { id, targets, overwrite })),
+	/**
+	 *  Drafts a skill from the open project with the assistant (the person clicked Draft). Returns the draft for the
+	 *  editor; nothing is saved until the person saves it. `with_chat` includes the project's latest chat.
+	 */
+	skillDraft: (withChat: boolean) => typedError<string, AppError>(__TAURI_INVOKE("skill_draft", { withChat })),
+	/**  Claude Desktop and Cursor on this computer: installed, connected, and the manual configuration. */
+	connectors: () => typedError<ConnectorInfo_Serialize[], AppError>(__TAURI_INVOKE("connectors")),
+	/**  Connect: opens the client's install path (the person clicked Connect). The client then asks the person to confirm. */
+	connectorConnect: (id: string) => typedError<ConnectorOpened, AppError>(__TAURI_INVOKE("connector_connect", { id })),
+	/**
+	 *  Disconnect: removes the editor's server from the client's configuration file (a copy of the old file is kept). A
+	 *  Claude Desktop extension is removed in Claude Desktop's settings.
+	 */
+	connectorDisconnect: (id: string) => typedError<boolean, AppError>(__TAURI_INVOKE("connector_disconnect", { id })),
+	/**
+	 *  Searches the open project's media (`search_media`): runs off the project turn, so a first query that starts the
+	 *  model worker does not hold up editing.
+	 */
+	mediaSearch: (args: string) => typedError<string, AppError>(__TAURI_INVOKE("media_search", { args })),
+	/**  Organises media (`organize_media`): folders, tags, renames and subclips, as one revision. */
+	mediaOrganize: (ops: string) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("media_organize", { ops })),
+	/**  The index state of the open project: model installed or its size, indexed files of all, indexing tasks. */
+	mediaIndexStatus: () => typedError<MediaIndexStatus, AppError>(__TAURI_INVOKE("media_index_status")),
 };
 
 /** Events */
@@ -669,6 +736,20 @@ export type CaptionModel = {
 	default: boolean,
 };
 
+export type CatalogEntryView = {
+	id: string,
+	name: string,
+	description: string,
+	sha256: string,
+};
+
+export type CatalogView = {
+	url: string,
+	entries: CatalogEntryView[],
+	skipped: string[],
+	installed: SkillUpdateRow[],
+};
+
 /**  One line of the chat as the UI shows it. */
 export type ChatItem = ChatItem_Serialize | ChatItem_Deserialize;
 
@@ -730,6 +811,70 @@ export type ClearResult_Serialize = {
 	/**  Files that could not be removed (in use); they go on the next clear. */
 	left: number,
 	view: StorageView_Serialize,
+};
+
+/**  What Settings and the diagnostics overlay show. */
+export type CompositingStatus = CompositingStatus_Serialize | CompositingStatus_Deserialize;
+
+/**  What Settings and the diagnostics overlay show. */
+export type CompositingStatus_Deserialize = {
+	/**  The person allows the GPU (Settings → Rendering). */
+	gpuEnabled: boolean,
+	/**  The backend in use: "gpu" or "cpu"; "starting" until the startup self-test has run. */
+	backend: string,
+	adapter?: string | null,
+	/**  Why this backend. */
+	reason: string,
+};
+
+/**  What Settings and the diagnostics overlay show. */
+export type CompositingStatus_Serialize = {
+	/**  The person allows the GPU (Settings → Rendering). */
+	gpuEnabled: boolean,
+	/**  The backend in use: "gpu" or "cpu"; "starting" until the startup self-test has run. */
+	backend: string,
+	adapter: string | null,
+	/**  Why this backend. */
+	reason: string,
+};
+
+/**  One desktop client as the Connect list shows it. */
+export type ConnectorInfo = ConnectorInfo_Serialize | ConnectorInfo_Deserialize;
+
+/**  One desktop client as the Connect list shows it. */
+export type ConnectorInfo_Deserialize = {
+	id: string,
+	name: string,
+	installed: boolean,
+	connected: boolean,
+	getIt: string,
+	/**  `extension` (a package the client installs) or `link` (an install link). */
+	kind: string,
+	/**  Where the manual configuration goes. */
+	configFile?: string | null,
+	/**  The manual configuration to copy. */
+	snippet: string,
+};
+
+/**  One desktop client as the Connect list shows it. */
+export type ConnectorInfo_Serialize = {
+	id: string,
+	name: string,
+	installed: boolean,
+	connected: boolean,
+	getIt: string,
+	/**  `extension` (a package the client installs) or `link` (an install link). */
+	kind: string,
+	/**  Where the manual configuration goes. */
+	configFile: string | null,
+	/**  The manual configuration to copy. */
+	snippet: string,
+};
+
+export type ConnectorOpened = {
+	/**  What was opened: the package file or the link. */
+	opened: string,
+	detail: string,
 };
 
 /**  A container and what it may hold. */
@@ -1271,6 +1416,27 @@ export type KeyCheck = {
 	message: string,
 };
 
+/**  What a key colour sample did: the new colour and the project, or that the point was outside the layer. */
+export type KeySample = KeySample_Serialize | KeySample_Deserialize;
+
+/**  What a key colour sample did: the new colour and the project, or that the point was outside the layer. */
+export type KeySample_Deserialize = {
+	/**  The click or rectangle missed the layer: nothing changed. */
+	outside: boolean,
+	/**  The sampled colour (RGB 0..1), when set. */
+	color?: (number | null)[] | null,
+	project?: ProjectView_Deserialize | null,
+};
+
+/**  What a key colour sample did: the new colour and the project, or that the point was outside the layer. */
+export type KeySample_Serialize = {
+	/**  The click or rectangle missed the layer: nothing changed. */
+	outside: boolean,
+	/**  The sampled colour (RGB 0..1), when set. */
+	color: (number | null)[] | null,
+	project: ProjectView_Serialize | null,
+};
+
 /**  One keyframe as a lane shows it. */
 export type KeyView = KeyView_Serialize | KeyView_Deserialize;
 
@@ -1452,6 +1618,23 @@ export type MarkerView_Serialize = {
 	assignee: string | null,
 };
 
+/**  What the media panel's index pill shows. */
+export type MediaIndexStatus = {
+	/**  The visual search model is installed. */
+	modelInstalled: boolean,
+	/**  Its download size when it is not. */
+	downloadBytes: number | null,
+	/**  What the install offer names: the model, its weights' licence and where it downloads from. */
+	modelName: string,
+	licence: string,
+	host: string,
+	/**  Videos and images with a current index, of all. */
+	indexed: number,
+	total: number,
+	/**  Indexing tasks queued or running for this project. */
+	running: number,
+};
+
 /**  Properties shown next to the viewer. */
 export type MediaInfo = MediaInfo_Serialize | MediaInfo_Deserialize;
 
@@ -1501,6 +1684,11 @@ export type MediaView_Deserialize = {
 	thumbnail?: string | null,
 	/**  The hover-skim sheet, once built (served at `ove-skim://localhost/<contentId>.jpg`). */
 	skim?: SkimView | null,
+	/**  Media panel folder (add-semantic-media-search), `/`-separated; none at the top level. */
+	folder?: string | null,
+	tags: string[],
+	/**  Saved source ranges, shown under the media and dragged like it. */
+	subclips: SubclipView[],
 };
 
 export type MediaView_Serialize = {
@@ -1517,6 +1705,11 @@ export type MediaView_Serialize = {
 	thumbnail: string | null,
 	/**  The hover-skim sheet, once built (served at `ove-skim://localhost/<contentId>.jpg`). */
 	skim: SkimView | null,
+	/**  Media panel folder (add-semantic-media-search), `/`-separated; none at the top level. */
+	folder: string | null,
+	tags: string[],
+	/**  Saved source ranges, shown under the media and dragged like it. */
+	subclips: SubclipView[],
 };
 
 /**  One reading as the UI uses it. Times are media seconds; levels are dB. */
@@ -1809,8 +2002,173 @@ export type SavedRange_Serialize = {
 	format: string | null,
 };
 
+/**  The latest scope for the panel. */
+export type ScopeFrame = {
+	/**  Increases with every new grid. */
+	seq: number | null,
+	scope: string,
+	/**  Timeline time of the frame, microseconds. */
+	ptsUs: number | null,
+	width: number,
+	height: number,
+	/**  `width × height` density bytes (0 empty … 255 fullest), row-major, base64. */
+	data: string,
+};
+
 export type SendResult = {
 	chatId: string,
+};
+
+export type SkillDiffLine = {
+	/**  `" "`, `"-"` or `"+"`. */
+	op: string,
+	text: string,
+};
+
+/**  The result of exporting to one agent. */
+export type SkillExportOutcome = SkillExportOutcome_Serialize | SkillExportOutcome_Deserialize;
+
+/**  The result of exporting to one agent. */
+export type SkillExportOutcome_Deserialize = {
+	target: string,
+	name: string,
+	ok: boolean,
+	file?: string | null,
+	/**  `export.modified` when the copy there was changed (export again with overwrite to replace it). */
+	code?: string | null,
+	message?: string | null,
+};
+
+/**  The result of exporting to one agent. */
+export type SkillExportOutcome_Serialize = {
+	target: string,
+	name: string,
+	ok: boolean,
+	file: string | null,
+	/**  `export.modified` when the copy there was changed (export again with overwrite to replace it). */
+	code: string | null,
+	message: string | null,
+};
+
+/**  What an install would write, verified against its pin, for the person to read and confirm. */
+export type SkillInstallPreview = {
+	id: string,
+	name: string,
+	sha256: string,
+	catalogUrl: string,
+	installAs: string,
+	text: string,
+	unknownTools: string[],
+};
+
+/**  One skill as the Installed and Local lists show it. */
+export type SkillRow = SkillRow_Serialize | SkillRow_Deserialize;
+
+/**  One skill as the Installed and Local lists show it. */
+export type SkillRow_Deserialize = {
+	id: string,
+	name: string,
+	description: string,
+	version?: string | null,
+	/**  `builtin`, `catalog`, `local`, `drafted` or `assistant`. */
+	kind: string,
+	/**  Where it came from, as shown (`catalog <url>`, `created by the assistant`, …). */
+	source: string,
+	builtin: boolean,
+	/**  Why agents are not offered it. */
+	invalid?: string | null,
+	/**  Edited since the app installed it. */
+	modified: boolean,
+	path?: string | null,
+	/**  Front-matter keys that are ignored. */
+	ignoredKeys: string[],
+	/**  Tool names in the text that are not agent tools. */
+	unknownTools: string[],
+};
+
+/**  One skill as the Installed and Local lists show it. */
+export type SkillRow_Serialize = {
+	id: string,
+	name: string,
+	description: string,
+	version: string | null,
+	/**  `builtin`, `catalog`, `local`, `drafted` or `assistant`. */
+	kind: string,
+	/**  Where it came from, as shown (`catalog <url>`, `created by the assistant`, …). */
+	source: string,
+	builtin: boolean,
+	/**  Why agents are not offered it. */
+	invalid: string | null,
+	/**  Edited since the app installed it. */
+	modified: boolean,
+	path: string | null,
+	/**  Front-matter keys that are ignored. */
+	ignoredKeys: string[],
+	/**  Tool names in the text that are not agent tools. */
+	unknownTools: string[],
+};
+
+/**  One agent skills can be exported to. */
+export type SkillTarget = SkillTarget_Serialize | SkillTarget_Deserialize;
+
+/**  One agent skills can be exported to. */
+export type SkillTarget_Deserialize = {
+	id: string,
+	name: string,
+	dir: string,
+	available: boolean,
+	reason?: string | null,
+};
+
+/**  One agent skills can be exported to. */
+export type SkillTarget_Serialize = {
+	id: string,
+	name: string,
+	dir: string,
+	available: boolean,
+	reason: string | null,
+};
+
+export type SkillUpdateOffer = {
+	id: string,
+	/**  True when the person edited the skill: accepting installs a copy under `install_as`. */
+	asCopy: boolean,
+	installAs: string,
+	sha256: string,
+	diff: SkillDiffLine[],
+};
+
+/**  An installed catalog skill and whether an update is offered. */
+export type SkillUpdateRow = {
+	id: string,
+	/**  `upToDate`, `available`, `modified` (an update comes as a copy), `editedLocally` or `gone`. */
+	state: string,
+};
+
+export type SkillsView = SkillsView_Serialize | SkillsView_Deserialize;
+
+export type SkillsView_Deserialize = {
+	/**  The store folder. */
+	root: string,
+	skills: SkillRow_Deserialize[],
+	/**  The catalog address; empty when none is set. */
+	catalogUrl: string,
+	/**  Valid skills, and the most the assistant's index lists. */
+	validCount: number,
+	indexCap: number,
+	targets: SkillTarget_Deserialize[],
+};
+
+export type SkillsView_Serialize = {
+	/**  The store folder. */
+	root: string,
+	skills: SkillRow_Serialize[],
+	/**  The catalog address; empty when none is set. */
+	catalogUrl: string,
+	/**  Valid skills, and the most the assistant's index lists. */
+	validCount: number,
+	indexCap: number,
+	targets: SkillTarget_Serialize[],
 };
 
 /**  A skim sheet's image and layout: tile `i` of `count` sits at column `i % columns`, row `i / columns`. */
@@ -1867,6 +2225,15 @@ export type StorageView_Serialize = {
 	project: string | null,
 	rows: CacheRow[],
 	useProxies: boolean,
+};
+
+/**  A saved subclip of a media item: a named source range. */
+export type SubclipView = {
+	id: string,
+	name: string,
+	/**  Source seconds. */
+	start: number | null,
+	end: number | null,
 };
 
 /**  One task as the popover shows it. */

@@ -71,6 +71,10 @@ pub fn media_names(doc: &Document) -> BTreeMap<String, String> {
 }
 
 fn stem(m: &MediaItem) -> Option<String> {
+    // A display name given by a rename (add-semantic-media-search) wins over the file name.
+    if let Some(n) = m.fields.get("name").and_then(Value::as_str).map(str::trim).filter(|n| !n.is_empty()) {
+        return Some(n.to_string());
+    }
     let f = m.file_name()?;
     let s = std::path::Path::new(f).file_stem()?.to_string_lossy().into_owned();
     if s.is_empty() { None } else { Some(s) }
@@ -85,7 +89,7 @@ pub struct PrintContext {
     pub offline: BTreeSet<String>,
 }
 
-fn media_row(m: &MediaItem, doc: &Document, ctx: &PrintContext, name: &str) -> [String; 6] {
+fn media_row(m: &MediaItem, doc: &Document, ctx: &PrintContext, name: &str) -> Vec<String> {
     let d = m.data();
     let get = |k: &str| d.and_then(|d| d.get(k));
     let kind = get("type").and_then(Value::as_str).unwrap_or("-").to_string();
@@ -102,7 +106,7 @@ fn media_row(m: &MediaItem, doc: &Document, ctx: &PrintContext, name: &str) -> [
     } else {
         doc.registry.get(&m.id).map(|e| e.probe_status().to_string()).unwrap_or_else(|| "-".into())
     };
-    [name.to_string(), m.id.clone(), kind, duration, res, status]
+    vec![name.to_string(), m.id.clone(), kind, duration, res, status]
 }
 
 fn header(doc: &Document, ctx: &PrintContext, names: &BTreeMap<String, String>) -> String {
@@ -128,11 +132,24 @@ fn header(doc: &Document, ctx: &PrintContext, names: &BTreeMap<String, String>) 
         line("media: (none)");
     } else {
         line("media:");
-        let mut rows = vec![["name", "id", "type", "duration", "resolution", "status"].map(String::from)];
-        for (id, m) in &doc.project.media {
-            rows.push(media_row(m, doc, ctx, &names[id]));
+        // Media panel folders (add-semantic-media-search) get a column when any media is in one.
+        let folders = doc.project.media.values().any(|m| m.fields.get("folder").and_then(Value::as_str).is_some());
+        let mut head: Vec<String> =
+            ["name", "id", "type", "duration", "resolution", "status"].map(String::from).to_vec();
+        if folders {
+            head.push("folder".into());
         }
-        let widths: Vec<usize> = (0..6).map(|c| rows.iter().map(|r| r[c].chars().count()).max().unwrap_or(0)).collect();
+        let mut rows = vec![head];
+        for (id, m) in &doc.project.media {
+            let mut r = media_row(m, doc, ctx, &names[id]);
+            if folders {
+                r.push(m.fields.get("folder").and_then(Value::as_str).unwrap_or("-").to_string());
+            }
+            rows.push(r);
+        }
+        let columns = rows[0].len();
+        let widths: Vec<usize> =
+            (0..columns).map(|c| rows.iter().map(|r| r[c].chars().count()).max().unwrap_or(0)).collect();
         for r in rows {
             let cells: Vec<String> = r.iter().enumerate().map(|(c, v)| format!("{v:<w$}", w = widths[c])).collect();
             line(&format!("  {}", cells.join("  ").trim_end()));

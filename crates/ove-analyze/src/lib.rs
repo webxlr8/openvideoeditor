@@ -5,6 +5,7 @@
 
 pub mod analysis;
 pub mod audio;
+pub mod color_stats;
 pub mod duck;
 /// The BS.1770 core, shared with the meters and export (design D8).
 pub use ove_render::loudness;
@@ -17,7 +18,7 @@ pub mod video;
 
 pub use audio::{Levels, Loudness, Range, levels, loudness, silence, waveform_png};
 pub use image::{Image, Stats, frame_stats, sheet};
-pub use look::{look, timeline_times};
+pub use look::{look, look_with, timeline_times};
 pub use video::{FilmstripOpts, SceneCut, Scenes, filmstrip, frame_to_image, grab, scenes};
 
 #[derive(Debug, thiserror::Error)]

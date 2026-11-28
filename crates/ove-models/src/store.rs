@@ -55,6 +55,8 @@ pub struct NotInstalled {
     pub host: String,
     /// How to install it.
     pub install: String,
+    /// Licence of the weights (empty when unknown).
+    pub licence: String,
     pub message: String,
 }
 
@@ -75,10 +77,12 @@ impl NotInstalled {
             bytes,
             download_bytes,
             message: format!(
-                "{what}; it is a {} MB download from {host} that needs your consent: install it in Settings > Storage \
-                 or run `{install}`",
-                crate::error::mb_up(download_bytes)
+                "{what}; it is a {} download from {host} (licence {}) that needs your consent: install it in \
+                 Settings > Storage or run `{install}`",
+                crate::error::size_text(download_bytes),
+                m.licence
             ),
+            licence: m.licence.clone(),
             host,
             install,
         }

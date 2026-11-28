@@ -82,6 +82,23 @@ impl GpuContext {
         Self::with_instance(instance, None, options, 0)
     }
 
+    /// Opens the software adapter only (WARP on Windows, lavapipe on Linux): CI-like runs and parity checks on
+    /// machines without a usable GPU.
+    pub fn software() -> Result<Self, GpuError> {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: backends(),
+            ..wgpu::InstanceDescriptor::new_without_display_handle()
+        });
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::LowPower,
+            force_fallback_adapter: true,
+            compatible_surface: None,
+            ..Default::default()
+        }))
+        .map_err(|e| GpuError::NoAdapter(e.to_string()))?;
+        Self::with_adapter(instance, adapter, GpuOptions { allow_software: true }, 0)
+    }
+
     /// Opens the GPU on an existing instance, compatible with `surface` when given.
     pub fn with_instance(
         instance: wgpu::Instance,
@@ -104,6 +121,15 @@ impl GpuContext {
             }
             Err(e) => return Err(GpuError::NoAdapter(e.to_string())),
         };
+        Self::with_adapter(instance, adapter, options, generation)
+    }
+
+    fn with_adapter(
+        instance: wgpu::Instance,
+        adapter: wgpu::Adapter,
+        options: GpuOptions,
+        generation: u64,
+    ) -> Result<Self, GpuError> {
         let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
             label: Some("ove-viewer"),
             required_features: wgpu::Features::empty(),
@@ -147,6 +173,11 @@ impl GpuContext {
         self.lost_reason.lock().map(|r| r.clone()).unwrap_or_default()
     }
 
+    /// A handle that can simulate a device loss after the context has been moved into a renderer or backend.
+    pub fn loss_handle(&self) -> LossHandle {
+        LossHandle { device: self.device.clone(), lost: self.lost.clone() }
+    }
+
     /// Destroys the device as a driver reset would. Test and diagnostics hook.
     pub fn simulate_device_loss(&self) {
         self.device.destroy();
@@ -158,6 +189,22 @@ impl GpuContext {
     /// Recreates adapter and device on the same instance (so existing surfaces stay valid).
     pub fn recreate(&self, surface: Option<&wgpu::Surface<'_>>) -> Result<GpuContext, GpuError> {
         GpuContext::with_instance(self.instance.clone(), surface, self.options.clone(), self.generation + 1)
+    }
+}
+
+/// Simulates a device loss on a context held elsewhere (tests and the diagnostics menu).
+#[derive(Clone)]
+pub struct LossHandle {
+    device: wgpu::Device,
+    lost: Arc<AtomicBool>,
+}
+
+impl LossHandle {
+    /// Destroys the device as a driver reset would.
+    pub fn trigger(&self) {
+        self.device.destroy();
+        let _ = self.device.poll(wgpu::PollType::Poll);
+        self.lost.store(true, Ordering::SeqCst);
     }
 }
 

@@ -78,6 +78,34 @@
           "items": {
             "$ref": "#/$defs/marker"
           }
+        },
+        "folders": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string",
+                "description": "Folder path, `/`-separated."
+              },
+              "query": {
+                "type": "string",
+                "description": "Saved search query: the folder lists its current matches (a smart folder)."
+              },
+              "scope": {
+                "enum": [
+                  "all",
+                  "moments",
+                  "spoken",
+                  "timelines",
+                  "files"
+                ],
+                "description": "What the saved query searches.",
+                "default": "all"
+              }
+            }
+          },
+          "description": "Media panel folders that hold no media yet, and smart folders (saved queries)."
         }
       }
     },
@@ -162,6 +190,48 @@
         },
         "data": {
           "description": "type, fileName, format, size, duration, width, height, frameRate, hasAudio, statuses, …"
+        },
+        "name": {
+          "type": "string",
+          "description": "Display name set by a rename; absent means the file name without its extension."
+        },
+        "folder": {
+          "type": "string",
+          "description": "Media panel folder, `/`-separated (`Interviews/Day 1`); absent means the top level."
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Tags, in the order they were added."
+        },
+        "subclips": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Unique within the media item."
+              },
+              "name": {
+                "type": "string",
+                "description": "Display name."
+              },
+              "in": {
+                "type": "number",
+                "minimum": 0,
+                "description": "Source start, seconds."
+              },
+              "out": {
+                "type": "number",
+                "minimum": 0,
+                "description": "Source end, seconds (after `in`)."
+              }
+            }
+          },
+          "description": "Saved source ranges of this media, shown under it and dragged like media."
         }
       }
     },
@@ -400,21 +470,29 @@
                 "type": "object",
                 "properties": {
                   "property": {
-                    "enum": [
-                      "x",
-                      "y",
-                      "scale",
-                      "rotation",
-                      "opacity",
-                      "gaussianBlur",
-                      "borderRadius",
-                      "volume",
-                      "crop.top",
-                      "crop.right",
-                      "crop.bottom",
-                      "crop.left"
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "x",
+                          "y",
+                          "scale",
+                          "rotation",
+                          "opacity",
+                          "gaussianBlur",
+                          "borderRadius",
+                          "volume",
+                          "crop.top",
+                          "crop.right",
+                          "crop.bottom",
+                          "crop.left"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "pattern": "^effects\\..+\\.[^.]+$"
+                      }
                     ],
-                    "description": "Animated property."
+                    "description": "Animated property, or an effect parameter as `effects.<effect id>.<parameter>`."
                   },
                   "keyframes": {
                     "type": "array",
@@ -973,21 +1051,29 @@
                 "type": "object",
                 "properties": {
                   "property": {
-                    "enum": [
-                      "x",
-                      "y",
-                      "scale",
-                      "rotation",
-                      "opacity",
-                      "gaussianBlur",
-                      "borderRadius",
-                      "volume",
-                      "crop.top",
-                      "crop.right",
-                      "crop.bottom",
-                      "crop.left"
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "x",
+                          "y",
+                          "scale",
+                          "rotation",
+                          "opacity",
+                          "gaussianBlur",
+                          "borderRadius",
+                          "volume",
+                          "crop.top",
+                          "crop.right",
+                          "crop.bottom",
+                          "crop.left"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "pattern": "^effects\\..+\\.[^.]+$"
+                      }
                     ],
-                    "description": "Animated property."
+                    "description": "Animated property, or an effect parameter as `effects.<effect id>.<parameter>`."
                   },
                   "keyframes": {
                     "type": "array",
@@ -1477,21 +1563,29 @@
                 "type": "object",
                 "properties": {
                   "property": {
-                    "enum": [
-                      "x",
-                      "y",
-                      "scale",
-                      "rotation",
-                      "opacity",
-                      "gaussianBlur",
-                      "borderRadius",
-                      "volume",
-                      "crop.top",
-                      "crop.right",
-                      "crop.bottom",
-                      "crop.left"
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "x",
+                          "y",
+                          "scale",
+                          "rotation",
+                          "opacity",
+                          "gaussianBlur",
+                          "borderRadius",
+                          "volume",
+                          "crop.top",
+                          "crop.right",
+                          "crop.bottom",
+                          "crop.left"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "pattern": "^effects\\..+\\.[^.]+$"
+                      }
                     ],
-                    "description": "Animated property."
+                    "description": "Animated property, or an effect parameter as `effects.<effect id>.<parameter>`."
                   },
                   "keyframes": {
                     "type": "array",
@@ -2044,21 +2138,29 @@
                 "type": "object",
                 "properties": {
                   "property": {
-                    "enum": [
-                      "x",
-                      "y",
-                      "scale",
-                      "rotation",
-                      "opacity",
-                      "gaussianBlur",
-                      "borderRadius",
-                      "volume",
-                      "crop.top",
-                      "crop.right",
-                      "crop.bottom",
-                      "crop.left"
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "x",
+                          "y",
+                          "scale",
+                          "rotation",
+                          "opacity",
+                          "gaussianBlur",
+                          "borderRadius",
+                          "volume",
+                          "crop.top",
+                          "crop.right",
+                          "crop.bottom",
+                          "crop.left"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "pattern": "^effects\\..+\\.[^.]+$"
+                      }
                     ],
-                    "description": "Animated property."
+                    "description": "Animated property, or an effect parameter as `effects.<effect id>.<parameter>`."
                   },
                   "keyframes": {
                     "type": "array",
@@ -2522,21 +2624,29 @@
                 "type": "object",
                 "properties": {
                   "property": {
-                    "enum": [
-                      "x",
-                      "y",
-                      "scale",
-                      "rotation",
-                      "opacity",
-                      "gaussianBlur",
-                      "borderRadius",
-                      "volume",
-                      "crop.top",
-                      "crop.right",
-                      "crop.bottom",
-                      "crop.left"
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "x",
+                          "y",
+                          "scale",
+                          "rotation",
+                          "opacity",
+                          "gaussianBlur",
+                          "borderRadius",
+                          "volume",
+                          "crop.top",
+                          "crop.right",
+                          "crop.bottom",
+                          "crop.left"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "pattern": "^effects\\..+\\.[^.]+$"
+                      }
                     ],
-                    "description": "Animated property."
+                    "description": "Animated property, or an effect parameter as `effects.<effect id>.<parameter>`."
                   },
                   "keyframes": {
                     "type": "array",
@@ -2952,21 +3062,29 @@
                 "type": "object",
                 "properties": {
                   "property": {
-                    "enum": [
-                      "x",
-                      "y",
-                      "scale",
-                      "rotation",
-                      "opacity",
-                      "gaussianBlur",
-                      "borderRadius",
-                      "volume",
-                      "crop.top",
-                      "crop.right",
-                      "crop.bottom",
-                      "crop.left"
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "x",
+                          "y",
+                          "scale",
+                          "rotation",
+                          "opacity",
+                          "gaussianBlur",
+                          "borderRadius",
+                          "volume",
+                          "crop.top",
+                          "crop.right",
+                          "crop.bottom",
+                          "crop.left"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "pattern": "^effects\\..+\\.[^.]+$"
+                      }
                     ],
-                    "description": "Animated property."
+                    "description": "Animated property, or an effect parameter as `effects.<effect id>.<parameter>`."
                   },
                   "keyframes": {
                     "type": "array",
@@ -3367,21 +3485,29 @@
                 "type": "object",
                 "properties": {
                   "property": {
-                    "enum": [
-                      "x",
-                      "y",
-                      "scale",
-                      "rotation",
-                      "opacity",
-                      "gaussianBlur",
-                      "borderRadius",
-                      "volume",
-                      "crop.top",
-                      "crop.right",
-                      "crop.bottom",
-                      "crop.left"
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "x",
+                          "y",
+                          "scale",
+                          "rotation",
+                          "opacity",
+                          "gaussianBlur",
+                          "borderRadius",
+                          "volume",
+                          "crop.top",
+                          "crop.right",
+                          "crop.bottom",
+                          "crop.left"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "pattern": "^effects\\..+\\.[^.]+$"
+                      }
                     ],
-                    "description": "Animated property."
+                    "description": "Animated property, or an effect parameter as `effects.<effect id>.<parameter>`."
                   },
                   "keyframes": {
                     "type": "array",
@@ -3916,21 +4042,29 @@
                 "type": "object",
                 "properties": {
                   "property": {
-                    "enum": [
-                      "x",
-                      "y",
-                      "scale",
-                      "rotation",
-                      "opacity",
-                      "gaussianBlur",
-                      "borderRadius",
-                      "volume",
-                      "crop.top",
-                      "crop.right",
-                      "crop.bottom",
-                      "crop.left"
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "x",
+                          "y",
+                          "scale",
+                          "rotation",
+                          "opacity",
+                          "gaussianBlur",
+                          "borderRadius",
+                          "volume",
+                          "crop.top",
+                          "crop.right",
+                          "crop.bottom",
+                          "crop.left"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "pattern": "^effects\\..+\\.[^.]+$"
+                      }
                     ],
-                    "description": "Animated property."
+                    "description": "Animated property, or an effect parameter as `effects.<effect id>.<parameter>`."
                   },
                   "keyframes": {
                     "type": "array",
