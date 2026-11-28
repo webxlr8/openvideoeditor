@@ -381,7 +381,10 @@ pub fn undo_timeline(ctx: &mut dyn ToolCtx, a: &Args) -> Result<Receipt, Fail> {
                 )
             })?,
         };
-        let new = w.undo_selected(&[target.rev], format!("undo: {}", target.summary))?;
+        // The caller's own revisions that change nothing now are not someone else's later change.
+        let ours: Vec<i64> =
+            own.iter().filter(|r| r.rev != target.rev && already_undone(w.project(), r)).map(|r| r.rev).collect();
+        let new = w.undo_selected(&[target.rev], &ours, format!("undo: {}", target.summary))?;
         let v = json!({"rev": new, "changed": true, "undoneRevs": [target.rev], "undone": target.summary, "viaApp": w.via_app()});
         Ok(Receipt::new(v, format!("rev {new}: undid \"{}\"{}", target.summary, via(w))))
     })
@@ -448,20 +451,22 @@ pub fn undo_my_changes(ctx: &mut dyn ToolCtx, a: &Args) -> Result<Receipt, Fail>
     let source = ctx.source();
     let bundle = ctx.bundle(a.project())?;
     edit(ctx, &bundle, |w| {
-        let own: Vec<RevisionRecord> = own_revisions(w.project(), actor.as_ref(), source, turn.as_deref())?
-            .into_iter()
-            .filter(|r| !already_undone(w.project(), r))
-            .collect();
+        // Revisions of the scope that change nothing now (set a value already there, or undone before) are not
+        // reverted, and are not someone else's later change either (the same rule as the store's `undo_scope`).
+        let all = own_revisions(w.project(), actor.as_ref(), source, turn.as_deref())?;
+        let (own, noop) = w.project().split_effective(all);
         if own.is_empty() {
             return Err(Fail::new("undo.nothing", "There is nothing of yours to undo in that scope."));
         }
         let revs: Vec<i64> = own.iter().map(|r| r.rev).collect();
+        let ours: Vec<i64> = noop.iter().map(|r| r.rev).collect();
         let what = match &turn {
             Some(t) => format!("turn {t}"),
             None => "session".to_string(),
         };
         let new = w.undo_selected(
             &revs,
+            &ours,
             format!("undo the {what} ({} change{})", revs.len(), if revs.len() == 1 { "" } else { "s" }),
         )?;
         let v = json!({"rev": new, "changed": true, "undoneRevs": revs, "viaApp": w.via_app()});

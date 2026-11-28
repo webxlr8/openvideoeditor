@@ -155,12 +155,28 @@ impl Project {
     /// The retained revisions of `scope` that still change something (reverting them would change the document),
     /// oldest first.
     pub fn revisions_in_scope(&self, scope: &UndoScope) -> Result<Vec<RevisionRecord>, StoreError> {
-        Ok(self
-            .records()?
-            .into_iter()
-            .filter(|r| in_scope(r, scope))
-            .filter(|r| ove_core::apply_batch(self.doc(), &r.inverse).is_ok_and(|a| !a.doc.content_eq(self.doc())))
-            .collect())
+        Ok(self.split_effective(self.records()?.into_iter().filter(|r| in_scope(r, scope)).collect()).0)
+    }
+
+    /// Splits `records` (oldest first) into those that reverting them together still changes the document and those
+    /// that change nothing now (set a value already there, or undone before), both oldest first. They are tried
+    /// newest first against the document as the newer ones leave it, so a revision whose own revert looks like a
+    /// no-op only because a later one of the same set put its old value back is still reverted.
+    pub fn split_effective(&self, records: Vec<RevisionRecord>) -> (Vec<RevisionRecord>, Vec<RevisionRecord>) {
+        let mut doc = self.doc().clone();
+        let (mut effective, mut noop) = (Vec::new(), Vec::new());
+        for r in records.into_iter().rev() {
+            match ove_core::apply_batch(&doc, &r.inverse) {
+                Ok(a) if !a.doc.content_eq(&doc) => {
+                    doc = a.doc;
+                    effective.push(r);
+                }
+                _ => noop.push(r),
+            }
+        }
+        effective.reverse();
+        noop.reverse();
+        (effective, noop)
     }
 
     /// Reverts every revision of `scope` as one new revision, keeping every other actor's changes. Refused with the
@@ -325,5 +341,26 @@ mod tests {
         let agent = media(&mut p, Source::Mcp);
         identity(&mut p, Source::Gui, "name");
         assert!(matches!(p.undo_selected(&[agent], Source::Undo, "undo".into(), None), Err(UndoError::Conflict(_))));
+    }
+
+    #[test]
+    fn a_scope_whose_revisions_set_a_value_back_is_reverted_as_a_whole() {
+        // The person sets "p"; the agent sets "x", then "p" again. Alone, reverting the agent's first revision (back
+        // to "p") changes nothing now, but it must still be reverted after the second, or the undo leaves "x".
+        let agent =
+            Actor { kind: ove_core::revision::ActorKind::Mcp, session: Some("A".into()), turn: None, client: None };
+        let (_d, mut p) = project();
+        set(&mut p, "a", json!({"name": "p"}), Source::Gui);
+        let by_agent = |p: &mut Project, name: &str| {
+            let mut set = serde_json::Map::new();
+            set.insert("name".into(), json!(name));
+            p.apply_as(vec![Op::UpdateItem { id: "a".into(), set }], Source::Mcp, None, Some(agent.clone())).unwrap();
+        };
+        by_agent(&mut p, "x");
+        by_agent(&mut p, "p");
+        let scope = UndoScope::Session(agent.clone());
+        assert_eq!(p.revisions_in_scope(&scope).unwrap().len(), 2);
+        p.undo_scope(&scope, "undo".into(), None).unwrap();
+        assert_eq!(p.doc().item("a").unwrap().get("name"), Some(json!("p")));
     }
 }

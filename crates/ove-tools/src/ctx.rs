@@ -63,8 +63,9 @@ pub trait Editor {
         self.apply(ops, summary)
     }
     /// Reverts the revisions `revs` as one new revision (source `undo`), keeping every other change; refused with
-    /// `undo.conflict` when later changes touched the same fields.
-    fn undo_selected(&mut self, revs: &[i64], summary: String) -> Result<i64, Fail>;
+    /// `undo.conflict` when later changes by someone else touched the same fields. Revisions in `ours` (the caller's
+    /// own, not reverted because they change nothing now) never count as someone else's later change.
+    fn undo_selected(&mut self, revs: &[i64], ours: &[i64], summary: String) -> Result<i64, Fail>;
     /// [`Editor::apply`] recorded as `actor`'s change instead of the context's (a generation job filling the
     /// placeholder its agent asked for). Editors that cannot record another actor apply it as their own.
     fn apply_by(&mut self, ops: Vec<Op>, summary: String, _actor: Option<Actor>) -> Result<i64, Fail> {
@@ -221,8 +222,8 @@ impl Editor for LocalEditor<'_> {
         self.project.apply_mapped_as(ops, self.source, Some(summary), time_map, self.actor.clone())?;
         Ok(self.project.rev())
     }
-    fn undo_selected(&mut self, revs: &[i64], summary: String) -> Result<i64, Fail> {
-        undo_on(self.project, revs, summary, self.actor.clone())
+    fn undo_selected(&mut self, revs: &[i64], ours: &[i64], summary: String) -> Result<i64, Fail> {
+        undo_on(self.project, revs, ours, summary, self.actor.clone())
     }
     fn restore(&mut self, target: i64) -> Result<Option<(i64, String)>, Fail> {
         Ok(self.project.restore_as(target, Source::Undo)?.map(|c| (c.record.rev, c.record.summary)))
@@ -242,10 +243,18 @@ impl Editor for LocalEditor<'_> {
     }
 }
 
-/// Selective undo on a project this process holds, with the refusal agents see.
-pub fn undo_on(p: &mut Project, revs: &[i64], summary: String, actor: Option<Actor>) -> Result<i64, Fail> {
+/// Selective undo on a project this process holds, with the refusal agents see. Revisions in `ours` (the caller's
+/// own, not reverted) never count as a later change by someone else.
+pub fn undo_on(
+    p: &mut Project,
+    revs: &[i64],
+    ours: &[i64],
+    summary: String,
+    actor: Option<Actor>,
+) -> Result<i64, Fail> {
     use ove_store::undo::UndoError;
-    match p.undo_selected(revs, Source::Undo, summary, actor) {
+    let ours: std::collections::BTreeSet<i64> = ours.iter().copied().collect();
+    match p.undo_selected_among(revs, &ours, Source::Undo, summary, actor) {
         Ok(c) => Ok(c.record.rev),
         Err(UndoError::Nothing) => Err(Fail::new("undo.nothing", "There is nothing to undo.")),
         Err(UndoError::Store(e)) => Err(e.into()),

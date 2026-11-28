@@ -194,12 +194,20 @@ fn handle(app: &AppHandle, method: &str, params: Value) -> Result<Value, ove_con
             // Selective undo of the caller's revisions (agents' `undo_timeline` / `undo_my_changes`).
             let revs: Vec<i64> = serde_json::from_value(params.get("revs").cloned().unwrap_or(Value::Null))
                 .map_err(|e| refusal("argument.invalid", format!("revs: {e}")))?;
+            // The caller's own revisions that are not reverted (older callers send none).
+            let ours: Vec<i64> = match params.get("ours") {
+                Some(v) if !v.is_null() => {
+                    serde_json::from_value(v.clone()).map_err(|e| refusal("argument.invalid", format!("ours: {e}")))?
+                }
+                _ => Vec::new(),
+            };
             let actor = socket_actor(&params)?;
             let summary = params.get("summary").and_then(Value::as_str).unwrap_or("undo").to_string();
             let state = app.state::<AppState>();
             let mut g = lock(&state.projects.open).map_err(|e| refusal("app.busy", e.message))?;
             let p = check_open(g.as_mut(), &params)?;
-            let rev = ove_tools::ctx::undo_on(p, &revs, summary, actor).map_err(|f| refusal(&f.code, f.message))?;
+            let rev =
+                ove_tools::ctx::undo_on(p, &revs, &ours, summary, actor).map_err(|f| refusal(&f.code, f.message))?;
             emit(app, Some(p));
             Ok(json!({"rev": rev}))
         }

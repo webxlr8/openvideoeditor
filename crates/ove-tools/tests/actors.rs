@@ -183,3 +183,81 @@ fn undo_my_changes_reverts_a_session_or_one_turn_as_one_revision() {
     assert!(r.is_ok(), "{r:?}");
     assert_eq!(item(&bundle, "b", "name"), Some(json!("B")));
 }
+
+#[test]
+fn undo_my_changes_is_not_refused_by_the_agents_own_no_op_revision() {
+    // The agent's middle revision is a no-op now (rev 3 set the value rev 2 replaced back), so it is not reverted;
+    // it is still the agent's own change, not someone else's later one, and must not refuse the undo.
+    let (_d, lib, bundle) = fixture();
+    let mut ag = agent(&lib, "s1", "claude-code");
+    agent_set(&mut ag, "a", "name", "\"A\"", "\"A1\"");
+    agent_set(&mut ag, "a", "name", "\"A1\"", "\"A2\"");
+    agent_set(&mut ag, "a", "name", "\"A2\"", "\"A1\"");
+    let r = call(&mut ag, "undo_my_changes", json!({"project": "Demo"}));
+    assert!(r.is_ok(), "{r:?}");
+    assert_eq!(item(&bundle, "a", "name"), Some(json!("A")));
+}
+
+/// Cases for the undo property. Each case writes durable revisions, so the default is lower than the pure property
+/// suites (`OVE_PROPTEST_CASES` overrides it; `OVE_PROP_CASES` is read as a fallback).
+fn cases() -> u32 {
+    ["OVE_PROPTEST_CASES", "OVE_PROP_CASES"]
+        .iter()
+        .find_map(|k| std::env::var(k).ok().and_then(|v| v.parse().ok()))
+        .unwrap_or(300)
+}
+
+const FIELDS: [&str; 2] = ["name", "textContent"];
+
+/// One edit: who (0 the person, 1 the agent), which item (a or b), which field, a value seed (small, so the same
+/// value is often set again: a no-op revision).
+type Step = (u8, usize, usize, u8);
+
+proptest::proptest! {
+    #![proptest_config(proptest::prelude::ProptestConfig { cases: cases(), ..proptest::prelude::ProptestConfig::default() })]
+
+    /// `undo_my_changes` either gives the document of the person's edits alone, or is refused with `undo.conflict`
+    /// and changes nothing; it is refused only when the person changed a field after the agent changed it.
+    #[test]
+    fn undo_my_changes_keeps_only_the_persons_edits_or_refuses_on_a_real_conflict(
+        steps in proptest::collection::vec((0u8..2, 0usize..2, 0usize..2, 0u8..3), 1..8),
+    ) {
+        let (_d, lib, bundle) = fixture();
+        let mut ag = agent(&lib, "s1", "claude-code");
+        let me = ag.actor.clone();
+        let mut p = Project::open(&bundle, Mode::Write, clock()).unwrap();
+        let original = p.doc().clone();
+        let mut alone = original.clone();
+        for s in &steps {
+            let (who, id, field, v): Step = *s;
+            let mut set = Map::new();
+            set.insert(FIELDS[field].into(), json!(format!("{} {v}", FIELDS[field])));
+            let op = Op::UpdateItem { id: ["a", "b"][id].into(), set };
+            if who == 0 {
+                alone = ove_core::ops::apply_batch(&alone, std::slice::from_ref(&op)).unwrap().doc;
+                p.apply(vec![op], Source::Gui, None).unwrap();
+            } else {
+                p.apply_as(vec![op], Source::Mcp, None, me.clone()).unwrap();
+            }
+        }
+        let before = p.doc().clone();
+        p.close().unwrap();
+        let agent_edited = steps.iter().any(|s| s.0 == 1);
+        let now = || Project::open(&bundle, Mode::ReadOnly, clock()).unwrap().doc().clone();
+        match call(&mut ag, "undo_my_changes", json!({"project": "Demo"})) {
+            Ok(_) => proptest::prop_assert!(now().content_eq(&alone), "steps {steps:?}"),
+            Err(e) if e.code == "undo.nothing" => {
+                proptest::prop_assert!(now().content_eq(&before));
+                proptest::prop_assert!(before.content_eq(&alone) || !agent_edited, "steps {steps:?}");
+            }
+            Err(e) => {
+                proptest::prop_assert_eq!(e.code.as_str(), "undo.conflict", "{}", e.message);
+                proptest::prop_assert!(now().content_eq(&before), "a refused undo changes nothing");
+                let real = steps.iter().enumerate().any(|(i, a)| {
+                    a.0 == 1 && steps[i + 1..].iter().any(|l| l.0 == 0 && l.1 == a.1 && l.2 == a.2)
+                });
+                proptest::prop_assert!(real, "refused with no later change by the person: {} (steps {steps:?})", e.message);
+            }
+        }
+    }
+}

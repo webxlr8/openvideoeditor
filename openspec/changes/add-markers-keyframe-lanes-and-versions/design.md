@@ -195,6 +195,12 @@ Measured on the Windows 11 build machine (debug build, `cargo test`).
   At the full 500 cases the property found a false conflict: an agent revision that set a value already there was
   skipped as a no-op and then counted as someone else's later change. `undo_scope` now ignores every revision of
   its own scope when looking for conflicts (`undo_selected_among`); the seed is in `scoped_undo.proptest-regressions`.
+  The agents' `undo_my_changes` and `undo_timeline` tools had the same false conflict; they now pass their own
+  no-op revisions as `ours` (also through the app's control link). A tool-level property (`ove-tools`
+  `tests/actors.rs`, 300 cases by default) then found a wrong result in both paths: a revision whose revert alone
+  is a no-op (the person set "p", the agent set "x" and then "p" again) was skipped, so the undo left "x". Revisions
+  are now chosen newest first against the document as the newer ones leave it (`split_effective`); the seed is in
+  `actors.proptest-regressions`.
 - History panel: a Versions section (save with a name, compare with now, restore) and a filter by who made each
   change (view state). Vitest: `ui/src/Versions.test.tsx` (save, compare, restore + undo, duplicate refusal) and the
   filter test in `ui/src/HistoryPanel.test.tsx`.

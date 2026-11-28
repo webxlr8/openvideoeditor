@@ -378,8 +378,9 @@ impl Editor for AppEditor {
         self.reload()?;
         Ok(v.get("rev").and_then(Value::as_i64).unwrap_or_else(|| self.view.rev()))
     }
-    fn undo_selected(&mut self, revs: &[i64], summary: String) -> Result<i64, Fail> {
-        let params = json!({"bundle": self.view.bundle(), "revs": revs, "summary": summary, "actor": self.actor});
+    fn undo_selected(&mut self, revs: &[i64], ours: &[i64], summary: String) -> Result<i64, Fail> {
+        let params =
+            json!({"bundle": self.view.bundle(), "revs": revs, "ours": ours, "summary": summary, "actor": self.actor});
         let v = ove_control::call(&self.root, "undo", params, Duration::from_secs(30))?;
         self.reload()?;
         Ok(v.get("rev").and_then(Value::as_i64).unwrap_or_else(|| self.view.rev()))
