@@ -55,6 +55,15 @@ setup `.exe`, Linux `.deb`); on Linux, `tools/package.sh --target windows-x64-gn
     agent spending needs a person to approve each quote, with a spend cap; feedback drafts stay on this computer;
     skills (playbooks) for agents, with a hash-pinned catalog you confirm, and one-step connection for Claude
     Desktop and Cursor.
+  - **Search footage**: by description, "more like this", and phrase search in transcripts; folders, tags, subclips
+    and smart folders. Release needs the owner's licence sign-off and model hosting; recall on real footage is not
+    measured yet.
+  - **Agent context**: @mentions of clips, ranges and media, a `/` menu for skills and templates, live agent
+    activity on the timeline, and history grouped by agent. The check in the built app with Claude Code is pending.
+  - **Audio sync and beats**: source timecode, sync by sound with drift correction, beats and downbeats as snap
+    targets. The beat model needs the owner's hosting decision before users can download it.
+  - **Viewer**: click to select, then move, scale, rotate and crop with handles; guides, safe areas, full screen and
+    playback at 0.5–2×. Text fills, tilt and Lottie items are not done.
   - **Background work and models**: a scheduler that pauses during playback and export, hover skim, and local models
     (ONNX Runtime, downloaded on first use with consent).
 - Known limits: the shipped FFmpeg build cannot read PNG files, so generated images do not decode until the FFmpeg
