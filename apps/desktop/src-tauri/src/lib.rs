@@ -4,6 +4,7 @@
 pub mod activity;
 pub mod agents;
 pub mod assistant;
+pub mod audio_intel;
 pub mod background;
 pub mod captions;
 pub mod commands;
@@ -212,6 +213,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             scrub::scrub_audio,
             ducking::duck_preview,
             ducking::duck_audio,
+            audio_intel::sync_items,
+            audio_intel::timeline_beats,
             exporting::choose_export_path,
             exporting::reveal_path,
             edits::item_detail,

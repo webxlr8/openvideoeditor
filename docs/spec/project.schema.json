@@ -838,6 +838,13 @@
               ],
               "description": "Playback direction.",
               "default": "forward"
+            },
+            "denoise": {
+              "type": "number",
+              "minimum": 0.0,
+              "maximum": 100.0,
+              "description": "Speech clean-up amount in percent: the sound is this blend of a cleaned copy and the original.",
+              "default": 0
             }
           }
         },
@@ -1797,6 +1804,13 @@
               ],
               "description": "Playback direction.",
               "default": "forward"
+            },
+            "denoise": {
+              "type": "number",
+              "minimum": 0.0,
+              "maximum": 100.0,
+              "description": "Speech clean-up amount in percent: the sound is this blend of a cleaned copy and the original.",
+              "default": 0
             }
           }
         },

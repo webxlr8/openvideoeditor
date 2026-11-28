@@ -193,6 +193,13 @@ export const commands = {
 	duckPreview: (request: DuckRequest) => typedError<DuckPreview, AppError>(__TAURI_INVOKE("duck_preview", { request })),
 	/**  Ducks the music under the dialogue as one revision. */
 	duckAudio: (request: DuckRequest) => typedError<ProjectView_Serialize, AppError>(__TAURI_INVOKE("duck_audio", { request })),
+	/**  Lines up the targets against the reference as one revision. */
+	syncItems: (request: SyncRequest) => typedError<SyncOutcome_Serialize, AppError>(__TAURI_INVOKE("sync_items", { request })),
+	/**
+	 *  The beats of every audio item in timeline seconds: cached results, else detected with the local beat model (never
+	 *  downloaded). Nothing is written into the project.
+	 */
+	timelineBeats: () => typedError<TimelineBeats, AppError>(__TAURI_INVOKE("timeline_beats")),
 	/**
 	 *  Save dialog for the export destination; `extension` is the container's (`mp4` when `None`). `None` when
 	 *  cancelled.
@@ -1425,6 +1432,14 @@ export type ItemAudio = {
 	volumeEasing: string,
 };
 
+/**  One music item's beats on the timeline. */
+export type ItemBeats = {
+	item: string,
+	/**  Timeline seconds. */
+	beats: (number | null)[],
+	downbeats: (number | null)[],
+};
+
 export type ItemView = ItemView_Serialize | ItemView_Deserialize;
 
 export type ItemView_Deserialize = {
@@ -1677,6 +1692,8 @@ export type MediaView_Deserialize = {
 	thumbnail?: string | null,
 	/**  The hover-skim sheet, once built (served at `ove-skim://localhost/<contentId>.jpg`). */
 	skim?: SkimView | null,
+	/**  Start timecode label (`HH:MM:SS:FF`, `;` for drop-frame) when the file carries one. */
+	timecode?: string | null,
 	/**  Media panel folder (add-semantic-media-search), `/`-separated; none at the top level. */
 	folder?: string | null,
 	tags: string[],
@@ -1698,6 +1715,8 @@ export type MediaView_Serialize = {
 	thumbnail: string | null,
 	/**  The hover-skim sheet, once built (served at `ove-skim://localhost/<contentId>.jpg`). */
 	skim: SkimView | null,
+	/**  Start timecode label (`HH:MM:SS:FF`, `;` for drop-frame) when the file carries one. */
+	timecode?: string,
 	/**  Media panel folder (add-semantic-media-search), `/`-separated; none at the top level. */
 	folder: string | null,
 	tags: string[],
@@ -2267,6 +2286,67 @@ export type SubclipView = {
 	end: number | null,
 };
 
+/**  The new project state and what happened to each item. */
+export type SyncOutcome = SyncOutcome_Serialize | SyncOutcome_Deserialize;
+
+/**  The new project state and what happened to each item. */
+export type SyncOutcome_Deserialize = {
+	view: ProjectView_Deserialize,
+	/**  One line for people: how many items moved and why the others did not. */
+	summary: string,
+	targets: SyncTargetView_Deserialize[],
+};
+
+/**  The new project state and what happened to each item. */
+export type SyncOutcome_Serialize = {
+	view: ProjectView_Serialize,
+	/**  One line for people: how many items moved and why the others did not. */
+	summary: string,
+	targets: SyncTargetView_Serialize[],
+};
+
+/**  What to synchronise. */
+export type SyncRequest = {
+	/**  The item the others line up against (usually the camera). */
+	reference: string,
+	targets: string[],
+	/**  auto | timecode | audio */
+	mode: string,
+};
+
+/**  One item's outcome. */
+export type SyncTargetView = SyncTargetView_Serialize | SyncTargetView_Deserialize;
+
+/**  One item's outcome. */
+export type SyncTargetView_Deserialize = {
+	item: string,
+	/**  placed | unmatched | refused */
+	status: string,
+	/**  timecode | audio */
+	method?: string | null,
+	confidence: number | null,
+	/**  Timeline move, seconds. */
+	movedBy?: number | null,
+	driftPpm?: number | null,
+	driftApplied?: boolean | null,
+	reason?: string | null,
+};
+
+/**  One item's outcome. */
+export type SyncTargetView_Serialize = {
+	item: string,
+	/**  placed | unmatched | refused */
+	status: string,
+	/**  timecode | audio */
+	method: string | null,
+	confidence: number | null,
+	/**  Timeline move, seconds. */
+	movedBy: number | null,
+	driftPpm: number | null,
+	driftApplied: boolean | null,
+	reason: string | null,
+};
+
 /**  One task as the popover shows it. */
 export type TaskView = TaskView_Serialize | TaskView_Deserialize;
 
@@ -2336,6 +2416,13 @@ export type TasksView_Serialize = {
 	paused: PauseView[],
 	/**  Reasons the person chose to run anyway. */
 	runAnyway: string[],
+};
+
+/**  Beats of the audio items, for "Snap to beats". */
+export type TimelineBeats = {
+	items: ItemBeats[],
+	/**  True when some item has no cached beats and the beat model is not installed. */
+	modelMissing: boolean,
 };
 
 /**  The written file (`None` when the dialog was cancelled or for a preview) and what it doesn't carry over. */

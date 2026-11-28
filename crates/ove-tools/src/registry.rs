@@ -7,8 +7,8 @@ use crate::spec::{
     cli, req,
 };
 use crate::tools::{
-    analyze, app, audio, code, color, deadair, docs, edit, exchange, export, export_queue, export_range, feedback,
-    generate, media, models, organize, project, search, skills, tasks, timeline, transcript,
+    analyze, app, audio, audio_intel, code, color, deadair, docs, edit, exchange, export, export_queue, export_range,
+    feedback, generate, media, models, organize, project, search, skills, tasks, timeline, transcript,
 };
 
 pub(crate) const PROJECT: Arg = arg(
@@ -1037,5 +1037,39 @@ pub static TOOLS: &[ToolSpec] = &[
         surfaces: AGENTS,
         run: search::inspect_media,
         model: ModelText::Text,
+    },
+    ToolSpec {
+        name: "sync_items",
+        aliases: &[],
+        about: "Line up recordings of the same moment (a camera and a sound recorder, several cameras) against a reference item, as one revision. mode auto (default) uses source timecode when both media carry it, else the sound: a cross-correlation of the cached onset envelopes, refined below 1 ms, and for overlaps over 150 s a clock-drift fit; 20–500 ppm of drift is corrected by retiming the audio-only target (video items keep their speed). The most confident target is placed first and placed targets anchor the rest; if any item would start before 0 the whole synced group moves right; a move that would overlap another item on its track is refused and names it. Each target reports status (placed, unmatched, refused), method, offset, confidence, drift and the reason it was not placed. Refused with sync.unmatched when no target is placed. `dryRun` returns the plan without changing anything.",
+        args: &[
+            PROJECT,
+            req("reference", Str, "Item id of the reference (usually the camera)"),
+            req("targets", Json(NAMES), "Item ids or track ids/names to line up (list, or comma-separated)"),
+            arg("mode", Str, "auto (default), timecode or audio"),
+            arg("window", Num, "Largest offset searched, seconds (default: all)"),
+            arg("minConfidence", Num, "Lowest match confidence accepted, 0–1 (default 0.2)"),
+            arg("drift", Str, "auto (default: measure and correct) or off"),
+            arg("dryRun", Bool, "Return the plan without applying it"),
+        ],
+        annotations: WRITE,
+        surfaces: AGENTS,
+        run: audio_intel::sync_items,
+        model: ModelText::Json,
+    },
+    ToolSpec {
+        name: "detect_beats",
+        aliases: &[],
+        about: "Beats, downbeats, bars, meter (beats per bar) and tempo of music, with the local beat model (no network). `target` is a media file (times in source seconds) or an item: then `timelineBeats` and `timelineDownbeats` are timeline seconds with the item's trim, speed and reverse applied, ready for timeline.tsx. Results are cached per media and never written into the project. When the model is not installed the result is `status: modelNotInstalled` with its size; nothing is downloaded. `from` and `to` limit the times returned (timeline seconds for an item).",
+        args: &[
+            PROJECT,
+            req("target", Str, "Item id, or media id, file name or path"),
+            arg("from", Num, "Only times at or after this many seconds"),
+            arg("to", Num, "Only times at or before this many seconds"),
+        ],
+        annotations: READ,
+        surfaces: AGENTS,
+        run: audio_intel::detect_beats,
+        model: ModelText::Json,
     },
 ];

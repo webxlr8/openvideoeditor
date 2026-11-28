@@ -498,6 +498,11 @@ export function MediaPanel({
                   <Icon name={m.kind === "audio" ? "audio" : "play"} size={12} /> {m.name}
                 </div>
                 {m.tags.length > 0 && <div className="ms-tags muted small">{m.tags.join(" · ")}</div>}
+                {m.timecode && (
+                  <div className="media-tc" data-testid="media-timecode" title="Source timecode">
+                    TC {m.timecode}
+                  </div>
+                )}
               </button>
               {m.subclips.map((s) => (
                 <div

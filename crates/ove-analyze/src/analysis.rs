@@ -128,6 +128,26 @@ impl Onset {
     }
 }
 
+/// The onset envelope of mono samples at 48 kHz, computed exactly as the analysis pass does (for audio already in
+/// memory, such as test signals).
+pub struct OnsetEnvelope(Onset);
+
+impl Default for OnsetEnvelope {
+    fn default() -> Self {
+        OnsetEnvelope(Onset::new())
+    }
+}
+
+impl OnsetEnvelope {
+    pub fn push(&mut self, mono: f32) {
+        self.0.push(mono as f64);
+    }
+
+    pub fn finish(self) -> Vec<u8> {
+        self.0.finish()
+    }
+}
+
 /// Runs the analysis pass over a file's audio: one decode. `progress` gets the fraction done and returns false to
 /// cancel, in which case the result is `Ok(None)`.
 pub fn analyse_file(path: &Path, progress: &mut dyn FnMut(f64) -> bool) -> Result<Option<Analysis>> {

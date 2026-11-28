@@ -2511,6 +2511,97 @@
         "destructiveHint": false,
         "openWorldHint": false
       }
+    },
+    {
+      "name": "sync_items",
+      "description": "Line up recordings of the same moment (a camera and a sound recorder, several cameras) against a reference item, as one revision. mode auto (default) uses source timecode when both media carry it, else the sound: a cross-correlation of the cached onset envelopes, refined below 1 ms, and for overlaps over 150 s a clock-drift fit; 20–500 ppm of drift is corrected by retiming the audio-only target (video items keep their speed). The most confident target is placed first and placed targets anchor the rest; if any item would start before 0 the whole synced group moves right; a move that would overlap another item on its track is refused and names it. Each target reports status (placed, unmatched, refused), method, offset, confidence, drift and the reason it was not placed. Refused with sync.unmatched when no target is placed. `dryRun` returns the plan without changing anything.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "reference": {
+            "type": "string",
+            "description": "Item id of the reference (usually the camera)"
+          },
+          "targets": {
+            "type": [
+              "array",
+              "string"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Item ids or track ids/names to line up (list, or comma-separated)"
+          },
+          "mode": {
+            "type": "string",
+            "description": "auto (default), timecode or audio"
+          },
+          "window": {
+            "type": "number",
+            "description": "Largest offset searched, seconds (default: all)"
+          },
+          "minConfidence": {
+            "type": "number",
+            "description": "Lowest match confidence accepted, 0–1 (default 0.2)"
+          },
+          "drift": {
+            "type": "string",
+            "description": "auto (default: measure and correct) or off"
+          },
+          "dryRun": {
+            "type": "boolean",
+            "description": "Return the plan without applying it"
+          }
+        },
+        "required": [
+          "reference",
+          "targets"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "detect_beats",
+      "description": "Beats, downbeats, bars, meter (beats per bar) and tempo of music, with the local beat model (no network). `target` is a media file (times in source seconds) or an item: then `timelineBeats` and `timelineDownbeats` are timeline seconds with the item's trim, speed and reverse applied, ready for timeline.tsx. Results are cached per media and never written into the project. When the model is not installed the result is `status: modelNotInstalled` with its size; nothing is downloaded. `from` and `to` limit the times returned (timeline seconds for an item).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project name, id or bundle path (optional when the session has a project: the open one in the app, or the one set with use_project)"
+          },
+          "target": {
+            "type": "string",
+            "description": "Item id, or media id, file name or path"
+          },
+          "from": {
+            "type": "number",
+            "description": "Only times at or after this many seconds"
+          },
+          "to": {
+            "type": "number",
+            "description": "Only times at or before this many seconds"
+          }
+        },
+        "required": [
+          "target"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
     }
   ]
 }
